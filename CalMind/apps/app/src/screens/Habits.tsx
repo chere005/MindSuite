@@ -33,7 +33,7 @@ import { themed, T } from '../theme';
 import { TopBar } from '../chrome';
 import { SectionPick, useHabitSections } from '../components/SectionPick';
 import { EditExit } from '../components/EditExit';
-import { useRowDrag } from '../components/rowdrag';
+import { DropLine, useRowDrag } from '../components/rowdrag';
 import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSectionDrag } from '../components/sectiondrag';
 import { CircleBtn, ConfirmDelete, FoldCaret, Scroll, WebHitSlop } from '../ui';
@@ -273,10 +273,23 @@ export function Habits() {
     const res = moveHabit(recs, src.rec.id, target.sectionId, target.beforeId);
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
-  });
-  const flatIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'row' && x.rec.id === id);
-  const emptyIdxOf = (sectionId: string) => flatRows.findIndex((x) => x.kind === 'empty' && x.sectionId === sectionId);
-  const headIdxOf = (sectionId: string) => flatRows.findIndex((x) => x.kind === 'head' && x.sectionId === sectionId);
+  }, { live: true });
+  // id -> flat index, built once per flat list: these were findIndex scans
+  // called several times per drawn row, O(rows^2) on every render.
+  const flatIdx = useMemo(() => {
+    const row = new Map<string, number>();
+    const empty = new Map<string, number>();
+    const head = new Map<string, number>();
+    flatRows.forEach((x, i) => {
+      if (x.kind === 'row') { if (!row.has(x.rec.id)) row.set(x.rec.id, i); }
+      else if (x.kind === 'empty') { if (!empty.has(x.sectionId)) empty.set(x.sectionId, i); }
+      else if (!head.has(x.sectionId)) head.set(x.sectionId, i);
+    });
+    return { row, empty, head };
+  }, [flatRows]);
+  const flatIdxOf = (id: string) => flatIdx.row.get(id) ?? -1;
+  const emptyIdxOf = (sectionId: string) => flatIdx.empty.get(sectionId) ?? -1;
+  const headIdxOf = (sectionId: string) => flatIdx.head.get(sectionId) ?? -1;
   const secDrag = useSectionDrag((sectionId, slot) => {
     const res = moveHabitSection(recs, sectionId, slot.beforeSectionId);
     if (!('error' in res)) mutate((e) => res.put.forEach((r) => e.put(r)));
@@ -456,7 +469,7 @@ export function Habits() {
                 {secDrag.lineKey === `before:${sec.id}` && <View style={s.dropLine} />}
                 {/* The ROW drag's own line, above the header: this boundary is
                     the END of the section before it. */}
-                {drag.slot !== null && headIdxOf(sec.id) === drag.slot && <View style={s.dropLine} />}
+                <DropLine slot={drag.liveSlot} at={headIdxOf(sec.id)} style={s.dropLine} />
                 <View
                   testID={`head-sec-${sec.payload.name}`}
                   ref={(r) => { secDrag.registerHeader(sec.id, HFOLDER)(r); drag.registerRow(headIdxOf(sec.id))(r); }}
@@ -515,19 +528,19 @@ export function Habits() {
                 </View>
                 {!folded.has(sec.id) && habitsOf(sec.id).length === 0 && (
                   <View>
-                    {drag.slot !== null && emptyIdxOf(sec.id) === drag.slot && <View style={s.dropLine} />}
+                    <DropLine slot={drag.liveSlot} at={emptyIdxOf(sec.id)} style={s.dropLine} />
                     <View ref={drag.registerRow(emptyIdxOf(sec.id))} style={s.emptySlot} />
                   </View>
                 )}
                 {!folded.has(sec.id) &&
                   habitsOf(sec.id).map((h) => (
                     <View key={h.id}>
-                      {drag.slot !== null && flatIdxOf(h.id) === drag.slot && <View style={s.dropLine} />}
+                      <DropLine slot={drag.liveSlot} at={flatIdxOf(h.id)} style={s.dropLine} />
                       <View
                         ref={drag.registerRow(flatIdxOf(h.id))}
                         style={[
                           s.habitRow,
-                          drag.dragIdx !== null && flatIdxOf(h.id) === drag.dragIdx && { opacity: 0.55, transform: [{ translateY: drag.dragDy }] },
+                          drag.dragIdx !== null && flatIdxOf(h.id) === drag.dragIdx && { opacity: 0.55 },
                         ]}
                       >
                       <View style={s.nameCol}>

@@ -14,8 +14,8 @@
  * a ref — a responder rebuilt mid-gesture drops the gesture on the floor,
  * which showed up as text selection instead of a drag.
  */
-import { useRef, useState } from 'react';
-import { PanResponder, type PanResponderInstance, type View } from 'react-native';
+import { createElement, useRef, useState, useSyncExternalStore } from 'react';
+import { PanResponder, View as RNView, type PanResponderInstance, type View } from 'react-native';
 import { ordBetween, ordGap } from '@calmind/core';
 
 export type RowDrag = {
@@ -27,14 +27,54 @@ export type RowDrag = {
   dragDy: number;
   /** The boundary the drop line sits on (0..count), or null. */
   slot: number | null;
+  /** The live slot, for <DropLine>. Only `live` drags keep `slot` out of state. */
+  liveSlot: { subscribe: (fn: () => void) => () => void; get: () => number | null };
 };
 
-export function useRowDrag(count: number, onDrop: (from: number, to: number) => void): RowDrag {
+/**
+ * A `live` drag keeps the per-move values (the drop slot, the dragged row's
+ * travel) OUT of React state: a pointermove used to setState on the screen
+ * that owns the list, which re-rendered every row of it on every move (240
+ * rows: ~350 ms a move at 4x CPU). With `live`, the row rides the finger by a
+ * transform written straight to its node, and the drop line is a <DropLine>
+ * that subscribes to the slot and re-renders alone, only when the slot
+ * changes. `slot` and `dragDy` then stay null / 0 — a live caller reads the
+ * slot through <DropLine at={n}/> and passes no translateY. `dragIdx` is
+ * still state: it flips twice a gesture, and the screen needs it to dim the
+ * row and to freeze its scroll. Callers that do not pass `live` keep the old
+ * behaviour exactly.
+ */
+export type RowDragOptions = { live?: boolean };
+
+/** Move a registered row by `dy` without a render: DOM node on web, native props elsewhere. */
+function shiftNode(node: View | undefined, dy: number) {
+  if (!node) return;
+  const n = node as unknown as { setNativeProps?: (p: object) => void; style?: CSSStyleDeclaration };
+  if (typeof n.setNativeProps === 'function') n.setNativeProps({ style: { transform: [{ translateY: dy }] } });
+  else if (n.style) n.style.transform = dy === 0 ? '' : `translateY(${dy}px)`;
+}
+
+export function useRowDrag(count: number, onDrop: (from: number, to: number) => void, options?: RowDragOptions): RowDrag {
+  const live = options?.live === true;
   const [ui, setUi] = useState<{ dragIdx: number | null; dragDy: number; slot: number | null }>({
     dragIdx: null,
     dragDy: 0,
     slot: null,
   });
+  // The live slot: a value and its listeners, read by <DropLine>.
+  const slotStore = useRef<{ api: RowDrag['liveSlot']; set: (v: number | null) => void } | null>(null);
+  if (!slotStore.current) {
+    let value: number | null = null;
+    const listeners = new Set<() => void>();
+    slotStore.current = {
+      api: {
+        subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+        get: () => value,
+      },
+      set: (v) => { if (v !== value) { value = v; listeners.forEach((l) => l()); } },
+    };
+  }
+  const setLiveSlot = (v: number | null) => slotStore.current!.set(v);
   const cfg = useRef({ count, onDrop });
   cfg.current = { count, onDrop };
   const rows = useRef(new Map<number, View>());
@@ -78,6 +118,11 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     return k === i ? null : k;
   };
 
+  const reset = (i: number) => {
+    if (live) { shiftNode(rows.current.get(i), 0); setLiveSlot(null); }
+    setUi({ dragIdx: null, dragDy: 0, slot: null });
+  };
+
   const handleFor = (i: number) => {
     if (!responders.current.has(i)) {
       responders.current.set(
@@ -94,11 +139,18 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
           onPanResponderTerminationRequest: () => false,
           onPanResponderGrant: () => {
             setUi({ dragIdx: i, dragDy: 0, slot: null });
+            setLiveSlot(null);
             void measure();
           },
           onPanResponderMove: (_e, g) => {
             const to = destFor(i, g.dy);
-            setUi({ dragIdx: i, dragDy: g.dy, slot: to === null ? null : to > i ? to + 1 : to });
+            const slot = to === null ? null : to > i ? to + 1 : to;
+            if (live) {
+              shiftNode(rows.current.get(i), g.dy);
+              setLiveSlot(slot);
+            } else {
+              setUi({ dragIdx: i, dragDy: g.dy, slot });
+            }
           },
           onPanResponderRelease: (_e, g) => {
             // Compute from the RELEASE's own travel, not the last move — a
@@ -109,7 +161,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
               const bounded = Math.max(0, Math.min(cfg.current.count - 1, to));
               if (i !== bounded) cfg.current.onDrop(i, bounded);
             };
-            setUi({ dragIdx: null, dragDy: 0, slot: null });
+            reset(i);
             // measureInWindow is async, and a drag quick enough can be over
             // before it answers — which silently dropped the whole gesture.
             // Nothing but the dragged row MOVES during a drag, so measuring
@@ -118,14 +170,29 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
             if (mids.current.size === 0) void measure().then(drop);
             else drop();
           },
-          onPanResponderTerminate: () => setUi({ dragIdx: null, dragDy: 0, slot: null }),
+          onPanResponderTerminate: () => reset(i),
         }),
       );
     }
     return responders.current.get(i)!.panHandlers;
   };
 
-  return { ...ui, registerRow, handleFor };
+  return { ...ui, registerRow, handleFor, liveSlot: slotStore.current.api };
+}
+
+function SlotLine({ slot, at, style }: { slot: RowDrag['liveSlot']; at: number; style: object }) {
+  const on = useSyncExternalStore(slot.subscribe, () => slot.get() === at);
+  return on ? createElement(RNView, { style }) : null;
+}
+
+/**
+ * The drop line of a `live` drag: drawn at boundary `at` while the live slot
+ * is there, and it alone re-renders as the slot moves. Pass `drag.liveSlot` (stable, so a memoised row can take it) and the
+ * screen's own dropLine style. For callers that did not ask for `live` it never draws —
+ * they keep reading `drag.slot`.
+ */
+export function DropLine({ slot, at, style }: { slot: RowDrag['liveSlot']; at: number; style: object }) {
+  return createElement(SlotLine, { slot, at, style });
 }
 
 /**
