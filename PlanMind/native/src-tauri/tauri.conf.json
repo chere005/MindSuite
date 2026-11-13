@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PlanMind", "version": "0.28.0", "identifier": "com.seancheren.planmind",
+  "productName": "PlanMind", "version": "0.29.0", "identifier": "com.seancheren.planmind",
   "build": { "frontendDist": "../fallback" },
   "app": { "windows": [], "security": { "capabilities": [], "csp": "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" } },
   "bundle": {
