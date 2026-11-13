@@ -326,7 +326,7 @@ function CalendarManager({ onClose, renderImport, subscriptionLabel }: CalendarP
     if (!item) return;
     const ord = ordForMove(calendars, from, to);
     mutate((e) => e.put({ ...item, payload: { ...item.payload, ord } }));
-  });
+  }, { keyOf: (i) => calendars[i]?.id ?? null });
 
   const add = () => {
     const name = newName.trim();

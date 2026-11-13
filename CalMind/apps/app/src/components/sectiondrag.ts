@@ -10,6 +10,20 @@ import { PanResponder, type PanResponderInstance, type View } from 'react-native
 
 export type SectionSlot = { key: string; folderId: string; beforeSectionId: string | null };
 
+type Boundary = { y: number; slot: SectionSlot };
+
+/** One drag's own state, so nothing measured or hovered in an earlier drag leaks into this one. */
+type Run = { slots: Boundary[]; measured: boolean; ready: Promise<void>; live: SectionSlot | null; moved: boolean };
+
+/** The last boundary at or above `y`; landing on your own boundary is a no-op, not a hint. */
+function hitAt(slots: Boundary[], y: number, sectionId: string): Boundary | null {
+  let hit: Boundary | null = null;
+  for (const s of slots) {
+    if (s.y <= y) hit = s;
+  }
+  return hit && hit.slot.beforeSectionId === sectionId ? null : hit;
+}
+
 export function useSectionDrag(
   onDrop: (sectionId: string, slot: SectionSlot) => void,
 ): {
@@ -21,8 +35,11 @@ export function useSectionDrag(
   const headers = useRef(new Map<string, { ref: View; folderId: string }>());
   const [dragging, setDragging] = useState<string | null>(null);
   const [lineKey, setLineKey] = useState<string | null>(null);
-  const slots = useRef<{ y: number; slot: SectionSlot }[]>([]);
-  const live = useRef<SectionSlot | null>(null);
+  const run = useRef<Run | null>(null);
+  // Read live: a responder is created once per section, so the callback it
+  // closed over would be the first render's — with that render's records.
+  const drop = useRef(onDrop);
+  drop.current = onDrop;
   const responders = useRef(new Map<string, PanResponderInstance>());
 
   const registerHeader = (sectionId: string, folderId: string) => (ref: View | null) => {
@@ -30,7 +47,7 @@ export function useSectionDrag(
     else headers.current.delete(sectionId);
   };
 
-  const measure = async () => {
+  const measure = async (): Promise<Boundary[]> => {
     const entries = [...headers.current.entries()];
     const measured = await Promise.all(
       entries.map(
@@ -41,7 +58,7 @@ export function useSectionDrag(
       ),
     );
     measured.sort((a, b) => a.y - b.y);
-    const list: { y: number; slot: SectionSlot }[] = [];
+    const list: Boundary[] = [];
     for (let i = 0; i < measured.length; i++) {
       const m = measured[i]!;
       // A slot ABOVE each header: land before this section, in its folder.
@@ -53,7 +70,7 @@ export function useSectionDrag(
         list.push({ y: endY, slot: { key: `end:${m.folderId}`, folderId: m.folderId, beforeSectionId: null } });
       }
     }
-    slots.current = list;
+    return list;
   };
 
   const gripFor = (sectionId: string) => {
@@ -71,27 +88,41 @@ export function useSectionDrag(
           onPanResponderGrant: () => {
             setDragging(sectionId);
             setLineKey(null);
-            live.current = null;
-            void measure();
+            const r: Run = { slots: [], measured: false, ready: Promise.resolve(), live: null, moved: false };
+            r.ready = measure().then((list) => { r.slots = list; r.measured = true; });
+            run.current = r;
           },
           onPanResponderMove: (_e, g) => {
-            const y = g.moveY;
-            let hit: { y: number; slot: SectionSlot } | null = null;
-            for (const s of slots.current) {
-              if (s.y <= y) hit = s;
-            }
-            // Landing on your own boundary is a no-op, not a hint.
-            if (hit && hit.slot.beforeSectionId === sectionId) hit = null;
-            live.current = hit?.slot ?? null;
+            const r = run.current;
+            if (!r) return;
+            r.moved = true;
+            const hit = hitAt(r.slots, g.moveY, sectionId);
+            r.live = hit?.slot ?? null;
             setLineKey(hit?.slot.key ?? null);
           },
-          onPanResponderRelease: () => {
-            const slot = live.current;
+          onPanResponderRelease: (_e, g) => {
+            const r = run.current;
+            run.current = null;
             setDragging(null);
             setLineKey(null);
-            if (slot) onDrop(sectionId, slot);
+            if (!r) return;
+            if (r.measured) {
+              // The last move may have been before the measure answered (r.live
+              // still null): place the release point itself on the boundaries.
+              const slot = r.live ?? (r.moved ? hitAt(r.slots, g.moveY, sectionId)?.slot ?? null : null);
+              if (slot) drop.current(sectionId, slot);
+            } else if (r.moved) {
+              // Released before THIS drag's measure answered: wait for it and
+              // place the release point on it, never on an earlier drag's.
+              const y = g.moveY;
+              void r.ready.then(() => {
+                const hit = hitAt(r.slots, y, sectionId);
+                if (hit) drop.current(sectionId, hit.slot);
+              });
+            }
           },
           onPanResponderTerminate: () => {
+            run.current = null;
             setDragging(null);
             setLineKey(null);
           },

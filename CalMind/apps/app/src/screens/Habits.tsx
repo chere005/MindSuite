@@ -33,7 +33,7 @@ import { themed, T } from '../theme';
 import { TopBar } from '../chrome';
 import { SectionPick, useHabitSections } from '../components/SectionPick';
 import { EditExit } from '../components/EditExit';
-import { DropLine, useRowDrag } from '../components/rowdrag';
+import { DropLine, flatKey, useRowDrag } from '../components/rowdrag';
 import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSectionDrag } from '../components/sectiondrag';
 import { CircleBtn, ConfirmDelete, FoldCaret, Scroll, WebHitSlop } from '../ui';
@@ -273,7 +273,7 @@ export function Habits() {
     const res = moveHabit(recs, src.rec.id, target.sectionId, target.beforeId);
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
-  }, { live: true });
+  }, { live: true, keyOf: (i) => flatKey(flatRows[i]) });
   // id -> flat index, built once per flat list: these were findIndex scans
   // called several times per drawn row, O(rows^2) on every render.
   const flatIdx = useMemo(() => {
