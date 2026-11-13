@@ -92,7 +92,9 @@ function msa_passkey_register_begin(array $cfg, array $session): ?array
                 ['type' => 'public-key', 'alg' => COSE_ES256],
                 ['type' => 'public-key', 'alg' => COSE_RS256],
             ],
-            'authenticatorSelection' => ['residentKey' => 'required', 'userVerification' => 'required'],
+            // requireResidentKey is the Level 1 spelling of residentKey: a client or third-party provider that predates
+            // residentKey still makes a discoverable credential, which the username-less sign-in needs.
+            'authenticatorSelection' => ['residentKey' => 'required', 'requireResidentKey' => true, 'userVerification' => 'required'],
             'attestation' => 'none',
             'excludeCredentials' => array_map(
                 static fn($id) => ['type' => 'public-key', 'id' => (string) $id], array_keys($mine)
@@ -101,16 +103,20 @@ function msa_passkey_register_begin(array $cfg, array $session): ?array
     });
 }
 
-/** Accept an unattested verified credential for the exact session that began registration. */
+/**
+ * Accept a verified credential for the exact session that began registration. The attestation statement is never
+ * trusted, so its format is not either: `attestation: none` asks the client to strip it, but a third-party provider
+ * (a password manager's passkeys) may still answer `packed` self-attestation, and refusing that refused the passkey.
+ */
 function msa_passkey_register_finish(array $cfg, array $session, array $input): ?string
 {
     $sessionId = $session['id'] ?? '';
     if ($sessionId === '' || msa_passkey_take($cfg, $input, 'webauthn.create', $sessionId) === '') { return null; }
     try {
-        $bytes = msa_passkey_bytes($input['attestationObject'] ?? null, 8192);
+        $bytes = msa_passkey_bytes($input['attestationObject'] ?? null, 32768);
         $attestation = cbor_decode($bytes);
-        if (($attestation['fmt'] ?? null) !== 'none' || ($attestation['attStmt'] ?? null) !== [] ||
-            !is_string($attestation['authData'] ?? null)) {
+        if (!is_array($attestation) || !is_string($attestation['fmt'] ?? null) || $attestation['fmt'] === '' ||
+            !is_array($attestation['attStmt'] ?? null) || !is_string($attestation['authData'] ?? null)) {
             return null;
         }
         $data = msa_passkey_authdata($cfg, $attestation['authData']);

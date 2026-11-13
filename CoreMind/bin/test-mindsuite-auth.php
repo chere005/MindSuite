@@ -283,6 +283,55 @@ try {
     check(msa_passkey_remove($prod, $session, $passkey) && msa_passkey_list($prod, $session) === [] &&
         msa_passkey_login_finish($prod, $assertion(2, $prod['origin'])) === null, 'removed passkey cannot sign in again');
 
+    // A synced third-party provider (a password manager's passkeys on a phone), as a software authenticator: ES256,
+    // backup-eligible and backed-up flags, a counter that is always 0, `packed` self-attestation although `none` was asked
+    // for, no userHandle from the page. The owner's phone uses one; each refusal path is pinned here.
+    $cborBytes = static fn(string $b): string => (strlen($b) < 24 ? chr(0x40 | strlen($b)) : (strlen($b) < 256 ? "\x58" . chr(strlen($b)) : "\x59" . pack('n', strlen($b)))) . $b;
+    $provider = static function (int $flags, string $fmt) use ($prod, $session, $rpHash, $cborBytes): array {
+        $options = msa_passkey_register_begin($prod, $session);
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $ec = openssl_pkey_get_details($key)['ec'];
+        $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
+        $credId = random_bytes(16);
+        $auth = $rpHash . chr($flags | 0x40) . pack('N', 0) . random_bytes(16) . pack('n', strlen($credId)) . $credId . $cose;
+        $client = client_data('webauthn.create', $options['challenge'], $prod['origin']);
+        $stmt = "\xa0";
+        if ($fmt === 'packed') {
+            openssl_sign($auth . hash('sha256', $client, true), $sig, $key, OPENSSL_ALGO_SHA256);
+            $stmt = "\xa2\x63alg\x26\x63sig" . $cborBytes($sig);
+        }
+        $object = "\xa3\x63fmt" . chr(0x60 | strlen($fmt)) . $fmt . "\x67attStmt" . $stmt . "\x68authData" . $cborBytes($auth);
+        $id = msa_passkey_register_finish($prod, $session, ['clientDataJSON' => b64u_encode($client), 'attestationObject' => b64u_encode($object), 'label' => 'provider']);
+        return [$id, $key, b64u_encode($credId), $options];
+    };
+    $providerGet = static function (string $credId, $key, int $flags) use ($prod, $rpHash): array {
+        $client = client_data('webauthn.get', msa_passkey_login_begin($prod)['challenge'], $prod['origin']);
+        $auth = $rpHash . chr($flags) . pack('N', 0);
+        openssl_sign($auth . hash('sha256', $client, true), $sig, $key, OPENSSL_ALGO_SHA256);
+        return ['id' => $credId, 'clientDataJSON' => b64u_encode($client), 'authenticatorData' => b64u_encode($auth), 'signature' => b64u_encode($sig)];
+    };
+    [$pkPacked, $kPacked, $idPacked, $opts] = $provider(0x1d, 'packed');
+    check($opts['attestation'] === 'none' && ($opts['authenticatorSelection']['residentKey'] ?? '') === 'required' &&
+        ($opts['authenticatorSelection']['requireResidentKey'] ?? false) === true && !isset($opts['authenticatorSelection']['authenticatorAttachment']) &&
+        array_column($opts['pubKeyCredParams'], 'alg') === [COSE_ES256, COSE_RS256] && b64u_decode($opts['user']['id']) === 'sample',
+        'registration asks for a discoverable credential in both spellings, any attachment, ES256 and RS256, user.id the account name');
+    check($pkPacked === $idPacked, 'a provider answering packed self-attestation to attestation none is registered (the statement is never trusted)');
+    [$pkNone, $kNone, $idNone] = $provider(0x1d, 'none');
+    check($pkNone === $idNone, 'a backed-up, backup-eligible credential with attestation none is registered');
+    $zeroes = true;
+    for ($i = 0; $i < 3; $i++) { $zeroes = $zeroes && msa_passkey_login_finish($prod, $providerGet($idNone, $kNone, 0x1d)) !== null; }
+    check($zeroes && msa_passkey_login_finish($prod, $providerGet($idPacked, $kPacked, 0x05)) !== null,
+        'a synced provider that always reports counter 0 signs in again and again, with no userHandle sent');
+    check(msa_passkey_login_finish($prod, $providerGet($idNone, $kNone, 0x19)) === null && $provider(0x19, 'none')[0] === null,
+        'user verification stays required: an assertion or a registration without the UV flag is refused');
+    [, $kStray, $idStray] = [null, openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']), b64u_encode(random_bytes(16))];
+    $stray = $providerGet($idStray, $kStray, 0x1d);
+    $strayChallenge = json_decode(b64u_decode($stray['clientDataJSON']), true)['challenge'];
+    check(msa_passkey_login_finish($prod, $stray) === null && !isset(msa_store_read($prod)['challenges'][$strayChallenge]),
+        'a well-formed passkey for this RP that the store does not hold (one made before the shared store) is refused, its challenge spent');
+    check(msa_passkey_remove($prod, $session, $pkPacked) && msa_passkey_remove($prod, $session, $pkNone) && msa_passkey_list($prod, $session) === [],
+        'the provider fixtures are removed again');
+
     $db = msa_store_read($prod);
     $db['sessions'][hash('sha256', $signedIn['token'])]['created'] = time() - MSA_SESSION_AGE - 1;
     $db['sessions'][hash('sha256', $signedIn['token'])]['last_seen'] = time() - MSA_SESSION_AGE - 1;
