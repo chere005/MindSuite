@@ -33,8 +33,13 @@ export function periodWindow(center: string, view: View): string[] {
 export function weekLabel(monday: string): string {
   return `${dayLabel(monday, { month: 'short', day: 'numeric' })} – ${dayLabel(shiftDate(monday, 6, 'day'), { month: 'short', day: 'numeric' })}`;
 }
+// A formatter costs far more than a format() call, and the Month draws dozens of labels in a handful of shapes on every redraw: one per shape.
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
 export function dayLabel(date: string, options: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+  const shape = JSON.stringify(options);
+  let format = dayFormats.get(shape);
+  if (!format) { format = new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' }); dayFormats.set(shape, format); }
+  return format.format(new Date(`${date}T12:00:00Z`));
 }
 export function todayIn(timeZone: string, now = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
