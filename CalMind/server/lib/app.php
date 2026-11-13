@@ -1608,6 +1608,7 @@ function client_data_check(array $cfg, string $json, string $wantType): array
     if (!webauthn_origin_ok((string) ($d['origin'] ?? ''), webauthn_origin($cfg))) {
         fail(400, 'passkey: wrong origin');
     }
+    if (($d['crossOrigin'] ?? false) !== false)     { fail(400, 'passkey: cross-origin ceremony'); }
     return $d;
 }
 
@@ -1752,9 +1753,10 @@ function handle_passkey_login_finish(array $cfg, array $in): never
 
     // A counter that goes backwards means two authenticators are answering for
     // one credential. Plenty of passkeys report 0 forever, and 0 vs 0 is not
-    // evidence of anything.
+    // evidence of anything. But once a credential has reported a counter, a
+    // zero or a repeat is a replay or a clone, as in the shared library.
     $stored = (int) ($key['signCount'] ?? 0);
-    if ($auth['signCount'] > 0 && $stored > 0 && $auth['signCount'] <= $stored) {
+    if ($stored > 0 && $auth['signCount'] <= $stored) {
         usage_log($cfg, 'passkey_clone', (string) $key['user']);
         fail(401, 'passkey: refused, counter went backwards');
     }

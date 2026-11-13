@@ -346,8 +346,8 @@ try {
         return "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
     };
     // Registration refuses the same shapes: another rpIdHash, a get used for a create, a missing user-present flag.
-    $register = static function (string $hashed, int $flags, string $type, $key, string $credId, int $count) use ($cfg, $session, $origin, $cd, $cose): ?string {
-        $challenge = msa_passkey_register_begin($cfg, $session)['challenge'];
+    $register = static function (string $hashed, int $flags, string $type, $key, string $credId, int $count, ?string $challenge = null) use ($cfg, $session, $origin, $cd, $cose): ?string {
+        $challenge ??= msa_passkey_register_begin($cfg, $session)['challenge'];
         $auth = hash('sha256', $hashed, true) . chr($flags | 0x40) . pack('N', $count) . str_repeat("\0", 16) . pack('n', strlen($credId)) . $credId . $cose($key);
         $object = "\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData\x58" . chr(strlen($auth)) . $auth;
         return msa_passkey_register_finish($cfg, $session, ['clientDataJSON' => b64u_encode($cd($type, $challenge, $origin)), 'attestationObject' => b64u_encode($object), 'label' => 'fixture']);
@@ -360,6 +360,7 @@ try {
     $ok($register($rp, 0x05, 'webauthn.get', $key, $credId, 5) === null, 'registration: type webauthn.get is refused');
     $ok($register($rp, 0x04, 'webauthn.create', $key, $credId, 5) === null, 'registration: user-present missing is refused');
     $ok($register($rp, 0x01, 'webauthn.create', $key, $credId, 5) === null, 'registration: user-verified missing is refused');
+    $ok($register($rp, 0x05, 'webauthn.create', $key, $credId, 5, msa_passkey_login_begin($cfg)['challenge']) === null, 'registration: a sign-in challenge is refused for a complete, correctly formed registration');
     $eq([], array_keys(msa_store_read($cfg)['passkeys']), 'none of those registered anything');
     $eq($id, $register($rp, 0x05, 'webauthn.create', $key, $credId, 5), 'the control: the right registration is accepted, stored counter 5');
 
@@ -369,10 +370,10 @@ try {
     $assert = static function (array $o = []) use ($cfg, $rp, $origin, $cd, $key, $id): array {
         $challenge = $o['challenge'] ?? msa_passkey_login_begin($cfg)['challenge'];
         $client = $cd($o['type'] ?? 'webauthn.get', $challenge, $o['origin'] ?? $origin, $o['cross'] ?? false);
-        $auth = hash('sha256', $o['rpIdFor'] ?? $rp, true) . chr($o['flags'] ?? 0x05) . pack('N', $o['count'] ?? 6);
+        $auth = hash('sha256', $o['rpIdFor'] ?? $rp, true) . chr($o['flags'] ?? 0x05) . pack('N', $o['count'] ?? 6) . ($o['tail'] ?? '');
         openssl_sign($auth . hash('sha256', $client, true), $sig, $o['key'] ?? $key, OPENSSL_ALGO_SHA256);
         return ['id' => $o['id'] ?? $id, 'clientDataJSON' => b64u_encode($client), 'authenticatorData' => b64u_encode($auth),
-            'signature' => b64u_encode($sig), 'userHandle' => b64u_encode('sample')];
+            'signature' => b64u_encode($sig), 'userHandle' => b64u_encode($o['handle'] ?? 'sample')];
     };
     $refused = static function (array $o, string $why) use ($cfg, $assert, $sessions, $counter, $ok, $eq): void {
         $before = [$sessions(), $counter()];
@@ -398,13 +399,13 @@ try {
     $createChallenge = msa_passkey_register_begin($cfg, $session)['challenge'];
     $refused(['challenge' => $createChallenge], 'a registration challenge presented as a sign-in challenge is refused');
     $refused(['challenge' => b64u_encode(random_bytes(32))], 'a challenge the server never issued is refused');
-    $getChallenge = msa_passkey_login_begin($cfg)['challenge'];
-    $atReg = msa_passkey_register_finish($cfg, $session, ['clientDataJSON' => b64u_encode($cd('webauthn.create', $getChallenge, $origin)), 'attestationObject' => 'x']);
-    $ok($atReg === null, 'a sign-in challenge presented to registration is refused');
     // Flags: user-present and user-verified are both required.
-    foreach ([0x04 => 'user-present missing', 0x01 => 'user-verified missing', 0x00 => 'neither flag', 0x45 => 'attested-credential flag on an assertion'] as $flags => $what) {
+    foreach ([0x04 => 'user-present missing', 0x01 => 'user-verified missing', 0x00 => 'neither flag'] as $flags => $what) {
         $refused(['flags' => $flags], "$what is refused");
     }
+    // A well-formed attested-credential block (aaguid, id length, id, an empty COSE map), so the parser accepts it and only the flag guard can refuse.
+    $refused(['flags' => 0x45, 'tail' => str_repeat("\0", 16) . pack('n', 1) . 'c' . "\xa0"], 'attested-credential flag on an assertion is refused');
+    $refused(['handle' => 'someone-else'], 'a user handle that is not the credential owner\'s is refused');
     // Keys: another key under the known id, and a valid signature under an id the store does not hold.
     $refused(['key' => $newKey()], 'a signature by another key under a known credential id is refused');
     $refused(['id' => b64u_encode(random_bytes(32)), 'key' => $newKey()], 'an unknown credential id is refused');

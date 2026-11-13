@@ -1325,6 +1325,30 @@ t('a passkey that was not UNLOCKED on the device is refused', function () use ($
 });
 
 
+t('own-mode sign-in refuses a wrong rpIdHash, type, cross-origin, unknown id, and a counter that does not increase', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
+    // Placed after the UNLOCKED spec (stored counter 8) and before the counter
+    // spec; nothing here may succeed, so the stored counter stays 8.
+    $try = function (string $why, int $want, array $o = []) use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
+        $begin = api(['action' => 'passkey_login_begin']);
+        $cdArr = ['type' => $o['type'] ?? 'webauthn.get', 'challenge' => $begin['body']['challenge'], 'origin' => $pkOrigin]
+            + (isset($o['cross']) ? ['crossOrigin' => true] : []);
+        $cd = json_encode($cdArr, JSON_UNESCAPED_SLASHES);
+        $ad = fake_authdata($o['rp'] ?? $pkRp, 0x05, $o['count'] ?? 20);
+        openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+        $r = api(['action' => 'passkey_login_finish', 'id' => $o['id'] ?? $pkId,
+            'clientDataJSON' => $b64u($cd), 'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig)]);
+        eq($want, $r['status'], $why . ': ' . json_encode($r['body']));
+    };
+    $try('rpIdHash of another host', 400, ['rp' => 'evil.example']);
+    $try('rpIdHash of a www alias', 400, ['rp' => 'www.' . $pkRp]);
+    $try('webauthn.create used for a get', 400, ['type' => 'webauthn.create']);
+    $try('a cross-origin ceremony', 400, ['cross' => true]);
+    $try('an unknown credential id', 401, ['id' => $b64u(random_bytes(16))]);
+    $try('a counter equal to the stored 8', 401, ['count' => 8]);
+    $try('a counter of zero after a non-zero one', 401, ['count' => 0]);
+    $try('a lower counter', 401, ['count' => 3]);
+});
+
 t('a counter that goes backwards is refused, and a removed passkey stops working', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkTok, $b64u) {
     // The stored counter is at 4 after the last test; 2 is a clone's answer.
     $b1 = api(['action' => 'passkey_login_begin']);
