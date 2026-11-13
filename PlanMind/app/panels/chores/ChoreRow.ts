@@ -7,8 +7,8 @@ import type { SendResult } from '../../state';
  * The one chore row of the Chores view (Day, Week and Month), and how a tap on it is written. A row is a turn (a rule on a date) as chores.ts
  * describes it: an open row has a circle (done / not done) and its title, which is a button that hands that one turn to the next owner;
  * a missed row also has "Fri" (send it to the catch-up Friday) and "Let go"; a catch-up row says where it is from and has "Let go"; a
- * row sent away or let go by hand is dim with a chip that takes that back; a done row is crossed out. Every control that writes has
- * (never data-writes: a write in flight does not disable a tap). The colour of the circle is the owner's (data-c). Which turn a row is comes from its data-rule and data-date, read
+ * row sent away or let go by hand is dim with a chip that takes that back; a done row is crossed out. No control that writes carries
+ * data-writes: a write in flight does not disable a tap. The colour of the circle is the owner's (data-c). Which turn a row is comes from its data-rule and data-date, read
  * again from the snapshot at tap time, so a row that went stale in the markup still writes against the revision held now. The Day's rows
  * say how often they come in a quiet badge ("Weekly", "Week A", "Week B", "Monthly"; none on a daily chore) before their other chips. The Month's
  * rows are chips tinted by their owner (data-state says missed, for its left edge), in the phone's list and in the calendar's cells (panels/month/MonthGrid.ts); the date chip of the list opens that Day.
