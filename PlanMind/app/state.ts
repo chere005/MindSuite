@@ -221,8 +221,9 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
           // Writes built on this one's record cannot stand without it.
           const behind = queue.filter(other => other !== entry && other.keys.some(key => entry.keys.includes(key)));
           error = { message, source: 'write' }; status = 'Needs attention';
-          emit('data'); emit('status');
+          // The refused change leaves the line before the shell is told, so the last picture it draws for the failure is already without it.
           queue = queue.filter(other => other !== entry && !behind.includes(other)); queueVersion++;
+          emit('data'); emit('status');
           entry.waiters.forEach(done => done({ ok: false, message, code: failure!.code, uncertain: failure!.uncertain }));
           behind.forEach(other => other.waiters.forEach(done => done(SKIPPED)));
         }

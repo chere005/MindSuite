@@ -19,7 +19,7 @@ const tick = (id: string, revision: number, done: boolean): Mutation => ({ actio
 /** A server in a variable: each write waits on a gate the test opens, and applies `complete` the way the real one does (stale when the revision differs). */
 function rig(ids: string[]) {
   let db = session(10, ids.map(id => todo(id)));
-  const gates: (() => void)[] = [], sent: Mutation[] = [], loads: (() => void)[] = [];
+  const gates: (() => void)[] = [], sent: Mutation[] = [], loads: (() => void)[] = [], refusing = new Set<string>();
   const io: StateIo = {
     load: vi.fn(async (): Promise<Loaded> => { const held = db; await new Promise<void>(open => { loads.push(open); }); return held; }),
     send: vi.fn(async (m: Mutation) => {
@@ -32,6 +32,7 @@ function rig(ids: string[]) {
         return db;
       }
       if (m.action !== 'complete') { throw new Error('unexpected'); }
+      if (refusing.has(m.id)) { throw new ApiFailure('Unavailable.', 503, 'unavailable'); }
       const at = db.tasks.findIndex(t => t.id === m.id);
       if (at < 0 || db.tasks[at]!.revision !== m.revision) { throw new ApiFailure('Changed elsewhere.', 409, 'stale'); }
       if (db.tasks[at]!.done === m.done) { return db; }
@@ -44,7 +45,7 @@ function rig(ids: string[]) {
   const open = async () => { gates.shift()!(); await vi.advanceTimersByTimeAsync(0); };
   const refuse = (id: string, revision: number) => { db = { ...db, tasks: db.tasks.map(t => (t.id === id ? { ...t, revision } : t)) }; };
   const elsewhere = () => { db = { ...db, revision: db.revision + 1 }; };
-  return { state, io, sent, open, refuse, elsewhere, db: () => db, loads };
+  return { state, io, sent, open, refuse, refusing, elsewhere, db: () => db, loads };
 }
 const done = (state: ReturnType<typeof createState>) => state.session.tasks.filter(t => t.done).map(t => t.id);
 
@@ -78,6 +79,46 @@ describe('review: polls and the write line', () => {
     // Known limit: the tick was built on the revision the screen held, before the rename's answer, so it is refused as stale.
     expect(await rename).toMatchObject({ ok: true });
     expect(await ticked).toMatchObject({ ok: false, code: 'stale' });
+    r.state.close(); vi.useRealTimers();
+  });
+
+  it('a tick the server refuses outright is gone from the picture at the last data event, with the line already emptied', async () => {
+    vi.useFakeTimers();
+    const r = rig(['a']);
+    r.refusing.add('a');
+    // A shell that redraws on every data event, at once: what it last drew is what stays on the screen.
+    const drawn: { done: string[]; queued: boolean }[] = [];
+    r.state.subscribe(change => { if (change === 'data') { drawn.push({ done: done(r.state), queued: r.state.queued }); } });
+    const result = r.state.send(tick('a', 3, true), { optimistic: true });
+    expect(done(r.state)).toEqual(['a']);
+    await r.open();
+    expect(await result).toMatchObject({ ok: false, code: 'unavailable' });
+    expect(r.state.queued).toBe(false);
+    expect(r.state.status).toBe('Needs attention');
+    expect(drawn[0]!.done).toEqual(['a']);                     // the tick, shown at once
+    expect(drawn.at(-1)).toEqual({ done: [], queued: false }); // the failure's data event comes after the entry left
+    expect(done(r.state)).toEqual([]);
+    r.state.close(); vi.useRealTimers();
+  });
+
+  it('three ticks on different records where the second is refused: the first stays, the refused one comes off, the third goes on', async () => {
+    vi.useFakeTimers();
+    const r = rig(['a', 'b', 'c']);
+    r.refusing.add('b');
+    const drawn: string[][] = [];
+    r.state.subscribe(change => { if (change === 'data') { drawn.push(done(r.state)); } });
+    const results = ['a', 'b', 'c'].map(id => r.state.send(tick(id, 3, true), { optimistic: true }));
+    expect(done(r.state)).toEqual(['a', 'b', 'c']);
+    await r.open();                                            // a saved
+    const before = drawn.length;
+    await r.open();                                            // b refused; c is not built on b and still waits its turn
+    expect(drawn.length).toBeGreaterThan(before);
+    expect(drawn.at(-1)).toEqual(['a', 'c']);                  // the last picture drawn for the refusal has no b
+    expect(done(r.state)).toEqual(['a', 'c']);
+    await r.open();
+    expect(await Promise.all(results)).toMatchObject([{ ok: true }, { ok: false, code: 'unavailable' }, { ok: true }]);
+    expect(r.db().tasks.filter(t => t.done).map(t => t.id)).toEqual(['a', 'c']);
+    expect(done(r.state)).toEqual(['a', 'c']);
     r.state.close(); vi.useRealTimers();
   });
 });
