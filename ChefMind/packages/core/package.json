@@ -1,0 +1,20 @@
+{
+  "name": "@calmind/core",
+  "version": "1.2.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "@mind/core": "file:../../../packages/mind-core"
+  }
+}

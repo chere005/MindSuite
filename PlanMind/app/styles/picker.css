@@ -1,0 +1,140 @@
+/*
+ * The list picker (round button, menu) and the list manager (dialog). It stands on the base
+ * tokens and tones.css only, so it works whether or not components.css is loaded. Colors come from data-c.
+ */
+.picker{position:relative;display:flex;align-items:center}
+.picker-button{display:inline-flex;align-items:center;gap:8px;height:var(--topbar-button-height,32px);padding:0 10px 0 8px;border:1px solid var(--line);border-radius:999px;color:var(--text);font-size:12px;max-width:240px}
+.picker-button:hover,.picker-button[aria-expanded=true]{background:var(--surface-2)}
+.picker-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* Chores (a house): on a phone the button wears it while the Chores view is on, locked: grey, nothing to open. On a desktop's Day it is the menu's switch row. */
+.picker-house{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface-2);color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
+.picker-house svg{width:14px;height:14px}
+.picker-button[data-chores]{border-color:var(--accent)}
+.picker-button[data-locked]{border-color:var(--line);background:var(--surface-2);cursor:default}
+.picker-button[data-locked] .picker-house{background:transparent;box-shadow:none;color:var(--dim)}
+.picker-row[data-kind=chores] .picker-house{width:12px;height:12px;background:transparent;box-shadow:none;color:var(--dim);overflow:visible}
+.picker-row[data-kind=chores] .picker-house svg{flex:none;width:16px;height:16px}
+/* The switch: a track and a knob at the row's end, the accent track when on (the knob has the track's own ring, so the switch reads without color). */
+.picker-toggle{position:relative;flex:none;margin-left:auto;width:34px;height:20px;border:1.5px solid var(--muted);border-radius:999px;background:transparent}
+.picker-toggle::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--muted);transition:transform .12s}
+.picker-switch[aria-checked=true] .picker-toggle{border-color:var(--accent);background:var(--accent-soft)}
+.picker-switch[aria-checked=true] .picker-toggle::after{background:var(--accent);transform:translateX(14px)}
+@media(prefers-reduced-motion:reduce){.picker-toggle::after{transition:none}}
+.picker-chevron{display:inline-flex;color:var(--muted);flex-shrink:0}
+.pie{display:block;flex-shrink:0}
+.pie-slice{fill:var(--tone-line)}
+.pie-ring{fill:none;stroke:var(--tone-fg,var(--muted));stroke-opacity:.45;stroke-width:1}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:50%;flex-shrink:0;background:var(--tone-line);box-shadow:0 0 0 1px var(--line)}
+
+.picker-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:20;width:300px;max-width:calc(100vw - 24px);padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+.picker-rows{list-style:none;margin:0;padding:0}
+.picker-row{display:flex;align-items:center;border-radius:9px}
+.picker-row.selected{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.picker-select{display:flex;align-items:center;gap:11px;flex:1;min-width:0;min-height:44px;padding:0 10px;border-radius:9px;text-align:left;font-size:14px}
+.picker-select:hover{background:var(--surface-2)}
+.picker-row.selected .picker-select:hover{background:transparent}
+.picker-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.picker-divider{height:1px;margin:6px 8px;background:var(--line-soft)}
+.picker-mark{display:inline-flex;width:20px;margin:0 12px;justify-content:center;color:var(--muted);flex-shrink:0}
+.picker-box{appearance:none;position:relative;flex-shrink:0;width:20px;height:20px;min-height:0;margin:0 12px;padding:0;border:1.5px solid var(--muted);border-radius:6px;background:transparent;cursor:pointer}
+.picker-box::before{content:"";position:absolute;inset:-12px}
+.picker-box:checked{background:var(--accent-soft);border-color:var(--accent)}
+.picker-box:checked::after{content:"✓";position:absolute;inset:0;text-align:center;font-size:14px;line-height:17px;color:var(--accent)}
+.picker-box[aria-disabled=true]{opacity:.4;cursor:not-allowed}
+.picker-hint{margin:2px 10px 6px;font-size:12px;color:var(--gold)}
+.picker-hint:empty{margin:0}
+.picker-manage{display:block;width:100%;min-height:44px;margin-top:4px;padding:0 10px;border-top:1px solid var(--line-soft);border-radius:0 0 9px 9px;text-align:left;font-size:13px;color:var(--dim)}
+.picker-manage:hover,.picker-rhythm:hover{background:var(--surface-2);color:var(--text)}
+.picker-rhythm{display:block;width:100%;min-height:44px;padding:0 10px;border-radius:0 0 9px 9px;text-align:left;font-size:13px;color:var(--dim)}
+.picker-rhythm[hidden]{display:none}
+.picker-manage:has(+.picker-rhythm:not([hidden])){border-radius:0}
+
+/* The manager */
+.manager{width:min(520px,calc(100% - 24px));max-width:none;max-height:calc(100dvh - 6dvh - 16px);margin:6dvh auto auto;overflow:auto;padding:22px 22px 20px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:16px;overscroll-behavior:contain}
+.manager::backdrop{background:rgba(0,0,0,.6)}
+.manager-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.manager-head h2{font-size:20px;font-weight:550;margin:0}
+.manager h3{font-size:11px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--dim);margin:22px 0 10px;display:flex;justify-content:space-between;gap:8px}
+.manager h3 span{letter-spacing:0;text-transform:none;font-weight:400}
+.manager .dim{margin:0 0 10px}
+.manager-message:empty{display:none}
+.manager-message{margin:6px 0 0}
+.color-line{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--line-soft)}
+.color-name{display:inline-flex;align-items:center;gap:10px;font-size:14px;min-width:80px}
+.tray{display:flex;flex-wrap:wrap;gap:4px}
+.tray-swatch{position:relative;display:block;width:34px;height:34px;padding:4px;margin:0}
+.manager .tray-swatch input{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer}
+.tray-dot{display:block;width:100%;height:100%;border-radius:50%;background:var(--tone-line);border:2px solid transparent}
+.tray-swatch input:checked+.tray-dot{border-color:var(--text);box-shadow:inset 0 0 0 3px var(--surface)}
+.tray-swatch input:focus-visible+.tray-dot{outline:2px solid var(--accent);outline-offset:2px}
+.tray-swatch input:disabled{cursor:wait}
+.manager-lists{list-style:none;margin:0;padding:0}
+.manager-list{border-bottom:1px solid var(--line-soft)}
+.manager-edit{display:flex;align-items:center;gap:11px;width:100%;min-height:48px;padding:0 4px;text-align:left;font-size:14px}
+.manager-edit:hover{background:var(--surface-2)}
+.manager-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A list being renamed: the name is a field of the same size in its own row, with its counter and Delete; the swatches sit under it. */
+.manager-row{display:flex;align-items:center;gap:11px;min-height:48px;padding:0 4px}
+.manager .manager-input{flex:1;min-width:0;width:auto;min-height:0;height:28px;padding:0;border:0;border-radius:0;background:transparent;font-size:14px;box-shadow:inset 0 -1.5px 0 var(--accent);outline:none}
+.manager-count{flex:none;font-size:11px;color:var(--dim)}
+.manager-count.over{color:#f29090}
+.manager-del{flex:none;display:inline-flex;align-items:center;gap:6px}
+.manager-trash{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;padding:0 4px;border-radius:6px;font-size:12px;color:var(--dim);white-space:nowrap}
+.manager-trash::before{content:"";position:absolute;inset:-8px -6px}
+.manager-trash:hover{background:var(--surface-2)}
+/* Armed: the icon turns red (white on red), as CalMind's does. */
+.manager-del[data-armed] .manager-trash{background:#d6453d;color:#fff}
+.manager-list.open .tray{margin:0 0 4px 27px}
+.manager-row-message{margin:0 4px 8px 27px;font-size:12px;line-height:16px;color:#f29090}
+.manager-row-message:empty{display:none}
+.manager-add{display:block;padding:0}
+.manager label{display:block;font-size:12px;color:var(--dim);margin:0 0 6px}
+.manager .tray-swatch{margin:0}
+.name-line{position:relative;display:flex;align-items:center;margin-bottom:12px}
+.manager .name-line input{width:100%;padding-right:64px;background:var(--bg)}
+.name-line .manager-count{position:absolute;right:12px;pointer-events:none}
+.manager-add .primary{margin-top:14px}
+/* The rhythm: the manager's look, with each rule's owner circle ahead of its title, a rule's days and weeks as choices under it, and an add line under each group. */
+.rhythm h3{margin-top:18px}
+.rhythm-rule .manager-row{gap:2px;padding:0}
+.rhythm-owner{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:8px}
+.rhythm-owner:hover{background:var(--surface-2)}
+.rhythm-owner .swatch{width:18px;height:18px}
+.rhythm-title{flex:1;min-width:0}
+.rhythm-text{flex:none;font-size:12px;color:var(--dim)}
+.rhythm-rule.open .manager-input{margin-left:6px}
+.rhythm-rule.open .manager-count{margin:0 6px}
+.rhythm-when{display:flex;flex-direction:column;gap:6px;margin:0 0 6px 46px}
+.rhythm-chips{display:flex;flex-wrap:wrap;gap:4px}
+.rhythm-chip{min-width:44px;min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--text)}
+.rhythm-chip:hover{background:var(--surface-2)}
+.rhythm-chip[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent)}
+.rhythm-rule.open .manager-row-message{margin-left:46px}
+.rhythm-add{display:flex;align-items:center;gap:8px;margin:6px 0 0 46px}
+.manager .rhythm-add input{flex:1;min-width:0;min-height:36px;padding:0 10px;background:var(--bg);font-size:14px}
+.rhythm-add .primary{flex:none;min-height:36px;padding:0 14px;font-size:13px}
+.rhythm>.manager-body>.rhythm-chips{margin-left:0}
+@media(max-width:760px){
+.rhythm-chip{min-height:44px}
+.rhythm-add{margin-left:0}
+.rhythm-add .primary{min-height:44px}
+.manager .rhythm-add input{min-height:44px;font-size:16px}
+.rhythm-when,.rhythm-rule.open .manager-row-message{margin-left:0}
+}
+@media(max-width:760px){
+.manager .manager-input{font-size:16px;height:32px}
+.manager-trash{min-width:44px;height:44px}
+.picker{position:static}
+.picker-button{width:44px;padding:0;justify-content:center;gap:0}
+.picker-name,.picker-chevron{display:none}
+.picker-menu{position:fixed;top:calc(var(--topbar-height) + 4px);left:12px;right:12px;width:auto;max-width:none}
+.manager{padding:18px 16px max(16px,env(safe-area-inset-bottom))}
+.color-line{align-items:flex-start;flex-direction:column;gap:4px}
+.tray{gap:0}
+.manager .tray-swatch{width:44px;height:44px;padding:9px}
+}
+/* The list manager is a panel of the page, not a window: it covers the page under the top bar and scrolls inside itself. */
+.content{position:relative}
+.manager.manager-page{position:absolute;top:var(--top,56px);right:0;bottom:0;left:0;z-index:5;width:auto;max-width:none;max-height:none;margin:0;border:0;border-radius:0;padding:22px max(48px,calc((100% - 520px) / 2)) 24px;background:var(--bg)}
+.manager-head h2:focus{outline:none}
+@media(max-width:760px){.manager.manager-page{padding:18px 16px max(16px,env(safe-area-inset-bottom))}}

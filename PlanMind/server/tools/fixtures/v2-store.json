@@ -1,0 +1,209 @@
+{
+    "v": 2,
+    "revision": 12,
+    "lists": {
+        "sam": {
+            "id": "sam",
+            "kind": "person",
+            "name": "Sam",
+            "color": "yellow",
+            "order": 0,
+            "revision": 1,
+            "updatedAt": "2026-10-31T09:00:00+00:00"
+        },
+        "alex": {
+            "id": "alex",
+            "kind": "person",
+            "name": "Alex",
+            "color": "green",
+            "order": 1,
+            "revision": 1,
+            "updatedAt": "2026-10-31T09:00:00+00:00"
+        },
+        "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c": {
+            "id": "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c",
+            "kind": "custom",
+            "name": "Camping",
+            "color": "blue",
+            "order": 2,
+            "revision": 1,
+            "ak": "6ccb3f4febe07d68",
+            "createdBy": "alex",
+            "updatedAt": "2026-10-31T09:00:00+00:00"
+        }
+    },
+    "settings": {
+        "bothColor": "teal",
+        "revision": 2,
+        "updatedAt": "2026-10-31T09:00:00+00:00"
+    },
+    "tasks": {
+        "00000001-0000-4000-8000-000000000001": {
+            "id": "00000001-0000-4000-8000-000000000001",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "scope": "day",
+            "date": "2026-10-30",
+            "title": "Plan the trip",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "27b8ec30ce003991"
+        },
+        "00000002-0000-4000-8000-000000000002": {
+            "id": "00000002-0000-4000-8000-000000000002",
+            "owners": [
+                "sam"
+            ],
+            "scope": "day",
+            "date": "2026-10-30",
+            "title": "Buy a gift",
+            "done": true,
+            "pos": 2048,
+            "revision": 2,
+            "createdBy": "sam",
+            "updatedBy": "alex",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "fd2d32b7713a1ff3"
+        },
+        "00000003-0000-4000-8000-000000000003": {
+            "id": "00000003-0000-4000-8000-000000000003",
+            "owners": [
+                "alex"
+            ],
+            "scope": "day",
+            "date": "2026-10-31",
+            "title": "Pack the tent",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "e66b1d4704ddafe3"
+        },
+        "00000004-0000-4000-8000-000000000004": {
+            "id": "00000004-0000-4000-8000-000000000004",
+            "owners": [
+                "alex"
+            ],
+            "scope": "week",
+            "date": "2026-10-26",
+            "title": "Renew passport",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "4336260deb2903c9"
+        },
+        "00000005-0000-4000-8000-000000000005": {
+            "id": "00000005-0000-4000-8000-000000000005",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "scope": "month",
+            "date": "2026-11-01",
+            "title": "Book the vet",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "sam",
+            "updatedBy": "sam",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "4d4796642c37c159"
+        }
+    },
+    "priorities": {
+        "00000006-0000-4000-8000-000000000006": {
+            "id": "00000006-0000-4000-8000-000000000006",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "date": "2026-10-30",
+            "slots": {
+                "sam": 2,
+                "alex": 1
+            },
+            "text": "Family dinner",
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "187cf4d081ec44a0"
+        }
+    },
+    "events": {
+        "00000007-0000-4000-8000-000000000007": {
+            "id": "00000007-0000-4000-8000-000000000007",
+            "owners": [
+                "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c"
+            ],
+            "date": "2026-10-31",
+            "text": "Pack the tent",
+            "start": 720,
+            "length": 45,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-10-31T09:00:00+00:00",
+            "updatedAt": "2026-10-31T09:00:00+00:00",
+            "ak": "a6d87204d18471e2"
+        }
+    },
+    "notes": {
+        "week:2026-10-26:alex:priorities": {
+            "key": "week:2026-10-26:alex:priorities",
+            "scope": "week",
+            "period": "2026-10-26",
+            "listId": "alex",
+            "field": "priorities",
+            "text": "Renew passport",
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-10-31T09:00:00+00:00"
+        },
+        "month:2026-11-01:sam:notes": {
+            "key": "month:2026-11-01:sam:notes",
+            "scope": "month",
+            "period": "2026-11-01",
+            "listId": "sam",
+            "field": "notes",
+            "text": "Plan Thanksgiving",
+            "revision": 1,
+            "updatedBy": "sam",
+            "updatedAt": "2026-10-31T09:00:00+00:00"
+        }
+    },
+    "prefs": {
+        "alex": {
+            "selection": {
+                "base": "both",
+                "overlays": [
+                    "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c"
+                ]
+            },
+            "sidebar": "hidden"
+        },
+        "sam": {
+            "selection": {
+                "base": "sam",
+                "overlays": []
+            }
+        }
+    }
+}

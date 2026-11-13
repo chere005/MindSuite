@@ -1,0 +1,195 @@
+/** The one flow the app has: open the form, fill it, save it, see it. */
+import { expect, test } from '@playwright/test';
+import { STORE_VERSION } from '@acctmind/core';
+import { addTransaction, fresh, rows, stored, storedTxns } from './helpers';
+
+test('a new device shows the empty state and no rows', async ({ page }) => {
+  await fresh(page);
+  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('txn-row')).toHaveCount(0);
+  await expect(page.getByTestId(/^account-total-/)).toHaveText('$0.00');
+});
+
+test('adding one puts it on screen and on the device', async ({ page }) => {
+  await fresh(page);
+  await addTransaction(page, { name: 'Groceries', description: 'co-op', amount: '-84.37' });
+
+  await expect(page.getByTestId('empty-state')).toBeHidden();
+  expect(await rows(page)).toEqual([
+    { name: 'Groceries', description: 'co-op', amount: '-$84.37', date: expect.any(String) },
+  ]);
+  await expect(page.getByTestId(/^account-total-/)).toHaveText('-$84.37');
+
+  // The screen agreeing is not the same as the device agreeing.
+  const store = await stored(page) as { v: number; txns: { amount: number; name: string }[] };
+  // Read from core, not written down: this line said 1 for a while after
+  // the store went to v2, and the suite had not been re-run to notice.
+  expect(store.v).toBe(STORE_VERSION);
+  expect(store.txns).toHaveLength(1);
+  // Cents, as an integer. If this is ever 84.37 the whole money rule is gone.
+  expect(store.txns[0]?.amount).toBe(-8437);
+});
+
+/**
+ * The regression that cost a real debugging round on the first run: the
+ * transaction saved correctly and the form STAYED OPEN, because `save()` was
+ * being called from inside a `setPhase` updater. React treats a state update
+ * raised during an updater as a render-phase update and restarts the render,
+ * which threw away the `setAdding(false)` batched alongside it.
+ *
+ * Asserting `toBeHidden`, not absence: react-native-web leaves the closed
+ * Modal in the DOM, so a presence check here would fail even when correct.
+ */
+test('the form closes after a save', async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Coffee');
+  await page.getByTestId('amount-input').fill('-4.50');
+  await page.getByTestId('save-button').click();
+
+  await expect(page.getByTestId('save-button')).toBeHidden();
+  await expect(page.getByTestId('txn-row')).toHaveCount(1);
+});
+
+test('cancel adds nothing, and does not keep what was typed', async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Typed but abandoned');
+  await page.getByTestId('amount-input').fill('99');
+  await page.getByTestId('cancel-button').click();
+
+  await expect(page.getByTestId('save-button')).toBeHidden();
+  await expect(page.getByTestId('txn-row')).toHaveCount(0);
+  expect(await storedTxns(page)).toEqual([]);
+
+  // Reopening is a blank form, not the abandoned one. BLANK, including the
+  // amount: the default is still negative, but the sign lives in the button
+  // now and never appears in the field. The owner, 2026-08-21.
+  await page.getByTestId('add-button').click();
+  await expect(page.getByTestId('name-input')).toHaveValue('');
+  await expect(page.getByTestId('amount-input')).toHaveValue('');
+});
+
+test('a new transaction starts negative, with an EMPTY field', async ({ page }) => {
+  // The owner, 2026-08-21. Starting positive means tapping − on nearly every
+  // entry, and the one that gets forgotten is a payment recorded as income —
+  // wrong by twice its own size.
+  //
+  // The default used to be a '-' sitting in the field, which is the thing
+  // the owner asked to be rid of: "don't show the - in the input field". So the
+  // default is now invisible until there is an amount for it to apply to,
+  // and the only way to see it is to type — which is what this does.
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await expect(page.getByTestId('amount-input')).toHaveValue('');
+
+  // Typing digits gives money OUT without touching the toggle.
+  await page.getByTestId('name-input').fill('Coffee');
+  await page.getByTestId('amount-input').fill('450');
+  await expect(page.getByTestId('amount-preview')).toHaveText('-$4.50');
+  await page.getByTestId('save-button').click();
+  await expect(page.getByTestId('save-button')).toBeHidden();
+  await expect(page.getByTestId(/^account-total-/)).toHaveText('-$4.50');
+
+  // And an EDIT is seeded from the record, not from the default — the sign
+  // on the button, the digits in the field, and no minus drawn twice.
+  await page.getByTestId('edit-toggle').click();
+  await page.getByTestId('row-edit').first().click();
+  await expect(page.getByTestId('amount-input')).toHaveValue('$4.50');
+  await expect(page.getByTestId('amount-preview')).toHaveText('-$4.50');
+});
+
+test('every bad field complains at once, and each clears when touched', async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('save-button').click();
+
+  await expect(page.getByTestId('error-name')).toBeVisible();
+  await expect(page.getByTestId('error-amount')).toBeVisible();
+  // The date is never invalid — it starts on today and the picker cannot
+  // produce a bad one.
+  await expect(page.getByTestId('error-date')).toBeHidden();
+  await expect(page.getByTestId('txn-row')).toHaveCount(0);
+
+  await page.getByTestId('name-input').fill('Now named');
+  await expect(page.getByTestId('error-name')).toBeHidden();
+  await expect(page.getByTestId('error-amount')).toBeVisible();
+});
+
+test('an unparseable amount is refused rather than rounded', async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Third of a cent');
+  // 1.005 could round to 100 or 101 cents. Refusing is the rule.
+  await page.getByTestId('amount-input').fill('1.005');
+  await page.getByTestId('save-button').click();
+
+  await expect(page.getByTestId('error-amount')).toHaveText('That is not an amount');
+  await expect(page.getByTestId('save-button')).toBeVisible();
+  expect(await storedTxns(page)).toEqual([]);
+});
+
+test('the list is newest first, whatever order they were entered', async ({ page }) => {
+  await fresh(page);
+  // Trailing dots: bare digits now fill from the cents, so '2' would be 2c.
+  await addTransaction(page, { name: 'middle', amount: '2.', day: '2026-06-15' });
+  await addTransaction(page, { name: 'oldest', amount: '1.', day: '2026-01-05' });
+  await addTransaction(page, { name: 'newest', amount: '3.', day: '2026-08-01' });
+
+  expect((await rows(page)).map((r) => r.name)).toEqual(['newest', 'middle', 'oldest']);
+  await expect(page.getByTestId(/^account-total-/)).toHaveText('$6.00');
+});
+
+test('a description is optional and its line is absent without one', async ({ page }) => {
+  await fresh(page);
+  await addTransaction(page, { name: 'Bare', amount: '1' });
+  await expect(page.getByTestId('txn-description')).toHaveCount(0);
+});
+
+test('Return saves the transaction, from either field', async ({ page }) => {
+  // The owner, 2026-08-21, from the Mac: on a keyboard the form is three fields
+  // and a button, and reaching for the mouse to finish something you have
+  // just typed is the slowest part of entering a transaction.
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Coffee');
+  await page.getByTestId('amount-input').fill('-450');
+  await page.getByTestId('amount-input').press('Enter');
+
+  await expect(page.getByTestId('save-button')).toBeHidden();
+  await expect(page.getByTestId('txn-row')).toHaveCount(1);
+  await expect(page.getByTestId(/^account-total-/)).toHaveText('-$4.50');
+
+  // And from the NAME field, which is where a keyboard starts.
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('amount-input').fill('-1250');
+  await page.getByTestId('name-input').fill('Lunch');
+  await page.getByTestId('name-input').press('Enter');
+  await expect(page.getByTestId('save-button')).toBeHidden();
+  await expect(page.getByTestId('txn-row')).toHaveCount(2);
+});
+
+test('Return in the DESCRIPTION types a newline rather than saving', async ({ page }) => {
+  // The one exception, and it has to be one: a description is the only field
+  // here that can hold more than a line, so Return in it is punctuation.
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Coffee');
+  await page.getByTestId('description-input').click();
+  await page.getByTestId('description-input').press('Enter');
+
+  // Still open, nothing saved — the amount has not even been typed yet.
+  await expect(page.getByTestId('save-button')).toBeVisible();
+  expect(await storedTxns(page)).toEqual([]);
+});
+
+test('Return with nothing typed complains instead of saving', async ({ page }) => {
+  // Return runs the same submit the button does, so it gets the same refusal
+  // rather than a second, quieter path into the ledger.
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').press('Enter');
+  await expect(page.getByTestId('save-button')).toBeVisible();
+  await expect(page.getByTestId('error-name')).toBeVisible();
+  await expect(page.getByTestId('error-amount')).toBeVisible();
+});

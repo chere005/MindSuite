@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TaskMind", "version": "0.1.0", "identifier": "com.seancheren.taskmind",
+  "build": { "frontendDist": "../fallback" },
+  "app": { "windows": [], "security": { "capabilities": [], "csp": "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" } },
+  "bundle": {
+    "active": true, "targets": ["app", "dmg", "msi", "nsis"], "category": "Productivity",
+    "shortDescription": "A private team task app",
+    "icon": ["icons/icon.icns", "icons/icon.ico", "icons/icon.png"],
+    "iOS": { "minimumSystemVersion": "16.0" },
+    "macOS": { "minimumSystemVersion": "12.0" },
+    "android": { "minSdkVersion": 24 }
+  }
+}

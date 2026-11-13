@@ -1,0 +1,74 @@
+# Ids that may stand where an account id would: `check-names.sh literals` accepts these (and generic words such as
+# guest or user) as the value of owner/partner/createdBy/user/username/..., in partners/members/KEEP lists, as users-map
+# keys, in by=, in records-<id>.json and in <id>@example.com. Anything else there is a finding.
+#
+# One entry per line:   handle  # what it stands for and where it is used   (one line, at least three words)
+# Scoped entry:         handle @ glob glob  # why   (valid only in paths matching a glob; * also crosses /)
+# Lowercase handle, no trailing number (guest2 is checked as guest). Trailing digits and . _ - joins of registered
+# or generic words are accepted without an entry (guest2, no-reply, evil-guest).
+#
+# Register a handle only when it is a throwaway fixture or a role, never a person: no owner, partner, household
+# member or other real account id, and no nickname or spelling of one. Prefer the first block (alex, sam, ana, ...)
+# for a new fixture person. With the local needle list, `literals` and `tree` fail when an entry here is or contains a
+# needle, so a real id cannot be registered; the untracked needle lists, not this file, say who is real. A malformed
+# line (no reason, uppercase, duplicate) makes `check-names.sh` exit 2.
+#
+# --- placeholder people and roles (usable in any file)
+alex       # the owner placeholder in every fixture
+sam        # the partner placeholder in every fixture
+max        # third placeholder person for fixtures with more than two accounts
+val        # fourth placeholder person for fixtures with more than two accounts
+eve        # placeholder person (also the classic third party in sharing and abuse fixtures)
+otto       # placeholder person for fixtures with more than two accounts
+ana        # placeholder person for fixtures with more than two accounts
+ben        # placeholder person for fixtures with more than two accounts
+bob        # placeholder person for fixtures with more than two accounts
+cee        # placeholder person named after the letter C, for fixtures with a third account
+mrowner    # fixture account whose name carries its role: the owner
+example    # RFC 2606 example label used as an id in documentation and fixtures
+buddy      # placeholder friend or non-member in sharing fixtures
+outsider   # placeholder account that is not a member of the shared data
+alice      # placeholder person, second account of the generic examples
+owner      # role word: the account that owns the data
+partner    # role word: the account the data is shared with
+both       # role word: owner and partner together
+viewer     # role word: read-only member role value in team fixtures
+#
+# --- throwaway fixture accounts and probes (usable in any file; none is a person)
+deleteme   # throwaway account deleted by the account-deletion tests
+bent       # throwaway account whose records file the CalMind server test bends (corrupts)
+bigrow     # throwaway account that stores one oversized row in the CalMind server test
+locky      # throwaway account for the login lockout tests
+cgi        # throwaway account in the recover-timing abuse tests (cgi2 and the like are the same stem)
+pb         # throwaway account in the abuse test that sends mail through a php_bin path
+perm       # throwaway account in the abuse test that checks mail.log permissions
+ttl        # throwaway account in the abuse test that checks the reset-code lifetime
+argv       # throwaway account in the abuse test that checks the reset code never reaches a command line
+ipx        # throwaway account in the abuse test that checks the per-address limit
+ghost      # account that does not exist, in lockout and unknown-account probes
+nobody-here  # account that does not exist, in recover probes
+nobody-at-all  # account that does not exist, in login probes
+ctmissing  # account that does not exist, in the CalMind contract test
+davuser    # throwaway CalDAV subscription user in calendar-subscription fixtures (dav-user is the same word)
+sample     # generic account name in the shared-login fixtures
+same       # account spelled in several cases in the shared-login collision fixtures
+invalid    # deliberately invalid username in the shared-login fixtures (invalid.name)
+constructor  # JavaScript builtin name used as a prototype-pollution probe, not an account
+junk       # deliberately malformed member entry in the team tests
+wizard     # deliberately invalid member role in the team tests
+mal        # the attacker account of the abuse tests, short for malicious
+evil       # the attacker address of the header-injection and abuse tests
+target     # the mail recipient an attacker aims at in the abuse tests
+victim     # the account an attacker acts against in the abuse tests
+big        # address of the oversized-row test account
+delete     # address of the account-deletion test account
+mailer     # SMTP login of the fake mail server in the abuse tests
+guestp     # guest address in the meet-request mail tests
+#
+# --- dummy people that only appear in vendored third-party skill examples (scoped; do not use them in our own files)
+john       @ */.agents/skills/* */.claude/skills/*  # John Doe, the dummy name in the vendored skills' examples
+testuser   @ */.agents/skills/* */.claude/skills/*  # dummy username in the vendored java skill examples
+active     @ */.agents/skills/* */.claude/skills/*  # dummy account status used as an address in the vendored java skill examples
+inactive   @ */.agents/skills/* */.claude/skills/*  # dummy account status used as an address in the vendored java skill examples
+custom     @ */.agents/skills/* */.claude/skills/*  # dummy builder value used as an address in the vendored java skill examples
+org        @ */.agents/skills/* */.claude/skills/*  # GitHub organisation placeholder in the vendored platform-engineering skill example

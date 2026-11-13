@@ -1,0 +1,146 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{--bg-success:#e1f5ee;--text-success:#0f6e56;--border-success:#5dcaa5;--bg-warning:#fbf0c4;--text-warning:#7a5b00;--border-warning:#e0bf3a;--surface-0:#f5f4ee;--surface-1:#f1efe8;--surface-2:#ffffff;--text-primary:#1a1a18;--text-secondary:#5f5e5a;--text-muted:#888780;--border:rgba(0,0,0,.15);--border-strong:rgba(0,0,0,.3);--border-stronger:rgba(0,0,0,.45);--border-accent:#378add;--bg-accent:#e6f1fb;--text-accent:#0c447c;--radius:8px}
+@media(prefers-color-scheme:dark){:root{--bg-success:#04342c;--text-success:#5dcaa5;--border-success:#0f6e56;--bg-warning:#4a3b05;--text-warning:#f5d675;--border-warning:#8a6d10;--surface-0:#1f1e1d;--surface-1:#262624;--surface-2:#30302e;--text-primary:#f5f4ee;--text-secondary:#b4b2a9;--text-muted:#888780;--border:rgba(255,255,255,.15);--border-strong:rgba(255,255,255,.3);--border-stronger:rgba(255,255,255,.45);--border-accent:#85b7eb;--bg-accent:#0c447c;--text-accent:#b5d4f4}}
+body{margin:0;padding:16px;width:680px;background:var(--surface-0);color:var(--text-primary);font:16px/1.7 -apple-system,BlinkMacSystemFont,sans-serif}
+p,h2{margin:0}
+</style></head><body>
+<h2 class="sr-only">Polished wireframes: the Day, Week and Month panels on desktop with the sidebar, and on phone with a bottom tab bar and a date selector sheet</h2>
+<style>
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.wf,.wf *{box-sizing:border-box}
+.wf{background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:12px 14px 16px;margin:0 0 16px}
+.cap{font-size:13px;font-weight:500;margin:0 0 8px}
+.sp{flex:1}
+.mut{color:var(--text-muted)}
+.chip{border:.5px solid var(--border-strong);border-radius:999px;padding:1px 10px;color:var(--text-primary)}
+.btn{border:.5px solid var(--border-strong);border-radius:6px;padding:1px 8px;font-size:12px;font-weight:400;color:var(--text-primary)}
+.ic{font-size:18px;color:var(--text-secondary)}
+.lb{font-size:12px;color:var(--text-secondary);margin:0 0 2px}
+.h{display:flex;align-items:center;gap:4px;margin-bottom:12px}
+.h b{display:block;font-weight:500;font-size:22px}
+.new{border:1px dashed var(--border-accent);border-radius:8px;padding:8px 10px}
+.ln{display:flex;align-items:flex-end;gap:8px;height:26px;padding-bottom:3px;border-bottom:.5px solid var(--border-strong);font-size:12px;white-space:nowrap;overflow:hidden}
+.tm{width:26px;flex:none;color:var(--text-secondary)}
+.dot{width:14px;height:14px;border:1px solid var(--border-strong);border-radius:50%;flex:none;margin-bottom:2px}
+.dn{background:var(--bg-accent);border-color:var(--border-accent)}
+.add{display:flex;justify-content:space-between;border:.5px solid var(--border-strong);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--text-muted);margin:4px 0 2px}
+.box{border:.5px solid var(--border-strong);border-radius:6px}
+.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.tdy{background:var(--bg-accent);color:var(--text-accent)}
+.sel{background:var(--text-accent);color:var(--surface-2);border-radius:8px}
+.zm{width:780px}
+.win{display:flex;width:780px;min-height:690px;border:1px solid var(--border-strong);border-radius:12px;overflow:hidden;background:var(--surface-2);font-size:13px}
+.win .ln{height:28px;font-size:13px}
+.win .lb{font-size:13px}
+.win .add{font-size:13px;padding:7px 10px}
+.sb{width:176px;flex:none;background:var(--surface-1);border-right:.5px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:8px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:500;font-size:15px;padding:0 4px 4px}
+.brand i{width:22px;height:22px;border:1.5px solid var(--border-accent);border-radius:6px;color:var(--text-accent);display:grid;place-items:center;font-size:14px}
+.seg{display:flex;gap:2px;border:.5px solid var(--border);border-radius:8px;padding:2px;background:var(--surface-2)}
+.seg span{flex:1;text-align:center;padding:3px 0;border-radius:6px;font-size:12px;color:var(--text-secondary)}
+.seg .on{background:var(--bg-accent);color:var(--text-accent)}
+.sh{display:flex;align-items:center;justify-content:space-between;padding:2px 4px;font-weight:500}
+.wn{display:flex;align-items:center;justify-content:space-between;color:var(--text-secondary);font-size:12px}
+.dr{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:8px}
+.dr.on{background:var(--bg-accent);color:var(--text-accent)}
+.dr b{font-weight:500;width:20px}
+.dr span{flex:1}
+.sf{margin-top:auto;border-top:.5px solid var(--border);padding-top:8px;font-size:12px;color:var(--text-secondary)}
+.ct{flex:1;min-width:0;padding:10px 16px 16px}
+.tp{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);border-bottom:.5px solid var(--border);padding-bottom:8px;margin-bottom:12px}
+.mg{display:grid;grid-template-columns:120px repeat(7,minmax(0,1fr));border-top:.5px solid var(--border-strong);border-left:.5px solid var(--border-strong)}
+.mg>*{border-right:.5px solid var(--border-strong);border-bottom:.5px solid var(--border-strong);padding:4px;font-size:12px;min-height:78px}
+.wk{min-height:0!important;text-align:center;color:var(--text-secondary)}
+.tk{height:6px;border-radius:3px;background:var(--border-strong);margin-top:5px;width:80%}
+.pw{display:flex;gap:14px;align-items:flex-start}
+.ph{position:relative;display:flex;flex-direction:column;width:206px;height:496px;flex:none;overflow:hidden;border:1.5px solid var(--border-stronger);border-radius:24px;background:var(--surface-2)}
+.pt{display:flex;align-items:center;gap:6px;height:42px;padding:0 10px;border-bottom:.5px solid var(--border);flex:none}
+.nav{flex:1;display:flex;align-items:center;justify-content:center;gap:2px}
+.dtp{border:.5px solid var(--border-strong);border-radius:8px;padding:2px 8px;font-size:12px;white-space:nowrap}
+.nav .ic{font-size:16px}
+.rnd{width:26px;height:26px;border:.5px solid var(--border-strong);border-radius:50%;display:grid;place-items:center;font-size:14px;color:var(--text-secondary)}
+.pb{position:relative;flex:1;padding:8px 10px;overflow:hidden}
+.ph .ln{height:24px}
+.ph .add{padding:4px 8px}
+.tb{display:flex;flex:none;border-top:.5px solid var(--border);padding:4px 4px 8px;background:var(--surface-1)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:3px 0;border-radius:8px;font-size:11px;color:var(--text-secondary)}
+.tab i{font-size:18px}
+.four .tab:not(.on) span{display:none}
+.four .tab.on{flex:1.8}
+.tab.on{background:var(--bg-accent);color:var(--text-accent)}
+.scrl{position:absolute;right:3px;top:14px;width:3px;height:80px;border-radius:2px;background:var(--border-stronger)}
+.mini{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:11px}
+.mini>*{height:24px;padding-top:3px;border-radius:8px}
+.pm{display:grid;grid-template-columns:repeat(7,1fr);border-top:.5px solid var(--border-strong);border-left:.5px solid var(--border-strong)}
+.pm>*{border-right:.5px solid var(--border-strong);border-bottom:.5px solid var(--border-strong);height:50px;padding:2px;font-size:11px;text-align:center}
+.dts{display:flex;gap:2px;justify-content:center;margin-top:4px}
+.dts i{width:4px;height:4px;border-radius:50%;background:var(--text-secondary)}
+.scr{position:absolute;inset:0;background:rgba(0,0,0,.4)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface-2);border-top:.5px solid var(--border-strong);border-radius:16px 16px 0 0;padding:10px 12px 14px;font-size:12px}
+.sh2{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sh2 b{font-weight:500}
+.sact{display:flex;align-items:center;margin-top:10px}
+.srow{display:flex;justify-content:space-between;padding:7px 10px;border-radius:8px}
+.srow.on{background:var(--bg-accent);color:var(--text-accent)}
+.mo{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;text-align:center}
+.mo>*{padding:9px 0;border-radius:8px}
+.dev{background:var(--surface-1);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text-secondary);margin-top:10px}
+.dev b{font-weight:500;color:var(--text-primary)}
+</style>
+<div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--text-secondary);margin:0 0 12px"><span>Solid: in the app today</span><span style="border:1px dashed var(--border-accent);padding:1px 8px;border-radius:4px">Dashed: needs new data</span></div>
+<div class="wf"><p class="cap">Desktop: Day panel with sidebar</p><div class="zm" id="d1"></div></div>
+<div class="wf"><p class="cap">Desktop: Week panel with sidebar</p><div class="zm" id="d2"></div></div>
+<div class="wf"><p class="cap">Desktop: Month panel with sidebar</p><div class="zm" id="d3"></div></div>
+<div class="wf"><p class="cap">Phone: Day, tabs Schedule, To-do, Notes</p><div class="pw" id="p1"></div><div class="dev"><b>Dev note.</b> Every Day tab fits one screen with no scrolling. Restrict text to what displays properly on the smallest supported phone: characters per schedule slot and per priority, number and length of to-dos, and length of notes. Show a live counter at the limit (examples here: 6 to-dos, 400 notes characters; tune on a real device). Schedule is the default tab.</div></div>
+<div class="wf"><p class="cap">Phone: Week, tabs Priorities, To-do</p><div class="pw" id="p2"></div></div>
+<div class="wf"><p class="cap">Phone: Month, tabs Calendar, Priorities, To-do, Notes</p><div class="pw" id="p3"></div><div class="dev"><b>Dev note.</b> Calendar shows up to three dots per day; tapping a day opens it on Day. The other tabs behave as on Week and Day, with no caps on Priorities, To-do or Notes.</div></div>
+<div class="wf"><p class="cap">Phone: date selector, opened by tapping the date at the top</p><div class="pw" id="p4"></div><div class="dev"><b>Dev note.</b> The arrows step one day, week or month. Tapping the date opens the sheet: a calendar on Day, a Monday-to-Sunday list on Week, a month grid on Month. Picking closes the sheet. The round button is the list picker; the hamburger still opens the sidebar as a drawer.</div></div>
+<script>
+const $=i=>document.getElementById(i),L=(n,f)=>Array.from({length:n},(_,i)=>f(i)).join('');
+const ico=(n,c)=>`<i class="ti ti-${n}${c?' '+c:''}" aria-hidden="true"></i>`;
+const ln=(t,s)=>`<div class="ln">${s===undefined?'':`<span class="tm">${s}</span>`}<span>${t||''}</span></div>`;
+const td=(t,d)=>`<div class="ln"><i class="dot${d?' dn':''}"></i><span${d?' style="text-decoration:line-through;color:var(--text-muted)"':''}>${t||''}</span></div>`;
+const chev=ico('chevron-down');
+const hd=(e,t)=>`<div class="h"><div class="sp"><div class="lb">${e}</div><b>${t}</b></div>${ico('chevron-left','ic')}${ico('calendar','ic')}${ico('chevron-right','ic')}</div>`;
+const D=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],tk={1:1,5:2,9:1,12:3,15:1,20:2,23:1,27:2,30:3};
+const full=[[28,0],[29,0],[30,0],...Array.from({length:31},(_,i)=>[i+1,1]),...Array.from({length:8},(_,i)=>[i+1,0])];
+const hrs=['7a','8a','9a','10a','11a','12p','1p','2p','3p','4p','5p','6p','7p','8p'],sc={'9a':'Dentist','2p':'Pick up Sam'};
+const rows={
+day:[['23','Friday',1],['24','Saturday'],['25','Sunday'],['26','Monday',2],['27','Tuesday',1],['28','Wednesday'],['29','Thursday'],['30','Today',3,1],['31','Saturday',1],['01','Sunday'],['02','Monday',2],['03','Tuesday'],['04','Wednesday'],['05','Thursday'],['06','Friday']],
+week:[['07','Sep 7–13'],['14','Sep 14–20'],['21','Sep 21–27'],['28','Sep 28–Oct 4'],['05','Oct 5–11'],['12','Oct 12–18'],['19','Oct 19–25'],['26','Oct 26–Nov 1',0,1],['02','Nov 2–8'],['09','Nov 9–15'],['16','Nov 16–22'],['23','Nov 23–29'],['30','Nov 30–Dec 6'],['07','Dec 7–13'],['14','Dec 14–20']],
+month:[['03','Mar 2026'],['04','Apr 2026'],['05','May 2026'],['06','Jun 2026'],['07','Jul 2026'],['08','Aug 2026'],['09','Sep 2026'],['10','Oct 2026',0,1],['11','Nov 2026'],['12','Dec 2026'],['01','Jan 2027'],['02','Feb 2027'],['03','Mar 2027'],['04','Apr 2027'],['05','May 2027']]};
+const heads={day:'Your days',week:'Monday–Sunday',month:'Your months'};
+const SB=m=>`<div class="sb"><div class="brand">${ico('check')}PlanMind</div><div class="seg">${['Month','Week','Day'].map(v=>`<span class="${v.toLowerCase()==m?'on':''}">${v}</span>`).join('')}</div><div class="sh"><span>October 2026</span><span class="btn">Today</span></div><div class="wn">${ico('chevron-left')}<span>${heads[m]}</span>${ico('chevron-right')}</div><div style="display:flex;flex-direction:column;gap:2px">${rows[m].map(([n,l,,s])=>`<div class="dr${s?' on':''}"><b>${n}</b><span>${l}</span></div>`).join('')}</div><div class="sf">Alex &amp; Sam<br><span class="mut">Our shared planner</span></div></div>`;
+const win=(m,top,eye,title,body)=>`<div class="win">${SB(m)}<div class="ct"><div class="tp"><span>${top}</span><span class="sp"></span><span class="chip">${ico('users')} Both ${chev}</span><span>Alex</span><span class="mut">Sign out</span></div>${hd(eye,title)}${body}</div></div>`;
+const rem=(n)=>`<div class="new"><div class="ln"><span class="lb" style="margin:0">To-do</span></div><div class="add" style="margin:6px 0"><span>Add a reminder…</span></div>${td('Order filters')}${td('Book dentist follow-up')}${td('Renew passport',1)}${L(n,()=>td())}</div>`;
+const txt=(a,b,n)=>`<div class="new"><div class="ln"><span class="lb" style="margin:0">${a}</span></div>${L(n,i=>ln(b[i]))}</div>`;
+$('d1').innerHTML=win('day','Daily planner','October 30, 2026','Today',`<div class="g2"><div><div class="new"><p class="lb">Schedule</p>${hrs.map(h=>ln(sc[h],h)).join('')}</div><div class="new" style="margin-top:12px;min-height:120px"><p class="lb">Notes</p></div></div><div><div class="new"><p class="lb">Priorities</p>${L(5,i=>ln(i?'':'Send the list picker spec',i+1+'.'))}</div><div style="margin-top:12px"><p class="lb">To-do</p><div class="add">Add something for today…</div>${td('Call the plumber')}${td('Renew passport',1)}${L(9,()=>td())}</div></div></div>`);
+$('d2').innerHTML=win('week','Weekly planner','Oct 26 – Nov 1 · 2026 · Mon to Sun','This week',`<div class="g2">${txt('Priorities',['Close out Q4 plan','Dinner with Sam Thursday'],14)}${rem(10)}</div>`);
+const cell=([n,m])=>{const c=m&&tk[n]||0;return `<div class="${m&&n==30?'tdy':''}"><span class="${m?'':'mut'}">${n}</span>${L(Math.min(c,2),()=>'<div class="tk"></div>')}${c>2?`<div class="mut" style="margin-top:3px">+${c-2} more</div>`:''}</div>`};
+const side=`<div style="grid-column:1;grid-row:2/span 6;display:flex;flex-direction:column;gap:10px;padding:8px"><div class="new" style="flex:1"><p class="lb">Priorities</p>${L(3,i=>ln('',i+1+'.'))}</div><div style="flex:1"><p class="lb">To-do</p>${td('Book flights')}${td('Pay rent',1)}${L(5,()=>td())}</div></div>`;
+$('d3').innerHTML=win('month','Monthly planner','2026','October',`<div class="mg"><div class="wk"></div>${D.map(d=>`<div class="wk">${d}</div>`).join('')}${side}${full.slice(0,38).map(cell).join('')}<div style="grid-column:5/span 4"><div class="lb">Notes</div></div></div>`);
+const T={day:[['clock','Schedule'],['list-check','To-do'],['notes','Notes']],week:[['flag','Priorities'],['list-check','To-do']],month:[['calendar','Calendar'],['flag','Priorities'],['list-check','To-do'],['notes','Notes']]};
+const PH=(date,tabs,on,body,sheet)=>`<div class="ph"><div class="pt">${ico('menu-2','ic')}<div class="nav">${ico('chevron-left','ic')}<span class="dtp">${date}</span>${ico('chevron-right','ic')}</div><span class="rnd">${ico('users')}</span></div><div class="pb">${body}</div>${sheet||''}<div class="tb${tabs.length>3?' four':''}">${tabs.map((t,k)=>`<div class="tab${k==on?' on':''}">${ico(t[0])}<span>${t[1]}</span></div>`).join('')}</div></div>`;
+const sbar='<span class="scrl"></span>';
+const pSched=`<div class="new">${hrs.map(h=>ln(sc[h],h)).join('')}</div>`;
+const pTodo=`<div class="new"><p class="lb">Priorities</p>${L(5,i=>ln(i?'':'Send the spec',i+1+'.'))}</div><div style="margin-top:8px"><p class="lb">To-do</p><div class="add"><span>Add…</span><span>2 of 6</span></div>${td('Call the plumber')}${td('Renew passport',1)}${L(4,()=>td())}</div>`;
+const pNotes=`<div class="new" style="height:344px;position:relative;font-size:12px">Pick up Sam at 2p. Ask about the dentist invoice.<span class="mut" style="position:absolute;right:10px;bottom:8px">52 / 400</span></div>`;
+const pPrio=`<div class="new" style="height:344px;overflow:hidden"><div class="ln"><span class="lb" style="margin:0">Priorities</span></div>${L(14,i=>ln(['Close out Q4 plan','Dinner with Sam Thursday','Call school Monday'][i]))}</div>${sbar}`;
+const pRem=(n)=>`<div class="${n?'new':''}" style="height:344px;overflow:hidden;${n?'':'padding:0'}"><div class="ln"><span class="lb" style="margin:0">To-do</span></div><div class="add" style="margin:6px 0"><span>Add a reminder…</span></div>${td('Order filters')}${td('Book dentist follow-up')}${td('Renew passport',1)}${L(9,()=>td())}</div>${sbar}`;
+const pCal=`<div class="new"><div class="mini" style="margin-bottom:2px">${D.map(d=>`<span class="mut" style="height:16px;padding:0">${d[0]}</span>`).join('')}</div><div class="pm">${full.map(([n,m])=>`<div class="${m&&n==30?'tdy':''}"><span class="${m?'':'mut'}">${n}</span>${m&&tk[n]?`<div class="dts">${L(Math.min(tk[n],3),()=>'<i></i>')}</div>`:''}</div>`).join('')}</div></div>`;
+const SCR='<div class="scr"></div>';
+const act=t=>`<div class="sact"><span class="btn">${t}</span><span class="sp"></span><span>Close</span></div>`;
+const shDay=`${SCR}<div class="sheet"><div class="sh2">${ico('chevron-left','ic')}<b>October 2026</b>${ico('chevron-right','ic')}</div><div class="mini">${D.map(d=>`<span class="mut">${d[0]}</span>`).join('')}${full.slice(0,35).map(([n,m])=>`<span class="${(m?'':'mut')+(m&&n==30?' sel':'')}">${n}</span>`).join('')}</div>${act('Today')}</div>`;
+const wr=[['Oct 12–18'],['Oct 19–25'],['Oct 26–Nov 1','This week',1],['Nov 2–8'],['Nov 9–15']];
+const shWeek=`${SCR}<div class="sheet"><div class="sh2">${ico('chevron-up','ic')}<b>Choose a week</b>${ico('chevron-down','ic')}</div>${wr.map(([l,s,o])=>`<div class="srow${o?' on':''}"><span>${l}</span><span>${s||''}</span></div>`).join('')}${act('This week')}</div>`;
+const shMonth=`${SCR}<div class="sheet"><div class="sh2">${ico('chevron-left','ic')}<b>2026</b>${ico('chevron-right','ic')}</div><div class="mo">${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i)=>`<span class="${i==9?'sel':''}">${m}</span>`).join('')}</div>${act('This month')}</div>`;
+const dd='Fri, Oct 30',wd='Oct 26–Nov 1',md='October 2026';
+$('p1').innerHTML=PH(dd,T.day,0,pSched)+PH(dd,T.day,1,pTodo)+PH(dd,T.day,2,pNotes);
+$('p2').innerHTML=PH(wd,T.week,0,pPrio)+PH(wd,T.week,1,pRem(1))+`<div class="dev" style="width:206px;margin:0"><b>Dev note.</b> No caps on Week. Priorities is free text and To-do is a reminder list. Both scroll, with no limit on characters or items.</div>`;
+$('p3').innerHTML=PH(md,T.month,0,pCal)+PH(md,T.month,1,pPrio)+PH(md,T.month,2,pRem(0));
+$('p4').innerHTML=PH(dd,T.day,0,pSched,shDay)+PH(wd,T.week,0,pPrio,shWeek)+PH(md,T.month,0,pCal,shMonth);
+document.querySelectorAll('.zm').forEach(z=>{z.style.zoom=(z.parentElement.clientWidth-28)/780});
+</script>
+</body></html>

@@ -1,0 +1,123 @@
+/* The shell: sidebar and its phone drawer, top bar, page header, banner. Panels style themselves. */
+:root{--topbar-height:46px;--topbar-button-height:32px}
+.scrim{display:none}
+.sidebar{position:fixed;inset:0 auto 0 0;width:260px;border-right:1px solid var(--line-soft);background:var(--surface);display:flex;flex-direction:column;padding:0 16px;z-index:10}
+.sidebar-brand{height:var(--topbar-height);display:flex;align-items:center;gap:11px;padding:0 10px;flex-shrink:0}
+.sidebar-brand strong{font-size:19px;letter-spacing:-.5px}
+.brand-small{display:block;width:30px;height:30px;border-radius:8px}
+.view-switch{display:flex;gap:3px;background:var(--bg);border:1px solid var(--line-soft);border-radius:9px;padding:3px;margin:0 7px 14px}
+.view-switch button{flex:1;padding:8px 6px;border-radius:6px;font-size:12px;min-height:34px;color:var(--dim)}
+.view-switch button[aria-pressed=true]{color:var(--text);background:var(--surface-2)}
+.sidebar-heading{display:flex;align-items:center;justify-content:space-between;padding:4px 9px 8px;gap:8px}
+.sidebar-heading>span{font-size:13px;font-weight:600}
+.week-nav{display:flex;align-items:center;justify-content:space-between;padding-bottom:4px;color:var(--dim)}
+.week-nav>span{font-size:12px;font-weight:500;color:var(--dim)}
+.week-nav .icon-button{width:32px;height:32px}
+.dates{overflow:auto;flex:1;min-height:0;padding:2px 0;scrollbar-width:thin}
+.date-row{width:100%;display:flex;align-items:center;gap:8px;height:30px;border-radius:8px;padding:0 8px;text-align:left;margin-bottom:2px;font-size:13px}
+.date-row:hover{background:var(--surface-2)}
+.date-row.selected{background:var(--accent-soft);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.date-number{font-weight:500;width:22px;flex:none}
+.date-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-footer{display:flex;align-items:center;gap:10px;margin-top:10px;border-top:1px solid var(--line-soft);padding:14px 12px max(14px,env(safe-area-inset-bottom));font-size:12px;flex-shrink:0}
+.private-dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.drawer-account{display:none}
+.drawer-day{display:none}
+.content{margin-left:260px;height:100dvh;display:flex;flex-direction:column}
+.topbar{flex:none;height:var(--topbar-height);padding:0 48px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft)}
+#sidebar-toggle{margin-left:-8px}
+/* Back to the month a day was opened from. On a phone it stands where the menu button is. */
+.back-button{display:inline-flex;align-items:center;gap:2px;flex:none;height:36px;padding:0 12px 0 6px;border-radius:999px;color:var(--text);font-size:14px;white-space:nowrap}
+.back-button:hover{background:var(--surface-2)}
+.back-button[hidden]{display:none}
+.topbar .grow{flex:1}
+#sync-status{font-size:11px;color:var(--dim);white-space:nowrap}
+#mode-heading{white-space:nowrap}
+.topbar .text-button{white-space:nowrap}
+.picker-slot{display:flex;align-items:center}
+.account{display:flex;align-items:center;font-size:12px;white-space:nowrap}
+.account-who{display:inline-flex;align-items:center;gap:7px;color:inherit}
+.owner-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none;background:var(--tone-line)}
+.phone-nav{align-items:center;justify-content:center;flex:1;gap:2px;min-width:0}
+.date-pill{border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px;min-height:38px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.page{--head-h:32px;--head-gap:8px;flex:1;min-height:0;display:flex;flex-direction:column;width:100%;max-width:910px;margin:0 auto;padding:10px 48px 10px}
+/* One compact row: the title and the date beside it, the previous, calendar and next buttons at the end. */
+.page-header{flex:none;display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--head-gap);gap:10px}
+.page-header .titles{display:flex;align-items:baseline;gap:12px;min-width:0}
+.page-header .eyebrow{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-header h1{font-size:24px;line-height:1.2;letter-spacing:-.6px;font-weight:550;margin:0;white-space:nowrap}
+.header-actions{display:flex;align-items:center;gap:3px}
+.header-actions .icon-button,.header-actions .date-jump{width:var(--head-h);height:var(--head-h)}
+/* positioned, so what a panel positions (the screen-reader-only owner names) stays inside the scroll area */
+#period-panel{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
+.date-jump{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;color:var(--muted)}
+.date-jump input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.date-jump input::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:auto;height:auto;cursor:pointer}
+/* A toast over the page on every screen: the slot takes no height, so the panel keeps its size and a refused save never pushes a Day that fits the
+   window into a scroll. The banner stands in the slot's width, that is, the page's content. The red is the themed one (the Day's own errors use its
+   twin), not a fixed pink that vanishes on the light theme. */
+.banner-slot{position:relative;flex:none;height:0;z-index:5}
+.error-banner{--bad:#f29090;position:absolute;top:0;left:0;right:0;color:var(--bad);font-size:13px;line-height:1.6;background:var(--surface);border:1px solid var(--line);padding:8px 15px;margin:0;border-radius:8px;display:flex;align-items:center;gap:12px;box-shadow:0 6px 22px rgba(0,0,0,.4)}
+@supports (color:color-mix(in srgb,red,blue)){.error-banner{--bad:color-mix(in srgb,#e5534b 60%,var(--text))}}
+@supports (color:light-dark(red,blue)){.error-banner{box-shadow:0 6px 22px light-dark(rgba(63,58,46,.2),rgba(0,0,0,.4))}}
+.error-banner .text-button{margin-left:auto;color:var(--text)}
+/* A desktop has a page header: the toast lies over its title and date (the heading is the one thing it may hide) and the 8px above it, clear of the
+   arrows and the date jump at its right. Two lines of 13px end where the panel begins, so the panel's own controls (the add box, the AM/PM switch,
+   the first lines) stay in reach and in sight. */
+@media(min-width:761px){
+.error-banner{top:calc(-1 * (var(--head-h) + var(--head-gap) + 8px));right:calc(3 * var(--head-h) + 6px + 12px);box-sizing:border-box;min-height:calc(var(--head-h) + 8px);padding:4px 12px;line-height:1.35}
+.error-banner .text-button{min-height:var(--head-h)}
+}
+@media(max-width:1000px){.page{padding-left:30px;padding-right:30px}.topbar{padding:0 30px}.sidebar{width:235px}.content{margin-left:235px}}
+/* A hidden sidebar (desktop only: the phone has its drawer) is gone, not moved: out of the tab order and the accessibility tree.
+   The page takes the width it frees and stays centered. */
+@media(min-width:761px){
+.sidebar-collapsed .sidebar{display:none}
+.sidebar-collapsed .content{margin-left:0}
+.sidebar-collapsed .page{max-width:1170px}
+}
+/* Too narrow for the planner's name beside the picker and the account */
+@media(max-width:900px){#mode-heading{display:none}}
+@media(max-width:760px){
+:root{--topbar-height:calc(56px + env(safe-area-inset-top));--topbar-button-height:44px}
+/* Closed, the drawer is hidden as well as moved away, so Tab and screen readers skip it. visibility waits out the slide on close
+   and flips at once on open, so the focus() in Drawer.open lands. */
+.sidebar{transform:translateX(-100%);visibility:hidden;width:min(290px,86vw);padding-top:env(safe-area-inset-top);transition:transform .18s ease,visibility 0s linear .18s}
+.sidebar-brand{height:68px}
+.date-row{height:auto;min-height:48px}
+/* Finger-sized targets: 44px, as the platform guidelines ask */
+.icon-button,.week-nav .icon-button{width:44px;height:44px}
+.date-pill,.view-switch button,.quiet-button,.text-button{min-height:44px}
+.sidebar-brand .icon-button{margin-left:auto}
+/* The Day schedule's choices, between the dates and the account row: the view switch's own segmented look for AM and PM, the picker's switch for CalMind. */
+.drawer-day:not([hidden]){display:flex;flex-direction:column;gap:6px;padding:10px 0 4px;border-top:1px solid var(--line-soft);flex-shrink:0}
+.drawer-day-label{padding:0 9px;font-size:13px;font-weight:600}
+.drawer-day .view-switch{margin:0 7px 2px}
+.drawer-day .view-switch button{min-height:44px;font-size:13px}
+.drawer-switch{display:flex;align-items:center;gap:10px;min-height:44px;margin:0 7px;padding:0 10px;border-radius:9px;font-size:13px;text-align:left}
+.drawer-switch:hover{background:var(--surface-2)}
+.drawer-switch-icon{display:inline-flex;color:var(--dim)}
+.drawer-switch[aria-checked=true] .picker-toggle{border-color:var(--accent);background:var(--accent-soft)}
+.drawer-switch[aria-checked=true] .picker-toggle::after{background:var(--accent);transform:translateX(14px)}
+.drawer-account{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-top:1px solid var(--line-soft);font-size:12px;color:var(--dim)}
+.sidebar-footer{margin-top:0;padding-top:14px;padding-bottom:max(16px,env(safe-area-inset-bottom))}
+.content{margin-left:0;height:100dvh;display:flex;flex-direction:column}
+.topbar{padding:env(safe-area-inset-top) 10px 0 6px;gap:2px}
+.topbar .grow{display:none}
+/* The menu holds the Day's AM/PM and CalMind choices, so it stays beside Back (a day opened from a Month); both shrink a little to leave the date its room. */
+.topbar[data-back] #menu{order:-1;width:40px}
+.topbar[data-back] .back-button{padding:0 8px 0 2px}
+.back-button{height:44px}
+#sync-status,.page-header .titles{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.header-actions{display:none}
+.page{position:relative;max-width:none;margin:0;padding:0;flex:1;min-height:0;display:flex;flex-direction:column}
+.page-header{margin:0;display:block}
+/* The phone's toast lies over the top bar's date and arrows, between the menu (or Back) and the picker (#146; Shell.seatBanner measures
+   that stretch): the AM/PM switch, the lane names and the panel stay in sight and nothing moves. Before it is measured, a little inside the panel. */
+.error-banner{top:var(--ban-top,6px);left:var(--ban-left,10px);right:var(--ban-right,10px);box-sizing:border-box;min-height:44px;padding:3px 4px 3px 12px;gap:6px;font-size:12px;line-height:1.3;border-radius:12px}
+.error-banner .text-button{flex:none;min-height:38px;padding:0 8px}
+#period-panel{flex:1;min-height:0;overflow:auto}
+.drawer-open .sidebar{transform:translateX(0);visibility:visible;transition:transform .18s ease,visibility 0s}
+.drawer-open .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9}
+.drawer-open{overflow:hidden}
+}

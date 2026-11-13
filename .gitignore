@@ -1,0 +1,37 @@
+# Local deploy and device state must stay outside source history.
+/CalMind/server/data/
+/CalMind/server/deploy.conf
+/CalMind/tools/.server-config/
+/CalMind/server/worker/
+/CalMind/.claude/settings.local.json
+/ChefMind/deploy.conf
+/PlanMind/deploy.conf
+/PlanMind/.local/
+/TaskMind/deploy.conf
+/ReadMind/deploy.conf
+/ReadMind/data/
+/ReadMind/config.php
+/AcctMind/deploy.conf
+/AcctMind/apps/app/.env.local
+/CoreMind/.status-history.json
+/CoreMind/.status-phase
+/CoreMind/.private-targets
+
+# Machine- and person-specific files, anywhere in the tree. Never committed.
+node_modules/
+.local/
+machine.env
+deploy.conf
+.private-targets
+.status-history.json
+.status-phase
+.DS_Store
+*.log
+
+# Build output
+dist/
+build/
+DerivedData/
+
+# History-rewrite rules hold the literals being scrubbed. Never committed.
+/.local-scrub-rules*.txt

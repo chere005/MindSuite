@@ -1,0 +1,12 @@
+{
+  "name": "mindsuite",
+  "private": true,
+  "scripts": {
+    "preflight": "sh tools/preflight.sh",
+    "check:drift": "npm run check:shared",
+    "check:shared": "node tools/check-shared.mjs --external",
+    "check:mind-core": "cd packages/mind-core && npm run check",
+    "dtp": "sh CoreMind/bin/dtp.sh",
+    "tdtp": "sh CoreMind/bin/dtp.sh --full"
+  }
+}

@@ -1,0 +1,84 @@
+name: TaskMind native packages
+# QUIET CI (AgentSuite/ci.md; `python3 ../AgentSuite/tools/check-workflows.py .` checks it). GitHub mails a run's outcome
+# to whoever TRIGGERED it. So the run a person starts (`gh workflow run taskmind-native.yml`, a re-run) only runs `handoff`, which
+# re-dispatches this workflow as github-actions[bot] (GITHUB_TOKEN); the bot's run builds, and nobody is mailed whatever
+# happens to it. Every job is also `continue-on-error`, so even the bot's run stays green; read the jobs in the Actions tab.
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.triggering_actor != 'github-actions[bot]' && format('handoff-{0}', github.run_id) || format('taskmind-native-{0}', github.sha) }}
+  cancel-in-progress: false
+jobs:
+  # A person's run does only this: hand the same work to the bot (see QUIET CI above). Identical in every workflow.
+  handoff:
+    name: Hand off to the bot
+    if: github.triggering_actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUTS: ${{ toJSON(inputs) }}
+      # What a push hands over: a tag push releases that tag.
+      PUSH_INPUTS: ${{ github.ref_type == 'tag' && format('{{"tag":"{0}"}}', github.ref_name) || '{}' }}
+    steps:
+      - name: Dispatch this workflow as github-actions[bot]
+        shell: bash
+        run: |
+          set -euo pipefail
+          wf="${GITHUB_WORKFLOW_REF%%@*}"; wf="${wf##*/}"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then json="$INPUTS"; else json="$PUSH_INPUTS"; fi
+          [ -n "$json" ] && [ "$json" != null ] || json='{}'
+          json=$(jq -c 'with_entries(select(.value != null) | .value |= tostring)' <<< "$json")
+          echo "dispatching $wf at $GITHUB_REF_NAME with $json"
+          for i in 1 2 3 4 5; do
+            if gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" --json <<< "$json"; then
+              echo "### Handed off to github-actions[bot]" >> "$GITHUB_STEP_SUMMARY"
+              echo "The work runs in the bot's run of $wf on $GITHUB_REF_NAME (Actions tab)." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep $((i * 10))
+          done
+          echo "::error title=Handoff failed::could not dispatch $wf; nothing was built"
+          exit 1
+
+  desktop:
+    if: github.triggering_actor == 'github-actions[bot]'
+    timeout-minutes: 90
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: msi,nsis
+          - os: macos-latest
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: TaskMind/native/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+        working-directory: TaskMind/native
+      - run: cargo test --manifest-path TaskMind/native/src-tauri/Cargo.toml
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: TaskMind/native
+          args: --bundles ${{ matrix.bundles }}
+          tagName: TaskMind/native-${{ github.sha }}
+          releaseName: TaskMind native packages
+          releaseBody: Private desktop packages. The app requires an account on the TaskMind team.
+          releaseDraft: true
+          prerelease: true

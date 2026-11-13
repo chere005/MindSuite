@@ -1,0 +1,132 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{--bg-success:#e1f5ee;--text-success:#0f6e56;--border-success:#5dcaa5;--bg-warning:#fbf0c4;--text-warning:#7a5b00;--border-warning:#e0bf3a;--surface-0:#f5f4ee;--surface-1:#f1efe8;--surface-2:#ffffff;--text-primary:#1a1a18;--text-secondary:#5f5e5a;--text-muted:#888780;--border:rgba(0,0,0,.15);--border-strong:rgba(0,0,0,.3);--border-stronger:rgba(0,0,0,.45);--border-accent:#378add;--bg-accent:#e6f1fb;--text-accent:#0c447c;--radius:8px}
+@media(prefers-color-scheme:dark){:root{--bg-success:#04342c;--text-success:#5dcaa5;--border-success:#0f6e56;--bg-warning:#4a3b05;--text-warning:#f5d675;--border-warning:#8a6d10;--surface-0:#1f1e1d;--surface-1:#262624;--surface-2:#30302e;--text-primary:#f5f4ee;--text-secondary:#b4b2a9;--text-muted:#888780;--border:rgba(255,255,255,.15);--border-strong:rgba(255,255,255,.3);--border-stronger:rgba(255,255,255,.45);--border-accent:#85b7eb;--bg-accent:#0c447c;--text-accent:#b5d4f4}}
+body{margin:0;padding:16px;width:680px;background:var(--surface-0);color:var(--text-primary);font:16px/1.7 -apple-system,BlinkMacSystemFont,sans-serif}
+p,h2{margin:0}
+</style></head><body>
+<h2 class="sr-only">Wireframes of the Both view: Alex and Sam lists share lines in two lanes, the signed-in person on the left, shared entries spanning both lanes, with Alex green, Sam yellow and Both purple</h2>
+<style>
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.wf,.wf *{box-sizing:border-box}
+.wf{--sb:var(--bg-success);--st:var(--text-success);--sl:var(--border-success);--ab:var(--bg-warning);--at:var(--text-warning);--al:var(--border-warning);--bb:var(--bg-pro,#eeedfe);--bt:var(--text-pro,#534ab7);--bl:var(--border-pro,#afa9ec);background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:12px 14px 16px;margin:0 0 16px}
+@media(prefers-color-scheme:dark){.wf{--bb:var(--bg-pro,#3c3489);--bt:var(--text-pro,#cecbf6);--bl:var(--border-pro,#7f77dd)}}
+:root[data-mode="dark"] .wf{--bb:var(--bg-pro,#3c3489);--bt:var(--text-pro,#cecbf6);--bl:var(--border-pro,#7f77dd)}
+.cap{font-size:13px;font-weight:500;margin:0 0 8px}
+.sp{flex:1}
+.mut{color:var(--text-muted)}
+.chip{display:inline-flex;align-items:center;border:.5px solid var(--border-strong);border-radius:999px;padding:1px 10px;color:var(--text-primary)}
+.btn{border:.5px solid var(--border-strong);border-radius:6px;padding:1px 8px;font-size:12px;font-weight:400;color:var(--text-primary)}
+.ic{font-size:18px;color:var(--text-secondary)}
+.lb{font-size:12px;color:var(--text-secondary);margin:0 0 2px}
+.h{display:flex;align-items:center;gap:4px;margin-bottom:12px}
+.h b{display:block;font-weight:500;font-size:22px}
+.sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;flex:none}
+.sw.s{background:var(--st)}.sw.a{background:var(--at)}.sw.b{background:var(--bt)}
+.pl{display:inline-flex;align-items:center;border:.5px solid var(--border-strong);border-radius:999px;padding:1px 9px;font-size:12px;color:var(--text-primary)}
+.pl.on.s{background:var(--sb);color:var(--st);border-color:var(--sl)}
+.pl.on.a{background:var(--ab);color:var(--at);border-color:var(--al)}
+.pl.on.b{background:var(--bb);color:var(--bt);border-color:var(--bl)}
+.lg{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-secondary);margin:0 0 12px}
+.lh{display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1fr);gap:4px;font-size:12px;color:var(--text-secondary);margin:0 0 4px}
+.lr{display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1fr);gap:0 4px;align-items:stretch;padding:2px 0;border-bottom:.5px solid var(--border-strong);min-height:30px}
+.lt{display:flex;align-items:center;font-size:12px;color:var(--text-secondary)}
+.sp2{grid-column:2 / span 2}
+.c{display:flex;align-items:center;min-width:0;border-radius:6px;padding:3px 7px;font-size:12px;line-height:1.3;overflow-wrap:anywhere}
+.c.s{background:var(--sb);color:var(--st)}
+.c.a{background:var(--ab);color:var(--at)}
+.c.b{background:var(--bb);color:var(--bt)}
+.ln{display:flex;align-items:flex-end;gap:8px;height:28px;padding-bottom:3px;border-bottom:.5px solid var(--border-strong);font-size:12px;white-space:nowrap;overflow:hidden}
+.dot{width:14px;height:14px;border:1px solid var(--border-strong);border-radius:50%;flex:none;margin-bottom:2px}
+.dot.s{border:1.5px solid var(--sl)}.dot.a{border:1.5px solid var(--al)}.dot.b{border:1.5px solid var(--bl)}
+.dot.dn.s{background:var(--sb)}.dot.dn.a{background:var(--ab)}.dot.dn.b{background:var(--bb)}
+.add{display:flex;justify-content:space-between;border:.5px solid var(--border-strong);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text-muted);margin:4px 0 6px}
+.fr{display:flex;align-items:center;gap:6px;margin:0 0 6px}
+.nl{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.zm{width:780px}
+.win{display:flex;width:780px;min-height:690px;border:1px solid var(--border-strong);border-radius:12px;overflow:hidden;background:var(--surface-2);font-size:13px}
+.win .c,.win .lt,.win .lh,.win .lb{font-size:13px}
+.win .lr{min-height:32px}
+.sb{width:176px;flex:none;background:var(--surface-1);border-right:.5px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:8px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:500;font-size:15px;padding:0 4px 4px}
+.brand i{width:22px;height:22px;border:1.5px solid var(--border-accent);border-radius:6px;color:var(--text-accent);display:grid;place-items:center;font-size:14px}
+.seg{display:flex;gap:2px;border:.5px solid var(--border);border-radius:8px;padding:2px;background:var(--surface-2)}
+.seg span{flex:1;text-align:center;padding:3px 0;border-radius:6px;font-size:12px;color:var(--text-secondary)}
+.seg .on{background:var(--bg-accent);color:var(--text-accent)}
+.sh{display:flex;align-items:center;justify-content:space-between;padding:2px 4px;font-weight:500}
+.wn{display:flex;align-items:center;justify-content:space-between;color:var(--text-secondary);font-size:12px}
+.dr{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:8px}
+.dr.on{background:var(--bg-accent);color:var(--text-accent)}
+.dr b{font-weight:500;width:20px}
+.dr span{flex:1}
+.sf{margin-top:auto;border-top:.5px solid var(--border);padding-top:8px;font-size:12px;color:var(--text-secondary)}
+.ct{flex:1;min-width:0;padding:10px 16px 16px}
+.tp{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);border-bottom:.5px solid var(--border);padding-bottom:8px;margin-bottom:12px}
+.pw{display:flex;gap:14px;align-items:flex-start}
+.pc{font-size:12px;color:var(--text-secondary);margin:0 0 6px}
+.cd{width:206px;flex:none;border:.5px solid var(--border-strong);border-radius:12px;padding:10px;background:var(--surface-1)}
+.ph{position:relative;display:flex;flex-direction:column;width:206px;height:496px;flex:none;overflow:hidden;border:1.5px solid var(--border-stronger);border-radius:24px;background:var(--surface-2)}
+.pt{display:flex;align-items:center;gap:6px;height:42px;padding:0 10px;border-bottom:.5px solid var(--border);flex:none}
+.nav{flex:1;display:flex;align-items:center;justify-content:center;gap:2px}
+.nav .ic{font-size:16px}
+.dtp{border:.5px solid var(--border-strong);border-radius:8px;padding:2px 8px;font-size:12px;white-space:nowrap}
+.rnd{width:26px;height:26px;border:.5px solid var(--border-strong);border-radius:50%;display:grid;place-items:center;font-size:14px;color:var(--bt)}
+.pb{position:relative;flex:1;padding:8px 10px;overflow:hidden}
+.ph .lh,.ph .lr{grid-template-columns:24px minmax(0,1fr) minmax(0,1fr)}
+.ph .lr{min-height:24px;padding:1px 0}
+.ph .c{font-size:11px;padding:1px 5px}
+.tb{display:flex;flex:none;border-top:.5px solid var(--border);padding:4px 4px 8px;background:var(--surface-1)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:3px 0;border-radius:8px;font-size:11px;color:var(--text-secondary)}
+.tab i{font-size:18px}
+.tab.on{background:var(--bg-accent);color:var(--text-accent)}
+.scr{position:absolute;inset:0;background:rgba(0,0,0,.4)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface-2);border-top:.5px solid var(--border-strong);border-radius:16px 16px 0 0;padding:10px 12px 14px;font-size:12px}
+.sh2{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sh2 b{font-weight:500;font-size:14px}
+.fld{display:flex;justify-content:space-between;align-items:center;border:1.5px solid var(--bl);background:var(--bb);color:var(--bt);border-radius:8px;padding:7px 9px;margin-bottom:8px}
+.seg3{display:flex;gap:4px}
+.seg3 .pl{flex:1;justify-content:center;padding:5px 0;border-radius:8px}
+.sact{display:flex;align-items:center;margin-top:10px}
+.dev{background:var(--surface-1);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text-secondary)}
+.dev p{margin:0 0 6px}.dev p:last-child{margin:0}
+.dev b{font-weight:500;color:var(--text-primary)}
+</style>
+<div class="lg"><span class="pl on s"><i class="sw s"></i>Alex</span><span class="pl on a"><i class="sw a"></i>Sam</span><span class="pl on b"><i class="sw b"></i>Both</span><span>Default colors, changeable per list</span></div>
+<div class="wf"><p class="cap">Desktop: Day panel in Both view, Alex signed in</p><div class="zm" id="d1"></div></div>
+<div class="wf"><p class="cap">Same priorities, three views (rows keep their line numbers)</p><div class="pw" id="cd"></div></div>
+<div class="wf"><p class="cap">Phone: Schedule tab in Both view, and adding an entry as Both</p><div class="pw" id="p1"></div></div>
+<div class="wf"><p class="cap">Dev notes</p><div class="dev"><p><b>Lanes.</b> In Both view the signed-in person is the left lane and the other person the right lane, matched by line: priority number or hour slot. An entry added as Both spans both lanes in purple.</p><p><b>Long text.</b> On desktop, Week and Month, a row grows to the taller lane and both lanes stretch with it, so lines stay matched. On the Day phone view rows never grow: cap each lane at one line and each Both entry at the width of two lanes (examples: 18 and 36 characters; tune on a device).</p><p><b>Add as Both.</b> It writes one linked entry to both lists, so it shows in Alex's view, Sam's view and Both view. Editing or deleting it changes both.</p><p><b>Colors.</b> Defaults: Sam yellow, Alex green, Both purple, using the theme's readable tints. Each list's color is a setting. Names always appear in the lane headers and the For control, so color is never the only cue.</p><p><b>To-do</b> has no line to match, so it stays one list with a colored circle per owner.</p></div></div>
+<script>
+const $=i=>document.getElementById(i),L=(n,f)=>Array.from({length:n},(_,i)=>f(i)).join('');
+const ico=(n,c)=>`<i class="ti ti-${n}${c?' '+c:''}" aria-hidden="true"></i>`;
+const chev=ico('chevron-down'),nm={s:'Alex',a:'Sam'};
+const cell=(k,t)=>t?`<div class="c ${k}">${t}</div>`:'<div></div>';
+const lr=(lab,r,me,mode)=>{const l=me,o=l=='s'?'a':'s';let m;
+if(r.b)m=`<div class="c b sp2">${r.b}</div>`;
+else if(mode=='both')m=cell(l,r[l])+cell(o,r[o]);
+else m=r[mode]?`<div class="c ${mode} sp2">${r[mode]}</div>`:'<div class="sp2"></div>';
+return `<div class="lr"><span class="lt">${lab}</span>${m}</div>`};
+const lh=(me,mode)=>{const o=me=='s'?'a':'s';
+return mode=='both'?`<div class="lh"><span></span><span><i class="sw ${me}"></i>${nm[me]} · you</span><span><i class="sw ${o}"></i>${nm[o]}</span></div>`:`<div class="lh"><span></span><span class="sp2"><i class="sw ${mode}"></i>${nm[mode]}${mode==me?' · you':''}</span></div>`};
+const td=(t,k,d)=>`<div class="ln"><i class="dot ${k||''}${d?' dn':''}"></i><span${d?' style="text-decoration:line-through;color:var(--text-muted)"':''}>${t||''}</span></div>`;
+const hrs=['7a','8a','9a','10a','11a','12p','1p','2p','3p','4p','5p','6p','7p','8p'];
+const sd={'8a':{s:'Gym'},'9a':{s:'Dentist',a:'Yoga'},'11a':{a:'Call plumber'},'12p':{b:'Lunch together'},'2p':{s:'Team call',a:'Parcel pickup'},'4p':{s:'Prepare Friday review slides',a:'Groceries'},'6p':{b:'Dinner out'}};
+const sp={'8a':{s:'Gym'},'9a':{s:'Dentist',a:'Yoga'},'11a':{a:'Plumber'},'12p':{b:'Lunch together'},'2p':{s:'Team call',a:'Parcel'},'4p':{s:'Slides',a:'Groceries'},'6p':{b:'Dinner out'}};
+const pr=[{s:'Ship the list picker',a:'Call school'},{b:'Family dinner'},{s:'Finish Q4 plan, then send to Sam',a:'Renew passport'},{a:'Order water filters'},{}];
+const D=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const rows=[['23','Friday',1],['24','Saturday'],['25','Sunday'],['26','Monday',2],['27','Tuesday',1],['28','Wednesday'],['29','Thursday'],['30','Today',3,1],['31','Saturday',1],['01','Sunday'],['02','Monday',2],['03','Tuesday'],['04','Wednesday'],['05','Thursday'],['06','Friday']];
+const SB=`<div class="sb"><div class="brand">${ico('check')}PlanMind</div><div class="seg">${['Month','Week','Day'].map(v=>`<span class="${v=='Day'?'on':''}">${v}</span>`).join('')}</div><div class="sh"><span>October 2026</span><span class="btn">Today</span></div><div class="wn">${ico('chevron-left')}<span>Your days</span>${ico('chevron-right')}</div><div style="display:flex;flex-direction:column;gap:2px">${rows.map(([n,l,,s])=>`<div class="dr${s?' on':''}"><b>${n}</b><span>${l}</span></div>`).join('')}</div><div class="sf">Alex &amp; Sam<br><span class="mut">Our shared planner</span></div></div>`;
+const body=`<div class="g2"><div><p class="lb">Schedule</p>${lh('s','both')}${hrs.map(h=>lr(h,sd[h]||{},'s','both')).join('')}<p class="lb" style="margin-top:12px">Notes</p><div class="nl"><div class="c s" style="min-height:84px;align-items:flex-start">Ask about the dentist invoice</div><div class="c a" style="min-height:84px;align-items:flex-start">Parcel is at the neighbors</div></div></div><div><p class="lb">Priorities</p>${lh('s','both')}${pr.map((r,i)=>lr(i+1+'.',r,'s','both')).join('')}<p class="lb" style="margin-top:12px">To-do</p><div class="add"><span>Add something for today…</span></div><div class="fr"><span class="lb" style="margin:0">For</span><span class="pl"><i class="sw s"></i>Alex</span><span class="pl"><i class="sw a"></i>Sam</span><span class="pl on b"><i class="sw b"></i>Both</span></div>${td('Call the plumber','a')}${td('Book flights','b')}${td('Order filters','s')}${td('Renew passport','s',1)}${L(6,()=>td())}</div></div>`;
+$('d1').innerHTML=`<div class="win">${SB}<div class="ct"><div class="tp"><span>Daily planner</span><span class="sp"></span><span class="chip"><i class="sw b" style="margin-right:6px"></i>Both ${chev}</span><span><i class="sw s"></i>Alex</span><span class="mut">Sign out</span></div><div class="h"><div class="sp"><div class="lb">October 30, 2026</div><b>Today</b></div>${ico('chevron-left','ic')}${ico('calendar','ic')}${ico('chevron-right','ic')}</div>${body}</div></div>`;
+const card=(t,mode)=>`<div class="cd"><p class="cap" style="margin-bottom:6px">${t}</p>${lh('s',mode)}${pr.map((r,i)=>lr(i+1+'.',r,'s',mode)).join('')}</div>`;
+$('cd').innerHTML=card('Alex view','s')+card('Sam view','a')+card('Both view','both');
+const T=[['clock','Schedule'],['list-check','To-do'],['notes','Notes']];
+const PH=(me,body,sheet)=>`<div class="ph"><div class="pt">${ico('menu-2','ic')}<div class="nav">${ico('chevron-left','ic')}<span class="dtp">Fri, Oct 30</span>${ico('chevron-right','ic')}</div><span class="rnd">${ico('users')}</span></div><div class="pb">${body}</div>${sheet||''}<div class="tb">${T.map((t,k)=>`<div class="tab${k==0?' on':''}">${ico(t[0])}<span>${t[1]}</span></div>`).join('')}</div></div>`;
+const sched=me=>lh(me,'both')+hrs.map(h=>lr(h,sp[h]||{},me,'both')).join('');
+const edit=`<div class="scr"></div><div class="sheet"><div class="sh2"><b>12p</b><span>Close</span></div><div class="fld"><span>Lunch together</span><span>14 / 36</span></div><p class="lb">For</p><div class="seg3"><span class="pl s"><i class="sw s"></i>Alex</span><span class="pl a"><i class="sw a"></i>Sam</span><span class="pl on b"><i class="sw b"></i>Both</span></div><p class="lb" style="margin:6px 0 0">Shows on Alex's and Sam's lists.</p><div class="sact"><span class="btn">Clear slot</span><span class="sp"></span><span class="btn">Save</span></div></div>`;
+$('p1').innerHTML=`<div><p class="pc">Alex signed in</p>${PH('s',sched('s'))}</div><div><p class="pc">Sam signed in</p>${PH('a',sched('a'))}</div><div><p class="pc">Tap a slot, add as Both</p>${PH('s',sched('s'),edit)}</div>`;
+document.querySelectorAll('.zm').forEach(z=>{z.style.zoom=(z.parentElement.clientWidth-28)/780});
+</script>
+</body></html>

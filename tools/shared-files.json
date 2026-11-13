@@ -1,0 +1,348 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "mind-server-lib-atomic-php",
+      "origin": "packages/mind-server/lib/atomic.php",
+      "copies": ["CalMind/server/lib/atomic.php", "PlanMind/server/lib/atomic.php", "TaskMind/server/lib/atomic.php"]
+    },
+    {
+      "id": "mind-server-lib-mail-php",
+      "origin": "packages/mind-server/lib/mail.php",
+      "copies": ["CalMind/server/lib/mail.php"]
+    },
+    {
+      "id": "mind-server-lib-webauthn-php",
+      "origin": "packages/mind-server/lib/webauthn.php",
+      "copies": ["CalMind/server/lib/webauthn.php"]
+    },
+    {
+      "id": "mind-server-tools-atomic-test-php",
+      "origin": "packages/mind-server/tools/atomic-test.php",
+      "copies": ["CalMind/server/tools/atomic-test.php", "PlanMind/server/tools/atomic-test.php", "TaskMind/server/tools/atomic-test.php"]
+    },
+    {
+      "id": "mind-server-tools-fake-smtp-php",
+      "origin": "packages/mind-server/tools/fake-smtp.php",
+      "copies": ["CalMind/server/tools/fake-smtp.php"]
+    },
+    {
+      "id": "mind-server-tools-mail-harness-php",
+      "origin": "packages/mind-server/tools/mail-harness.php",
+      "copies": ["CalMind/server/tools/mail-harness.php"]
+    },
+    {
+      "id": "mind-server-tools-mail-test-php",
+      "origin": "packages/mind-server/tools/mail-test.php",
+      "copies": ["CalMind/server/tools/mail-test.php"]
+    },
+    {
+      "id": "app-index-ts",
+      "origin": "CalMind/apps/app/index.ts",
+      "copies": ["ChefMind/app/index.ts"]
+    },
+    {
+      "id": "app-modules-native-ocr-expo-module-config-json",
+      "origin": "CalMind/apps/app/modules/native-ocr/expo-module.config.json",
+      "copies": ["ChefMind/app/modules/native-ocr/expo-module.config.json"]
+    },
+    {
+      "id": "app-modules-native-ocr-ios-nativeocr-podspec",
+      "origin": "CalMind/apps/app/modules/native-ocr/ios/NativeOcr.podspec",
+      "copies": ["ChefMind/app/modules/native-ocr/ios/NativeOcr.podspec"]
+    },
+    {
+      "id": "app-modules-native-ocr-ios-nativeocrmodule-swift",
+      "origin": "CalMind/apps/app/modules/native-ocr/ios/NativeOcrModule.swift",
+      "copies": ["ChefMind/app/modules/native-ocr/ios/NativeOcrModule.swift"]
+    },
+    {
+      "id": "app-src-logo-tsx",
+      "origin": "CalMind/apps/app/src/Logo.tsx",
+      "copies": ["ChefMind/app/src/Logo.tsx"]
+    },
+    {
+      "id": "app-src-brand-ts",
+      "origin": "CalMind/apps/app/src/brand.ts",
+      "copies": ["ChefMind/app/src/brand.ts"]
+    },
+    {
+      "id": "app-src-components-chevron-tsx",
+      "origin": "CalMind/apps/app/src/components/Chevron.tsx",
+      "copies": ["ChefMind/app/src/components/Chevron.tsx"]
+    },
+    {
+      "id": "app-src-components-daypick-tsx",
+      "origin": "CalMind/apps/app/src/components/DayPick.tsx",
+      "copies": ["ChefMind/app/src/components/DayPick.tsx"]
+    },
+    {
+      "id": "app-src-components-dropdown-tsx",
+      "origin": "CalMind/apps/app/src/components/Dropdown.tsx",
+      "copies": ["ChefMind/app/src/components/Dropdown.tsx"]
+    },
+    {
+      "id": "app-src-components-editexit-tsx",
+      "origin": "CalMind/apps/app/src/components/EditExit.tsx",
+      "copies": ["ChefMind/app/src/components/EditExit.tsx"]
+    },
+    {
+      "id": "app-src-components-foldermanager-tsx",
+      "origin": "CalMind/apps/app/src/components/FolderManager.tsx",
+      "copies": ["ChefMind/app/src/components/FolderManager.tsx"]
+    },
+    {
+      "id": "app-src-components-ingredientbadge-tsx",
+      "origin": "CalMind/apps/app/src/components/IngredientBadge.tsx",
+      "copies": ["ChefMind/app/src/components/IngredientBadge.tsx"]
+    },
+    {
+      "id": "app-src-components-itemmodal-tsx",
+      "origin": "CalMind/apps/app/src/components/ItemModal.tsx",
+      "copies": ["ChefMind/app/src/components/ItemModal.tsx"]
+    },
+    {
+      "id": "app-src-components-kindicons-tsx",
+      "origin": "CalMind/apps/app/src/components/KindIcons.tsx",
+      "copies": ["ChefMind/app/src/components/KindIcons.tsx"]
+    },
+    {
+      "id": "app-src-components-piedot-tsx",
+      "origin": "CalMind/apps/app/src/components/PieDot.tsx",
+      "copies": ["ChefMind/app/src/components/PieDot.tsx"]
+    },
+    {
+      "id": "app-src-components-richtext-tsx",
+      "origin": "CalMind/apps/app/src/components/RichText.tsx",
+      "copies": ["ChefMind/app/src/components/RichText.tsx"]
+    },
+    {
+      "id": "app-src-components-sharemodal-tsx",
+      "origin": "CalMind/apps/app/src/components/ShareModal.tsx",
+      "copies": ["ChefMind/app/src/components/ShareModal.tsx"]
+    },
+    {
+      "id": "app-src-components-swatchtray-tsx",
+      "origin": "CalMind/apps/app/src/components/SwatchTray.tsx",
+      "copies": ["ChefMind/app/src/components/SwatchTray.tsx"]
+    },
+    {
+      "id": "app-src-components-syncdot-tsx",
+      "origin": "CalMind/apps/app/src/components/SyncDot.tsx",
+      "copies": ["ChefMind/app/src/components/SyncDot.tsx"]
+    },
+    {
+      "id": "app-src-components-toast-tsx",
+      "origin": "CalMind/apps/app/src/components/Toast.tsx",
+      "copies": ["ChefMind/app/src/components/Toast.tsx"]
+    },
+    {
+      "id": "app-src-components-toasthost-tsx",
+      "origin": "CalMind/apps/app/src/components/ToastHost.tsx",
+      "copies": ["ChefMind/app/src/components/ToastHost.tsx"]
+    },
+    {
+      "id": "app-src-components-toasthost-web-tsx",
+      "origin": "CalMind/apps/app/src/components/ToastHost.web.tsx",
+      "copies": ["ChefMind/app/src/components/ToastHost.web.tsx"]
+    },
+    {
+      "id": "app-src-components-ocr-ts",
+      "origin": "CalMind/apps/app/src/components/ocr.ts",
+      "copies": ["ChefMind/app/src/components/ocr.ts"]
+    },
+    {
+      "id": "app-src-components-rowdrag-ts",
+      "origin": "CalMind/apps/app/src/components/rowdrag.ts",
+      "copies": ["ChefMind/app/src/components/rowdrag.ts"]
+    },
+    {
+      "id": "app-src-components-rowslots-ts",
+      "origin": "CalMind/apps/app/src/components/rowslots.ts",
+      "copies": ["ChefMind/app/src/components/rowslots.ts", "AcctMind/packages/core/src/rowslots.ts"]
+    },
+    {
+      "id": "app-src-components-sectiondrag-ts",
+      "origin": "CalMind/apps/app/src/components/sectiondrag.ts",
+      "copies": ["ChefMind/app/src/components/sectiondrag.ts"]
+    },
+    {
+      "id": "app-src-components-swiperow-ts",
+      "origin": "CalMind/apps/app/src/components/swiperow.ts",
+      "copies": ["ChefMind/app/src/components/swiperow.ts"]
+    },
+    {
+      "id": "app-src-folds-ts",
+      "origin": "CalMind/apps/app/src/folds.ts",
+      "copies": ["ChefMind/app/src/folds.ts"]
+    },
+    {
+      "id": "app-src-passkey-ts",
+      "origin": "CalMind/apps/app/src/passkey.ts",
+      "copies": ["ChefMind/app/src/passkey.ts"]
+    },
+    {
+      "id": "app-src-savefile-ts",
+      "origin": "CalMind/apps/app/src/savefile.ts",
+      "copies": ["ChefMind/app/src/savefile.ts"]
+    },
+    {
+      "id": "app-src-savefile-web-ts",
+      "origin": "CalMind/apps/app/src/savefile.web.ts",
+      "copies": ["ChefMind/app/src/savefile.web.ts"]
+    },
+    {
+      "id": "app-src-screens-login-tsx",
+      "origin": "CalMind/apps/app/src/screens/Login.tsx",
+      "copies": ["ChefMind/app/src/screens/Login.tsx"]
+    },
+    {
+      "id": "app-src-screens-settings-tsx",
+      "origin": "CalMind/apps/app/src/screens/Settings.tsx",
+      "copies": ["ChefMind/app/src/screens/Settings.tsx"]
+    },
+    {
+      "id": "app-src-theme-ts",
+      "origin": "CalMind/apps/app/src/theme.ts",
+      "copies": ["ChefMind/app/src/theme.ts", "PlanMind/app/theme.ts", "TaskMind/app/theme.ts"]
+    },
+    {
+      "id": "app-src-ui-tsx",
+      "origin": "CalMind/apps/app/src/ui.tsx",
+      "copies": ["ChefMind/app/src/ui.tsx"]
+    },
+    {
+      "id": "app-src-update-ts",
+      "origin": "CalMind/apps/app/src/update.ts",
+      "copies": ["ChefMind/app/src/update.ts"]
+    },
+    {
+      "id": "app-src-useclock24-ts",
+      "origin": "CalMind/apps/app/src/useClock24.ts",
+      "copies": ["ChefMind/app/src/useClock24.ts"]
+    },
+    {
+      "id": "app-test-rowslots-test-ts",
+      "origin": "CalMind/apps/app/test/rowslots.test.ts",
+      "copies": ["ChefMind/app/test/rowslots.test.ts"]
+    },
+    {
+      "id": "app-tsconfig-json",
+      "origin": "CalMind/apps/app/tsconfig.json",
+      "copies": ["ChefMind/app/tsconfig.json"]
+    },
+    {
+      "id": "desktop-src-tauri-build-rs",
+      "origin": "CalMind/desktop/src-tauri/build.rs",
+      "copies": ["ChefMind/desktop/src-tauri/build.rs", "AcctMind/desktop/src-tauri/build.rs", "PlanMind/native/src-tauri/build.rs", "TaskMind/native/src-tauri/build.rs"]
+    },
+    {
+      "id": "desktop-src-tauri-src-main-rs",
+      "origin": "CalMind/desktop/src-tauri/src/main.rs",
+      "copies": ["ChefMind/desktop/src-tauri/src/main.rs"]
+    },
+    {
+      "id": "desktop-stage-dist-sh",
+      "origin": "CalMind/desktop/stage-dist.sh",
+      "copies": ["ChefMind/desktop/stage-dist.sh"]
+    },
+    {
+      "id": "tools-app-identity-mjs",
+      "origin": "CalMind/tools/app-identity.mjs",
+      "copies": ["ChefMind/tools/app-identity.mjs"]
+    },
+    {
+      "id": "tools-gh-bot-sh",
+      "origin": "CalMind/tools/gh-bot.sh",
+      "copies": ["ChefMind/tools/gh-bot.sh", "AcctMind/tools/gh-bot.sh"]
+    },
+    {
+      "id": "tools-heavy-lock-sh",
+      "origin": "CalMind/tools/heavy-lock.sh",
+      "copies": ["ChefMind/tools/heavy-lock.sh", "AcctMind/tools/heavy-lock.sh", "PlanMind/tools/heavy-lock.sh", "TaskMind/tools/heavy-lock.sh"]
+    },
+    {
+      "id": "tools-machine-env-sh",
+      "origin": "CalMind/tools/machine-env.sh",
+      "copies": ["ChefMind/tools/machine-env.sh", "AcctMind/tools/machine-env.sh", "PlanMind/tools/machine-env.sh", "TaskMind/tools/machine-env.sh"]
+    },
+    {
+      "id": "tools-retry-installs-sh",
+      "origin": "CoreMind/bin/retry-installs.sh",
+      "copies": ["CalMind/tools/retry-installs.sh", "ChefMind/tools/retry-installs.sh", "AcctMind/tools/retry-installs.sh", "PlanMind/tools/retry-installs.sh", "TaskMind/tools/retry-installs.sh"],
+      "note": "Owed iOS installs: record, clear and retry (see CoreMind/AGENTS.md)."
+    },
+    {
+      "id": "tools-machine-env-sample",
+      "origin": "CalMind/tools/machine.env.sample",
+      "copies": ["ChefMind/tools/machine.env.sample", "AcctMind/tools/machine.env.sample", "PlanMind/tools/machine.env.sample", "TaskMind/tools/machine.env.sample"]
+    },
+    {
+      "id": "tools-patch-web-html-mjs",
+      "origin": "CalMind/tools/patch-web-html.mjs",
+      "copies": ["ChefMind/tools/patch-web-html.mjs"]
+    },
+    {
+      "id": "tools-source-digest-mjs",
+      "origin": "CalMind/tools/source-digest.mjs",
+      "copies": ["ChefMind/tools/source-digest.mjs"]
+    },
+    {
+      "id": "tools-sw-js",
+      "origin": "CalMind/tools/sw.js",
+      "copies": ["ChefMind/tools/sw.js"]
+    },
+    {
+      "id": "tools-sync-lock-versions-mjs",
+      "origin": "CalMind/tools/sync-lock-versions.mjs",
+      "copies": ["ChefMind/tools/sync-lock-versions.mjs", "AcctMind/tools/sync-lock-versions.mjs"]
+    },
+    {
+      "id": "tools-tdtp-sh",
+      "origin": "CalMind/tools/tdtp.sh",
+      "copies": ["ChefMind/tools/tdtp.sh", "AcctMind/tools/tdtp.sh", "PlanMind/tools/tdtp.sh", "TaskMind/tools/tdtp.sh"]
+    },
+    {
+      "id": "tsconfig-base-json",
+      "origin": "CalMind/tsconfig.base.json",
+      "copies": ["ChefMind/tsconfig.base.json"]
+    }
+  ],
+  "external": [
+    {
+      "id": "site-lib-atomic-php",
+      "origin": "packages/mind-server/lib/atomic.php",
+      "repo": "seancheren-site",
+      "path": "lib/atomic.php",
+      "note": "Shared checked atomic writes and locks."
+    },
+    {
+      "id": "site-lib-mindsuite-auth-php",
+      "origin": "packages/mind-server/lib/mindsuite-auth.php",
+      "repo": "seancheren-site",
+      "path": "lib/mindsuite-auth.php",
+      "note": "Shared password and session library."
+    },
+    {
+      "id": "site-lib-mindsuite-passkeys-php",
+      "origin": "packages/mind-server/lib/mindsuite-passkeys.php",
+      "repo": "seancheren-site",
+      "path": "lib/mindsuite-passkeys.php",
+      "note": "Shared passkey ceremonies and credential storage."
+    },
+    {
+      "id": "site-lib-webauthn-php",
+      "origin": "packages/mind-server/lib/webauthn.php",
+      "repo": "seancheren-site",
+      "path": "lib/webauthn.php",
+      "note": "Shared WebAuthn primitives."
+    },
+    {
+      "id": "site-tools-fake-smtp-php",
+      "origin": "packages/mind-server/tools/fake-smtp.php",
+      "repo": "seancheren-site",
+      "path": "tools/fake-smtp.php",
+      "note": "Disposable fake SMTP server for the mail tests."
+    }
+  ]
+}

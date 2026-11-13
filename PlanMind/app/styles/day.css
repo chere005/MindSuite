@@ -1,0 +1,397 @@
+/*
+ * The Day panel. Colors come only from data-c (tones.css): a cell reads --tone-bg|fg|line. Positions of schedule
+ * blocks come from --q (first quarter-hour row) and --n (rows), which ScheduleSection sets on each block; lane columns
+ * are the l0..l3 and w2 classes, so nothing here is written inline in markup. Class names all start with day-.
+ */
+.day-panel{--gut:34px;--hour-min:32px;--entry-inset:1px;--day-bad:#f29090;display:block;min-width:0}
+@supports (color:color-mix(in srgb,red,blue)){.day-panel{--day-bad:color-mix(in srgb,#e5534b 70%,var(--text))}}
+.day-panel .n1{--n:1}.day-panel .n2{--n:2}.day-panel .n3{--n:3}.day-panel .n4{--n:4}
+.day-panel .l0{grid-column-start:1}.day-panel .l1{grid-column-start:2}.day-panel .l2{grid-column-start:3}.day-panel .l3{grid-column-start:4}
+.day-panel .w2{grid-column-end:span 2}
+/* Desktop: the panel fills the page. The two columns share its height; the timeline takes what its column has left,
+   and scrolls when the grid needs more room. The other sections keep their natural height.
+   Only when the window is shorter than the columns' minimum does the page scroll (inside #period-panel). */
+.day-panel[data-layout=wide]{height:100%}
+.day-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(min-content,1fr);gap:24px;height:100%}
+.day-col{min-width:0;min-height:0;display:flex;flex-direction:column}
+.day-sec{min-width:0}
+.day-label{font-size:12px;font-weight:500;color:var(--dim);margin:0 0 4px}
+.day-sechead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.day-skip{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.day-skip:focus{position:static;width:auto;height:auto;margin:0;padding:2px 8px;clip:auto;font-size:12px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px}
+.day-sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;flex:none;background:var(--tone-line)}
+.day-count{font-size:11px;color:var(--dim);white-space:nowrap}
+.day-count[data-over=true]{color:var(--day-bad)}
+
+/* Lane header: the signed-in person first. */
+.day-lanehead{position:relative;display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr));gap:4px;padding-left:var(--gut);margin:0 0 4px;font-size:12px;color:var(--dim)}
+.day-corner{position:absolute;left:0;top:0;width:var(--gut);font-size:11px;font-weight:600;letter-spacing:.04em;line-height:inherit;color:var(--dim);pointer-events:none}
+.day-lane{display:flex;align-items:center;min-width:0}
+.day-lane>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Schedule: the box is 14 hour rows tall, blocks placed by start and length on a 56-row quarter-hour grid. AM fills it (7a to 9p); PM, behind the
+   AM and PM switch, uses its top ten rows (9p to 7a the next morning) at the same row height. */
+.day-sched{flex:1 1 0;display:flex;flex-direction:column}
+.day-timeline{flex:1 1 0;min-height:min(308px,50dvh);display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scroll-padding-block:48px;padding-block:5px}
+.day-sched[data-overlay-scrollbar] > :is(.day-timeline,.day-lanehead,.day-allday){padding-inline-end:16px}
+/* Fill the available height. A short window can scroll once its quarter hours reach 8px. */
+.day-grid{flex:1 0 auto;display:grid;grid-template-columns:var(--gut) minmax(0,1fr);min-height:calc(var(--hrs,14) * var(--hour-min) + 1px);border-bottom:1px solid var(--line)}
+.day-hours{display:flex;flex-direction:column}
+.day-hours span{flex:0 0 calc(100% / var(--hrs,14));min-height:0;padding-top:2px;font-size:11px;color:var(--dim)}
+.day-lanes{position:relative;min-width:0}
+.day-slots,.day-evs{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr))}
+.day-slots{grid-template-rows:repeat(var(--hrs,14),minmax(0,1fr))}
+.day-evs{grid-template-rows:repeat(var(--qrs,56),minmax(0,1fr));pointer-events:none;container:schedule / size}
+.day-ev[hidden]{display:none}
+/* An entry the half cuts off is flat on that edge, and has no handle there (its real edge is in the other half). */
+.day-panel .day-ev[data-clip~=top]{margin-top:0;border-top-left-radius:0;border-top-right-radius:0}
+.day-panel .day-ev[data-clip~=bottom]{margin-bottom:0;border-bottom-left-radius:0;border-bottom-right-radius:0}
+.day-ev[data-clip~=top] .day-handle[data-edge=start],.day-ev[data-clip~=bottom] .day-handle[data-edge=end]{display:none}
+/* The AM and PM switch (a phone). */
+/* The CalMind button beside the AM and PM switch, and CalMind's events: faint, under the planner's entries, never a control (the owner, 2026-11-09). */
+.day-schedtools{display:flex;align-items:center;gap:8px;flex:none}
+.day-calbtn{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--dim);font-size:12px}
+.day-calbtn[aria-pressed=true]{color:var(--text);background:var(--accent-soft);border-color:var(--accent)}
+.day-calbtn[aria-pressed=false] span{text-decoration:line-through}
+.day-cals{position:absolute;inset:0;pointer-events:none;container:schedule / size}
+/* A CalMind event. The outer box is only the place (the planner's own spanBox, as a fraction of the lanes) and a size container; .day-cal-in is the
+   look, which changes with the box's height: a chip for a quarter hour, one line for a half hour, the words over as many lines as fit for more. */
+.day-cal{--cal-top:var(--entry-inset);--cal-bottom:var(--entry-inset);--cal-pad:2px;position:absolute;top:calc(var(--cy) * 100% + var(--cal-top));height:calc(var(--ch) * 100% - var(--cal-top) - var(--cal-bottom));left:calc(var(--cx) * 100% + var(--entry-inset));width:calc(var(--cw) * 100% - 2 * var(--entry-inset));box-sizing:border-box;pointer-events:none;user-select:none;-webkit-user-select:none;container:cal-entry / size}
+@container schedule (height >= 1008px){.day-cal{--cal-pad:4px}}
+.day-cal-in,.day-ad-in{--l:1;position:absolute;inset:0;box-sizing:border-box;display:flex;align-items:baseline;gap:0 7px;overflow:hidden;padding:var(--cal-pad) 7px var(--cal-pad) 5px;border:1px dashed var(--line);border-left:3px solid var(--cal,var(--tone-line));border-radius:5px;background:var(--surface-2);color:var(--dim);font-size:13px;line-height:16px}
+/* Opaque, so the grid's hour and half-hour lines do not run through the words (the planner's own entries are opaque too). */
+@supports (color:color-mix(in srgb,red,blue)){.day-cal-in,.day-ad-in{background:color-mix(in srgb,var(--cal,var(--tone-line)) 14%,var(--bg));border-color:color-mix(in srgb,var(--cal,var(--tone-line)) 45%,var(--bg));border-left-color:var(--cal,var(--tone-line));color:color-mix(in srgb,var(--text) 72%,var(--bg))}}
+/* The all-day strip above the timeline (#171): a compact read-only band outside the grid, so no timed card or slot moves for it, and no element at all when the day has none.
+   A gutter label, then the lanes' columns (the grid's --n); a chip is one row of 20px with the 1px inset of the entries, in its owner's lane or across both, in the timed cards' look
+   (opaque, the calendar's stripe and tint). Two rows at most; a lane with more ends in +N. */
+.day-allday{display:grid;grid-template-columns:var(--gut) minmax(0,1fr);margin:0 0 3px}
+.day-allday-gut{align-self:start;padding-top:4px;font-size:10px;line-height:12px;color:var(--dim)}
+.day-allday-chips{display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr));grid-auto-rows:22px}
+.day-ad{box-sizing:border-box;min-width:0;margin:1px;position:relative;grid-row:1;grid-column:1;user-select:none;-webkit-user-select:none;cursor:default}
+.day-ad[data-row="1"]{grid-row:2}
+.day-ad[data-lane="1"]{grid-column-start:2}.day-ad[data-lane="2"]{grid-column-start:3}.day-ad[data-lane="3"]{grid-column-start:4}
+.day-ad[data-span="2"]{grid-column-end:span 2}
+/* The colors (border, stripe, tint, words) are the timed cards' own: .day-cal-in,.day-ad-in above. */
+.day-ad-in{align-items:center;gap:0;padding:0 7px 0 5px;font-size:12px;line-height:14px}
+.day-ad-text{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.day-ad-more .day-ad-in{border-left-width:1px;justify-content:center;padding:0 4px;font-variant-numeric:tabular-nums}
+.day-ad-more .day-ad-text{flex:none}
+/* Cut off by a page edge: flush with it and flat there, as the planner's own entries are (.day-ev[data-clip] above). */
+.day-cal[data-clip~=top]{--cal-top:0px}
+.day-cal[data-clip~=bottom]{--cal-bottom:0px}
+.day-cal[data-clip~=top] .day-cal-in{border-top-left-radius:0;border-top-right-radius:0}
+.day-cal[data-clip~=bottom] .day-cal-in{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.day-cal-time{flex:none;font-size:11px;font-variant-numeric:tabular-nums;opacity:.8}
+.day-cal-text{flex:1 1 0;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--l);line-clamp:var(--l);overflow:hidden;overflow-wrap:anywhere}
+/* At the compact grid scale, a half-hour calendar card aligns its caption with a planner half-hour. */
+@container schedule (height < 1008px){@container cal-entry (height >= 20px){
+.day-cal[data-n="2"] .day-cal-in{align-items:center;padding-block:0;border-block-width:0;line-height:14px}
+.day-cal[data-n="2"] .day-cal-text{display:block;white-space:nowrap;text-overflow:ellipsis}
+}}
+/* A narrow column keeps the room for the words, as the planner's own entries do. */
+@container cal-entry (width < 96px){.day-cal-time{display:none}}
+/* Room for more than one line: as many whole lines as the box holds (4px of padding, 2px of border and 16px a line, whatever the padding). */
+@container cal-entry (height >= 42px){.day-cal-in{--l:2}}
+@container cal-entry (height >= 58px){.day-cal-in{--l:3}}
+@container cal-entry (height >= 74px){.day-cal-in{--l:4}}
+@container cal-entry (height >= 90px){.day-cal-in{--l:5}}
+@container cal-entry (height >= 106px){.day-cal-in{--l:6}}
+@container cal-entry (height >= 122px){.day-cal-in{--l:7}}
+@container cal-entry (height >= 138px){.day-cal-in{--l:8}}
+/* Under 20px, one centered line, the planner's own half hours; no border above and below (an inset line instead) so 14px of words fit. */
+@container cal-entry (height < 20px){.day-cal-in{align-items:center;padding-block:0;border-block-width:0;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--cal,var(--tone-line)) 45%,var(--bg));line-height:14px}
+.day-cal-text{display:block;white-space:nowrap;text-overflow:ellipsis}}
+/* A quarter hour (or a little more) is too short for any words: a chip across its middle, like the planner's own quarter hours. */
+@container cal-entry (height < 13px){.day-cal-in{overflow:visible;box-shadow:none;border-block-width:1px}
+.day-cal-time{display:none}
+.day-cal-text{position:absolute;inset-block-start:calc(50% - 7.5px);inset-inline-end:3px;max-width:calc(100% - 10px);flex:none;padding:0 5px;border-radius:3px;background:inherit;box-shadow:0 0 0 1px var(--bg),inset 0 0 0 1px color-mix(in srgb,var(--cal,var(--tone-line)) 45%,var(--bg));line-height:15px}}
+.day-half{display:flex;flex:none;padding:1px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.day-half button{min-width:40px;height:22px;padding:0 10px;border-radius:999px;font-size:12px;color:var(--dim)}
+.day-half button[aria-pressed=true]{background:var(--accent-soft);color:var(--text);box-shadow:inset 0 0 0 1px var(--accent)}
+.day-slot{display:block;width:100%;height:100%;min-height:0;padding:0;border:0;border-top:1px solid var(--line);border-left:1px solid var(--line-soft);background:linear-gradient(to bottom,transparent calc(50% - .5px),var(--line-soft) calc(50% - .5px),var(--line-soft) calc(50% + .5px),transparent calc(50% + .5px));cursor:cell}
+/* The hover ghost of a new entry: the real block, softened, in the color of whoever the entry will be for (data-c, as on a block). */
+.day-preview{grid-row:var(--q) / span var(--n);margin:var(--entry-inset);display:flex;align-items:flex-start;min-height:0;padding:2px 7px;box-sizing:border-box;border-radius:5px;border:1px solid var(--tone-line);background:var(--tone-bg);color:var(--tone-fg);opacity:.55;font-size:11px;line-height:16px;white-space:nowrap;pointer-events:none}
+/* The hover of a blank cell: a ghost of the cell a tap would make (PrioritiesSection draws it), in the look of the schedule's preview (this and the next rule). */
+.day-cell.day-newcell{position:absolute;min-height:0;opacity:.55;pointer-events:none}
+@media (hover:none){.day-cell.day-newcell{display:none}}
+/* The same ghost over a blank to-do line (BlankSlots.ts): the whole line in the middle third of the Both view and where the view is not cut, its left or right half in an outer third. */
+.todo-newcell{top:2px;bottom:2px;left:0;right:0}
+.todo-newcell[data-side=left]{right:calc(50% + 2px)}
+.todo-newcell[data-side=right]{left:calc(50% + 2px)}
+@supports (color:color-mix(in srgb,red,blue)){.day-preview,.day-cell.day-newcell{opacity:1;border-color:color-mix(in srgb,var(--tone-line) 55%,transparent);background:color-mix(in srgb,var(--tone-bg) 45%,transparent);color:color-mix(in srgb,var(--tone-fg) 80%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--tone-line) 70%,transparent)}}
+.day-panel[data-layout=phone] .day-preview{display:none}
+@media (hover:none){.day-preview{display:none}}
+.day-ev{touch-action:pan-y;grid-row:var(--q) / span var(--n);position:relative;z-index:1;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;margin:var(--entry-inset);pointer-events:auto;display:flex;align-items:baseline;gap:7px;overflow:hidden;min-height:0;padding:4px 7px;border-radius:5px;font-size:13px;line-height:16px;text-align:left;background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);container:entry / inline-size}
+/* The stored button owns its whole time interval, including the inset around the painted card. Native hit testing keeps
+   hover, focus, click and the drag press on the same element. The editing field and resize handles have their own targets. */
+button.day-ev{--marker-border:1px;--hit-top:var(--entry-inset);--hit-bottom:var(--entry-inset);overflow:visible;pointer-events:none}
+button.day-ev[data-clip~=top]{--hit-top:0px}
+button.day-ev[data-clip~=bottom]{--hit-bottom:0px}
+button.day-ev::before{content:"";position:absolute;z-index:1;inset:calc(-1 * (var(--hit-top) + var(--marker-border))) calc(-1 * (var(--entry-inset) + var(--marker-border))) calc(-1 * (var(--hit-bottom) + var(--marker-border)));pointer-events:auto}
+@media (hover:hover){.day-ev:hover{filter:brightness(1.08)}}
+.day-ev-time{flex:none;color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
+/* In a narrow lane the title gets the available width; the hour grid and spoken label still say when it starts. */
+@container entry (width < 78px){button.day-ev .day-ev-time{display:none}}
+/* The words fill the block: as many lines as its height holds (--lines, set by ScheduleSection fitLines), an ellipsis after the last. */
+.day-ev-text{min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,1);line-clamp:var(--lines,1);overflow:hidden;overflow-wrap:anywhere}
+.day-ev[data-n="1"]{padding-block:1px}
+/* At the compact scale, keep half-hour entries on one line. */
+@container schedule (height < 1008px){
+.day-ev{padding-block:2px}
+button.day-ev[data-n="2"]{--marker-border:0px;align-items:center;padding-block:0;border:0;box-shadow:inset 0 0 0 1px var(--tone-line);line-height:14px}
+button.day-ev[data-n="2"] .day-ev-text{display:block;white-space:nowrap;text-overflow:ellipsis}
+}
+/* A 30-minute appointment can show only 15 minutes on either side of the AM/PM split. The fragment's caption and its
+   exposed duration edge are stable targets on the same button. */
+@container schedule (height < 1232px){
+button.day-ev[data-n="1"]{--marker-border:0px;--short-fill:var(--tone-bg);z-index:auto;container:none;padding-block:0;border:0;border-radius:3px;background:var(--short-fill);box-shadow:inset 0 0 0 1px var(--tone-line)}
+@media (hover:hover){button.day-ev[data-n="1"]:hover{--short-fill:color-mix(in srgb,var(--tone-bg),var(--tone-fg) 7%);filter:none}}
+button.day-ev[data-n="1"]::after{content:"";position:absolute;z-index:2;inset:0 auto 0 0;width:4px;border-radius:3px 0 0 3px;background:var(--tone-line);pointer-events:auto}
+button.day-ev[data-n="1"] .day-ev-time{display:none}
+button.day-ev[data-n="1"] .day-ev-text{position:absolute;z-index:2;inset-block-start:calc(50% - 7.5px);inset-inline-end:3px;max-width:calc(100% - 10px);display:block;overflow:hidden;padding:0 5px;border-radius:3px;background:var(--short-fill);box-shadow:0 0 0 1px var(--bg),inset 0 0 0 1px var(--tone-line);line-height:15px;white-space:nowrap;text-overflow:ellipsis;pointer-events:auto}
+.day-ev.day-editing[data-n="1"]{align-items:center;padding-block:0}
+}
+.day-ev[data-moving],button.day-ev[data-moving]{z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.35);filter:brightness(1.12)}
+/* An entry being written is the same block, lifted: its owner's tone, a crisp 1px edge, a soft glow, a deeper shadow and a slightly brighter fill. The field has no
+   underline (the caret says "type") and the time is a small chip. The tokens are set here for every browser (the page's accent as the edge, its soft tint as the ring);
+   color-mix and light-dark refine them after the field rules. The block never animates open: a redraw rebuilds it, and it must not flash each time. */
+.day-ev.day-editing{--ed-edge:var(--accent);--ed-fill:var(--tone-bg);--ed-ink:var(--tone-fg);--ed-ring:var(--accent-soft);--ed-glow:transparent;--ed-shadow:rgba(0,0,0,.5);--ed-chip:transparent;--ed-caret:var(--accent);--ed-grip:var(--bg);--ed-halo:var(--accent-soft);
+  --ed-lift:0 0 0 3px var(--ed-ring),0 0 12px 1px var(--ed-glow),0 10px 20px -8px var(--ed-shadow),0 2px 4px -1px var(--ed-shadow);
+  --ed-held:0 0 0 3px var(--ed-ring),0 0 12px 1px var(--ed-glow),0 16px 28px -10px var(--ed-shadow),0 2px 4px -1px var(--ed-shadow);
+  overflow:visible;z-index:3;background:var(--ed-fill);color:var(--ed-ink);border-color:var(--ed-edge);box-shadow:var(--ed-lift)}
+/* The hover brightness and the one of a block being moved (above) would stack on the brighter fill. */
+.day-ev.day-editing,.day-ev.day-editing[data-moving]{filter:none}
+.day-ev.day-editing[data-moving]{box-shadow:var(--ed-held)}
+.day-ev.day-editing .day-ev-text{overflow:hidden}
+/* The handles sit just outside the block, above its start and below its end, so they never cover its own text. A pointer gets a grab
+   area of 20px; a finger 44px (a touch screen of any size, not only a phone). The label that follows the pointer is .day-bubble. */
+.day-handle{position:absolute;left:50%;width:56px;height:20px;margin-left:-28px;z-index:4;display:flex;justify-content:center;touch-action:none;cursor:ns-resize}
+/* --shift (EventHandles.fit) pulls a handle in over its entry when its place outside is not reachable: an entry at 7a under the top, one at 8:30p over the tab bar;
+   it is negative where the other handle was pulled in over this one's place (a short entry), so the two grab areas never overlap. */
+.day-handle[data-edge=start]{top:calc(-22px - var(--field-outset,0px) + var(--shift,0px));align-items:flex-end}
+.day-handle[data-edge=end]{bottom:calc(-22px - var(--field-outset,0px) + var(--shift,0px));align-items:flex-start}
+/* The grip: a small round-ended pill, a faint tint of the edge with a 1px edge and two lines, a few pixels off the block inside the grab area (which is the size and place
+   it always was). The offsets above were measured from a 2px border; at 1px they would leave a dead strip between block and area, so the margin closes it. Under a pointer
+   and while its own edge is dragged (data-drag, set by EventHandles) the grip fills with the accent; a dragged one also gets a halo. */
+.day-ev.day-editing .day-handle[data-edge=start]{margin-top:1px}
+.day-ev.day-editing .day-handle[data-edge=end]{margin-bottom:1px}
+.day-handle i{position:relative;display:block;box-sizing:border-box;width:28px;height:8px;border-radius:999px;background:var(--ed-grip);border:1px solid var(--ed-edge)}
+.day-handle[data-edge=start] i{margin-bottom:3px}
+.day-handle[data-edge=end] i{margin-top:3px}
+.day-handle i::after{content:"";position:absolute;left:50%;top:50%;box-sizing:border-box;width:10px;height:4px;margin:-2px 0 0 -5px;border:solid var(--ed-edge);border-width:1px 0}
+@media (hover:hover){.day-ev.day-editing .day-handle:hover i{background:var(--accent);border-color:var(--accent)}.day-ev.day-editing .day-handle:hover i::after{border-color:var(--accent-ink)}}
+.day-ev.day-editing[data-drag=start] .day-handle[data-edge=start] i,.day-ev.day-editing[data-drag=end] .day-handle[data-edge=end] i{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 4px var(--ed-halo)}
+.day-ev.day-editing[data-drag=start] .day-handle[data-edge=start] i::after,.day-ev.day-editing[data-drag=end] .day-handle[data-edge=end] i::after{border-color:var(--accent-ink)}
+@media (prefers-reduced-motion:no-preference){.day-handle i{transition:background-color .12s,border-color .12s,box-shadow .12s}}
+@media (pointer:coarse),(max-width:760px){.day-handle{height:44px}.day-handle[data-edge=start]{top:calc(-46px - var(--field-outset,0px) + var(--shift,0px))}.day-handle[data-edge=end]{bottom:calc(-46px - var(--field-outset,0px) + var(--shift,0px))}}
+.day-bubble{position:fixed;left:var(--bx,0);top:var(--by,0);z-index:60;padding:2px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+/* The span of the entry being edited ("7:30p – 8:30p", ScheduleSection placeWhen): a small pill in the owner's tone above the start grip, or below the end grip where the grid has no room above.
+   It sits in the blocks' grid by --wx and --wy and takes no room; a press goes through it to what is under it (the grips). The drag's own bubble replaces it while a drag runs. */
+.day-when{position:absolute;left:var(--wx,0);top:var(--wy,0);z-index:6;box-sizing:border-box;height:16px;padding:0 7px;border-radius:999px;font-size:11px;line-height:14px;white-space:nowrap;pointer-events:none;background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);box-shadow:0 2px 6px rgba(0,0,0,.22)}
+.day-when[hidden]{display:none}
+/* While anything is being dragged nothing selects text. */
+.dragging,.dragging *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
+
+/* Priorities: five lines, a cell per lane (a linked entry spans two lanes only on the same line in both). */
+.day-prows{list-style:none;margin:0;padding:0}
+.day-prow{display:flex;align-items:stretch;min-height:30px;border-bottom:1px solid var(--line)}
+.day-num{width:var(--gut);flex:none;display:flex;align-items:center;font-size:12px;color:var(--dim)}
+.day-pcells{position:relative;flex:1;min-width:0;display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr));gap:0 4px;padding:2px 0}
+.day-cell{display:flex;align-items:center;min-width:0;min-height:28px;padding:3px 8px;border-radius:6px;font-size:13px;line-height:1.3;text-align:left;background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line)}
+.day-cell span{min-width:0;overflow-wrap:anywhere}
+.day-cell.day-blank{background:transparent;border-color:transparent;cursor:cell}
+.day-cell:not(.day-blank):hover{filter:brightness(1.08)}
+
+/* To-do: 13 ruled slots, like the paper planner. Open to-dos fill them top-down (a colored circle per owner); the empty ones are blank
+   lines with a faint circle, and the first of them is the add field; the done to-dos (crossed out, dim) are stacked in the last lines of the page,
+   so the blank lines are the ones between the open rows and the finished pile. */
+.day-todo{margin-top:10px;flex:1 1 auto}
+.day-todohead{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.day-msg{margin:0 0 4px;font-size:12px;line-height:16px;color:var(--day-bad)}
+.day-tasks{list-style:none;margin:0;padding:0}
+.day-free{position:relative;cursor:text}
+.day-ghost{flex:none;width:18px;height:18px;margin:0 2px;border:1.5px solid var(--line);border-radius:50%;opacity:.8}
+.day-add{flex:1;min-width:0;align-self:stretch;display:flex;align-items:center;gap:8px;margin:0}
+.day-panel .day-add-title{flex:1;min-width:0;min-height:0;height:100%;padding:0;border:0;border-radius:0;background:transparent;font-size:14px;outline:none}
+.day-panel .day-add-title::placeholder{color:var(--dim);opacity:1}
+.day-panel .day-add-title:focus{box-shadow:inset 0 -1.5px 0 var(--accent)}
+.day-add .day-count:empty{display:none}
+.day-panel .day-add-go{flex:none;min-height:0;height:22px;padding:0 10px;font-size:12px;border-radius:6px}
+/* A tall window: the right column's rows take some of the free height too (each up to a limit), so the two columns end about together. */
+[data-layout=wide] .day-prio{flex:2 1 auto;display:flex;flex-direction:column}
+[data-layout=wide] .day-prows{flex:1;display:flex;flex-direction:column}
+[data-layout=wide] .day-prow{flex:1 1 30px;max-height:54px}
+[data-layout=wide] :is(.day-todo,.day-chores){flex:3 1 auto;display:flex;flex-direction:column}
+/* The list keeps the height of its 13 lines (the panel scrolls in a window too short for them); with more rows than lines (open rows, the add line, then the
+   done ones crossed out at the bottom) it scrolls inside itself and no row shrinks below 28px, so the day never grows past the window. Positioned, so the screen-reader-only
+   owner names of the rows it scrolls away stay inside it. */
+[data-layout=wide] .day-todo>.day-tasks{position:relative;flex:1 1 0;min-height:calc(13 * 28px);display:flex;flex-direction:column;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+[data-layout=wide] .day-todo>.day-tasks :is(.day-task,.day-free){flex:1 1 28px;max-height:44px}
+/* The list is a scroll area, which clips what hangs outside it, and the keyboard ring of its controls (2px, 3px off the control elsewhere) used to hang into the
+   panel around it. So the ring sits flush on the control here and the list has 3px of room on both sides (padding, taken back by the margin: the rows keep their
+   places), which keeps the whole ring inside the list, the first and the last row's included (and the scroll padding leaves it room when the keyboard scrolls a control to the list's edge). */
+.day-todo>.day-tasks{padding-inline:3px;margin-inline:-3px;scroll-padding-block:3px}
+.day-todo>.day-tasks :is(button,input,select):focus-visible{outline-offset:0}
+/* The Chores switch of the picker swaps the To-do section for this one (panels/day/ChoresSection.ts): the same box, the same height under Priorities, and the list
+   scrolls inside itself when it is long. Its rows are the Chores page's (chores.css), a little tighter than a finger needs; the ring sits flush as the to-do list's does. */
+.day-chores{margin-top:10px;flex:1 1 auto}
+[data-layout=wide] .day-chores>:is(.ch-list,.ch-off){position:relative;flex:1 1 0;min-height:calc(13 * 28px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-inline:3px;margin:0 -3px;scroll-padding-block:3px}
+[data-layout=wide] .day-chores>.ch-off{padding:6px 3px;font-size:14px}
+.day-chores .ch-row{min-height:32px}
+.day-chores .ch-label{padding:10px 0 2px;font-size:12px}
+.day-task,.day-free{display:flex;align-items:center;gap:10px;min-height:28px;border-bottom:1px solid var(--line)}
+.day-panel .day-circle{appearance:none;position:relative;flex:none;width:18px;height:18px;min-height:0;margin:0 2px;padding:0;border:1.5px solid var(--tone-line);border-radius:50%;background:transparent;cursor:pointer}
+/* The grab area is wider than the circle but no taller than its row: a row at the bottom of the panel would otherwise push the panel to scroll by the difference. */
+.day-circle::before{content:"";position:absolute;inset:-5px -13px}
+.day-circle:checked{background:var(--tone-bg)}
+.day-circle:checked::after{content:"✓";position:absolute;inset:0;text-align:center;font-size:12px;line-height:15px;color:var(--tone-fg)}
+.day-task-title{flex:1;min-width:0;padding:3px 0;font-size:14px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.day-task.day-done .day-task-title{color:var(--dim);text-decoration:line-through}
+/* A to-do carried over from an earlier day says where it comes from; the real record keeps its own day. */
+.day-from{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dim);cursor:pointer}
+/* A to-do done on a later day shows unchecked on its own day, pointing there ("→ Tue 3"); its circle does nothing. */
+.day-circle[aria-disabled=true]{cursor:default}
+.day-more-row{display:flex;gap:8px;margin-top:6px}
+.day-more{min-height:28px;padding:2px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--dim)}
+
+/* Notes: a text area per lane. */
+.day-notes{margin-top:10px;flex:none}
+.day-notelanes{display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr));gap:8px}
+.day-note{display:flex;flex-direction:column;min-width:0;padding:6px 8px;border-radius:8px;background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line)}
+.day-note-name{display:flex;align-items:center;font-size:11px}
+/* Desktop notes grow to six lines before scrolling, leaving the rest of the column to the timeline. */
+.day-panel .day-note-text{flex:none;display:block;width:100%;min-height:52px;max-height:124px;height:var(--h,auto);padding:2px 0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5;resize:none;overflow-y:auto}
+.day-note-text::placeholder{color:inherit;opacity:.55}
+.day-note-text:focus-visible{outline-offset:4px}
+/* The count and the state share a line; the Save button drops under them when the box is too narrow for both (three or four lanes). */
+.day-note-foot{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px}
+.day-note-meta{flex:1 1 90px;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px}
+.day-note-foot .day-count{color:inherit}
+.day-note-foot .day-count[data-over=true]{color:var(--day-bad);opacity:1}
+.day-note-status{flex:1 1 auto;min-width:0;font-size:11px;overflow-wrap:anywhere}
+.day-note-save{margin-left:auto}
+.day-note-reload,.day-note-keep{font-size:11px;text-decoration:underline;color:inherit}
+.day-note-save{min-height:28px;padding:4px 12px;font-size:12px}
+.day-seg{display:flex;gap:6px;margin-bottom:8px}
+.day-segbtn{display:inline-flex;align-items:center;min-height:30px;padding:2px 12px;border:1px solid var(--line);border-radius:999px;font-size:12px}
+.day-segbtn[aria-pressed=true]{background:var(--tone-bg);color:var(--tone-fg);border-color:var(--tone-line)}
+
+
+/* Narrow desktop: one column. */
+@media (min-width:761px) and (max-width:900px){.day-cols{grid-template-columns:minmax(0,1fr)}}
+
+/*
+ * Editing where the item stands (inplace.css has the shared parts). The field wears the host's class (day-task-title, day-cell-input,
+ * day-ev-input), so it has the size and font of the text it replaces and nothing moves when a row opens.
+ */
+.day-task.day-editing{flex-wrap:wrap;row-gap:0}
+@media (max-width:760px){.day-task.day-editing{column-gap:6px}}
+.day-task .ip-input.day-task-title{padding:3px 0}
+.day-panel[data-layout] .day-todo>.day-tasks .day-task.day-editing[data-error]{max-height:none}
+.day-panel[data-layout] .day-todo>.day-tasks .day-task.day-editing .ip-error{padding-left:30px}
+/* On a desktop the 13 rows are fixed lines of the page, so a message hangs below its row (over the next line) instead of squeezing it; the last two
+   lines have no room below, they hang above (the done rows are the last lines of the page, so these are mostly the done rows being edited, or a new
+   to-do written on a blank line right above a short pile). */
+[data-layout=wide] .day-todo>.day-tasks .day-task.day-editing{position:relative}
+[data-layout=wide] .day-todo>.day-tasks .day-task.day-editing .ip-error{position:absolute;top:100%;left:30px;right:0;z-index:6;margin-top:2px;padding:3px 8px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:11px;line-height:14px}
+[data-layout=wide] .day-todo>.day-tasks>.day-task.day-editing:nth-last-child(-n+2) .ip-error{top:auto;bottom:100%;margin:0 0 2px}
+/* Only while a cell is being edited: a positioned row would otherwise paint over the section under it on a very short phone. */
+.day-pcells:has(>.day-cell.day-editing){position:relative}
+.day-cell.day-editing{position:relative;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:text;gap:6px}
+.day-cell.day-editing .ip-input{font-size:13px;line-height:1.3;padding:1px 0}
+/* The phone clips the spans of a cell to one line; the moves and Delete keep their grab area (inplace.css) outside their own box. */
+.day-cell.day-editing span:is(.ip-moves,.ip-del-pair){overflow:visible}
+/* A message under a cell hangs below it instead of making the line taller. */
+.day-cell.day-editing .ip-error{position:absolute;top:100%;left:-1px;right:-1px;z-index:6;margin-top:3px;padding:3px 8px;background:var(--surface);color:var(--day-bad);border:1px solid var(--line);border-radius:6px;font-size:11px;line-height:14px}
+/* Where a cell is too narrow for its field and controls (a phone, a half lane of two, three or four lanes), the cell being edited takes the whole line. */
+@media (max-width:760px){.day-panel .day-pcells .day-cell.day-editing{position:absolute;inset:2px 0;grid-column:1 / -1;z-index:2;background:linear-gradient(var(--tone-bg),var(--tone-bg)),var(--surface)}}
+.day-panel .day-pcells.n2 .day-cell.day-editing,.day-panel .day-pcells.n3 .day-cell.day-editing,.day-panel .day-pcells.n4 .day-cell.day-editing{position:absolute;inset:2px 0;grid-column:1 / -1;z-index:2;background:linear-gradient(var(--tone-bg),var(--tone-bg)),var(--surface)}
+.day-ev.day-editing .ip-input.day-ev-input{flex:1 1 auto;height:auto;font-size:inherit;line-height:inherit;color:inherit;cursor:text}
+.day-ev.day-editing .day-ev-time{cursor:grab}
+/* The lifted look (the tokens are on the block, above). No underline on the field (inplace.css's is for the other editors), no fill, a caret tinted to the accent. The time
+   is a chip that bleeds 3px into the padding and the gap, so the words stay where they were on the resting block; the chip and the field share a baseline (a phone's 16px
+   field and 11px time, a tall block's first line), whatever their sizes. */
+.day-ev.day-editing .ip-input.day-ev-input{box-shadow:none;background:transparent;caret-color:var(--ed-caret)}
+.day-ev.day-editing .day-ev-input::selection{background:var(--accent);color:var(--accent-ink)}
+.day-ev.day-editing .day-ev-time{padding:0 3px;margin:0 -3px;border-radius:4px;color:inherit;line-height:inherit;background:var(--ed-chip)}
+@supports (color:color-mix(in srgb,red,blue)){
+/* color-mix alone (Safari 16.2, Chrome 111): one mix of the tone's line and its text color for the edge (3:1 on every theme and tone), a glow in the tone, a tinted chip. */
+.day-ev.day-editing{--ed-edge:color-mix(in srgb,var(--tone-line) 38%,var(--tone-fg));--ed-ring:transparent;--ed-glow:color-mix(in srgb,var(--tone-line) 34%,transparent);--ed-ink:color-mix(in srgb,var(--tone-fg) 35%,var(--text));--ed-chip:color-mix(in srgb,var(--tone-line) 26%,transparent);--ed-caret:color-mix(in srgb,var(--accent) 50%,var(--ed-ink));--ed-grip:color-mix(in srgb,var(--ed-edge) 16%,var(--bg));--ed-halo:color-mix(in srgb,var(--accent) 38%,transparent)}
+}
+@supports (color:light-dark(red,blue)) and (color:color-mix(in srgb,red,blue)){
+/* light-dark on top (Chrome 123, Safari 17.5): a light page needs more of the text color in the edge, and a brighter fill; a dark page a glow where a light one has a pale ring. */
+.day-ev.day-editing{--ed-edge:light-dark(color-mix(in srgb,var(--tone-line) 25%,var(--tone-fg)),color-mix(in srgb,var(--tone-line) 76%,var(--tone-fg)));--ed-fill:light-dark(color-mix(in srgb,var(--tone-bg) 62%,#fff),color-mix(in srgb,var(--tone-bg) 88%,var(--tone-fg)));--ed-ring:light-dark(color-mix(in srgb,var(--tone-line) 35%,transparent),transparent);--ed-glow:light-dark(transparent,color-mix(in srgb,var(--tone-line) 34%,transparent));--ed-shadow:light-dark(color-mix(in srgb,var(--tone-fg) 42%,transparent),rgba(0,0,0,.7))}
+.day-ev.day-editing .day-ev-input::selection{background:light-dark(color-mix(in srgb,var(--accent) 40%,transparent),color-mix(in srgb,var(--accent) 72%,transparent));color:light-dark(var(--ed-ink),var(--accent-ink))}
+}
+/* An entry the page cuts off is flat on that edge, and its ring and shadow stop there instead of spilling over the grid's edge or the tab bar. The other sides
+   keep 50px, so the 44px grab area of the handle that is left is not clipped (a clip-path also clips what a pointer can hit). */
+.day-ev.day-editing[data-clip~=top]{clip-path:inset(0 -28px -50px)}
+.day-ev.day-editing[data-clip~=bottom]{clip-path:inset(-50px -28px 0)}
+.day-ev.day-editing[data-clip~=top][data-clip~=bottom]{clip-path:inset(0 -28px)}
+@media (forced-colors:active){
+/* No shadows or tints there: the block gets a border and an outline in the system's highlight, the grips a canvas fill and a text-colored edge. */
+.day-ev.day-editing{border-color:Highlight;outline:2px solid Highlight}
+.day-ev.day-editing .ip-input.day-ev-input{caret-color:auto;border-color:Highlight}
+.day-handle i{background:Canvas;border-color:CanvasText}
+.day-handle i::after{border-color:CanvasText}
+.day-ev.day-editing .day-handle:hover i,.day-ev.day-editing[data-drag=start] .day-handle[data-edge=start] i,.day-ev.day-editing[data-drag=end] .day-handle[data-edge=end] i{background:Highlight;border-color:Highlight}
+.day-ev.day-editing .day-handle:hover i::after,.day-ev.day-editing[data-drag=start] .day-handle[data-edge=start] i::after,.day-ev.day-editing[data-drag=end] .day-handle[data-edge=end] i::after{border-color:HighlightText}
+}
+/* An entry's Delete: a swipe to the left shows it over the right end of the block (EventDelete), a tap on it deletes. It is a button of
+   the grid beside the block, so it needs no room of its own and never hangs over the schedule; a short block still gets a finger-sized target. */
+.day-panel .day-ev[data-swiped]{padding-right:58px}
+.day-ev-del{grid-row:var(--q) / span var(--n);justify-self:end;align-self:stretch;z-index:2;width:54px;min-height:44px;margin:var(--entry-inset);padding:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;border:0;border-radius:0 5px 5px 0;background:#d6453d;color:#fff;cursor:pointer}
+.day-ev-del:hover{filter:brightness(1.08)}
+.day-ev-del svg{width:20px;height:20px}
+[data-layout=phone] .day-ev-del{border-radius:0 4px 4px 0}
+@media (pointer:coarse),(max-width:760px){
+.day-ev.day-editing .ip-input.day-ev-input{font-size:16px;line-height:1}
+/* A half hour is shorter than a finger: the field is a 44px target centred on the block (the block is a centring flex row and lets it overhang). The handles' grab areas
+   are above it (z-index 4), so where they meet it they keep the touch. */
+.day-ev.day-editing[data-n="2"]{align-items:center;padding-block:0}
+.day-ev.day-editing[data-n="2"] .ip-input.day-ev-input{height:44px}
+}
+
+/* Phone: the panel owns its height. The timeline can scroll while the schedule controls and tab bar stay put. */
+.day-panel[data-layout=phone]{display:flex;flex-direction:column;height:100%}
+[data-layout=phone] .day-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:6px 12px 4px}
+[data-layout=phone] .day-sched,[data-layout=phone] .day-notes{flex:1;min-height:0;display:flex;flex-direction:column;margin:0}
+[data-layout=phone] .day-sched .day-label,[data-layout=phone] .day-notes .day-label,[data-layout=phone] .day-sched .day-sechead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+[data-layout=phone] .day-timeline{min-height:0}
+[data-layout=phone] .day-hours span{font-size:11px;padding-top:1px}
+/* A touch screen of any size gets finger-sized buttons, as the handles do. */
+@media (pointer:coarse){.day-half button{height:44px}}
+[data-layout=phone] .day-cal{padding-inline:6px}
+[data-layout=phone] .day-cal-time{display:none}
+[data-layout=phone] .day-ev{padding-inline:6px}
+/* The priorities never shrink below their lines (the To-do list, which scrolls, gives the height instead), or its heading prints over line 5 on a short phone. */
+[data-layout=phone] .day-prio{flex:0 1 auto;min-height:min-content;display:flex;flex-direction:column}
+[data-layout=phone] .day-prows{flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+[data-layout=phone] .day-prow{flex:1 1 32px;min-height:28px;max-height:40px}
+[data-layout=phone] .day-pcells{padding:2px 0}
+[data-layout=phone] .day-cell{min-height:0;padding:0 6px;font-size:12px}
+[data-layout=phone] .day-cell span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+[data-layout=phone] .day-todo{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;margin-top:6px}
+[data-layout=phone] .day-label{margin-bottom:1px;font-size:11px;line-height:14px}
+[data-layout=phone] .day-lanehead{margin-bottom:2px;line-height:16px}
+[data-layout=phone] .day-panel .day-add-title{font-size:16px}
+[data-layout=phone] .day-panel .day-add-go{height:26px}
+[data-layout=phone] .day-msg{flex:none;margin:0 0 2px;line-height:14px}
+/* The rows share the height and shrink to 30px; only when 13 of them still do not fit (a phone under about 700px high) does the list, and nothing else on the tab, scroll. */
+/* positioned, so the screen-reader-only owner names of the rows it scrolls away stay inside it and do not make the panel scroll */
+[data-layout=phone] .day-todo>.day-tasks{position:relative;flex:0 1 auto;min-height:0;display:flex;flex-direction:column;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;margin-top:2px}
+[data-layout=phone] .day-todo>.day-tasks :is(.day-task,.day-free){flex:1 1 34px;min-height:30px;max-height:40px}
+/* The circle's wider grab area stays inside its row, so the list (a scroll area when 13 rows do not fit) has no overflow of its own */
+[data-layout=phone] .day-todo>.day-tasks .day-circle::before{inset:-2px -13px}
+[data-layout=phone] .day-more-row{flex:none;margin-top:3px}
+[data-layout=phone] .day-more{min-height:26px}
+[data-layout=phone] .day-notes .day-note{flex:1;min-height:0}
+[data-layout=phone] .day-note-text{flex:1;height:auto;min-height:0;max-height:none;font-size:16px}
+.day-tabs{display:flex;flex:none;padding:4px 4px max(6px,env(safe-area-inset-bottom));border-top:1px solid var(--line-soft);background:var(--surface)}
+.day-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:48px;padding:3px 0;border-radius:8px;font-size:11px;color:var(--dim)}
+.day-tab[aria-selected=true]{background:var(--accent-soft);color:var(--text);box-shadow:inset 0 2px 0 var(--accent)}
+@media (max-width:760px){
+/* Finger-sized targets where there is room around them. */
+.day-segbtn,.day-note-save{min-height:44px}
+/* A finger needs a taller grab area than the pill it sees */
+}

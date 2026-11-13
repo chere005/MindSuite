@@ -1,0 +1,21 @@
+{
+  "name": "coremind",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:storage && npm run test:auth && npm run test:mail && npm --prefix ../packages/mind-core test",
+    "typecheck": "npm --prefix ../packages/mind-core run typecheck",
+    "check": "node ../tools/check-shared.mjs",
+    "deploy": "sh bin/deploy.sh",
+    "dtp": "sh bin/dtp.sh",
+    "tdtp": "sh bin/dtp.sh --full",
+    "test:storage": "php ../packages/mind-server/tools/atomic-test.php",
+    "test:auth": "php bin/test-mindsuite-auth.php",
+    "test:mail": "php ../packages/mind-server/tools/mail-test.php"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "6.0.3",
+    "vitest": "3.2.7"
+  },
+  "version": "1.32.0"
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- TaskMind: TM in the suite's one-stroke monogram style (CalMind CM, AcctMind AM), purple (the owner, 2026-11-09: amber matched ChefMind and ReadMind). The rounded cut: the web, the favicon and anywhere the mark is a picture. -->
+  <rect width="96" height="96" rx="20" fill="#111111"/>
+  <path d="M 12 28 L 44 28 M 28 28 L 28 70 M 54 70 L 54 28 L 68 52 L 82 28 L 82 70"
+        fill="none" stroke="#a78bfa" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

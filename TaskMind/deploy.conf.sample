@@ -1,0 +1,2 @@
+# Copy to ignored deploy.conf; keep the existing host credentials outside this repo.
+TASKMIND_DEPLOY_HOST="your-existing-nfsn-login@ssh.nyc1.nearlyfreespeech.net"

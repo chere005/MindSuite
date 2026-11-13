@@ -1,0 +1,5 @@
+#!/bin/sh
+# No account or person name may rise in a commit (CoreMind/bin/check-names.sh staged).
+root=$(git rev-parse --show-toplevel) || exit 1
+[ -f "$root/CoreMind/bin/check-names.sh" ] || exit 0
+exec sh "$root/CoreMind/bin/check-names.sh" staged

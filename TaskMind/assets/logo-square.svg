@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!--
+    The APP ICON cut of the mark: full-bleed square, no corner radius of its own.
+    iOS masks every app icon to its own squircle; an icon that arrives pre-rounded
+    gets masked a second time and loses its corners. assets/logo.svg is the rounded
+    cut for the web, the favicon and the desktop icon.
+  -->
+  <rect width="96" height="96" fill="#111111"/>
+  <path d="M 12 28 L 44 28 M 28 28 L 28 70 M 54 70 L 54 28 L 68 52 L 82 28 L 82 70"
+        fill="none" stroke="#a78bfa" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

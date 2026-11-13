@@ -1,0 +1,35 @@
+/*
+ * Editing where the item is (the owner, 2026-10-31: no window for editing content). The field that takes the place of an item's text, and
+ * the small controls that join its row while it is edited: the character counter, the day, Delete (and Cancel after the first press),
+ * Move up and down, and the message. The host's own class (day-task-title, day-cell-input, ...) gives the field its size and font, so
+ * nothing moves when a row opens. Sized for a pointer; a finger gets 16px text (a smaller field makes iOS zoom the page) and a taller grab area.
+ */
+input.ip-input{flex:1 1 0;min-width:48px;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;box-shadow:inset 0 -1.5px 0 var(--accent);outline:none;-webkit-user-select:text;user-select:text;text-align:left;text-overflow:clip}
+input.ip-input:read-only{opacity:.7}
+.ip-count{flex:none;font-size:11px;line-height:14px;color:var(--dim);white-space:nowrap}
+.ip-count:empty{display:none}
+.ip-count[data-over=true]{color:var(--day-bad,#f29090)}
+input.ip-date{flex:none;width:122px;min-height:0;height:24px;padding:0 4px;border-radius:6px;font-size:12px;line-height:1;background:var(--bg)}
+.ip-del-pair{flex:none;display:inline-flex;align-items:center;gap:6px}
+.ip-del{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 4px;border-radius:6px;font-size:12px;line-height:1;color:var(--dim);white-space:nowrap}
+.ip-del:hover{background:var(--surface-2)}
+/* The grab area is wider than the icon but no taller than its row (a row at the bottom of the panel would otherwise make it scroll). */
+.ip-del::before{content:"";position:absolute;inset:-2px -6px}
+/* Armed: the icon turns red (white on red), as CalMind's does. */
+.ip-del-pair[data-confirm] .ip-del{background:#d6453d;color:#fff}
+.ip-error{flex:1 0 100%;order:10;margin:0;font-size:12px;line-height:16px;color:var(--day-bad,#f29090);overflow-wrap:anywhere}
+.ip-error:empty,.ip-hint:empty{display:none}
+.ip-hint{flex:1 0 100%;order:9;font-size:11px;line-height:14px;color:var(--dim)}
+.ip-moves{flex:none;display:inline-flex;gap:2px}
+.ip-moves .day-move{min-height:0;min-width:24px;height:24px;padding:0 4px;border:1px solid var(--line);border-radius:6px;font-size:13px;line-height:1}
+.ip-moves .day-move:disabled{opacity:.35}
+@media (pointer:coarse),(max-width:760px){
+input.ip-input{font-size:16px}
+input.ip-date{width:112px;height:30px}
+/* A finger's grab area: wide as the control and its neighbours allow (Delete is the last control of its row, so it grows to the left), as tall as the row (a row cannot grow on a phone without making the tab scroll). */
+.ip-del::before{inset:-6px -2px -6px -16px}
+.day-cell .ip-del::before{left:-3px}
+.ip-moves{gap:4px}
+.ip-moves .day-move{position:relative;min-width:32px}
+.ip-moves .day-move::before{content:"";position:absolute;inset:-6px 0}
+}

@@ -1,0 +1,41 @@
+/*
+ * The account menu (a button with a dropdown of Settings and Sign out) and the Settings window, after the suite's username
+ * dropdown and settings modal (seancheren-site lib/chrome.php), on PlanMind's own tokens. Colors of the dot come from data-c.
+ */
+.account-menu{position:relative;flex:none}
+.account-button{display:inline-flex;align-items:center;gap:7px;height:var(--topbar-button-height,32px);padding:0 10px 0 12px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--dim);white-space:nowrap}
+.account-button:hover,.account-button[aria-expanded=true]{border-color:var(--muted);color:var(--text)}
+.account-chevron{display:inline-flex;color:var(--muted)}
+.account-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:140px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.45);overflow:hidden}
+.account-pop>button,.account-pop .logout button{display:block;width:100%;margin:0;padding:10px 14px;color:var(--text);font-size:14px;text-align:left;border-radius:0;min-height:40px}
+.account-pop>button{border-bottom:1px solid var(--line)}
+.account-pop>button:hover,.account-pop .logout button:hover{background:var(--surface-2)}
+.account-pop button:focus-visible{outline-offset:-3px;background:var(--surface-2)}
+.account-pop .logout{margin:0}
+
+/* Settings */
+dialog.settings{width:min(340px,calc(100% - 32px));padding:0;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:12px}
+dialog.settings::backdrop{background:rgba(0,0,0,.6)}
+.settings-body{padding:20px}
+.settings-title{font-size:17px;font-weight:600;margin:0 0 6px}
+.settings-who{font-size:13px;color:var(--dim);margin:0 0 18px}
+.settings-who strong{font-weight:600;color:var(--dim)}
+.settings-label{font-size:13px;color:var(--dim);margin:0 0 8px;text-align:center}
+.theme-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+/* A theme in miniature: its page color ringed by its own line color, its accent as the dot. The chosen one rings in the text color. */
+.themebtn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:50%;border:1px solid var(--sw-line);background:var(--sw-bg)}
+.themebtn[aria-pressed=true]{box-shadow:0 0 0 2px var(--text)}
+.themebtn:focus-visible{outline-offset:4px}
+.themedot{width:12px;height:12px;border-radius:50%;background:var(--sw-dot)}
+.settings-msg{min-height:20px;margin:12px 0 0;font-size:12px;line-height:1.5;text-align:center;color:var(--warn)}
+.settings-actions{display:flex;justify-content:center;margin-top:8px}
+.settings-done{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid var(--line);border-radius:50%;color:var(--accent)}
+.settings-done:hover{border-color:var(--accent);background:var(--accent-soft)}
+
+/* Drawer: the account row is at the bottom of the screen, so the menu opens upward and stays inside the drawer. */
+.account-menu[data-where=drawer] .account-pop{right:auto;left:0;top:auto;bottom:calc(100% + 6px)}
+@media(max-width:760px){
+.account-pop>button,.account-pop .logout button{min-height:44px}
+.themebtn{width:44px;height:44px}
+.settings-done{width:44px;height:44px}
+}

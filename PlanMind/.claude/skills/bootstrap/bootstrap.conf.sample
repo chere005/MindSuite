@@ -1,0 +1,10 @@
+# Trusted Bash assignments. Copy outside Git to ~/.config/agentsuite/bootstrap.conf.
+# Environment variables override these values. Keep identity and host details local.
+# GIT_NAME="Your Name"
+# GIT_EMAIL="0000000+you@users.noreply.github.com"
+# GH_OWNER="your-account"
+# MIND_DIR="$HOME/GIT"
+# GIT_PROTOCOL="https"              # or ssh
+# REPOS="RepoOne RepoTwo"           # unset: discover owned, non-fork, active repos
+# SITE_REPO="your-site-repo"        # unset: no deployment configuration or site tests
+# SUITE_DEPLOY_HOST="user_site@ssh.realm.nearlyfreespeech.net"

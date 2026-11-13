@@ -1,0 +1,455 @@
+# CalMind — the architecture
+
+**This is a personal project to have some fun with claude code, which generated essentially all of the code, and the rest of this readme:**
+
+`README.md` is the front door; this file is everything behind it, written for
+agents and humans both. It is the map of the tree, the platforms and how each
+one ships, the sync model, the three environments, the release lane, and the
+reasons — the reasons being the part that is expensive to re-derive.
+
+It is not the only document. `AGENTS.md` is the standing rules for anyone
+writing code here (and imports the suite-wide baseline from
+`~/GIT/AgentSuite/AGENTS.md`); `TESTING.md` is the map of which harness
+watches what, and what each one is worth; `PARITY.md` is the ledger of what
+shipped; `TODO.md` is the live list of what is still owed, and holds the suite
+counts. `docs/api.md` is the sync API reference. Where this file and
+`AGENTS.md` seem to disagree, `AGENTS.md` wins and this file is stale.
+
+## What this is
+
+One codebase for web, iOS, Android and a macOS desktop shell — plus a SwiftUI
+watch app, a watch-face complication and an iPhone home-screen widget — for the
+CalMind suite: Reminders, Calendar, Notes, Habits and Add, at full feature
+parity with the plain-PHP suite at
+[chere005/seancheren-site](https://github.com/chere005/seancheren-site) whose
+successor architecture this is. Everything the product *does* is written once,
+in TypeScript, and every surface renders it: the outline drags, the repeat
+rolls, the four full themes, mutual-consent sharing with live ticks, recipes
+read out of a photo or a URL (with subheaders, scaling, and a first-ordering
+for fresh lists), search across reminders, notes and events, the whole store
+exported as one JSON file, a public /request page where anyone with the
+link can ask for an hour of calendar time, the ?tick= quick-done, and the watch
+and widget feeds — all proven by the harnesses in `TESTING.md`, which is the
+map of which one watches what. `PARITY.md` is the build ledger and `TODO.md` is
+what is still owed, including the current test counts.
+
+## The map
+
+```
+packages/core/     The brain, shared verbatim by every surface: the
+                   slash-only US-order parser (and the relative words people
+                   actually type — tomorrow, in 2 weeks, in 30mins), repeats
+                   with month/year clamping, undated-first outline-block sort,
+                   fractional order keys, shape normalization, and the LWW sync
+                   engine. Also the recipe reader — OCR text into ingredients
+                   and steps, and the scaling that halves or doubles them — the
+                   rich-text and markdown shaping, base64url, and iCalendar
+                   parsing with RRULE expansion for reading somebody else's
+                   calendar. No dependencies, no build step — consumed as
+                   TypeScript source. Its test suite replays packages/mind-core/spec/*.json.
+spec/              Only calimport.json now; the shared behavior contract (the
+                   vectors the Swift and Kotlin cores replay) lives in
+                   packages/mind-core/spec/. Changing a behavior starts THERE.
+apps/app/          One Expo (React Native) app → iOS, Android, and web
+                   (react-native-web). Screens, gestures and styling only;
+                   all behavior is imported from @calmind/core.
+apps/app/modules/watch-bridge/   iOS-only native module: WatchConnectivity
+                   push, the watch's check-offs back, and the home-screen
+                   widget's queued ticks.
+apps/app/targets/  Apple targets GENERATED into the Xcode project by
+                   @bacons/apple-targets — the SwiftUI watch app (four pages,
+                   and it checks items off; no longer read-only), the
+                   watch-face complication, and the iPhone home-screen widget.
+                   The watch's FIRST page is the widget's own day list, drawn
+                   from the same core `days` and filtered by the same calendar
+                   selection — the widget writes its WidgetKit configuration
+                   into the App Group, which is the only way anything outside
+                   that one widget instance can see it.
+                   Directory ORDER matters: the plugin embeds in sort order,
+                   which is why 'appwidget' and 'watchwidget' are named as
+                   they are.
+apps/watch/        A signpost only — one README, no code. Kept because
+                   'watch' is what you search for; it points at the three
+                   places the watch actually lives.
+server/            The sync API in PHP — deployable to NearlyFreeSpeech
+                   unchanged; reference in `docs/api.md`. A dumb store with
+                   auth — passwords, and passkeys via WebAuthn written by
+                   hand, since the host has no composer: it merges by clear
+                   metadata and stays out of payloads, except where sharing
+                   must scope a partner's reads and row-writes to the
+                   containers they opted in (both lists must name each other,
+                   re-checked on every request).
+e2e/               Playwright: the exported web app + the real PHP API on a
+                   scratch dir, driven by real mouse events.
+tools/             The release lane, and the checks no browser can reach.
+                   `dtp.sh` / `tdtp.sh` are the one gesture that ships (see
+                   "The three environments"); `build-platforms.sh` is this
+                   repo's OWN macOS / iOS / Android builder, which that lane
+                   runs — the platform builds used to live in CoreMind and
+                   moved here on 2026-08-23 so a repo ships itself. The rest
+                   is the export's plumbing and the seams: the two Swift ones
+                   (core's JSON through the wrist's and the widget's REAL
+                   decoders and their drawing logic), the App Group rule, the
+                   deploy guards proven by breaking copies, the web-head
+                   patch every export needs, and the tap-target sweep.
+desktop/           CalMind Desktop — a Tauri 2 shell around the identical web
+                   export. Rust opens the window; everything else is the
+                   shared code. macOS builds locally (desktop/README.md);
+                   Windows and Linux build on GitHub runners from the same tag
+                   push as the Mac dmg: the Release workflow (see "Releases").
+packaging/arch/    A PKGBUILD, a .desktop file and INSTALL.md for building the
+                   same desktop shell on Arch Linux. Written 2026-09-21 and
+                   never built — read its "Read this first" before trusting a
+                   line of it.
+```
+
+## The clones, and the one prod exception
+
+Two clones grew up here and moved into their own repos on 2026-08-22, history
+and all — still kept in lockstep with this one, deliberately, across repos:
+
+- [chere005/MyCalMind](https://github.com/chere005/MyCalMind) (né
+  CalMind-Local) — the server taken out: one device's data, mirrored to
+  paired devices over Bonjour and nowhere else. iOS + watchOS only.
+- [chere005/ChefMind](https://github.com/chere005/ChefMind) — recipes and a
+  shopping list, syncing through THIS server on THESE accounts, kept apart by
+  a sync SPACE (`records-chef-<user>.json`), not a second server. Its deploy
+  gates read this checkout as `$CALMIND_REPO`.
+
+`server/prod-only/` is the one exception to "nothing here goes to prod": the
+`.well-known` passkey pair, which only works at the apex. It has its own
+README and its own script.
+
+## The sync model
+
+Local-first. Every client keeps the full store and renders from it instantly;
+the server reconciles. One endpoint, one request shape — a bearer-authed
+`POST` of `{ action: "sync", cursor, changes }` that returns the tail past the
+cursor — with per-record last-write-wins merging on `updated`, tombstone
+deletes, and a fractional `payload.ord` for order. The `payload` is opaque to
+the server and stored encrypted at rest (`ENC1:` AES).
+
+**The full reference is [`docs/api.md`](docs/api.md)** — every action, the
+record shape, the merge tie-break, spaces, auth and errors — and the checked
+contract (record-id shape, max batch) is [`packages/mind-core/spec/protocol.json`](../packages/mind-core/spec/protocol.json),
+which both the server and every client core assert against.
+
+## Running it
+
+```sh
+npm install                                  # once, at the root
+npm run test:dev                             # the between-runs mini-suite: typechecks,
+                                             #   core, server, counts — ~40s, no browser
+npm test                                     # the two fast ones: core + server
+npm run test:core                            # vitest, incl. the packages/mind-core/spec replay
+npm run test:server                          # boots php -S on a scratch dir, drives real HTTP
+npm run test:e2e                             # exports the web app, then drives real gestures
+npm run test:e2e:fast                        # …the same, against the export already built
+npm run test:webkit                          # the spine + the header rules, in the owner's engine
+npm run test:watch                           # the two Swift copies agree, and the wrist
+                                             #   decodes and DRAWS what core actually sends
+npm run test:widget                          # the phone widget decodes and draws what core
+                                             #   sends, and no App Group key is read with
+                                             #   no writer on the same device
+npm run test:deploy                          # the deploy guards, proven by breaking copies
+./desktop/smoke.sh                           # macOS: builds, carries THIS export, runs, quits
+sh tools/build-platforms.sh --ios            # one platform, no release (--mac, --android,
+                                             #   --dry-run; the dtp lane runs this script)
+node tools/sweep-tap-targets.mjs             # every clickable box on the web, in points
+                                             #   (wants dist served on :8791 — see its header)
+php -S 127.0.0.1:8788 -t server/public       # the API
+npm run web                                  # Expo web on :8081 (proxies nothing — talks to :8788)
+npm run export:web                           # the dist the e2e suite and both shells run on
+cd apps/app && npx expo start                # then i / a for the iOS / Android simulator
+```
+
+`export:web` is the export PLUS `tools/patch-web-html.mjs`; a bare
+`expo export` ships an `index.html` with no manifest and no status-bar metas,
+so nothing should call it directly. The gesture run refuses to start against a
+stale `dist` rather than lying in either direction.
+
+Shipping is deliberately not in that list: `npm run dtp` / `npm run tdtp` is
+the one gesture that releases, and it lives under "The three environments"
+below with the thing it deploys to.
+
+Counts live in TODO.md's steady-state line rather than here, because a number
+written into prose is a number that goes stale — the README said 145 for a good
+while after it stopped being true.
+
+## Platforms
+
+**Times.** One setting on 'suite' (Settings → Time format) switches 12- and
+24-hour, and all four surfaces honour it: web, iOS, the watch and the
+home-screen widget. It syncs like the theme, so it is chosen once. The watch
+and the widget are separate processes in another language and cannot read a
+pref record, so `watchFeed` carries `clock24` and each decoder sets its own
+copy — three implementations of one rule, which is why
+`tools/check-watch-format.sh` runs both Swift copies against the same cases.
+
+**Where the app finds the API** (`apps/app/src/config.ts`): the deployed site
+and the e2e router use same-origin `api/`; metro dev uses `127.0.0.1:8788`;
+the native builds and the desktop shell default to PROD (the owner, 2026-08-20:
+"all apps and devices should point to prod, not test now"), because trying the
+app should mean trying your real data. Nothing defaults to test any more, and
+a local `php -S` or test is still one Settings override away.
+
+**Build numbers.** `ios.buildNumber` in app.json is the durable one, written
+into the generated plist by prebuild. The generated `ios/CalMind/Info.plist`
+is also patched to read `$(CURRENT_PROJECT_VERSION)` so a single bump of that
+build setting moves the phone AND the watch together — without it the phone's
+plist carries a literal `1` forever while the watch tracks the setting, which
+is how a whole day's installs left no way to tell which build was on the
+phone. `ios/` is disposable, so re-apply that reference after a prebuild, or
+bump app.json instead.
+
+**The Apple targets** (watch app, complication, home-screen widget) are
+generated by `expo prebuild` from `apps/app/targets/*` — `ios/` is
+gitignored and disposable. Prebuild CLEARS `ios/` before running pods, so
+back it up first if a device build matters that day; a target whose bundle
+id has never been registered will fail to sign and, because extensions embed
+in the host app, will block every build until it is. `ios.buildNumber` in
+`app.json` is HAND-bumped and worth bumping: every build used to be
+`0.1.0/1`, so "is the thing I just installed actually on the device?" had no
+evidence either way. The watch app picks it up through
+`CURRENT_PROJECT_VERSION`, which is the only reason it was possible to see
+that iOS had left the wrist on an older build than the phone.
+
+**The desktop shells.** macOS builds locally out of `desktop/` and the
+`dtp`/`tdtp` lane builds the bundle before the tag; the tag push then starts
+the Release workflow, which builds the Windows installers, the Apple-silicon
+dmg and the Linux deb/AppImage on GitHub runners and publishes them on one
+release (see "Releases"). Tauri cannot cross-compile, which is the reason
+Windows and Linux need runners at all. `packaging/arch/` (PKGBUILD,
+`calmind.desktop`, `INSTALL.md`) was written on a Mac on 2026-09-21 and has
+never run; `INSTALL.md` opens with what was verified and what was not, and is
+the honest version. The Linux job of the Release workflow has not been seen to
+run either: treat its first run as the first evidence that any of it works.
+
+`AGENTS.md`'s "Platforms" section is where the release lane's own order is
+written — which platform builds before the tag, which after the push, and
+which are reported but never fatal. Read it there rather than off the sketch
+under "The three environments" below, which names the steps in order but
+leaves out the drift gate in front of them and the Windows dispatch at the
+end: the short version is what goes stale.
+
+## The three environments
+
+All three are deploys now. Prod has existed since 2026-08-20, when CalMind
+took `/calmind/` over from the old plain-PHP suite — which was itself deleted
+from `seancheren-site` on 2026-08-22 (commit `665dff8`) and no longer serves
+anything. One script ships any instance:
+
+| | where | how |
+|---|---|---|
+| **prod** | `https://seancheren.com/calmind/` — what every app, device, browser and the public request link points at | `./server/deploy.sh prod --yes-prod` |
+| **test** | `https://test.seancheren.com/calmind/` — sandbox, its own data dir | `./server/deploy.sh` (a bare run is test) |
+| **dev** | `https://dev.seancheren.com/calmind/`, and a local `php -S` on 8788 with data in `server/data/` (gitignored, or `$CALMIND_DATA_DIR`) | `./server/deploy.sh dev` — the local one needs no deploy, it's a process on your Mac |
+
+Expo builds can target an explicit API endpoint with `EXPO_PUBLIC_API_URL`,
+for example `https://test.seancheren.com/calmind/api/index.php`. Set it in
+`apps/app/.env.local` or in the build environment; Expo embeds it in web and
+native bundles, so it is public configuration, not a place for secrets. When
+unset, web builds keep their origin-based routing and native builds keep the
+production default. Two things make it hold (#80, 2026-11-09):
+`apps/app/metro.config.js` folds every `EXPO_PUBLIC_*` value into Metro's cache
+key — the value is inlined at transform time, so without that a warm cache
+ignored it, and a test-pointed export could leak into the next prod one — and
+the desktop build (`desktop/tauri-build.mjs`, behind `npm -w desktop run
+build`) adds the URL's origin to the window's CSP `connect-src`, refusing an
+export that does not carry the URL. `apps/app/test/desktopcsp.test.mjs` pins
+the merge and that config.ts's default server is in the committed CSP.
+
+Where a file lands on disk and what the world calls it are two different
+facts: test and dev moved to their own subdomains on 2026-08-20, so test's
+files still sit in `/home/public/test/calmind` while
+`seancheren.com/test/calmind` 404s by design. `server/deploy.sh`'s path table
+holds both halves and is the source of truth; nothing here is derived from an
+argument, and every row is re-checked against a hardcoded allow-list after
+resolution.
+
+**The deploy is one gesture.** `npm run dtp` — or `npm run tdtp`, which puts
+every suite in front of it — is what actually ships: it bumps the minor
+version, runs `./server/deploy.sh prod test --yes-prod [--quick]`, builds the
+macOS bundle, tags `x.y.0`, pushes, and then builds the phone and the
+emulator. Prod and test go out of ONE run of the gates, because the gates are
+what cost the time and running them twice per release is how people learn to
+skip them. Reach for `deploy.sh` directly only when you want one instance and
+no release; `--yes-prod` is mandatory and always spelled out in the same
+command.
+
+```sh
+npm run dtp                         # deploy prod+test, tag, push, build the platforms
+npm run tdtp                        # …with the full suites in front
+
+./server/deploy.sh --dry-run        # preview a test upload; touches nothing
+./server/deploy.sh prod test --yes-prod --quick   # the deploy alone, no release
+./server/tools/smoke-live.sh --static https://seancheren.com/calmind
+                                    # what is that address serving right now?
+                                    #   (a deploy already runs this per instance)
+
+./server/deploy-prod.sh --verify    # the .well-known passkey pair, read-only
+./server/deploy-prod.sh --yes       # …and to write it
+
+sh tools/check-deploy-guards.sh     # prove the guards by breaking copies
+```
+
+`deploy-prod.sh` is a separate script for a separate thing and always was: the
+pair at the site ROOT — `apple-app-site-association` plus the `.htaccess` that
+gives it `application/json`. iOS will only fetch that from the apex and caches
+a wrong first serve for hours, so it has constant destinations, no bare form,
+and a `--verify` that reads without writing. Owning `/calmind/` changed none
+of that. `deploy-test.sh` also still exists, still writes test and only test,
+and nothing routine uses it — `tools/check-deploy-guards.sh` still proves its
+guards, which is the reason to leave it standing.
+
+Every one of them needs `server/deploy.conf` (gitignored) with `SSH_DEST` —
+copy `server/deploy.conf.sample`. A deploy ships the API and the static web
+client to the instance's own web dir and the lib to its own
+`/home/protected` dir; config and data dirs are never touched, nothing is
+ever `--delete`d, and no hostname lives in this repo.
+
+The gates are gates, not decoration: a PHP syntax error, a red core or server
+suite, a red gesture run, or a `dist` that some other build rewrote between
+the tests and the upload each stop the deploy. Two of those used to pass
+unconditionally — see `tools/check-deploy-guards.sh`, which re-proves them by
+breaking a copy and requiring the copy to fail.
+
+## Releases
+
+**A tag is a release.** Pushing a namespaced version tag (`CalMind/1.37.0`) starts
+the suite root's `.github/workflows/calmind-release.yml` ("CalMind Release"). It
+checks that the tag's version equals the version in all four files that carry it (`apps/app/app.json`,
+`desktop/package.json`, `desktop/src-tauri/tauri.conf.json`,
+`desktop/src-tauri/Cargo.toml`), makes ONE draft GitHub release "CalMind
+<version>" (notes: the tag annotation, else the tagged commit message, plus
+an install block), and builds on three runners, each of which runs the
+typecheck and the core tests first, then builds, then attaches its files to the
+draft:
+
+| Runner | Files |
+| --- | --- |
+| Windows | `CalMind_<version>_x64_en-US.msi`, `CalMind_<version>_x64-setup.exe` (the MSI is installed and launched on the runner as a smoke) |
+| macOS (Apple silicon) | `CalMind_<version>_aarch64.dmg` (`--bundles dmg` is passed in CI only; the targets in `tauri.conf.json` are what the local lane builds the `.app` from) |
+| Linux (x64) | `CalMind_<version>_amd64.deb`, `CalMind_<version>_amd64.AppImage` (the deb is installed and launched under Xvfb) |
+
+When every one of those is on the draft, the last job writes
+`SHA256SUMS.txt` and publishes the release (Latest; a version containing "-" is
+a pre-release). A missing file leaves it a DRAFT that nobody sees. A tag that
+is already a published release is refused: a published version is never
+rebuilt.
+
+**Cutting one** is the lane: `npm run dtp` / `npm run tdtp`. Its order is drift
+gate, deploy, Mac bundle, preflight, tag, push, the watched Release run, device
+builds. tdtp follows the release to the end (`tools/gh-bot.sh release`) and
+prints the published URL; if it is not published, the deploy is still live,
+the lane says so, names the failed jobs and ends non-zero. dtp does not wait;
+the next lane run warns at its start if the last release never published
+(`tools/gh-bot.sh last-release`). The retry is
+`gh workflow run calmind-release.yml --ref <tag> -f tag=<tag>` with the full
+namespaced tag, e.g. `CalMind/1.58.0` (never `gh run rerun`: a re-run is
+yours, so it only hands off again). Run it from the suite root.
+
+**Quiet CI** (AgentSuite/ci.md, checked by
+`python3 ../AgentSuite/tools/check-workflows.py .`). GitHub mails a run's
+outcome to whoever triggered it. A run a person starts (the tag push, a
+dispatch, a re-run) therefore runs one job, `handoff`, which dispatches the
+same workflow as github-actions[bot]; the bot's run does the builds, so no
+failure, flaky smoke, timeout or runner GitHub never provides can mail anyone.
+Every job is also `continue-on-error`, so even the bot's run stays green, and
+the scripts read each job's result instead. A release run that ends with a
+platform missing dispatches itself again (input `attempt`, three runs at most);
+the retry builds only the platforms whose files are not on the draft yet.
+
+**Releasing an existing tag** (a past version's first release, or a redo of a
+tag whose release was deleted): `gh workflow run calmind-release.yml --ref <tag> -f tag=<tag>`
+(for example `CalMind/1.58.0`). The workflow file is the one on the ref you
+name; the source built is the tag.
+
+**Preflight** (`sh tools/preflight.sh [tag]`, run by the lane before the tag,
+skipped with `--skip-preflight`): pushes HEAD to a throwaway
+`preflight/calmind/<sha7>` branch (which triggers nothing), dispatches Release there
+with `preflight=true`, waits, and prints PASS or FAIL naming the failed jobs
+and steps; the branch is always deleted. It waits for the bot's run (see
+Quiet CI), not its own; nothing is uploaded and no release is made. The first
+preflight needs `calmind-release.yml` to be on the default branch, because GitHub
+only dispatches workflows it knows from there.
+
+**Why nothing uploads an Actions artifact.** The account's artifact storage
+quota is full ("Artifact storage quota has been hit"), which failed every run
+of the old dispatch-only Windows job. Release assets are not counted against
+it, so the builds hand their files to `gh release upload` and never use
+`actions/upload-artifact`. Do not add one.
+
+**Unsigned installs.** Nothing is code-signed or notarized today. Windows
+SmartScreen says "Windows protected your PC": More info, then Run anyway. On
+the Mac the first open is stopped by Gatekeeper: right-click the app and
+choose Open, or System Settings, Privacy & Security, Open Anyway. The AppImage
+needs `chmod +x`. If the repo gains the Apple secrets (`APPLE_CERTIFICATE`,
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD`, `APPLE_TEAM_ID`) the macOS job signs and notarizes with
+them; without all six it signs ad hoc and never fails for want of them.
+
+## Rules of the road
+
+- **Behavior lives in `packages/core` or it doesn't exist.** A screen that
+  implements a rule inline is a bug even when it renders correctly.
+- **Changing a behavior starts in `packages/mind-core/spec/`**, then core goes green, then the
+  other replayers (the suite's Swift/Kotlin cores) follow.
+- **The server stays dumb.** If a feature seems to need server-side logic,
+  it's either client logic or new clear *metadata* — never payload reading.
+- Tests ride with every change, suite-style: core logic in vitest, server
+  endpoints in `server/tools/test.php`, gestures in Playwright under a real
+  mouse, and the native seams in `tools/*.sh`. What is left for an eye is
+  named in TESTING.md rather than assumed — colour, rhythm, and the pixels
+  only a phone or a wrist can draw.
+- **A new check is worth nothing until it has been watched failing.** Break
+  the thing it guards, see it go red, put it back. Green that cannot go red
+  is the most expensive kind of green here; TESTING.md keeps the tally of
+  the ones that fooled us.
+
+## Milestones
+
+1. ~~**Reminders end-to-end**~~ — auth with change-password and email recovery
+   (and passkeys since), Reminders on web/iOS/Android, watch list, NFSN test
+   deploy. **Done.**
+2. ~~**Calendar, Notes, Habits, Add** on the proven skeleton; drag-reorder;
+   sharing.~~ **Done** — mutual-consent sharing with live ticks, drags on every
+   list, and recipes on top (OCR from photos, import from a URL, ½x/1x/2x
+   scaling).
+3. ~~**The complication and the widgets.**~~ **Done** — the watch app checks
+   items off, the Modular complication shows the next two events, and the
+   iPhone home-screen widget draws the calendar's own day list with
+   interactive check-off. Everything but the pixels is under test; see
+   TESTING.md for where that stops.
+4. **E2EE** — client-side KDF, wrapped DEKs, recovery keys; sharing via
+   keypairs. **Not started.** Today the server encrypts `payload` at rest
+   (`ENC1:`) and holds the key, which is not the same promise. The protocol,
+   the merge rules and the server do not change when this lands — only who
+   can read the payload.
+5. **Store builds (EAS)** — **not started**; there is no `eas.json`. iOS and
+   Android install from local builds. This line used to end "signed by the
+   free Personal Team, which is why provisioning profiles expire every seven
+   days"; `tools/build-platforms.sh` corrected that on 2026-09-21 against what
+   the profile actually says. The team (TEAMID0000) is PAID,
+   and an Xcode-managed profile for it carries `TimeToLive 365` where a
+   personal team's carries 7 — so neither the seven-day expiry nor Apple's
+   free-tier cap of three apps on a device is a limit this suite is under.
+   `AGENTS.md`'s "Platforms" section is the current word on signing and on
+   which phones a release installs to.
+6. **Calendar integrations** — read-only imports in Manage calendars:
+   generic ICS links, Google Calendar's secret/public iCal links, and CalDAV
+   account discovery plus selected calendar imports. The server proxies feeds
+   with a 15-minute cache; CalDAV uses HTTPS PROPFIND/REPORT with pinned public
+   addresses and same-origin discovery. Core's iCalendar + RRULE expansion
+   produces day-chips, never editable synced events. The client keeps content
+   outside the snapshot in an account/server-scoped cache and refreshes on
+   foreground or every twenty minutes. Google OAuth sign-in remains separate;
+   iCal imports need no Google Cloud project. See docs/api.md for the contract.
+
+## License
+
+BSD 3-Clause — see [LICENSE](LICENSE). Do what you like with it: use it,
+change it, fold it into something else, commercially or not, no permission
+needed and no warranty given. The two things the licence does ask are that
+the copyright notice travels with the source, and that you don't use the owner's
+name to endorse whatever you build from it.

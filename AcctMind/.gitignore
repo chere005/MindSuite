@@ -1,0 +1,40 @@
+# Dependencies and build output
+node_modules/
+.expo/
+apps/app/dist/
+apps/app/web-build/
+desktop/dist-desktop/
+desktop/src-tauri/target/
+desktop/.smoke-build.log
+desktop/.smoke-launch.log
+
+# Continuous native generation: ios/ and android/ are `expo prebuild` output
+# and are disposable. The watch target is NOT in there — it lives in
+# apps/app/targets/watch/ and is generated INTO the Xcode project, which is
+# why this line can stay.
+apps/app/ios/
+apps/app/android/
+
+# The deploy login. No config ever rides along with source.
+deploy.conf
+
+# Test artefacts, never source
+test-results/
+playwright-report/
+*.log
+
+# Claude Code machine-local state; launch.json is repo config and IS tracked
+.claude/*
+!.claude/launch.json
+
+.DS_Store
+
+# Tauri regenerates these on every build.
+desktop/src-tauri/gen/schemas/
+
+# Local, per-machine build settings (APPLE_TEAM_ID and the like).
+.env
+.env.local
+
+# Per-machine values (tools/machine-env.sh): devices, Apple team, people. Never committed.
+.local/

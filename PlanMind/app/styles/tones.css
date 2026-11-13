@@ -1,0 +1,18 @@
+/*
+ * Color keys as CSS. app/colors.ts writes --c-<key>-bg|fg|line for the open theme; a row marked data-c="<key>"
+ * reads them through three neutral variables, so a rule never names a color:
+ *   .cell{background:var(--tone-bg);color:var(--tone-fg);border-color:var(--tone-line)}
+ * One rule per COLOR_KEYS entry (e2e/planner.spec.ts checks every key in every theme).
+ */
+[data-c]{--tone-bg:var(--surface-2);--tone-fg:var(--text);--tone-line:var(--line)}
+[data-c=green]{--tone-bg:var(--c-green-bg);--tone-fg:var(--c-green-fg);--tone-line:var(--c-green-line)}
+[data-c=yellow]{--tone-bg:var(--c-yellow-bg);--tone-fg:var(--c-yellow-fg);--tone-line:var(--c-yellow-line)}
+[data-c=purple]{--tone-bg:var(--c-purple-bg);--tone-fg:var(--c-purple-fg);--tone-line:var(--c-purple-line)}
+[data-c=blue]{--tone-bg:var(--c-blue-bg);--tone-fg:var(--c-blue-fg);--tone-line:var(--c-blue-line)}
+[data-c=orange]{--tone-bg:var(--c-orange-bg);--tone-fg:var(--c-orange-fg);--tone-line:var(--c-orange-line)}
+[data-c=red]{--tone-bg:var(--c-red-bg);--tone-fg:var(--c-red-fg);--tone-line:var(--c-red-line)}
+[data-c=teal]{--tone-bg:var(--c-teal-bg);--tone-fg:var(--c-teal-fg);--tone-line:var(--c-teal-line)}
+[data-c=pink]{--tone-bg:var(--c-pink-bg);--tone-fg:var(--c-pink-fg);--tone-line:var(--c-pink-line)}
+[data-c=gray]{--tone-bg:var(--c-gray-bg);--tone-fg:var(--c-gray-fg);--tone-line:var(--c-gray-line)}
+.tone{background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line)}
+.tone-dot{background:var(--tone-line);border-color:var(--tone-line)}

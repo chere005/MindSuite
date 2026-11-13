@@ -1,0 +1,5 @@
+Tag, notes and the draft release
+Windows msi + exe
+macOS dmg (Apple silicon)
+Linux deb + AppImage
+Preflight summary

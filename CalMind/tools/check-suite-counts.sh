@@ -1,0 +1,91 @@
+#!/bin/sh
+# Does TODO.md's suite-counts line still tell the truth?
+#
+# That line exists because the README used to carry its own numbers and its
+# "145 tests" went stale unnoticed. ARCHITECTURE.md points here now (since the
+# 2026-09-21 split the README carries no numbers at all) — and then the line
+# itself went stale, by three, in the session that added the tests. A
+# number kept right by remembering to keep it right is the same duplication
+# this repo distrusts everywhere else; it just happens to be in prose.
+#
+# WHAT IT CHECKS: core, app, gesture, WebKit, server and the deploy guards,
+# each measured rather than asserted. The playwright totals come from `--list`, so
+# no suite is actually run for them. Core, app and server are run here — unless
+# tools/test-dev.sh hands their numbers over (CALMIND_COUNT_CORE / _APP /
+# _SERVER), read off its own green run of the same tree moments before, which
+# is still a measurement and saves running each suite a second time.
+#
+# WHAT IT DOES NOT, and why, because a checker that quietly covers less than it
+# claims is the thing this repo keeps finding:
+#   · desktop 7 — needs a full Tauri release build. Counted statically below
+#     from smoke.sh's own `ok` calls, which is what the number means.
+#   · live 19 — needs the deployed test server (CALMIND_LIVE).
+#
+#   sh tools/check-suite-counts.sh
+set -e
+cd "$(dirname "$0")/.."
+
+# TWO lines, not one — the counts wrap, and reading only the first left the
+# desktop and deploy-guard claims empty while reporting them as mismatches.
+# Anchored on the FIRST claim only: the line grew an `app **N**` between core
+# and gesture, and a pattern naming the next claim along breaks every time a
+# suite is added — which is the one moment this check has to keep working.
+LINE=$(grep -A1 -E '^core \*\*[0-9]+\*\*' TODO.md | tr '\n' ' ' || true)
+[ -n "$LINE" ] || { echo "TODO.md has no suite-counts line starting 'core **N**'" >&2; exit 1; }
+
+claim() { printf '%s' "$LINE" | grep -oE "$1 \*\*[0-9]+\*\*" | grep -oE '[0-9]+'; }
+
+BAD=0
+cmp_count() { # name, claimed, actual
+  if [ "$2" = "$3" ]; then
+    printf '  \033[32m✓\033[0m %-14s %s\n' "$1" "$3"
+  else
+    printf '  \033[31m✗\033[0m %-14s TODO says %s, actually %s\n' "$1" "$2" "$3"
+    BAD=$((BAD + 1))
+  fi
+}
+
+# Playwright's --list prints one indented line per test; the skipped one is
+# listed too, which is why the line reads "N (+1 skipped)" and the claim below
+# is compared against the PASSING count.
+listed() { npx playwright test --list ${2:+-c "$2"} 2>/dev/null | grep -cE '^  [a-z].*spec\.ts:[0-9]+'; }
+# Both spellings: test.skip() gates a spec on an env var, test.fixme() marks a
+# known bug that is kept visible rather than deleted. Playwright reports either
+# as "skipped", so both have to come off the passing count or this line goes
+# stale the moment a bug is parked.
+SKIPPED=$(grep -rlE 'test\.(skip|fixme)\(' e2e/*.spec.ts | wc -l | tr -d ' ')
+
+# A count tools/test-dev.sh hands over, measured off its OWN green run of the
+# same suite seconds earlier — or, from anyone else, nothing, and the suite is
+# run here exactly as it always was. Digits or it does not count: an empty or
+# mangled value means "measure it yourself", never "the claim is right".
+handed() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; printf '%s' "$1"; }
+
+ACT=$(handed "${CALMIND_COUNT_CORE:-}") \
+  || ACT=$(npx vitest run --root packages/core 2>&1 | grep -oE 'Tests +[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
+cmp_count core "$(claim core)" "$ACT"
+# The app's own pure-logic suite (apps/app/test) — small, and counted for the
+# same reason as the rest: a suite nothing counts is a suite that can quietly
+# stop running.
+ACT=$(handed "${CALMIND_COUNT_APP:-}") \
+  || ACT=$(npx vitest run --root apps/app 2>&1 | grep -oE 'Tests +[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
+cmp_count app "$(claim app)" "$ACT"
+cmp_count gesture "$(claim gesture)" "$(( $(listed) - SKIPPED ))"
+cmp_count WebKit "$(claim WebKit)" "$(listed x playwright.webkit.config.ts)"
+ACT=$(handed "${CALMIND_COUNT_SERVER:-}") \
+  || ACT=$(php server/tools/test.php 2>&1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
+cmp_count server "$(claim server)" "$ACT"
+cmp_count 'deploy guards' "$(printf '%s' "$LINE" | grep -oE 'deploy guards \*\*[0-9]+\*\*' | grep -oE '[0-9]+')" \
+  "$(sh tools/check-deploy-guards.sh 2>&1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | head -1)"
+
+# Static, so it costs nothing and still catches a check being added or removed.
+# `ok` is called inline as well as at the start of a line — `[ -x "$BIN" ] &&
+# ok "..."` — so anchoring the pattern undercounts, which it did.
+cmp_count desktop "$(claim desktop)" "$(grep -oE 'ok "' desktop/smoke.sh | wc -l | tr -d ' ')"
+
+echo
+if [ "$BAD" -gt 0 ]; then
+  echo "$BAD count(s) stale in TODO.md — ARCHITECTURE.md points at that line." >&2
+  exit 1
+fi
+echo "suite counts: TODO.md agrees with the suites."

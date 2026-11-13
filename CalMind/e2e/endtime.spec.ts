@@ -1,0 +1,349 @@
+/**
+ * The event END time (the owner's ask, 2026-08-18; the reveal reworked
+ * 2026-09-15): optional, events only, and now its own field shown beside the
+ * start whenever "+ Time" is open — no "+ End" reveal and no presumed hour.
+ * The chip on the day panel reads the pair — "3pm–4pm" — and removing the end
+ * in the edit sheet takes the chip back to the bare start. Weekday words ride
+ * in the same change: "lunch friday" lands on the coming Friday with the word
+ * stripped from the title, and the introducing preposition leaves with its
+ * token ("standup at 9am" → "standup").
+ */
+import { test, expect, type Page } from '@playwright/test';
+
+async function longPress(page: Page, locator: ReturnType<Page['getByTestId']>) {
+  const box = (await locator.boundingBox())!;
+  await page.mouse.move(box.x + 20, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(500);
+  await page.mouse.up();
+}
+
+let seq = 0;
+async function signup(page: Page): Promise<string> {
+  const user = `end${Date.now()}${seq++}`;
+  await page.goto('.');
+  await page.getByText('Sign up', { exact: true }).click();
+  await page.getByPlaceholder('Username').fill(user);
+  await page.getByPlaceholder('Email').fill(`${user}@example.com`);
+  await page.getByPlaceholder('Password', { exact: true }).fill('e2epassword');
+  await page.getByPlaceholder('Confirm password').fill('e2epassword');
+  await page.getByText('Sign up', { exact: true }).click();
+  await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
+  return user;
+}
+
+test('an event end renders as a range, and can be removed', async ({ page }) => {
+  test.setTimeout(90_000);
+  await signup(page);
+
+  // Through the Add tab from the calendar (the day panel's own + Add is gone,
+  // 2026-08-20) — the date defaults to the selected day and the time is an
+  // explicit field, so nothing here depends on the wall clock.
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-text').fill('movie');
+  await page.getByText('+ Time', { exact: true }).click();
+  await page.getByPlaceholder('2:30pm').fill('3pm');
+  // The end time is its own field now — both times in view, no "+ End" reveal
+  // and no presumed hour; fill it directly.
+  await page.getByPlaceholder('3:30pm').fill('4pm');
+  await page.getByText('Done', { exact: true }).click();
+
+  const row = page.getByText('3pm–4pm', { exact: true });
+  await expect(row, 'the chip reads the range').toBeVisible();
+
+  // Re-open (long-press arms the row's edit cluster): the End row is
+  // showing, and × takes the end away for good.
+  await longPress(page, page.getByText('movie', { exact: true }));
+  await page.getByLabel('Edit').first().click();
+  await expect(page.getByPlaceholder(/What\?/)).toBeVisible();
+  await page.getByLabel('Remove end').click();
+  await page.getByText('Save', { exact: true }).click();
+  await expect(page.getByText('3pm', { exact: true }), 'back to the bare start').toBeVisible();
+  await expect(page.getByText('3pm–4pm', { exact: true })).toBeHidden();
+});
+
+test('an explicit end renders as a range', async ({ page }) => {
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-text').fill('dinner');
+  await page.getByText('+ Time', { exact: true }).click();
+  await page.getByPlaceholder('2:30pm').fill('6pm');
+  await page.getByPlaceholder('3:30pm').fill('8:30pm');
+  await page.getByText('Done', { exact: true }).click();
+  await expect(page.getByText('6pm–8:30pm', { exact: true })).toBeVisible();
+});
+
+test('reminders offer no end field', async ({ page }) => {
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-reminder').click();
+  await page.getByText('+ Time', { exact: true }).click();
+  // A reminder gets a start time only — no end field.
+  await expect(page.getByPlaceholder('2:30pm')).toBeVisible();
+  await expect(page.getByPlaceholder('3:30pm'), 'reminders have no end times').toBeHidden();
+});
+
+test('a weekday word dates the line and leaves the title, preposition and all', async ({ page }) => {
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-reminders').click();
+  await page.getByTestId('secadd-General').first().click();
+  await page.getByTestId('rem-add-field').fill('party on saturday at 8pm');
+  await page.getByTestId('rem-add-field').press('Enter');
+  const row = page.getByTestId('rem-row').filter({ hasText: 'party' });
+  await expect(row).toBeVisible();
+  // The title kept ONLY its own words — the day, the time, and the words
+  // that handed them in are all instructions, not name.
+  await expect(row.getByText('party', { exact: true })).toBeVisible();
+  // The chip names a Saturday: whatever the date, its weekday label is Sat.
+  await expect(row.getByText(/Sat.*8pm/)).toBeVisible();
+});
+
+test('a typed range sets both ends, with no panel opened', async ({ page }) => {
+  // the owner, 2026-08-20: "add range parsing to time specifications everywhere".
+  // The end field lives inside "+ Time"; a range typed on the line must not
+  // need the panel opened at all, or it is a half-feature.
+  test.setTimeout(120_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('Lunch with Ada 12-1pm');
+  await page.getByText('Done', { exact: true }).click();
+  await expect(page.getByTestId('cal-day-title')).toBeVisible();
+
+  const row = page.getByTestId('dp-ev-body').filter({ hasText: 'Lunch' }).first();
+  await expect(row, 'the range left the title').toHaveText('Lunch with Ada');
+  // The chip is the panel's own range label, so it proves BOTH ends landed.
+  await expect(page.getByText('12pm–1pm', { exact: true })).toBeVisible();
+});
+
+test('and the round trip closes: copy an event, paste it, get the same event', async ({ page, context }) => {
+  // The reason the parser learned ranges — eventLine emitted one and nothing
+  // could read it back. Both halves through the real UI, not through core.
+  test.setTimeout(120_000);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('Standup 9-10am');
+  await page.getByText('Done', { exact: true }).click();
+  await expect(page.getByTestId('cal-day-title')).toBeVisible();
+  await expect(page.getByText('9am–10am', { exact: true })).toBeVisible();
+
+  const body = page.getByTestId('dp-ev-body').first();
+  const b = (await body.boundingBox())!;
+  await page.mouse.move(b.x + 15, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.getByTestId('dp-ev-copy').first().click();
+  await expect(page.getByTestId('toast')).toHaveText('Copied', { timeout: 10_000 });
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill(clip);
+  await page.getByText('Done', { exact: true }).click();
+  await expect(page.getByTestId('cal-day-title')).toBeVisible();
+
+  // Two events, same words, same range — nothing left behind in a title.
+  const rows = page.getByTestId('dp-ev-body').filter({ hasText: 'Standup' });
+  await expect(rows).toHaveCount(2);
+  for (const r of await rows.all()) await expect(r).toHaveText('Standup');
+  await expect(page.getByText('9am–10am', { exact: true })).toHaveCount(2);
+});
+
+test('an event can span to a later end day, and its chip points across the days', async ({ page }) => {
+  // the owner, 2026-09-15: a start day → end day span, from the Add screen's
+  // second day picker. The event shows on every day it runs (core's day
+  // model, pinned in dayspan.test.ts); the day panel lands on the START day,
+  // where a multi-day event's chip points forward from its start time.
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('conference');
+  await page.getByText('+ Time', { exact: true }).click();
+  await page.getByPlaceholder('2:30pm').fill('9am');
+  await page.getByPlaceholder('3:30pm').fill('5pm');
+  // The end DAY: the 16th of next month, so the span crosses many days.
+  const n = new Date();
+  const target = new Date(n.getFullYear(), n.getMonth() + 1, 16);
+  const iso = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-16`;
+  await page.getByText('+ Date', { exact: true }).click();
+  await page.getByTestId('add-end-date').click();
+  await expect(page.getByTestId('daypick')).toBeVisible();
+  await page.getByTestId('daypick-next').click();
+  await page.getByLabel(iso).click();
+  await page.getByText('Done', { exact: true }).click();
+
+  // The per-day chip on the start day points forward from the start time.
+  await expect(page.getByText('9am →', { exact: true })).toBeVisible();
+});
+
+test('an untimed event reads "all day"', async ({ page }) => {
+  // the owner, 2026-09-15: "all day should show up as all day … and don't need a
+  // time". A no-time event is all-day and says so on its row.
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('holiday');
+  await page.getByText('Done', { exact: true }).click();
+  await expect(page.getByTestId('cal-day-title')).toBeVisible();
+  await expect(page.getByText('all day', { exact: true })).toBeVisible();
+});
+
+test('the edit sheet can turn an event into a multi-day span', async ({ page }) => {
+  // the owner, 2026-09-15: "add editing to multi-day/time". The item window's own
+  // end-day picker builds the span; the start day's chip then points forward.
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('summit');
+  await page.getByText('+ Time', { exact: true }).click();
+  await page.getByPlaceholder('2:30pm').fill('9am');
+  await page.getByText('Done', { exact: true }).click();
+  await expect(page.getByText('9am', { exact: true }), 'single day at first').toBeVisible();
+
+  await longPress(page, page.getByText('summit', { exact: true }));
+  await page.getByLabel('Edit').first().click();
+  await expect(page.getByPlaceholder(/What\?/)).toBeVisible();
+  const n = new Date();
+  const target = new Date(n.getFullYear(), n.getMonth() + 1, 16);
+  const iso = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-16`;
+  await page.getByTestId('item-end-date').click();
+  await page.getByTestId('daypick-next').click();
+  await page.getByLabel(iso).click();
+  await page.getByText('Save', { exact: true }).click();
+  await expect(page.getByText('9am →', { exact: true }), 'now a span from its start day').toBeVisible();
+});
+
+test('the edit sheet keeps the start and the end on one line, each naming its day', async ({ page }) => {
+  // the owner, 2026-09-19: "start/end date … doesn't always bring up the right
+  // buttons … they should stay on the same line and the start/end date should
+  // always appear". Before this the end day was a SECOND row carrying its own
+  // label and its own None pill, and the start circle went blank whenever the
+  // day was today — so the two halves of one span sat 44px apart and neither
+  // of them read as a date. Measured, not eyeballed: same row means same y.
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 375, height: 900 });
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('standup');
+  await page.getByText('+ Time', { exact: true }).click();
+  await page.getByPlaceholder('2:30pm').fill('9am');
+  await page.getByText('Done', { exact: true }).last().click();
+
+  await longPress(page, page.getByText('standup', { exact: true }));
+  await page.getByLabel('Edit').first().click();
+  await expect(page.getByPlaceholder(/What\?/)).toBeVisible();
+
+  const start = page.getByTestId('item-date');
+  const end = page.getByTestId('item-end-date');
+  // A same-day event still NAMES its end — the day it starts on, never blank.
+  const today = new Date();
+  const dayLabel = today.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  await expect(start).toHaveAccessibleName(`Date: ${dayLabel}`);
+  await expect(end).toHaveAccessibleName(`Date: ${dayLabel}`);
+
+  const [sb, eb] = [await start.boundingBox(), await end.boundingBox()];
+  expect(sb!.y, 'the end day sits on the start day’s line').toBe(eb!.y);
+  expect(eb!.x, 'and after it, not before').toBeGreaterThan(sb!.x);
+
+  // The kind pills must not move the pickers around: a reminder has no end,
+  // and its start stays exactly where the event's was.
+  await page.getByTestId('kind-reminder').click();
+  await expect(end).toHaveCount(0);
+  expect((await start.boundingBox())!.x).toBe(sb!.x);
+  await page.getByTestId('kind-event').click();
+  await expect(end).toHaveCount(1);
+  expect((await start.boundingBox())!.x).toBe(sb!.x);
+});
+
+test('a start dragged past the end collapses the span in the row, not silently on save', async ({ page }) => {
+  // The save has always run normalizeEndDate — an end at or before the start
+  // is dropped — but the row went on showing the stale end until you saved,
+  // so the span you were looking at was not the span you filed. The row now
+  // reads through the same call.
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('summit');
+  await page.getByText('+ Time', { exact: true }).click();
+  await page.getByPlaceholder('2:30pm').fill('9am');
+  await page.getByText('Done', { exact: true }).last().click();
+
+  await longPress(page, page.getByText('summit', { exact: true }));
+  await page.getByLabel('Edit').first().click();
+
+  // An end day next month: the row reads the span.
+  const n = new Date();
+  const target = new Date(n.getFullYear(), n.getMonth() + 1, 16);
+  const iso = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-16`;
+  const endLabel = target.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  await page.getByTestId('item-end-date').click();
+  await page.getByTestId('daypick-next').click();
+  await page.getByLabel(iso).click();
+  await expect(page.getByTestId('item-end-date')).toHaveAccessibleName(`Date: ${endLabel}`);
+
+  // Now drag the START past it — the end must follow the start, there and then.
+  const later = new Date(n.getFullYear(), n.getMonth() + 2, 20);
+  const laterIso = `${later.getFullYear()}-${String(later.getMonth() + 1).padStart(2, '0')}-20`;
+  const laterLabel = later.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  await page.getByTestId('item-date').click();
+  await page.getByTestId('daypick-next').click();
+  await page.getByTestId('daypick-next').click();
+  await page.getByLabel(laterIso).click();
+  await expect(page.getByTestId('item-date')).toHaveAccessibleName(`Date: ${laterLabel}`);
+  await expect(page.getByTestId('item-end-date'), 'the span collapsed in view').toHaveAccessibleName(`Date: ${laterLabel}`);
+});
+
+test('a weekday range typed into the line makes an all-day span', async ({ page }) => {
+  // the owner, 2026-09-19: "calmind should have mon-wed parsing that would be an
+  // all day event and any varient like Monday-Wed case insensitive". Typed,
+  // not picked: the line alone has to make the span, take its own words out
+  // of the title, and leave no clock behind — an event with no time is the
+  // all-day event, and the day panel says so.
+  test.setTimeout(90_000);
+  await signup(page);
+  await page.getByTestId('tab-calendar').click();
+  await page.getByTestId('tab-add').click();
+  await page.getByTestId('add-kind-event').click();
+  await page.getByTestId('add-text').fill('Conference Monday-Wed');
+  await page.getByText('Done', { exact: true }).last().click();
+
+  // It files on the coming Monday, so the day panel has to go there. The
+  // month may turn over on the way, which the grid's own arrow handles.
+  const now = new Date();
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((1 - now.getDay() + 7) % 7));
+  await expect(page.getByTestId('cal-day-title')).toBeVisible();
+  if (monday.getMonth() !== now.getMonth()) await page.getByTestId('cal-next').click();
+  await page.getByTestId('cal-cell').getByText(String(monday.getDate()), { exact: true }).first().click();
+  await expect(page.getByTestId('cal-day-title')).toContainText(` ${monday.getDate()}`);
+
+  // The title kept its words and lost the range, and there is no clock on it.
+  await expect(page.getByText('Conference', { exact: true })).toBeVisible();
+  await expect(page.getByText('all day', { exact: true }), 'no time was written, so none was invented').toBeVisible();
+
+  // The span is the point: the Wednesday two days on carries it as well.
+  const wed = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 2);
+  if (wed.getMonth() !== monday.getMonth()) await page.getByTestId('cal-next').click();
+  await page.getByTestId('cal-cell').getByText(String(wed.getDate()), { exact: true }).first().click();
+  await expect(page.getByTestId('cal-day-title')).toContainText(` ${wed.getDate()}`);
+  await expect(page.getByText('Conference', { exact: true }), 'it runs to the Wednesday').toBeVisible();
+});

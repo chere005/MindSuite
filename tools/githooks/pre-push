@@ -1,0 +1,59 @@
+#!/bin/sh
+# AgentSuite's pre-push first (quiet CI), then no name in what is pushed.
+#   history <local> --not <remote tip>   for every pushed ref to any other remote
+#   for a remote named by `git config --get-all mindsuite.publicRemote` (a remote name or url), fail closed:
+#     - only these remote refs may be written:
+#         refs/heads/main
+#         refs/tags/<App>/<x.y.z>   App = AcctMind CalMind ChefMind CoreMind PlanMind ReadMind TaskMind (the lanes' tags)
+#         refs/heads/preflight/<acctmind|calmind|chefmind>/<sha7..40>   (the lanes' throwaway preflight branches)
+#       never a <App>/legacy/<version> marker, any other branch or tag, or an old-style tag;
+#     - only a preflight branch may be deleted;
+#     - every pushed object gets a full-ancestry `history` scan, with no skip when the needle list is missing.
+remote=$1
+url=$2
+root=$(git rev-parse --show-toplevel) || exit 1
+refs=$(cat)
+common=$(cd "$(git rev-parse --git-common-dir)/.." 2>/dev/null && pwd -P)
+agent=
+for d in "${AGENTSUITE_DIR:-}" "$root/../AgentSuite" "$common/../AgentSuite" "$HOME/GIT/AgentSuite"; do
+  if [ -n "$d" ] && [ -f "$d/githooks/pre-push" ]; then agent="$d/githooks/pre-push"; break; fi
+done
+if [ -n "$agent" ]; then
+  printf '%s\n' "$refs" | sh "$agent" "$remote" "$url" || exit 1
+fi
+check="$root/CoreMind/bin/check-names.sh"
+[ -f "$check" ] || exit 0
+public=0
+for p in $(git config --get-all mindsuite.publicRemote); do
+  if [ "$p" = "$remote" ] || [ "$p" = "$url" ]; then public=1; fi
+done
+APPS='AcctMind|CalMind|ChefMind|CoreMind|PlanMind|ReadMind|TaskMind'
+PREFLIGHT='refs/heads/preflight/(acctmind|calmind|chefmind)/[0-9a-f]{7,40}'
+public_ref_ok() {
+  printf '%s\n' "$1" | grep -Eqx "refs/heads/main|refs/tags/($APPS)/[0-9]+\.[0-9]+\.[0-9]+|$PREFLIGHT"
+}
+zero=0000000000000000000000000000000000000000
+printf '%s\n' "$refs" | while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_ref" ] || continue
+  case "$local_sha" in
+    *[!0]*) ;;
+    *)
+      if [ "$public" = 1 ] && ! printf '%s\n' "$remote_ref" | grep -Eqx "$PREFLIGHT"; then
+        echo "pre-push: deleting $remote_ref on the public remote is refused (only a preflight branch may be deleted)" >&2
+        exit 1
+      fi
+      continue ;;
+  esac
+  if [ "$public" = 1 ]; then
+    if ! public_ref_ok "$remote_ref"; then
+      echo "pre-push: $remote_ref is not main, a release tag <App>/<x.y.z> or a lane preflight branch; refused for the public remote" >&2
+      exit 1
+    fi
+    # a public push never skips for a missing needle list
+    MIND_NAMES_OPTIONAL=0 sh "$check" history "$local_sha" || exit 1
+  elif [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    sh "$check" history "$local_sha" --not "--remotes=$remote" || exit 1
+  else
+    sh "$check" history "$local_sha" --not "$remote_sha" || exit 1
+  fi
+done

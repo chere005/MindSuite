@@ -1,0 +1,13 @@
+{
+  "name": "@chefmind/desktop",
+  "private": true,
+  "version": "1.39.0",
+  "scripts": {
+    "dev": "node tauri.mjs dev",
+    "build": "node tauri.mjs build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.local/
+test-results/
+playwright-report/
+deploy.conf
+*.log
+.DS_Store

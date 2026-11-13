@@ -1,0 +1,293 @@
+/** The shapes every surface agrees on. Nothing here has behavior. */
+
+/**
+ * What every synced record has in common.
+ *
+ * `id`, `created`, `updated` and `deleted` are the merge's entire vocabulary
+ * — it reads nothing else — so anything that must survive two devices meeting
+ * carries this shape. Accounts and categories are records for exactly that
+ * reason: an account that existed on the phone and not the Mac would make
+ * half a person's transactions homeless.
+ */
+export type Record_ = {
+  /** Stable, generated once at creation. Never derived from the content. */
+  id: string;
+  /** Epoch milliseconds. */
+  created: number;
+  /**
+   * Epoch milliseconds of the last edit — the merge clock.
+   *
+   * Two devices holding the same id keep the higher `updated`. This is the
+   * ONLY field merging looks at, which is why it must move on every change,
+   * including a delete.
+   */
+  updated: number;
+  /**
+   * A tombstone. The record stays, marked dead, because a merge cannot tell
+   * "deleted here" from "not yet arrived here" if the row simply vanishes —
+   * the other device would helpfully hand it back on the next sync, for ever.
+   */
+  deleted?: true;
+};
+
+/**
+ * A place transactions live: a current account, a card, cash in a drawer.
+ *
+ * Sections on the Transactions tab. Every transaction belongs to exactly one,
+ * which is why there is always at least one — see `DEFAULT_ACCOUNT_NAME`.
+ */
+export type Account = Record_ & {
+  name: string;
+  /** A hex colour from the palette. Drives the dot and the section header. */
+  color: string;
+  /** Where it sits in the list. Sparse and re-spaced rather than contiguous. */
+  order: number;
+};
+
+/**
+ * A heading on the Budget tab: a name, a colour, and the lines under it.
+ *
+ * A category BUDGETS NOTHING of its own. It used to carry the money, and the
+ * money moved down to `Line` in v4 — a category's budgeted amount is the sum
+ * of its lines, which is a thing to compute and never a thing to store. Two
+ * numbers that must agree are two numbers that eventually will not.
+ */
+export type Category = Record_ & {
+  name: string;
+  color: string;
+  order: number;
+};
+
+/**
+ * A budget line: money set aside inside a category.
+ *
+ * The leaf, and what a transaction is actually filed under. Three numbers are
+ * shown against one of these and only ONE of them lives here:
+ *
+ *   · `budget` — set aside. Stored, because it is a decision someone made.
+ *   · spent — the sum of this line's transactions. Derived from the ledger.
+ *   · available — `budget + spent`. Derived. See budget.ts.
+ *
+ * A transaction may have NO line — money moves before anyone decides what it
+ * was — so the link is nullable in one direction only.
+ */
+export type Line = Record_ & {
+  name: string;
+  /** The category this sits under. Always a real category id. */
+  category: string;
+  /** Money set aside, in integer MINOR UNITS. Never a float, like every amount. */
+  budget: number;
+  /**
+   * What this line NEEDS — the target, against which `budget` is the amount
+   * actually assigned. The owner, 2026-09-15.
+   *
+   * Zero means "no target set", which is why an unfunded line with no target
+   * is not shown as short of anything: most lines never get one, and a screen
+   * that painted every one of them yellow would be a screen nobody reads.
+   */
+  needs: number;
+  /**
+   * Snoozed: this line is not asking for money right now.
+   *
+   * A target you are deliberately not funding this month is different from
+   * one you have forgotten, and without somewhere to say so the only way to
+   * quiet a line is to delete the target and lose it.
+   */
+  snoozed: boolean;
+  order: number;
+};
+
+/** A transaction, as stored. */
+export type Txn = Record_ & {
+  name: string;
+  /** Always a string; absent and empty are the same thing and normalize to ''. */
+  description: string;
+  /** Integer MINOR UNITS (cents). Negative is money out. Never a float. */
+  amount: number;
+  /** `YYYY-MM-DD`, on the local calendar. See day.ts for why not a timestamp. */
+  date: string;
+  /**
+   * The account it belongs to. Always set — a transaction with no account
+   * would have nowhere to be drawn.
+   *
+   * Held as an ID rather than by embedding the account, so renaming one
+   * renames it everywhere at once and does not have to visit every row.
+   */
+  account: string;
+  /**
+   * Where this row sits when the list is ordered by hand.
+   *
+   * Carried on the record rather than in a device preference because a custom
+   * order is a decision about the ledger, not about a screen — drag a row on
+   * the phone and the Mac should agree. It is SPARSE (see `REORDER_GAP`) so a
+   * single move rewrites one row instead of all of them, which matters when
+   * every rewrite is a merge clock bump that has to travel.
+   */
+  order: number;
+  /**
+   * The budget category, or null for one nobody has filed yet.
+   *
+   * Nullable on purpose: money moves before anyone decides what it was, and a
+   * required category would mean inventing "Uncategorised" as a real record
+   * that then syncs, gets renamed, and can be deleted out from under its rows.
+   */
+  category: string | null;
+  /**
+   * CLEARED — it has shown up on the bank's statement. The owner, 2026-09-15: "add
+   * a cleared check box as the far right column in transactions."
+   *
+   * Only the literal `true` is ever stored, the way `deleted` is: a row that
+   * is not cleared carries NO key at all, so every store written before this
+   * field existed is unchanged byte for byte and reads back identical, and a
+   * merge between a device that knows the field and one that does not has
+   * nothing to disagree about. Flipped by `setCleared`, never by hand.
+   */
+  cleared?: true;
+};
+
+/** What the add form holds while it is being typed — all strings, all raw. */
+export type Draft = {
+  name: string;
+  description: string;
+  /** As typed: `12.50`, `$1,234`, `(5)`. Parsed by money.ts, never by a screen. */
+  amount: string;
+  date: string;
+  /** The account id. A form always has one — see `emptyDraft`. */
+  account: string;
+  /** The category id, or null for one nobody has filed yet. */
+  category: string | null;
+};
+
+/** Which fields a draft got wrong. An empty object means it is good. */
+export type DraftErrors = Partial<Record<keyof Draft, string>>;
+
+/**
+ * The whole local store, as one serializable object.
+ *
+ * `v` is the on-disk version. It exists from the first commit because adding
+ * one later means guessing what the unversioned files were — and there are
+ * six surfaces holding copies of this, so the first migration will not be
+ * able to reach them all at once.
+ */
+/**
+ * One line's budgeted amount in one MONTH.
+ *
+ * The All Time set is `Line.budget` and has no records here; see views.ts
+ * for the key grammar and for why this is a record per amount rather than a
+ * map per set.
+ *
+ * There were NAMED VIEWS too, from 2026-09-16 to 2026-09-21 — a `View`
+ * record and amounts keyed `v:<id>`. The owner took the dropdown that reached
+ * them out ("get rid of the view dropdown and all time") and then the
+ * concept ("drop named views"), so the record type is gone and `set` is
+ * always a month now. A device that made one still has its rows in this
+ * array: nothing reads them, nothing writes them, and they are left alone
+ * rather than deleted by a migration, because dropping records on load is
+ * how a bookkeeping change becomes lost money.
+ */
+export type BudgetAmount = Record_ & {
+  /** 'm:YYYY-MM'. Never 'all'. */
+  set: string;
+  /** The line this budgets. */
+  line: string;
+  /** Integer MINOR UNITS, like every amount. */
+  amount: number;
+};
+
+/**
+ * A setting about the LEDGER rather than about a device, so it syncs.
+ *
+ * The owner, 2026-09-25: a Starting Month for the budget. Prefs (prefs.ts) are
+ * deliberately per-device and never merge; this is the other kind — the
+ * phone and the Mac would draw different envelopes if they disagreed about
+ * where the budget starts. One record per setting, keyed by a fixed id so two
+ * devices converge on it, merged like every other record.
+ */
+export type Setting = Record_ & {
+  /** The setting's value as a string; '' means unset. */
+  value: string;
+};
+
+export type Store = {
+  v: 4;
+  txns: Txn[];
+  accounts: Account[];
+  categories: Category[];
+  lines: Line[];
+  /**
+   * ADDITIVE, and defaulted rather than migrated — the same bargain `needs`
+   * and `snoozed` made. A store written before this existed simply has none,
+   * which is what an empty array means, so there is no v5.
+   *
+   * A `views` array sat beside it for five days and is gone with the feature
+   * (2026-09-21). STILL v4, for the same reason it was v4 when the array
+   * arrived: a saved file carrying the key parses exactly as before — the
+   * key is simply not read — and a version bump would make every device
+   * think its data needed migrating when nothing about it did.
+   */
+  budgets: BudgetAmount[];
+  /**
+   * Ledger-wide settings — see `Setting`. OPTIONAL, the one collection that
+   * is: added 2026-09-25 and read through `?? []` everywhere, so every store
+   * literal and every file written before it still means what it did. Still
+   * v4, on `budgets`' reasoning above.
+   */
+  settings?: Setting[];
+};
+
+/** What the one account a migrated store gets is called. */
+export const DEFAULT_ACCOUNT_NAME = 'Account';
+
+/**
+ * The one category a store starts with. The owner, 2026-09-15.
+ *
+ * A budget with no categories at all has nowhere to put the first line, so
+ * the Budget tab opens on an empty state and the + that would help is inside
+ * a category that does not exist yet. One default breaks that circle.
+ *
+ * It is a real, ordinary record: renameable, deletable, and it syncs like any
+ * other. That is deliberately NOT true of the "no category" heading beside it
+ * on that screen, which is a view of `category: null` rows and not a record —
+ * see the note on `Txn.category` above for why inventing one would be worse.
+ */
+export const DEFAULT_CATEGORY_NAME = 'Available funds';
+
+/**
+ * INCOME — the category incoming cash is filed under. The owner, 2026-09-25: "add
+ * a category for incoming cash".
+ *
+ * A FIXED ID, not a record, for the reason `Txn.category` gives against an
+ * invented "Uncategorised": a record syncs, gets renamed, and can be deleted
+ * out from under its rows, and two devices that each made one would each
+ * have their own. This id is the same on every device from the first load.
+ *
+ * It is not an envelope. Nothing is assigned to it and it is never one of
+ * the lines `unassigned` takes off, so money filed here lands in the bar's
+ * Available — which is what incoming cash is for. And being filed at all, it
+ * is no longer one of the rows `unfiledSince` says are waiting.
+ */
+export const INCOME = 'income';
+export const INCOME_NAME = 'Income';
+
+/**
+ * Older stores are READ and upgraded rather than refused: refusing one would
+ * strand the ledger already sitting on a device. See `parseStore`.
+ *
+ *   v1 — no `updated`, no tombstones. Could not merge at all.
+ *   v2 — merge clocks and tombstones.
+ *   v3 — accounts and categories, and every transaction filed under one
+ *        account. A v1 or v2 store has neither, so the migration invents a
+ *        single account and puts everything in it. That account is a real
+ *        record with a real id from the moment it is created, because the
+ *        alternative — a magic 'default' string — is a thing two devices can
+ *        both invent separately and then never reconcile.
+ *   v4 — budget LINES. A category stopped holding money and became a heading;
+ *        the money, and the transactions, moved to a line underneath it. The
+ *        migration gives every existing category one line carrying its old
+ *        name and its old budget, and re-points that category's transactions
+ *        at it. The line's id is DERIVED from the category's, for the same
+ *        reason v3's account is a real record: two devices upgrading the same
+ *        ledger independently have to land on the same ids, or the next merge
+ *        shows every budget twice.
+ */
+export const STORE_VERSION = 4 as const;

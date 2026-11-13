@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- CalMind: the one-stroke CM — one line flows from the C into the M. The owner's pick (option C). -->
+  <rect width="96" height="96" rx="20" fill="#111111"/>
+  <path d="M 58 26 A 27 27 0 1 0 58 70 L 58 44 L 69 57 L 80 44 L 80 70"
+        fill="none" stroke="#34d399" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

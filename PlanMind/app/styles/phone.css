@@ -1,0 +1,28 @@
+/*
+ * The phone's date sheet (opened from the date in the top bar) and the bottom-sheet look of a dialog. The panels' own phone
+ * layouts (tab bars, lanes, the folded to-do list) are in day.css and weekmonth.css. The phone is max-width 760px, the same
+ * line as the shell. `dialog.sheet` is named so it wins over components.css whichever sheet loads first.
+ */
+
+/* The date sheet's own look (it is only opened on a phone) */
+.ds-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;text-align:center}
+.ds-weekday{font-size:11px;color:var(--dim);padding:4px 0}
+.ds-day{height:40px;border:1px solid transparent;border-radius:10px;font-size:14px}
+.ds-day.out{color:var(--dim)}
+.ds-day[data-today]{border-color:var(--accent)}
+.ds-day[aria-current=date],.ds-week[aria-current=date],.ds-month[aria-current=date]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.ds-day:disabled,.ds-week:disabled,.ds-month:disabled{opacity:.3;cursor:default}
+.ds-weeks{display:flex;flex-direction:column;gap:3px}
+.ds-week{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 12px;border:1px solid transparent;border-radius:10px;font-size:14px;text-align:left}
+.ds-week small{font-size:12px}
+.ds-week[data-today]{border-color:var(--accent)}
+.ds-months{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.ds-month{height:44px;border:1px solid transparent;border-radius:10px;font-size:14px}
+.ds-month[data-today]{border-color:var(--accent)}
+.ds-day:focus-visible,.ds-week:focus-visible,.ds-month:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+@media(hover:hover){.ds-day:not([aria-current=date]):not(:disabled):hover,.ds-week:not([aria-current=date]):not(:disabled):hover,.ds-month:not([aria-current=date]):not(:disabled):hover{background:var(--surface-2)}}
+
+@media(max-width:760px){
+/* Bottom sheets: the same dialogs, drawn from the bottom edge */
+dialog.sheet{position:fixed;inset:auto 0 0 0;margin:0;width:100%;max-width:none;max-height:88dvh;overflow:auto;border-width:1px 0 0;border-radius:16px 16px 0 0;padding:14px 16px max(16px,env(safe-area-inset-bottom))}
+}

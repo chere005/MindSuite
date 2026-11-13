@@ -1,0 +1,15 @@
+node_modules/
+*.log
+.DS_Store
+
+# Claude Code machine-local state; launch.json is repo config and IS tracked
+.claude/*
+!.claude/launch.json
+.status-history.json
+.status-phase
+
+# Private targets: per machine, never tracked (see bin/plan.sh)
+.private-targets
+
+# Per-machine values (tools/machine-env.sh): devices, Apple team, people. Never committed.
+.local/

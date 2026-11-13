@@ -1,0 +1,6 @@
+#!/bin/sh
+# A commit message carries no account or person name (CoreMind/bin/check-names.sh message).
+root=$(git rev-parse --show-toplevel) || exit 1
+[ -f "$root/CoreMind/bin/check-names.sh" ] || exit 0
+case "$1" in /*) msg=$1 ;; *) msg=$PWD/$1 ;; esac
+exec sh "$root/CoreMind/bin/check-names.sh" message "$msg"

@@ -1,0 +1,442 @@
+# What the tests cover — and what nobody but a person is watching
+
+The bargain, carried over from CalMind's suite: **change a feature, change
+its test in the same commit; add a feature, add a test with it; fix a bug,
+add the case that would have caught it.** This file is the map of which
+harness watches what. Keep it in step, or something ends up in neither list
+and nobody is looking at it.
+
+## Every harness, in one place
+
+| run | what it watches | in the deploy gate? |
+|---|---|---|
+| `npm run test:dev` | the between-runs suite: three typechecks, core, server, version, peer, deploy guards — under a minute, no browser | (three of deploy.sh's four gates, run early; the browser run is not in it) |
+| `npm run test:core` | the behaviour itself, including the `spec/*.json` replay | **yes** |
+| `npm run test:server` | the doorway over real HTTP, against the real suite auth lib: its own sign-in, and the suite's shared sign-in (off, held, on) | **yes** |
+| `npm run test:e2e` | the whole app on the EXPORTED bundle, desktop and phone viewports — mouse, plus a real touch stream for the swipe | **yes** (a spot subset on `--quick`; once per `tdtp` — see below) |
+| `npm run test:deploy` | every deploy guard, each proven by breaking a copy | no — only under `npm test` |
+| `npm run test:version` | one version across the SIX source files, plus a build number that exists. `--sources-only`: it does NOT read the plist, and says so | no — only under `npm test` |
+| `npm run test:version:device` | the same, plus the generated `Info.plist` — version AND build number. Run by this repo's `tools/build-platforms.sh --ios` around the prebuild, the one moment the plist is both fresh and about to be installed | no — see below |
+| `npm run test:peer` | the Bonjour service type and usage string in Info.plist, against core's `PEER_SERVICE` | no — only under `npm test` |
+| `sh desktop/check-assets.sh` | the desktop window opens the path the export was built for | no |
+| `./desktop/smoke.sh` | the macOS shell builds, carries THIS export, launches, quits. `--no-build` runs the same checks on the bundle already built — the lane's form, straight after `tools/build-platforms.sh --mac` has built it, so the shell is compiled once per release, not twice | no — compiles Rust (the lane's `--mac` step runs it before the tag) |
+
+**The deploy gate is `deploy.sh`'s own four** — typechecks, core, server, and
+the browser run (a spot subset on `--quick`). Under `tdtp` the full browser
+run happens ONCE, in `npm test`: `deploy.sh` still makes its own fresh export,
+and repeats the suite only when that export — or the suite's files, the
+Playwright and node that ran it, the settings it reads — keys differently from
+what passed (`tools/dist-key.mjs`; `tools/dtp.sh` and `deploy.sh` say how the
+key is minted and checked). Same bytes, same verdict; anything else and it
+runs. A standalone `./deploy.sh` always runs it. Everything else in this table
+runs under `npm test`, which is what `tdtp` puts in front of a release; the
+`swiftc` row went with the watch, so nothing here needs a Swift compiler any
+more, and only `./desktop/smoke.sh` needs a Rust one. "Outside the gate" is
+exactly how a check stops being run, so the column says so per row rather
+than leaving it to be discovered.
+
+`test:version:device` is outside for a different reason, and AGENTS.md carries
+it in full: the plist goes stale the instant a version bumps and stays stale
+until something prebuilds, so "stale" is the ORDINARY state between a release
+and the next device build. Gating on it meant every release blocked the next
+one, which is what killed 0.14.0.
+
+## The layers, and what each one can and cannot prove
+
+**`spec/*.json` + `packages/core`** — the rules, as data. Amounts, days, the
+month grid, ordering. This is where a behaviour change starts: edit a vector,
+watch it go red, then make it green. The intent is that a native port replays
+the same file, which is why the vectors are JSON and not TypeScript.
+
+The suite runs under `TZ=America/Chicago`, deliberately. A UTC slip in a date
+is a bug that behaves correctly for anyone testing in the morning; pinning a
+western timezone turns it into a failure instead of a coin flip.
+
+**`e2e/`** — the app as a person meets it, driven through the real export at
+the real base path. Serving `dist` at `/` instead would pass while the
+deployed app was broken, because the whole point of `experiments.baseUrl` is
+that assets are requested under `/AcctMind/`.
+
+**`server/tools/test.php`** — the doorway, over real HTTP with real cookies,
+against the **real** `seancheren-site` auth library. Not a stub. A mocked
+sign-in here would pass whether or not the doorway works, which is the
+category of check this project refuses to write. If that repo is not on the
+machine the run FAILS and says so; it never skips quietly. Point `SUITE_LIB`
+at it if it lives somewhere else. It must be a library that has the shared
+sign-in's door (`mss_app_gate`); the second half rests on it.
+
+It has two halves. The first is the doorway on its own legacy sign-in. The
+second is the suite's **shared sign-in** (seancheren-site
+`docs/MINDSUITE-LOGIN.md`), driven through the same `index.php` against a
+disposable COPY of the site library (never the live configuration, never a real
+store), one PHP built-in server per way the library can be:
+
+| case | what it proves |
+|---|---|
+| off, held (several spellings), malformed holds, another instance only, a library older than the door | the legacy sign-in, exactly as before: the form, the PHP session, `?logout`, a session on disk |
+| on, no session | a 303 to `/account/?next=%2FAcctMind%2F` with nothing behind it, no PHP session, no store written; the return target is the script's own path whatever `?next=`, the path after the script, a forged `Host` or a forwarding header say; the `/test/` mirror and the test subdomain |
+| on, a session | the shell, `no-store, private`, no PHP session; `?logout` signs nobody out; a revoked session is a 303; a missing shell is still a loud 500 |
+| on, who may be here | the owner and the partner (the site config's `people`) open the shell; any other account is a 403 whose one control is a Sign out form posting to `/account/`; a `people` list that is missing or malformed is a 503 for everyone (logged); legacy (off or held) never reads it |
+| on, no second door | a legacy PHP session, a scoped (CalMind) token as bearer or cookie, any `Authorization` header, a made-up cookie: a 303. No post of any kind is served (405 with the session's token, 403 without it or from another origin or site) and none writes a byte |
+| on, but it cannot work | an unreadable store or a missing key is a 503; a door that answers with no account, an empty one, no token or the wrong types is a 503 (logged); the account library missing is closed; no site library is the 500 it always was. Never the legacy form |
+
+Each server takes a port the OS hands out (`PORT=<n>` pins the first one), so
+none of the suite's reserved lane ports is bound. Every PHP the file starts runs
+with opcache off: the servers outlive the config rewrites between cases, and a
+stock opcache (on for the built-in server, revalidating every 2 s) would serve
+the previous case's `config.php` for a moment, failing a case that is right or
+passing one that is wrong. A rule in `index.php` was
+proved by breaking a copy of it once (20 mutations) and watching this file fail
+every time; do the same for a new rule.
+
+**`tools/check-deploy-guards.sh`** — every destination guard, proven by
+breaking a COPY of `deploy.sh` with `ssh`, `rsync`, `scp` and `curl` neutered
+on the PATH first. In CalMind, a run that set out to prove the consent gate
+worked — by removing the consent gate — went on to write production. The
+neutering is installed before the first copy is ever executed, and one of the
+checks is that no broken copy reached `ssh` at all.
+
+**`tools/check-peer-service.mjs`** — `NSBonjourServices` is an ALLOW-LIST, and
+that is the entire reason this check exists. A service type missing from it,
+or off by one character, does not error: the browser starts, finds nothing,
+ever, and there is no failure anywhere to read. This asserts the plist against
+core's `PEER_SERVICE`, that nothing stale is listed beside it, that the usage
+description exists (without it iOS terminates the app the moment it browses),
+and that no Swift file has grown its own copy of the string.
+
+## Rules that were in a screen, and are not any more
+
+Three times now a rule sat in a component, and each time the symptom was the
+same: the only way to test it was to drive a browser, and the browser could
+not do it.
+
+- **The category filter** — substring, case-insensitive, trimmed,
+  empty-is-everything. Now `filterByName`, six cases, no browser.
+- **The swipe** — when a drag is claimed and when letting go arms the delete.
+  Now `claimsSwipe` and `swipeArms`. React-native-web's pan responder does not
+  engage under Playwright's MOUSE, so a 220-pixel drag deleted nothing and
+  two gesture tests passed because NOTHING HAPPENED. They were deleted rather
+  than kept green. A real TOUCH stream does engage it — see below; the rules
+  stayed in core regardless, because they run on both browsers and the driver
+  runs on one.
+- **Sorting** — three modes, now `spec/sortmodes.json` and replayed.
+
+What is left for the gesture suite in each case is only that the screen CALLS
+the rule, which is what a gesture suite is actually for — and on 2026-08-21
+that turned out to be worth its own check: `sort-date` and `sort-amount` were
+asserted NOWHERE, so the middle chip could have passed `custom` with core
+perfect and the suite green. `rowactions.spec.ts` now drives all three
+against a fixture where no two modes agree.
+
+## A harness quirk worth knowing before you debug the app
+
+Under the **mobile** project, `fill()` on a `Modal`'s `TextInput` can silently
+do nothing: the value reads back empty, React having re-rendered the
+controlled input from state that never changed. The only symptom is Save
+appearing to do nothing while the form says "Name is required" — the app is
+fine. CLICK the field first, then fill. Chromium does not need it, so a test
+written and checked there will fail on mobile for a reason that has nothing to
+do with the code under test. `sections.spec.ts` carries the note at the one
+place it bit.
+
+## The v4 migration, and why it is unit-tested rather than spec'd
+
+Store v4 moved the money off the category and onto a line underneath it, and
+re-filed every transaction from the category to that line. Seven cases in
+`store.test.ts` cover it, including the two that matter most: the line's id is
+DERIVED from the category's, so a phone and a Mac upgrading the same ledger
+independently land on the same record instead of two lines holding the same
+money; and the line keeps the category's merge clock, so neither device wins a
+merge it has no new information for. All five plausible ways to get it wrong
+were tried and all five went red.
+
+There is still no `spec/` vector for any migration — that remains the gap it
+was, and it matters more now that there are two of them.
+
+## The swipe, drivable after all — with real touch
+
+React-native-web's `PanResponder` ignores Playwright's synthetic MOUSE, which
+is why three attempts at a swipe test passed while doing nothing. It does not
+ignore a real touch stream: `Input.dispatchTouchEvent` over CDP drives it,
+and `swipeRow` in `e2e/helpers.ts` is that (`e2e/rowactions.spec.ts`, five
+tests). Chromium only — the mobile project is WebKit and has no CDP.
+
+Two things keep it honest, and both were watched failing:
+
+- A 60-pixel drag — past `SWIPE_CLAIM_PX`, short of `SWIPE_ARM_PX` — arms
+  NOTHING, asserted in its own test. Without it the suite would be proving
+  only that touching a row does something.
+- Three mutations, 2026-08-21: `rowTap` ignoring `parked` failed the two
+  dismiss tests; removing the background dismiss failed the empty-space one;
+  dropping the pencil's clear failed the pencil one. Each failed alone, which
+  is what says the tests are about different things.
+
+The rules stay in core anyway. The driver covers one browser and no phone;
+`claimsSwipe`, `swipeArms` and `rowTap` cover every surface.
+
+## What the harness cannot drive at all
+
+- **Drag to reorder** (the grip, 2026-08-21) — `reorder` and `orderBetween` in
+  core; `rowdrag.ts` turns a finger into a destination index and nothing else.
+  What the suite still checks is whether the handle is OFFERED, per sort mode,
+  and that hiding it does not move the row's contents. The drag itself was
+  checked on a simulator, by hand.
+
+## A test that failed because the LANE was the load
+
+`months.spec.ts` "assigning in one month…" went red inside the suite tdtp on
+2026-09-21 and passed five times out of five as soon as the machine was
+quiet. What was different was a device build and a Gradle daemon running
+beside the suite: the assertion polled the drawn figure fourteen times in
+five seconds, read `$0.00` every time, and reported that the budget had
+refused the number.
+
+The fix is in `assign()` and it is the one this file already prescribes —
+wait on the thing being MEASURED. The helper now polls the STORE until the
+amount is actually in it, so the screen assertion that follows is about
+rendering rather than racing the write. Raising the element timeout would
+have been waiting longer for the wrong signal.
+
+**The general shape: a suite that only fails while something else is
+building is not a flaky suite, it is a suite asserting on the wrong
+moment.** Under load, every gap between "the control closed" and "the data
+landed" gets wide enough to see.
+
+**It was not the whole story — 2026-09-21, later the same day.** The store
+poll went red again on a QUIET machine, twice in fifteen runs of
+`months.spec.ts --repeat-each=3` and once in a full `npm test`, each time on
+a different test in that file and each time with the pad shut and fifteen
+seconds of polling behind it. The cause is still open, and these are the
+things it is NOT: the assign gesture itself (224 assignments across 10
+workers, 0 failures), the operator button racing `autoFocus` (`start()`
+guards on `editing`), and the two native transports (`peer`/`sync` report
+unsupported on the web, so parallel workers cannot be merging into each
+other). What is left is the shape of `onDone` — it closes over `pad` and
+`phase` and commits `pad.budget`, so a Return processed against a render
+older than the last keystroke would write the value the pad opened with and
+then close, which is precisely the symptom. Not yet reproduced; written down
+so the next person starts here instead of at the poll.
+
+## Two tests that flake under full parallel load
+
+Both read GEOMETRY or COMPUTED STYLE right after an interaction, and both have
+failed once each in a full parallel run and passed on every rerun and in
+isolation: `rowactions.spec.ts` "the action cluster … leaves the name alone"
+and `persist.spec.ts` "a store written by an older run loads". The reading
+appears to race a layout pass when four workers are contending.
+
+They are recorded rather than quietly rerun until green. If either starts
+failing more than occasionally, the fix is to wait on the thing being measured
+rather than to raise a timeout — a geometry assertion that needs a sleep is an
+assertion about the wrong moment.
+
+## A check that was DELETED for the same reason
+
+"The screen name is not truncated by its own controls" was written after the
+top bar grew a fifth control and `Transactions` drew as `Transac…` on a
+simulator. Two versions of it went green and neither could fail:
+
+1. `scrollWidth > clientWidth` — react-native-web CLAMPS a single-line Text,
+   so the box never overflows and the two numbers stay equal whether or not an
+   ellipsis is drawn.
+2. Measuring the text unconstrained against the room the title has — correct
+   arithmetic, and it still passed with all five controls restored, because at
+   the mobile project's 393px the title needs 149.1 and is given exactly
+   149.1. It FITS on the web. It did not fit on the device.
+
+Measured rather than assumed, which is the only reason this is written down
+instead of being a green check somebody trusts. The web harness runs a phone
+VIEWPORT with a browser's font metrics, and this bug lives in the gap between
+those metrics and the device's. Nothing here can see it; a simulator can, in
+one second.
+
+## A check that was watched failing at nothing
+
+Worth keeping as a worked example, because it looked like a good test.
+
+"Opening a row moves nothing" was written by measuring every row's rect before
+and after the long press and asserting they matched. It passed. Then the bug
+it was written for — buttons with `minHeight: 44` inside a row laid out at 36
+— was put BACK, and it still passed: an absolutely positioned child that
+overflows does not change its container's rect, so the measurement could not
+see the thing it was measuring for.
+
+It now asserts CONTAINMENT — each control's box against its row's box — which
+is the property that actually differs.
+
+The companion trap, from the same afternoon: **a flex child's box is not its
+text.** `txn-name` carries `flex: 1`, so its bounding box is the whole left
+half of the row however short the word inside it is. An assertion that the
+action cluster "starts to the right of the name" therefore fails on a working
+app and would pass on a broken one at a different width. Measure against the
+ROW. Two honest notes on it: real rows come
+out around 53 points tall (two stacked lines plus padding), so 44-point
+buttons genuinely fit and the restored bug does not trip it either. The check
+is a true invariant that would catch a control drawn larger than its row; it
+is NOT evidence that the reported shifting is fixed. That was checked by eye
+on a simulator.
+
+## Checks that had to be about a computed style
+
+Two things in this app differ between working and broken ONLY in CSS that no
+visibility assertion reads. Both are in `rowactions.spec.ts` and
+`sections.spec.ts`:
+
+- **A transaction row paints its own background.** The swipe's red delete
+  backdrop sits behind every row and is correctly visible at all times; with a
+  transparent row on top, the whole ledger drew red. `toBeVisible()` is true
+  on both layers in the broken app and in the fixed one — see AGENTS.md.
+- **A colour picked in Manage rides on the RECORD.** Twelve swatch controls
+  were asserted by nothing. The assertion is on the STORE, not on the dot:
+  a colour that lived only on the device that picked it would make one ledger
+  look like two.
+
+## What nobody is watching
+
+- **The iOS binary on the Mac ("Designed for iPad").** It compiles for
+  `platform=macOS,variant=Designed for iPad` and has never been LAUNCHED. A
+  shell cannot do it (see ARCHITECTURE.md), so it takes Xcode and a person.
+  Anything said about the local-network link with a Mac at one end is therefore
+  reasoning, not observation: two simulators proved the transport.
+- **iCloud actually carrying the file.** `ubiquity.test.ts` pins the path and
+  `sync.test.ts` pins `planSync`. Nothing automates iCloud
+  delivering `store.json` between a phone and the Mac, or macOS letting the
+  Tauri shell read the container — `icloud_status` on the Devices screen is
+  the tell.
+
+- **That the desktop window actually RENDERS.** A window showing an error page
+  launches, survives eight seconds and quits exactly like a working one. The
+  smoke guards the specific failure that caused it in CalMind — the window
+  opening a path the embedded assets do not have — by reading the asset paths
+  out of the built binary. It does not watch pixels. Proving that needs
+  screen-recording permission or a probe build.
+- **Anything that only breaks on a finger.** Three bugs shipped through a
+  green gesture suite on 2026-08-21: a tab bar restyled as a bottom bar but
+  left first in the JSX; a swipe handler that claimed the gesture at six
+  pixels and so cancelled every long press — a held finger drifts further
+  than that, a mouse does not; and a transparent row that let the delete
+  backdrop show through, which no visibility check could see. The first two
+  were invisible because a phone VIEWPORT is not a phone; the third because
+  the suite was asking the wrong question. All three now have a check, and
+  all three were watched failing. This is the same trap `hitSlop` set, in
+  three new costumes.
+
+- **The phone, on real hardware.** The web harness runs a phone
+  VIEWPORT, which is not a phone: a browser has no status bar to hide under,
+  and `hitSlop` is a no-op under react-native-web while it works on native.
+  Open the simulator and look — the iOS app and both modals were checked that
+  way on 2026-08-20, on an iPhone 17 Pro simulator, and the add form does
+  clear the status bar.
+
+  When you do, build **Release** (`npx expo run:ios --configuration Release`).
+  A dev build asks a Metro server for its bundle and does not check which
+  project answered — with CalMind's bundler on the default port, AcctMind's
+  app loaded CalMind's bundle and died on a native module it does not have.
+  Release embeds the bundle, so there is nothing to get wrong. See
+  `apps/app/AGENTS.md`.
+- **Two devices actually finding each other**, as an automated check. It was
+  done BY HAND on 2026-08-20, with two booted simulators, and it earned its
+  keep immediately: the browser was dropping every peer because
+  `includeTXTRecord` defaults to false. Nothing in the repo replays that.
+
+  The technique, since it is not obvious: boot a second simulator, `simctl
+  install` the same `.app` on both, pair them through the UI, and — this is
+  the part that found the bug — run `dns-sd -B _acctmind1._tcp` on the Mac.
+  The host sees what the simulators advertise, so a service that is visible
+  there and invisible to the other app localises the fault to the BROWSER
+  rather than the advertisement.
+
+- **The TLS-PSK handshake, as an automated check.** It was measured by hand
+  on 2026-08-20 with a standalone Swift probe (one listener, one client, same
+  secret, loopback, six option variants), and that probe found the app's TLS
+  options were unusable: pinning to TLS 1.3 fails with
+  `NO_SUPPORTED_VERSIONS_ENABLED`, because Apple's PSK support is TLS 1.2.
+  Nothing replays it.
+
+  What the link negotiates, measured: TLS 1.2, ciphersuite 0x00A8
+  (`TLS_PSK_WITH_AES_128_GCM_SHA256`). **No forward secrecy** — see the note
+  in `PeerLink.swift` for what that does and does not cost. Appending any
+  other ciphersuite, including the ECDHE-PSK and DHE-PSK ones, changes
+  nothing; that was measured too.
+
+  A handshake that fails at runtime is silent from inside the app: the
+  browser finds the service and the connection simply never reaches `.ready`.
+  `peers` on the Devices screen is the only tell in the UI; the device log
+  under `com.apple.network:boringssl` is the only real diagnosis.
+
+- **iOS and Android builds, on a schedule.** `apps/app/ios` and
+  `apps/app/android` are `expo prebuild` output and disposable. Since
+  2026-08-23 the release lane DOES rebuild both on every run —
+  `tools/dtp.sh` calls `tools/build-platforms.sh --ios` and `--android` after
+  the push — but non-fatally: a failure is collected and reported, never
+  stops the lane. So a release can be tagged and pushed with neither device
+  build having succeeded, and the report is the only place that says so.
+
+- **The Windows bundle's contents.** The workflow installs the MSI, finds the
+  binary, launches it and requires a window titled *AcctMind* (commit 3dd5c36
+  fixed a smoke step that had blamed the bundle for an install it never
+  checked). The 0.54.0 setup `.exe` was also installed and launched by hand on
+  Windows 10 on 2026-10-21: it ran with that window title. Nobody compares the
+  window's CONTENTS — a blank Tauri shell would pass both — and Windows has no
+  iCloud link, so its ledger is local only.
+
+## Before you trust a new check
+
+Break the thing it guards and watch it go red. Every check in this repo has
+been watched failing on purpose:
+
+- the spec replay, against a parser that rounds three decimals, a `today()`
+  written as `toISOString().slice(0,10)`, and a sort with its id tiebreak
+  removed;
+- the platform-neutrality typecheck, against an `import 'node:fs'` in core;
+- the freshness gate, against a source edit the dist had not seen;
+- all nine destination guards, against copies with their constants rewritten,
+  plus the text rules read out of the real script (`--delete`, the
+  `index.html` exclusion, no config uploaded, no data dir written) — fifteen
+  checks in all;
+- the pairing tests, against five mutations of `peer.ts` — a plain sum for
+  Luhn, no checksum at all, the O/I/L folding removed, a 40-bit secret, and a
+  confusable character put back in the alphabet. The first of those is why
+  the transposition test now derives its own fixture: with a literal code it
+  stayed GREEN under an order-blind checksum, which is the exact shape of a
+  check that cannot fail;
+- `check-peer-service.mjs`, against a one-character drift in the plist, a
+  removed usage description, a stale extra service left in the list, and a
+  hardcoded service type in Swift;
+- the peer module's Swift, against a deliberate type error — to prove
+  `xcodebuild -scheme PeerSync` was compiling the file at all and not
+  reporting a cached success;
+- the cross-section drag, against six mutations across two screens — the
+  drop forced back to the row's OWN section (the per-section drag it
+  replaced), the section headings taken out of the flat list (the shape that
+  could not express "the end of this section"), the grip offered outside
+  custom order, `orderBetween` ignoring its direction, `orderAbove` keeping
+  the mover in the list it measures, and `linesIn` sorting the wrong way.
+  Each reddened the cases about it and left the rest green. A SEVENTH was
+  tried and caught nothing — removing the empty-account placeholder — which
+  is how that placeholder turned out to be unnecessary AND harmful: it grew
+  36 points the instant a finger went down, moving every heading below it
+  under the drag it was supposed to help. It is gone from the ledger and the
+  budget keeps its own, which is text drawn at rest and does not move;
+- the CSV WRITER, against four mutations — LF instead of CRLF, an inner
+  quote backslash-escaped instead of doubled, the amounts written through
+  `formatAmount` (which is what makes a column text in a spreadsheet), and
+  the header row dropped. The round trip through `parseDelimited` is in
+  there too and is deliberately not counted as proof on its own: both
+  halves of a hand-written pair can share a misunderstanding;
+- the pick bar's two core rules, against three mutations: `tombstoneMany`
+  stamping a clock PER ROW instead of one for the batch, the same function
+  returning a fresh object for an empty selection instead of the store it
+  was handed (which would tell the app the ledger had changed and write the
+  file again over nothing), and `pickTap` ignoring a parked delete. Each
+  reddened exactly one test and no others;
+- the pad taking the keyboard (`budget.spec.ts`), twice over: the two
+  tests that open it as the category sheet slides away failed 20 runs out
+  of 20 across both projects before OpAmount's focus hold existed, and the
+  plain tap-and-type test went red on both projects with `autoFocus` taken
+  off the pad. They type with `page.keyboard`, deliberately — `fill()` and
+  `pressSequentially()` focus the field before typing, which is why none of
+  the pad tests before them could see a field that opened unfocused.
+
+A check nobody has seen fail is a check nobody should trust. Five green
+checks in CalMind turned out to be worthless in a single session.

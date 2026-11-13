@@ -1,0 +1,233 @@
+/*
+ * The Week and Month panels.
+ * Colors come from data-c (styles/tones.css): a card, circle or pill marked data-c reads --tone-bg, --tone-fg and --tone-line.
+ * Desktop shows every section; on a phone the panel's data-tab decides which one, and the panel scrolls inside itself above its tab bar.
+ */
+.panel-label{font-size:13px;font-weight:500;color:var(--dim);margin:0 0 10px}
+.wm-panel{display:block}
+@media(min-width:761px){.wm-panel,.wm-panel .wm-body{height:100%}}
+.wm-week .wm-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px;align-items:start}
+.wm-sec{min-width:0}
+.wm-tabs{display:none}
+.wm-swatch{width:9px;height:9px;border-radius:50%;border:1px solid var(--tone-line);flex:none}
+
+/* Text blocks, one for each lane. Lanes sit side by side where there is room and stack where there is not. */
+.wm-lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;align-items:stretch}
+.wm-lane{display:flex;flex-direction:column;min-width:0;background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);border-radius:12px;padding:10px 12px 8px}
+.wm-lane-head{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.wm-lane-head h3{font-size:13px;font-weight:600;margin:0}
+.wm-you{font-size:11px}
+.wm-text{display:block;flex:1;width:100%;min-height:300px;resize:vertical;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:16px;line-height:1.7;padding:6px 2px;touch-action:manipulation}
+.wm-text::placeholder{color:inherit;opacity:.65}
+.wm-text:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wm-lane-foot{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:6px;font-size:11px}
+.wm-state{margin-right:auto}
+.wm-count.over,.wm-lane .wm-state{font-weight:600}
+.wm-cue{display:none;font-size:11px}
+.wm-lane .text-button{color:inherit;text-decoration:underline;min-height:36px}
+.wm-lane .primary{min-height:34px;padding:6px 16px;font-size:12px}
+
+/* To-dos */
+/* The to-do list is drawn like the Day's: ruled lines, a circle for each, the add field on the first blank line. */
+.wm-todos{list-style:none;margin:0;padding:0}
+.wm-todo,.wm-free{position:relative;display:flex;align-items:center;gap:10px;min-height:36px;padding:0 4px;border-bottom:1px solid var(--line)}
+.wm-free{cursor:text}
+.wm-ghost{flex:none;width:18px;height:18px;margin:0 2px;border:1.5px solid var(--line);border-radius:50%;opacity:.8}
+.wm-add{flex:1;min-width:0;align-self:stretch;display:flex;align-items:center;gap:8px;margin:0}
+.wm-add .wm-add-title{flex:1;min-width:0;min-height:0;height:100%;padding:0;border:0;border-radius:0;background:transparent;font-size:14px;outline:none}
+.wm-add .wm-add-title::placeholder{color:var(--dim);opacity:1}
+.wm-add .wm-add-title:focus{box-shadow:inset 0 -1.5px 0 var(--accent)}
+.wm-add-count{flex:none;font-size:11px;color:var(--dim)}
+.wm-add .wm-add-go{flex:none;min-height:0;height:24px;padding:0 10px;font-size:12px;border-radius:6px}
+.wm-add [hidden]{display:none}
+.wm-check{appearance:none;position:relative;flex:none;width:18px;height:18px;min-height:0;margin:0 2px;padding:0;border:1.5px solid var(--tone-line);border-radius:50%;background:transparent;cursor:pointer}
+.wm-check::before{content:"";position:absolute;inset:-9px -13px}
+.wm-check:checked{background:var(--tone-bg)}
+.wm-check:checked::after{content:"✓";position:absolute;inset:0;text-align:center;font-size:12px;line-height:15px;color:var(--tone-fg)}
+.wm-todo-title{flex:1;min-width:0;padding:6px 0;text-align:left;font-size:14px;line-height:1.4;overflow-wrap:anywhere}
+.wm-todo.done .wm-todo-title{color:var(--dim);text-decoration:line-through}
+/* A to-do being edited where it stands (inplace.css): the field has the size and font of the title it replaces. */
+.wm-todo.wm-editing{flex-wrap:wrap;row-gap:0;column-gap:8px}
+/* The owner's name leaves the row while it is edited, for the room: the circle keeps the owner's color and Delete says who it is for. */
+.wm-todo.wm-editing .wm-owner{display:none}
+.wm-todo .ip-input.wm-todo-title{flex:1 1 60px;padding:6px 0;font-size:14px;line-height:1.4}
+.wm-todo.wm-editing .ip-error{padding-left:36px}
+
+/* Month: a calendar of the month's chores with a side column and the Notes in the cells left over after the last day. Seven equal columns, Saturday's included, and six equal rows
+   (88px at least, room for the number and three chips: a window too short for them scrolls as a whole): the Notes are in the sixth row and never make it taller (contain: size, as the days and the side column do),
+   a compact card for each lane that scrolls its words inside itself (below). A day is a box, never a button (its chips are buttons): its number opens the day, and so does the box. */
+.page:has(.wide-month){max-width:1300px}
+.wm-month .wm-grid{display:grid;grid-template-columns:minmax(190px,250px) repeat(7,minmax(0,1fr));grid-template-rows:max-content repeat(6,minmax(88px,1fr));min-height:100%;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.wm-days{display:contents}
+.wm-corner,.wm-dow,.wm-day,.wm-side,.wm-notes{border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0}
+.wm-corner{grid-column:1;grid-row:1}
+.wm-dow{padding:6px 0;text-align:center;font-size:12px;color:var(--dim)}
+.wm-dow-letter{display:none}
+/* The side column is as tall as the calendar's rows, whatever it holds: it scrolls inside itself when its Priorities and To-do are longer, instead of making the calendar scroll with it. */
+.wm-side{grid-column:1;grid-row:2 / span 6;display:flex;flex-direction:column;gap:14px;padding:10px 12px;contain:size;overflow-y:auto;overscroll-behavior:contain}
+/* A day: its tint (--base) is the Week A rows' light highlight on a day of the month, plain on a Week B row, none outside the month; a Saturday is hatched under it, in the month or not. */
+.wm-day{--base:var(--bg);position:relative;display:flex;flex-direction:column;align-items:stretch;gap:1px;padding:4px 5px 2px;border-radius:0;background:var(--base);color:var(--text);font-size:12px;cursor:pointer}
+.wm-day[data-letter=A]{--base:color-mix(in srgb,var(--surface-2) 55%,var(--bg))}
+.wm-day.out{--base:var(--bg);color:var(--dim)}
+.wm-day[data-sat]{background:repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--text) 9%,transparent) 5px 6px),var(--base)}
+.wm-day.today{background:var(--accent-soft);color:var(--text)}
+.wm-day[data-covered]{display:none}
+/* The date number is the button that opens the day (24px, the least a target needs); today's is a filled accent circle. It sits 4px from the cell's top and left edge: room for the 2px ring
+   of today's focused number (2px off its fill) inside a cell that clips whatever hangs outside it. */
+.wm-day-num{flex:none;align-self:flex-start;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:0 0 0 -1px;padding:0;border-radius:50%;font-size:12px;font-weight:600;line-height:1}
+.wm-day-num:hover{background:var(--surface-2)}
+.wm-day-num:focus-visible{outline-offset:0}
+.wm-day.out .wm-day-num{font-weight:400}
+.wm-day.today .wm-day-num{background:var(--accent);color:var(--accent-ink)}
+.wm-day.today .wm-day-num:hover{filter:brightness(1.1)}
+.wm-day.today .wm-day-num:focus-visible{outline-offset:2px}
+.wm-notes{grid-row:7;padding:12px}
+.wm-notes[data-from="1"]{grid-column:2 / -1}
+.wm-notes[data-from="2"]{grid-column:3 / -1}
+.wm-notes[data-from="3"]{grid-column:4 / -1}
+.wm-notes[data-from="4"]{grid-column:5 / -1}
+.wm-notes[data-from="5"]{grid-column:6 / -1}
+.wm-notes[data-from="6"]{grid-column:7 / -1}
+.wm-notes[data-from="7"]{grid-column:8 / -1}
+.wm-month .wm-lanes{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+.wm-month .wm-text{min-height:64px}
+.wm-month .wm-side .wm-lanes{grid-template-columns:minmax(0,1fr)}
+
+/* Desktop: the rows of a to-do list are tighter than a finger needs. */
+@media(min-width:761px){
+/*
+ * A day's chores are chips as wide as the cell with slim chrome (the chip of the Chores page: panels/chores/ChoreRow.ts, tint and states in chores.css): one line each,
+ * a title that does not fit ends in an ellipsis. The cell takes its row's height, never makes it (contain), and its list, under the number, scrolls inside itself when there are
+ * more chips than fit. The list has 3px of room at its sides for the keyboard's ring (the Day's lists do the same).
+ */
+.wm-day{contain:size;overflow:hidden}
+.wm-chores{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:1px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 3px;margin:0 -3px;scroll-padding-block:3px}
+.wm-chores .ch-row{--cs:14px;flex:none;gap:4px;min-height:18px;padding:0 5px}
+.wm-chores .ch-circle,.wm-chores .ch-ghost{margin:0}
+.wm-chores .ch-circle::before{inset:-3px}
+.wm-chores .ch-title{padding:0;font-size:12.5px;line-height:16px}
+.wm-chores button.ch-chip{padding:0 6px;font-size:11px;line-height:14px}
+.wm-chores .ch-row:not(.ch-done) button.ch-title:hover{text-decoration:underline}
+/* A turn sent to Friday or let go keeps its title readable: the title asks for 4.5em, and the chip that takes the choice back ("Let go", "→ Fri") goes to a line of its own under it
+   when the cell is too narrow for both (the chip alone would leave the title a few pixels, and no ellipsis). A wide cell keeps them on one line. */
+.wm-chores .ch-row:is(.ch-moved,.ch-letgo){flex-wrap:wrap;row-gap:0}
+.wm-chores .ch-row:is(.ch-moved,.ch-letgo) .ch-title{flex:1 1 4.5em}
+.wm-chores .ch-undo{margin-left:auto}
+/* With three or four lists the text blocks stack two deep: a little shorter, so a 900px-high window still shows them whole */
+.wm-week .wm-text{min-height:280px}
+.wm-lane-head{margin-bottom:2px}
+/* The words of a priorities or notes box, its section label and the name above it are the Day's sizes (day.css: .day-note-text 13px/1.5, .day-label 12px, .day-note-name 11px); a phone keeps 16px so the keyboard does not zoom the page. */
+.wm-text{font-size:13px;line-height:1.5}
+.panel-label{font-size:12px}
+.wm-lane-head h3{font-size:11px}
+
+/*
+ * The Month's side column (the owner: give two thirds of it to Priorities, and show at least eight lines of them).
+ * Priorities are as tall as their words, at most two thirds of the column; To-do has the rest, and its list scrolls inside itself when the rest is shorter
+ * than its eight ruled lines. Each card is as tall as its box, whose height mountNotes writes to --fit (the words, never fewer than two lines): a short card
+ * leaves its room to the other, and two long ones share the two thirds evenly because their grid rows are minmax(0, auto). A box past its share scrolls
+ * inside itself. The cards' own rows are slim (the name and the recovery buttons on one line, the count and Save on another) so the words get the room.
+ */
+.wm-month .wm-side [data-sec=priorities]{display:flex;flex-direction:column;flex:none;min-height:0;max-height:66.667%}
+.wm-month .wm-side [data-sec=priorities] .panel-label,.wm-month .wm-side [data-sec=todo] .panel-label{flex:none;margin-bottom:6px}
+.wm-month .wm-side [data-sec=priorities] .wm-lanes{flex:0 1 auto;min-height:0;grid-auto-rows:minmax(0,auto);gap:8px}
+.wm-month [data-sec=priorities] .wm-lane{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-rows:auto minmax(0,auto) auto;align-items:center;row-gap:3px;min-height:0;padding:5px 10px}
+.wm-month [data-sec=priorities] .wm-lane-head{grid-area:1 / 1 / 2 / 3;margin:0;min-width:0;min-height:16px}
+.wm-month [data-sec=priorities] .wm-lane-head h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wm-month [data-sec=priorities] .wm-you{flex:none}
+.wm-month [data-sec=priorities] .wm-lane-foot{display:contents}
+.wm-month [data-sec=priorities] .wm-text{grid-area:2 / 1 / 3 / -1;align-self:stretch;resize:none;height:var(--fit,auto);max-height:100%;min-height:calc(3em + 4px);padding:2px;outline-offset:0}
+/* Words below the edge: a shadow along it (mountNotes sets data-more) until the box is scrolled to its end. */
+.wm-month [data-sec=priorities] .wm-text[data-more]{box-shadow:inset 0 -12px 8px -8px var(--tone-line)}
+.wm-month [data-sec=priorities] .wm-count{grid-area:3 / 1}
+.wm-month [data-sec=priorities] .wm-state{grid-area:3 / 2;margin:0;padding-left:8px}
+.wm-month [data-sec=priorities] .wm-lane[data-notice]{grid-template-rows:auto minmax(0,auto) auto auto}
+.wm-month [data-sec=priorities] .wm-lane[data-notice] .wm-state{grid-area:4 / 1 / 5 / -1;padding:0}
+.wm-month [data-sec=priorities] .wm-lane .text-button{min-height:0;padding:0;font-size:11px;line-height:16px}
+.wm-month [data-sec=priorities] [data-act=reload]{grid-area:1 / 3;margin-left:8px}
+.wm-month [data-sec=priorities] [data-act=keep]{grid-area:1 / 4;margin-left:8px}
+/* Both recovery buttons (a newer version was saved elsewhere) take a row under the sentence instead of sharing the name's: a name beside two buttons has no room. */
+.wm-month [data-sec=priorities] .wm-lane[data-moved]{grid-template-rows:auto minmax(0,auto) auto auto auto}
+.wm-month [data-sec=priorities] .wm-lane[data-moved] [data-act=reload]{grid-area:5 / 1 / 6 / 3;justify-self:start;margin:0}
+.wm-month [data-sec=priorities] .wm-lane[data-moved] [data-act=keep]{grid-area:5 / 3 / 6 / 5;justify-self:end;margin:0}
+.wm-month [data-sec=priorities] .wm-lane .primary{grid-area:3 / 3 / 4 / 5;justify-self:end;min-height:28px;padding:0 14px}
+/*
+ * The Month's Notes (the owner, 2026-11-02: six equal rows, "just indicate with highlights"). They sit in the cells of the sixth row that the last day leaves over (Thursday to Sunday) and take no height
+ * from it: the block is exactly as tall as its row (contain: size, so the days above it are the same height). "Notes" is the label, in a column at the left, level with the first card's name. Each lane is a compact
+ * card in the Priorities cards' chrome around a box of about two lines (the room the row leaves) that scrolls inside itself, with the shadow along its bottom edge that says there are more words.
+ * A card has three rows and never a fourth, in any state: the name and one word or button (Saved, or Reload saved once there is a draft), the words, and the count and one button (Save). A notice
+ * takes the place of what it makes useless instead of a row of its own: over the limit it is a short cue beside the count and Save goes (it is disabled), and when a newer version was saved elsewhere
+ * the cue stands where the count was and Keep mine where Save was (Save would be refused again). The sentence stays for a screen reader (the status) and for a tooltip. A card keeps 156px (the cue and Keep mine side by side need 133 of its 138), so what is on its rows
+ * always fits (the name, 3 characters at least, ends in an ellipsis; the count does not wrap): with three or more lanes, or a narrow window, the strip of cards scrolls sideways (it snaps, and a card
+ * the keyboard reaches is scrolled whole into view: mountNotes).
+ */
+.wm-month .wm-notes{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr);column-gap:8px;padding:4px 6px;contain:size;overflow:hidden}
+.wm-month .wm-notes .panel-label{align-self:start;margin:0;padding:6px 0 0 2px}
+.wm-month .wm-notes .wm-lanes{grid-template-columns:none;grid-template-rows:minmax(0,1fr);grid-auto-flow:column;grid-auto-columns:minmax(156px,1fr);gap:8px;min-width:0;min-height:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;scrollbar-width:thin;scroll-snap-type:x proximity}
+.wm-month [data-sec=notes] .wm-lane{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-rows:auto minmax(0,1fr) 24px;align-items:center;row-gap:3px;min-height:0;padding:4px 8px;scroll-snap-align:start}
+.wm-month [data-sec=notes] .wm-lane-head{grid-area:1 / 1;margin:0;min-width:0;min-height:16px}
+.wm-month [data-sec=notes] .wm-lane-head h3{min-width:3ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wm-month [data-sec=notes] .wm-you{flex:none}
+.wm-month [data-sec=notes] .wm-lane-foot{display:contents}
+.wm-month [data-sec=notes] .wm-text{grid-area:2 / 1 / 3 / 4;align-self:stretch;resize:none;height:auto;min-height:0;max-height:100%;padding:2px;outline-offset:0}
+/* Words below the edge: a shadow along it (mountNotes sets data-more) until the box is scrolled to its end. */
+.wm-month [data-sec=notes] .wm-text[data-more]{box-shadow:inset 0 -12px 8px -8px var(--tone-line)}
+.wm-month [data-sec=notes] .wm-count{grid-area:3 / 1 / 4 / 3;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wm-month [data-sec=notes] .wm-state{grid-area:1 / 2 / 2 / 4;justify-self:end;margin:0;padding:0 0 0 6px;font-weight:400;white-space:nowrap}
+/* With a draft the word Unsaved (or the sentence) gives way to Reload saved: it stays for a screen reader. */
+.wm-month [data-sec=notes] .wm-lane[data-dirty] .wm-state{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* and the "you" tag gives way too: Reload saved needs the room. */
+.wm-month [data-sec=notes] .wm-lane[data-dirty] .wm-you{display:none}
+.wm-month [data-sec=notes] .wm-lane .text-button{min-height:0;padding:0;margin:0;font-size:11px;line-height:16px;white-space:nowrap}
+.wm-month [data-sec=notes] .wm-lane [data-act=reload]{grid-area:1 / 2 / 2 / 4;justify-self:end;padding-left:6px}
+.wm-month [data-sec=notes] .wm-lane [data-act=keep]{grid-area:3 / 3;justify-self:end}
+.wm-month [data-sec=notes] .wm-lane .primary{grid-area:3 / 3;justify-self:end;min-height:24px;padding:0 12px}
+.wm-month [data-sec=notes] .wm-lane .wm-cue{grid-area:3 / 3;justify-self:end;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.wm-month [data-sec=notes] .wm-lane[data-notice] .primary{display:none}
+.wm-month [data-sec=notes] .wm-lane[data-notice] .wm-cue{display:block}
+.wm-month [data-sec=notes] .wm-lane[data-moved] .wm-count{display:none}
+.wm-month [data-sec=notes] .wm-lane[data-moved] .wm-cue{grid-area:3 / 1 / 4 / 3;justify-self:start}
+.wm-month .wm-side [data-sec=todo]{display:flex;flex-direction:column;flex:0 1 auto;min-height:0}
+/* Like the Day's list, the Month's scrolls inside itself, with room beside it for the ring of a focused circle and title, which sits flush on its control so the first and the last row's stay whole. */
+.wm-month .wm-side .wm-todos{flex:0 1 auto;min-height:108px;margin-inline:-3px;padding-inline:3px;overflow-y:auto;overscroll-behavior:contain;scroll-padding-block:3px}
+.wm-month .wm-side .wm-todos :is(button,input,select):focus-visible{outline-offset:0}
+}
+
+@media(max-width:760px){
+.wm-panel{display:flex;flex-direction:column;height:100%}
+.wm-body{flex:1;min-height:0;overflow:auto;padding:14px 16px 20px;-webkit-overflow-scrolling:touch}
+.wm-week .wm-body{display:block}
+.panel-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.wm-sec,.wm-days{display:none}
+.wm-panel[data-tab=priorities] [data-sec=priorities],.wm-panel[data-tab=todo] [data-sec=todo],.wm-panel[data-tab=notes] [data-sec=notes]{display:block}
+.wm-panel[data-tab=calendar] .wm-days{display:grid}
+.wm-text,.wm-month .wm-text{min-height:200px}
+.wm-lanes,.wm-month .wm-lanes{grid-template-columns:minmax(0,1fr)}
+.wm-lane .primary,.wm-lane .text-button{min-height:44px}
+.wm-todo,.wm-free{min-height:40px}
+.wm-add .wm-add-title{font-size:16px}
+.wm-add .wm-add-go{height:28px}
+.wm-tabs{display:flex;flex:none;gap:2px;padding:4px 4px max(8px,env(safe-area-inset-bottom));border-top:1px solid var(--line-soft);background:var(--surface)}
+.wm-tabs button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:48px;padding:4px 0;border-radius:10px;font-size:11px;color:var(--dim)}
+.wm-tabs button[aria-selected=true]{background:var(--accent-soft);color:var(--text);box-shadow:inset 0 2px 0 var(--accent)}
+.wm-tabs:is([data-n="4"],[data-n="5"]) button[aria-selected=false] span{display:none}
+.wm-tabs:is([data-n="4"],[data-n="5"]) button[aria-selected=true]{flex:1.8}
+.wm-month .wm-grid{display:block;border:0}
+.wm-side{display:contents}
+.wm-notes{padding:0;border:0}
+.wm-days{grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.wm-corner{display:none}
+.wm-dow{padding:4px 0;font-size:11px}
+.wm-dow-full{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.wm-dow-letter{display:inline}
+.wm-day,.wm-day[data-covered]{display:flex;min-height:64px;padding:3px 4px 4px}
+.wm-day-num{width:22px;height:22px;margin-left:-1px;font-size:13px}
+/* A chore is a thin bar in its owner's color (the tint's text color, the one held above 3:1 against a cell; done, sent away and let go ones faded), at most three, and "+n" for the rest; the list under the grid has the rest. */
+.wm-bars{display:flex;flex-direction:column;gap:3px;padding:3px 2px 0}
+.wm-bar{display:block;height:5px;border-radius:3px;background:var(--tone-fg)}
+.wm-bar[data-state=done],.wm-bar[data-state=letgo],.wm-bar[data-state=moved]{opacity:.4}
+.wm-more{align-self:flex-end;font-size:10px;line-height:10px;color:var(--dim)}
+/* The month's chores under the grid, in the Calendar tab only (it scrolls with the grid: the body is the scroll area). */
+.wm-chorelist{display:none;padding-top:6px}
+.wm-panel[data-tab=calendar] .wm-chorelist{display:block}
+}

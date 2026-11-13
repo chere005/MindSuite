@@ -1,0 +1,40 @@
+{
+  "name": "@mind/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./parse": "./src/parse.ts",
+    "./order": "./src/order.ts",
+    "./b64u": "./src/b64u.ts",
+    "./sort": "./src/sort.ts",
+    "./richtext": "./src/richtext.ts",
+    "./update": "./src/update.ts",
+    "./folds": "./src/folds.ts",
+    "./markdown": "./src/markdown.ts",
+    "./layout": "./src/layout.ts",
+    "./rrule": "./src/rrule.ts",
+    "./ical": "./src/ical.ts",
+    "./repeats": "./src/repeats.ts",
+    "./undo": "./src/undo.ts",
+    "./backup": "./src/backup.ts",
+    "./habit": "./src/habit.ts",
+    "./recipe": "./src/recipe.ts",
+    "./day": "./src/day.ts",
+    "./rules": "./src/rules.ts",
+    "./manage": "./src/manage.ts",
+    "./notesplit": "./src/notesplit.ts",
+    "./dailylog": "./src/dailylog.ts",
+    "./search": "./src/search.ts",
+    "./chefdate": "./src/chefdate.ts",
+    "./sync": "./src/sync.ts",
+    "./watch": "./src/watch.ts",
+    "./normalize": "./src/normalize.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../CoreMind/node_modules/typescript/bin/tsc -p .",
+    "test": "node ../../CoreMind/node_modules/vitest/vitest.mjs run --no-cache",
+    "check": "npm run typecheck && npm test"
+  }
+}

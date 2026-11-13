@@ -1,0 +1,15 @@
+# Copy to deploy.conf (gitignored) and set the real login.
+#
+# The deploy target names a real SSH account, so it is kept OUT of the repo —
+# the suite's rule, carried over from CalMind. deploy.sh reads this one file.
+#
+#   cp deploy.conf.sample deploy.conf
+#   $EDITOR deploy.conf
+#
+# NearlyFreeSpeech logins look like <member>_<site>@ssh.<region>.nearlyfreespeech.net
+SSH_DEST="user_site@ssh.region.nearlyfreespeech.net"
+
+# Nothing else belongs here. Where the deploy WRITES is a constant inside
+# deploy.sh, guarded, and never built from a variable — see
+# tools/check-deploy-guards.sh, which proves the guards by breaking copies of
+# the real script and watching them refuse.

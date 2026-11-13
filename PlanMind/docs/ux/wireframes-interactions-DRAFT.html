@@ -1,0 +1,163 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{--bg-success:#e1f5ee;--text-success:#0f6e56;--border-success:#5dcaa5;--bg-warning:#fbf0c4;--text-warning:#7a5b00;--border-warning:#e0bf3a;--surface-0:#f5f4ee;--surface-1:#f1efe8;--surface-2:#ffffff;--text-primary:#1a1a18;--text-secondary:#5f5e5a;--text-muted:#888780;--border:rgba(0,0,0,.15);--border-strong:rgba(0,0,0,.3);--border-stronger:rgba(0,0,0,.45);--border-accent:#378add;--bg-accent:#e6f1fb;--text-accent:#0c447c;--radius:8px}
+@media(prefers-color-scheme:dark){:root{--bg-success:#04342c;--text-success:#5dcaa5;--border-success:#0f6e56;--bg-warning:#4a3b05;--text-warning:#f5d675;--border-warning:#8a6d10;--surface-0:#1f1e1d;--surface-1:#262624;--surface-2:#30302e;--text-primary:#f5f4ee;--text-secondary:#b4b2a9;--text-muted:#888780;--border:rgba(255,255,255,.15);--border-strong:rgba(255,255,255,.3);--border-stronger:rgba(255,255,255,.45);--border-accent:#85b7eb;--bg-accent:#0c447c;--text-accent:#b5d4f4}}
+body{margin:0;padding:16px;width:680px;background:var(--surface-0);color:var(--text-primary);font:16px/1.7 -apple-system,BlinkMacSystemFont,sans-serif}
+p,h2{margin:0}
+</style></head><body>
+<h2 class="sr-only">Interaction wireframes: on desktop, drag schedule entries in 15-minute steps, drag priorities and to-dos to reorder, double-click to edit; on a phone, press and hold to move, tap to edit</h2>
+<style>
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.wf,.wf *{box-sizing:border-box}
+.wf{--sb:var(--bg-success);--st:var(--text-success);--sl:var(--border-success);--ab:var(--bg-warning);--at:var(--text-warning);--al:var(--border-warning);--bb:var(--bg-pro,#eeedfe);--bt:var(--text-pro,#534ab7);--bl:var(--border-pro,#afa9ec);background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:12px 14px 16px;margin:0 0 16px}
+@media(prefers-color-scheme:dark){.wf{--bb:var(--bg-pro,#3c3489);--bt:var(--text-pro,#cecbf6);--bl:var(--border-pro,#7f77dd)}}
+:root[data-mode="dark"] .wf{--bb:var(--bg-pro,#3c3489);--bt:var(--text-pro,#cecbf6);--bl:var(--border-pro,#7f77dd)}
+.cap{font-size:13px;font-weight:500;margin:0 0 8px}
+.sp{flex:1}
+.mut{color:var(--text-muted)}
+.btn{border:.5px solid var(--border-strong);border-radius:6px;padding:1px 8px;font-size:12px;font-weight:400;color:var(--text-primary)}
+.ic{font-size:18px;color:var(--text-secondary)}
+.lb{font-size:12px;color:var(--text-secondary);margin:0 0 2px}
+.sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;flex:none}
+.sw.s{background:var(--st)}.sw.a{background:var(--at)}.sw.b{background:var(--bt)}
+.pl{display:inline-flex;align-items:center;border:.5px solid var(--border-strong);border-radius:999px;padding:1px 9px;font-size:12px;color:var(--text-primary)}
+.pl.on.s{background:var(--sb);color:var(--st);border-color:var(--sl)}
+.pl.on.a{background:var(--ab);color:var(--at);border-color:var(--al)}
+.pl.on.b{background:var(--bb);color:var(--bt);border-color:var(--bl)}
+.lh{display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1fr);gap:4px;font-size:12px;color:var(--text-secondary);margin:0 0 4px}
+.lr{position:relative;display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1fr);gap:0 4px;align-items:stretch;padding:2px 0;border-bottom:.5px solid var(--border-strong);min-height:30px}
+.lt{display:flex;align-items:center;font-size:12px;color:var(--text-secondary)}
+.sp2{grid-column:2 / span 2}
+.c{display:flex;align-items:center;min-width:0;border-radius:6px;padding:3px 7px;font-size:12px;line-height:1.3;overflow-wrap:anywhere}
+.c.s{background:var(--sb);color:var(--st)}
+.c.a{background:var(--ab);color:var(--at)}
+.c.b{background:var(--bb);color:var(--bt)}
+.ln{display:flex;align-items:flex-end;gap:8px;height:28px;padding-bottom:3px;border-bottom:.5px solid var(--border-strong);font-size:12px;white-space:nowrap;overflow:hidden}
+.dot{width:14px;height:14px;border:1px solid var(--border-strong);border-radius:50%;flex:none;margin-bottom:2px}
+.dot.s{border:1.5px solid var(--sl)}.dot.a{border:1.5px solid var(--al)}.dot.b{border:1.5px solid var(--bl)}
+.dot.dn.s{background:var(--sb)}.dot.dn.a{background:var(--ab)}.dot.dn.b{background:var(--bb)}
+.gr{width:12px;font-size:12px;color:var(--text-muted);visibility:hidden;flex:none;margin:0 -4px 3px 0}
+.gr.on{visibility:visible}
+.add{display:flex;justify-content:space-between;border:.5px solid var(--border-strong);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--text-muted);margin:4px 0 6px}
+.fr{display:flex;align-items:center;gap:6px;margin:0 0 6px}
+.g2d{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px}
+.tg{position:relative}
+.hl{position:absolute;left:0;right:0;border-top:.5px solid var(--border-strong)}
+.hf{position:absolute;left:30px;right:0;border-top:.5px dotted var(--border)}
+.hr{position:absolute;left:0;font-size:11px;color:var(--text-secondary)}
+.gl{position:absolute;left:30px;right:0;top:0;bottom:0}
+.bk{position:absolute;display:flex;align-items:flex-start;gap:6px;overflow:hidden;border-radius:6px;padding:2px 6px;font-size:12px;line-height:16px}
+.bk em{font-style:normal;font-size:11px;flex:none}
+.bk.s{background:var(--sb);color:var(--st)}
+.bk.a{background:var(--ab);color:var(--at)}
+.bk.b{background:var(--bb);color:var(--bt)}
+.l1{left:0;width:calc(50% - 2px)}
+.l2{right:0;width:calc(50% - 2px)}
+.lbk{left:0;right:0}
+.bk.hv{outline:1.5px solid var(--sl)}
+.bk.edit{background:var(--surface-2);color:var(--text-primary);border:1.5px solid var(--border-accent);padding:0 5px}
+.bk.ghost{background:transparent;border:1.5px dashed var(--border-strong);padding:0 5px}
+.ghost *{visibility:hidden}
+.bk.lift{outline:2px solid var(--text-accent);z-index:4;transform:translate(5px,-3px);padding-right:22px}
+.snap{position:absolute;border:1.5px dashed var(--border-accent);border-radius:6px;background:var(--bg-accent)}
+.bub{position:absolute;z-index:5;background:var(--text-accent);color:var(--surface-2);font-size:11px;line-height:16px;padding:0 8px;border-radius:999px;white-space:nowrap}
+.grp{position:absolute;left:50%;bottom:2px;width:22px;height:4px;margin-left:-11px;border-radius:2px;background:currentColor}
+.gb{font-size:16px;color:var(--text-accent);position:absolute;right:4px;top:50%;transform:translateY(-50%)}
+.bk .gb{top:3px;transform:none;color:inherit}
+.cr{display:inline-block;width:1px;height:13px;background:var(--text-accent);margin-left:1px;vertical-align:-2px}
+.pop{position:absolute;z-index:3;background:var(--surface-2);border:.5px solid var(--border-strong);border-radius:8px;padding:5px 6px;font-size:11px;color:var(--text-secondary)}
+.pop .pl{padding:0 6px;font-size:11px}
+.n{position:absolute;z-index:6;width:16px;height:16px;border-radius:50%;background:var(--text-accent);color:var(--surface-2);font-size:11px;line-height:16px;text-align:center}
+.gh{position:relative;border:1.5px dashed var(--border-strong);border-radius:6px;min-width:0}
+.gh .lift{position:relative;z-index:3;outline:2px solid var(--text-accent);transform:translateY(-18px);padding-right:24px}
+.gh2{position:relative;border:1.5px dashed var(--border-strong);border-radius:6px}
+.lift2{position:relative;z-index:3;background:var(--surface-2);outline:2px solid var(--text-accent);border-radius:6px;transform:translateY(-34px)}
+.iw{position:relative;height:0;z-index:4}
+.ins2{position:absolute;left:0;right:0;top:-1px;height:2px;background:var(--text-accent)}
+.ed{flex:1;display:flex;align-items:center;height:22px;border:1.5px solid var(--border-accent);border-radius:6px;padding:0 6px;background:var(--surface-2);color:var(--text-primary)}
+.lgd{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:12px;font-size:12px;color:var(--text-secondary)}
+.lgd span{display:flex;align-items:center;gap:8px}
+.lgd .n{position:static;flex:none}
+.pw{display:flex;gap:14px;align-items:flex-start}
+.pc{font-size:12px;color:var(--text-secondary);margin:0 0 6px}
+.ph{position:relative;display:flex;flex-direction:column;width:206px;height:496px;flex:none;overflow:hidden;border:1.5px solid var(--border-stronger);border-radius:24px;background:var(--surface-2)}
+.pt{display:flex;align-items:center;gap:6px;height:42px;padding:0 10px;border-bottom:.5px solid var(--border);flex:none}
+.nav{flex:1;display:flex;align-items:center;justify-content:center;gap:2px}
+.nav .ic{font-size:16px}
+.dtp{border:.5px solid var(--border-strong);border-radius:8px;padding:2px 8px;font-size:12px;white-space:nowrap}
+.rnd{width:26px;height:26px;border:.5px solid var(--border-strong);border-radius:50%;display:grid;place-items:center;font-size:14px;color:var(--bt)}
+.pb{position:relative;flex:1;padding:8px 10px;overflow:hidden}
+.ph .lh,.ph .lr{grid-template-columns:24px minmax(0,1fr) minmax(0,1fr)}
+.ph .lr{min-height:24px;padding:1px 0}
+.ph .c{font-size:11px;padding:1px 5px}
+.ph .ln{height:24px}
+.ph .add{padding:4px 8px}
+.ph .gl,.ph .hf{left:28px}
+.ph .bk{font-size:11px;line-height:11px;padding:0 4px;border-radius:4px;align-items:center}
+.ph .bk em{display:none}
+.ph .bk.lift{padding-right:4px}
+.ph .gh .lift{transform:translateY(-12px)}
+.ph .lift2{transform:translateY(-24px)}
+.tb{display:flex;flex:none;border-top:.5px solid var(--border);padding:4px 4px 8px;background:var(--surface-1)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:3px 0;border-radius:8px;font-size:11px;color:var(--text-secondary)}
+.tab i{font-size:18px}
+.tab.on{background:var(--bg-accent);color:var(--text-accent)}
+.fg{position:absolute;z-index:6;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--text-accent);background:var(--bg-accent)}
+.ks{position:absolute;z-index:8;left:0;right:0;bottom:0;background:var(--surface-1);border-top:.5px solid var(--border-strong)}
+.ac{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:.5px solid var(--border);font-size:11px}
+.ac .pl{padding:0 6px;font-size:11px}
+.kr{display:flex;gap:3px;margin:4px 4px 0}
+.k{flex:1;height:26px;border-radius:5px;background:var(--surface-2);border:.5px solid var(--border);display:grid;place-items:center;font-size:12px}
+.dev{background:var(--surface-1);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text-secondary)}
+.dev p{margin:0 0 6px}.dev p:last-child{margin:0}
+.dev b{font-weight:500;color:var(--text-primary)}
+</style>
+<div class="wf"><p class="cap">Desktop: Day panel, drag and edit states</p><div class="g2d" id="d1"></div><div class="lgd" id="lg"></div></div>
+<div class="wf"><p class="cap">Phone: press and hold to move, tap to edit</p><div class="pw" id="p1"></div></div>
+<div class="wf"><p class="cap">Dev notes</p><div class="dev"><p><b>Move a schedule entry.</b> Desktop: drag the block up or down. Phone: press and hold, then drag. It snaps to 15 minutes, shows its start and end while moving, auto-scrolls near the edge, and lands on the nearest free quarter-hour in its lane. Vertical only: dragging never changes the owner (use For). Esc, or dropping outside the grid, cancels.</p><p><b>Length.</b> Entries now carry a start time in 15-minute steps and a length (minimum 30 minutes; the default is an hour since 2026-10-31). On desktop, drag the bottom edge to resize in 15-minute steps.</p><p><b>Reorder priorities and to-dos.</b> Desktop: drag the row. Phone: press and hold, then drag. An accent line shows where it lands and numbers update on drop. Dragging one person's priority reorders only that person's list. A Both entry spans the lanes only while it sits on the same line in both lists; otherwise it shows as two purple half-lane cells.</p><p><b>Edit.</b> Desktop: double-click edits in place (Enter saves, Esc cancels); a single click only selects. Phone: tap edits, with the For pills above the keyboard.</p><p><b>Drag mechanics.</b> A drag starts after 4 px of movement; the phone hold is about 0.4 s, with a haptic tap on lift and on each 15-minute step. A drop is one save with the record's revision; if it is stale, the item snaps back and the list refreshes. The Day phone caps still apply.</p><p><b>Keyboard.</b> Alt+Up and Alt+Down move 15 minutes (schedule) or one line (lists); Enter edits.</p></div></div>
+<script>
+const $=i=>document.getElementById(i),L=(n,f)=>Array.from({length:n},(_,i)=>f(i)).join('');
+const ico=(n,c)=>`<i class="ti ti-${n}${c?' '+c:''}" aria-hidden="true"></i>`;
+const nm={s:'Alex',a:'Sam'};
+const cell=(k,t)=>t?`<div class="c ${k}">${t}</div>`:'<div></div>';
+const lr=(lab,r,me,mode)=>{const l=me,o=l=='s'?'a':'s';let m;
+if(r.b)m=`<div class="c b sp2">${r.b}</div>`;
+else m=cell(l,r[l])+cell(o,r[o]);
+return `<div class="lr"><span class="lt">${lab}</span>${m}</div>`};
+const lh=me=>{const o=me=='s'?'a':'s';return `<div class="lh"><span></span><span><i class="sw ${me}"></i>${nm[me]} · you</span><span><i class="sw ${o}"></i>${nm[o]}</span></div>`};
+const td=(t,k,d,o)=>`<div class="ln${o=='ed'?' edl':''}"><i class="ti ti-grip-vertical gr${o=='hv'?' on':''}" aria-hidden="true"></i><i class="dot ${k||''}${d?' dn':''}"></i>${o=='ed'?`<span class="ed">${t}<i class="cr"></i></span>`:`<span${d?' style="text-decoration:line-through;color:var(--text-muted)"':''}>${t||''}</span>`}</div>`;
+const hrs=['7a','8a','9a','10a','11a','12p','1p','2p','3p','4p','5p','6p','7p','8p'];
+let H=44;
+const Y=m=>(m-420)/60*H;
+const fm=m=>{const h=Math.floor(m/60),n=m%60;return (h>12?h-12:h)+':'+(n<10?'0'+n:n)};
+const bk=(k,st,len,t,o)=>{o=o||{};const lane=k=='b'?'lbk':k=='s'?'l1':'l2';return `<div class="bk ${k} ${lane}${o.c?' '+o.c:''}" style="top:${Y(st)+1}px;height:${len/60*H-2}px"><em>${fm(st)}</em><span>${t}${o.x||''}</span>${o.g||''}</div>`};
+const tg=inner=>`<div class="tg" style="height:${14*H}px">${L(14,i=>`<div class="hl" style="top:${i*H}px"></div><span class="hr" style="top:${i*H+2}px">${hrs[i]}</span><div class="hf" style="top:${i*H+H/2}px"></div>`)}<div class="gl">${inner}</div></div>`;
+const nb=(n,y,lane)=>`<span class="n" style="top:${y-8}px;${lane=='s'?'left:calc(50% - 14px)':'right:-6px'}">${n}</span>`;
+const hand=ico('hand-grab','gb');
+const forPills=`<span class="pl on s"><i class="sw s"></i>Alex</span><span class="pl a"><i class="sw a"></i>Sam</span><span class="pl b"><i class="sw b"></i>Both</span>`;
+H=44;
+const dsched=bk('s',480,30,'Gym')+bk('s',540,60,'Dentist',{c:'hv',g:'<span class="grp"></span>'})+bk('a',540,30,'Yoga')+bk('b',720,60,'Lunch together')+bk('s',840,30,'Team call',{c:'edit',x:'<i class="cr"></i>'})+bk('a',870,30,'Parcel pickup')+bk('s',960,90,'Prepare Friday review slides')+bk('a',990,30,'Groceries')+bk('b',1080,90,'Dinner out')
++`<div class="snap l2" style="top:${Y(645)}px;height:${H/2}px"></div>`+bk('a',675,30,'Call plumber',{c:'ghost'})+bk('a',645,30,'Call plumber',{c:'lift',g:hand})
++`<div class="bub" style="top:${Y(645)-22}px;right:4px">10:45 – 11:15</div>`
++`<div class="pop l1" style="top:${Y(870)+2}px;width:calc(50% - 2px)"><div style="display:flex;gap:4px">${forPills}</div><div style="margin-top:3px">Enter saves, Esc cancels</div></div>`
++nb(1,Y(645),'a')+nb(2,Y(540),'s')+nb(3,Y(840),'s');
+const prR=[{s:'Ship the list picker',a:'Call school'},{s:'Finish Q4 plan, then send to Sam',a:'Renew passport'},{b:'Family dinner'},{a:'Order water filters'},{}];
+const prH=lh('s')+`<div class="iw"><i class="ins2" style="left:30px;right:calc(50% - 13px)"></i></div>`+lr('1.',prR[0],'s')+`<div class="lr"><span class="lt">2.</span><div class="gh"><span class="n" style="top:-8px;right:-6px">4</span><div class="c s lift">${prR[1].s}${hand}</div></div>${cell('a',prR[1].a)}</div>`+prR.slice(2).map((r,i)=>lr(i+3+'.',r,'s')).join('');
+const tdH=`<p class="lb" style="margin-top:12px">To-do</p><div class="add"><span>Add something for today…</span></div><div class="fr"><span class="lb" style="margin:0">For</span>${forPills}</div>`+td('Call the plumber','a')+`<div class="iw"><i class="ins2"></i></div>`+td('Book flights','b')+`<div class="gh2"><span class="n" style="top:-8px;right:-6px">5</span><div class="lift2">${td('Order filters','s')}${hand}</div></div>`+td('Renew passport','s',1,'hv')+td('Pay water bill','a',0,'ed')+L(4,()=>td());
+$('d1').innerHTML=`<div><p class="lb">Schedule</p>${lh('s')}${tg(dsched)}</div><div><p class="lb">Priorities</p>${prH}${tdH}</div>`;
+$('lg').innerHTML=['Drag a block, snaps every 15 minutes','Hover shows the resize edge','Double-click edits in place','Drag a priority, only your lane moves','Drag a to-do, line shows the drop','Hover shows the grip','Double-click edits a to-do'].map((t,i)=>`<span><b class="n">${i+1}</b>${t}</span>`).join('');
+H=24;
+const sp=bk('s',480,30,'Gym')+bk('s',540,60,'Dentist')+bk('a',540,30,'Yoga')+bk('b',720,60,'Lunch together')+bk('a',870,30,'Parcel')+bk('s',960,90,'Slides')+bk('a',990,30,'Groceries')+bk('b',1080,90,'Dinner out');
+const T=[['clock','Schedule'],['list-check','To-do'],['notes','Notes']];
+const PH=(on,body,over)=>`<div class="ph"><div class="pt">${ico('menu-2','ic')}<div class="nav">${ico('chevron-left','ic')}<span class="dtp">Fri, Oct 30</span>${ico('chevron-right','ic')}</div><span class="rnd">${ico('users')}</span></div><div class="pb">${body}</div>${over||''}<div class="tb">${T.map((t,k)=>`<div class="tab${k==on?' on':''}">${ico(t[0])}<span>${t[1]}</span></div>`).join('')}</div></div>`;
+const hold=lh('s')+tg(sp+bk('s',840,30,'Team call')+`<div class="snap l2" style="top:${Y(645)}px;height:${H/2}px"></div>`+bk('a',675,30,'Plumber',{c:'ghost'})+bk('a',645,30,'Plumber',{c:'lift'})+`<div class="bub" style="top:${Y(645)-17}px;right:0">10:45 – 11:15</div><span class="fg" style="top:${Y(645)+6}px;right:-4px"></span>`);
+const kb=['qwertyuiop','asdfghjkl','zxcvbnm'].map(r=>`<div class="kr">${[...r].map(c=>`<span class="k">${c}</span>`).join('')}</div>`).join('')+`<div class="kr" style="margin-bottom:6px"><span class="k" style="flex:1.4">123</span><span class="k" style="flex:5">space</span><span class="k" style="flex:2">return</span></div>`;
+const tapEd=lh('s')+tg(sp+bk('s',840,30,'Team call',{c:'edit',x:'<i class="cr"></i>'}));
+const tapOver=`<div class="ks"><div class="ac">${forPills}<span class="sp"></span><span style="color:var(--text-accent)">Done</span></div>${kb}</div>`;
+const prP=[{s:'Ship picker',a:'Call school'},{s:'Q4 plan',a:'Passport'},{b:'Family dinner'},{a:'Filters'},{}];
+const todo=lh('s')+`<div class="iw"><i class="ins2" style="left:28px;right:calc(50% - 12px)"></i></div>`+lr('1.',prP[0],'s')+`<div class="lr"><span class="lt">2.</span>${cell('s',prP[1].s)}${cell('a',prP[1].a)}</div>`+prP.slice(2).map((r,i)=>lr(i+3+'.',r,'s')).join('')+`<p class="lb" style="margin:6px 0 0">To-do</p><div class="add"><span>Add…</span><span>3 of 6</span></div>`+td('Call plumber','a')+`<div class="iw"><i class="ins2"></i></div>`+td('Book flights','b')+`<div class="gh2"><span class="fg" style="top:6px;right:8px"></span><div class="lift2">${td('Order filters','s')}</div></div>`+td('Renew passport','s',1)+L(2,()=>td());
+const T2=T;
+$('p1').innerHTML=`<div><p class="pc">Press and hold, then drag</p>${PH(0,hold)}</div><div><p class="pc">Tap to edit</p>${PH(0,tapEd,tapOver)}</div><div><p class="pc">Hold a priority or to-do to reorder</p>${PH(1,todo)}</div>`;
+</script>
+</body></html>

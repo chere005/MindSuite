@@ -1,0 +1,69 @@
+# Deployed as .htaccess beside the web client's index.html. The bundle files
+# carry content hashes and can cache forever; index.html must always
+# revalidate, or a phone shows last week's app against this week's data.
+<Files "index.html">
+  Header set Cache-Control "no-cache"
+</Files>
+<FilesMatch "\.(js|png)$">
+  Header set Cache-Control "public, max-age=31536000, immutable"
+</FilesMatch>
+<Files "favicon.ico">
+  Header set Cache-Control "public, max-age=3600"
+</Files>
+# The manifest: Apache has no type for .webmanifest out of the box, and a
+# manifest served as text/plain is one a browser can refuse to install from.
+# It revalidates like index.html — the icons and name are allowed to change.
+<Files "manifest.webmanifest">
+  AddType application/manifest+json .webmanifest
+  Header set Cache-Control "no-cache"
+</Files>
+
+# The service worker itself must NEVER be cached immutably, or the *.js rule
+# above would make a broken one permanent: the browser would keep serving the
+# worker it already has and there would be no way to ship a replacement. This
+# comes after that rule deliberately, so it wins. It is also what makes
+# tools/sw-kill.js a usable escape hatch rather than a theory.
+<Files "sw.js">
+  Header set Cache-Control "no-cache"
+</Files>
+
+# The public meeting-request page (the owner, 2026-08-19): /request is the SPA at
+# a second path — a link to hand out, deliberately absent from the app's own
+# navigation. The app decides what to render from location.pathname; the
+# rewrite only has to serve the same index.html there. e2e/router.php does
+# the equivalent for the local harness.
+RewriteEngine On
+# The trailing slash is in the pattern because App.tsx accepts it
+# (/\/request\/?$/) and the two disagreeing means /calmind/request/ 404s while
+# /calmind/request serves — the kind of difference nobody debugs, they just
+# conclude the link is dead.
+RewriteRule ^request/?$ index.html [L]
+
+# ── Host routing, and it has to live HERE ───────────────────────────────────
+#
+# The site's root .htaccess maps test.seancheren.com/X to /test/X. That rule
+# does NOT reach this directory: the presence of THIS FILE gives
+# /home/public/calmind its own per-directory config, and mod_rewrite does not
+# apply a parent's rules where a child has its own. So the subdomains were
+# being served PROD's directory — identical bundles, so nothing looked wrong,
+# until a signup on test.seancheren.com created its account in prod's store.
+#
+# Deployed to all three instances, so it must be a no-op in two of them. The
+# !^/test/ guard is what does that: under /home/public/test/calmind the
+# request URI already starts with /test/, so the rule skips rather than
+# rewriting to itself for ever.
+RewriteEngine On
+
+RewriteCond %{HTTP_HOST} ^test\. [NC]
+RewriteCond %{REQUEST_URI} !^/test/
+RewriteRule ^(.*)$ /test/calmind/$1 [L]
+
+RewriteCond %{HTTP_HOST} ^dev\. [NC]
+RewriteCond %{REQUEST_URI} !^/dev/
+RewriteRule ^(.*)$ /dev/calmind/$1 [L]
+
+# …and on the APEX, /test/ and /dev/ are gone (the owner: "it should just stop
+# working"). Not a redirect — a 404. seancheren.com is prod and nothing else.
+RewriteCond %{HTTP_HOST} !^(test|dev)\. [NC]
+RewriteCond %{REQUEST_URI} ^/(test|dev)/
+RewriteRule ^ - [R=404,L]

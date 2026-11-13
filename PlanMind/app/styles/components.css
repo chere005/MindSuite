@@ -1,0 +1,16 @@
+/*
+ * What the date sheet and Settings share (the two popups that are navigation and preferences, not editing): the warning color, the
+ * base dialog look and the sheet header and footer. Panels draw their own rows, tab bars and lanes (day.css, weekmonth.css), and edit
+ * every item where it stands (inplace.css); the phone rules for the date sheet are in phone.css. Colors come from data-c (styles/tones.css), never inline.
+ */
+:root{--warn:color-mix(in srgb,#e5534b 55%,var(--text))}
+
+/* Dialogs and sheets */
+dialog{color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;width:min(480px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog label{display:block;font-size:12px;color:var(--dim);margin:0 0 8px}
+dialog input:not([type=radio]),dialog select{width:100%;background:var(--bg)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sheet-title{font-size:15px;font-weight:550;margin:0}
+.sheet-actions{display:flex;align-items:center;margin-top:12px}
+.sheet-actions .grow{flex:1}

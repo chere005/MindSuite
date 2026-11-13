@@ -1,0 +1,3 @@
+# Pathspecs (one per line, a path, a directory or a glob) that the RATCHET runs (tree/literals --ratchet, staged)
+# do not count. For a package copy that lands before its original is deleted (monorepo W2 P2.1), then removed here
+# in the same wave that deletes the original. Strict zero (MIND_NAMES_STRICT=1 or bin/names-strict) ignores this file.

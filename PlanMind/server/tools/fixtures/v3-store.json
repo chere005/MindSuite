@@ -1,0 +1,609 @@
+{
+    "v": 3,
+    "revision": 17,
+    "lists": {
+        "sam": {
+            "id": "sam",
+            "kind": "person",
+            "name": "Sam",
+            "color": "yellow",
+            "order": 0,
+            "revision": 1,
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "alex": {
+            "id": "alex",
+            "kind": "person",
+            "name": "Alex",
+            "color": "green",
+            "order": 1,
+            "revision": 1,
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c": {
+            "id": "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c",
+            "kind": "custom",
+            "name": "Camping",
+            "color": "blue",
+            "order": 2,
+            "revision": 1,
+            "ak": "6ccb3f4febe07d68",
+            "createdBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        }
+    },
+    "settings": {
+        "bothColor": "teal",
+        "revision": 2,
+        "updatedAt": "2026-11-01T09:00:00+00:00"
+    },
+    "tasks": {
+        "00000001-0000-4000-8000-000000000001": {
+            "id": "00000001-0000-4000-8000-000000000001",
+            "owners": [
+                "alex"
+            ],
+            "scope": "day",
+            "date": "2026-10-26",
+            "title": "Wait for the plumber",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "12371f5cae06776d"
+        },
+        "00000002-0000-4000-8000-000000000002": {
+            "id": "00000002-0000-4000-8000-000000000002",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "scope": "day",
+            "date": "2026-10-30",
+            "title": "Plan the trip",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "27b8ec30ce003991"
+        },
+        "00000003-0000-4000-8000-000000000003": {
+            "id": "00000003-0000-4000-8000-000000000003",
+            "owners": [
+                "sam"
+            ],
+            "scope": "day",
+            "date": "2026-10-30",
+            "title": "Buy a gift",
+            "done": true,
+            "pos": 2048,
+            "revision": 2,
+            "createdBy": "sam",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "fd2d32b7713a1ff3"
+        },
+        "00000004-0000-4000-8000-000000000004": {
+            "id": "00000004-0000-4000-8000-000000000004",
+            "owners": [
+                "alex"
+            ],
+            "scope": "day",
+            "date": "2026-11-01",
+            "title": "Pack the tent",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "2e24643248e7f2de"
+        },
+        "00000005-0000-4000-8000-000000000005": {
+            "id": "00000005-0000-4000-8000-000000000005",
+            "owners": [
+                "alex"
+            ],
+            "scope": "week",
+            "date": "2026-10-26",
+            "title": "Renew passport",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "4336260deb2903c9"
+        },
+        "00000006-0000-4000-8000-000000000006": {
+            "id": "00000006-0000-4000-8000-000000000006",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "scope": "month",
+            "date": "2026-11-01",
+            "title": "Plan Thanksgiving",
+            "done": false,
+            "pos": 1024,
+            "revision": 1,
+            "createdBy": "sam",
+            "updatedBy": "sam",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "c12b93539f967d3d"
+        },
+        "00000007-0000-4000-8000-000000000007": {
+            "id": "00000007-0000-4000-8000-000000000007",
+            "owners": [
+                "alex"
+            ],
+            "scope": "day",
+            "date": "2026-10-27",
+            "title": "Return the library books",
+            "done": true,
+            "pos": 1024,
+            "revision": 2,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "cb5d7ae8684b1b90"
+        }
+    },
+    "priorities": {
+        "00000008-0000-4000-8000-000000000008": {
+            "id": "00000008-0000-4000-8000-000000000008",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "date": "2026-10-30",
+            "slots": {
+                "sam": 2,
+                "alex": 1
+            },
+            "text": "Family dinner",
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "187cf4d081ec44a0"
+        }
+    },
+    "events": {
+        "00000009-0000-4000-8000-000000000009": {
+            "id": "00000009-0000-4000-8000-000000000009",
+            "owners": [
+                "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c"
+            ],
+            "date": "2026-11-01",
+            "text": "Pack the tent",
+            "start": 720,
+            "length": 45,
+            "revision": 1,
+            "createdBy": "alex",
+            "updatedBy": "alex",
+            "createdAt": "2026-11-01T09:00:00+00:00",
+            "updatedAt": "2026-11-01T09:00:00+00:00",
+            "ak": "4804faf123aef741"
+        }
+    },
+    "notes": {
+        "week:2026-10-26:alex:priorities": {
+            "key": "week:2026-10-26:alex:priorities",
+            "scope": "week",
+            "period": "2026-10-26",
+            "listId": "alex",
+            "field": "priorities",
+            "text": "Renew passport",
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "month:2026-11-01:sam:notes": {
+            "key": "month:2026-11-01:sam:notes",
+            "scope": "month",
+            "period": "2026-11-01",
+            "listId": "sam",
+            "field": "notes",
+            "text": "Plan Thanksgiving",
+            "revision": 1,
+            "updatedBy": "sam",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        }
+    },
+    "chores": {
+        "c0de0000-0000-4000-8000-000000000001": {
+            "id": "c0de0000-0000-4000-8000-000000000001",
+            "title": "Dishes",
+            "owners": [
+                "alex"
+            ],
+            "cadence": {
+                "kind": "daily"
+            },
+            "order": 1,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000002": {
+            "id": "c0de0000-0000-4000-8000-000000000002",
+            "title": "Trash & recycling",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "daily"
+            },
+            "order": 2,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000003": {
+            "id": "c0de0000-0000-4000-8000-000000000003",
+            "title": "Wipe the table",
+            "owners": [
+                "alex"
+            ],
+            "cadence": {
+                "kind": "daily"
+            },
+            "order": 3,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000004": {
+            "id": "c0de0000-0000-4000-8000-000000000004",
+            "title": "Cat bowls",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 1,
+                "weeks": "every"
+            },
+            "order": 4,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000005": {
+            "id": "c0de0000-0000-4000-8000-000000000005",
+            "title": "Clutter reset",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 1,
+                "weeks": "every"
+            },
+            "order": 5,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000006": {
+            "id": "c0de0000-0000-4000-8000-000000000006",
+            "title": "Mail & papers",
+            "owners": [
+                "alex",
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 2,
+                "weeks": "every"
+            },
+            "order": 6,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000007": {
+            "id": "c0de0000-0000-4000-8000-000000000007",
+            "title": "Fridge clean-out",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 3,
+                "weeks": "every"
+            },
+            "order": 7,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000008": {
+            "id": "c0de0000-0000-4000-8000-000000000008",
+            "title": "Bins to the curb",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 3,
+                "weeks": "every"
+            },
+            "order": 8,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000009": {
+            "id": "c0de0000-0000-4000-8000-000000000009",
+            "title": "Cat bowls",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 4,
+                "weeks": "every"
+            },
+            "order": 9,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-00000000000a": {
+            "id": "c0de0000-0000-4000-8000-00000000000a",
+            "title": "Fresh litter + liner",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 4,
+                "weeks": "every"
+            },
+            "order": 10,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-00000000000b": {
+            "id": "c0de0000-0000-4000-8000-00000000000b",
+            "title": "Laundry",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 0,
+                "weeks": "every"
+            },
+            "order": 11,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-00000000000c": {
+            "id": "c0de0000-0000-4000-8000-00000000000c",
+            "title": "Vacuum",
+            "owners": [
+                "alex"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 0,
+                "weeks": "every"
+            },
+            "order": 12,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-00000000000d": {
+            "id": "c0de0000-0000-4000-8000-00000000000d",
+            "title": "Kitchen wipe-down",
+            "owners": [
+                "alex"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 3,
+                "weeks": "A"
+            },
+            "order": 13,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-00000000000e": {
+            "id": "c0de0000-0000-4000-8000-00000000000e",
+            "title": "Kitchen towels",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 0,
+                "weeks": "A"
+            },
+            "order": 14,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-00000000000f": {
+            "id": "c0de0000-0000-4000-8000-00000000000f",
+            "title": "Bedding",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 0,
+                "weeks": "A"
+            },
+            "order": 15,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000010": {
+            "id": "c0de0000-0000-4000-8000-000000000010",
+            "title": "Couch blankets",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 0,
+                "weeks": "A"
+            },
+            "order": 16,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000011": {
+            "id": "c0de0000-0000-4000-8000-000000000011",
+            "title": "Bathroom wipe-down",
+            "owners": [
+                "alex"
+            ],
+            "cadence": {
+                "kind": "weekly",
+                "day": 3,
+                "weeks": "B"
+            },
+            "order": 17,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000012": {
+            "id": "c0de0000-0000-4000-8000-000000000012",
+            "title": "Dust, then vacuum",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "monthly",
+                "nth": 1,
+                "day": 0,
+                "months": "every"
+            },
+            "order": 18,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000013": {
+            "id": "c0de0000-0000-4000-8000-000000000013",
+            "title": "Litter box deep clean",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "monthly",
+                "nth": 2,
+                "day": 4,
+                "months": "every"
+            },
+            "order": 19,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000014": {
+            "id": "c0de0000-0000-4000-8000-000000000014",
+            "title": "Vacuum, then mop",
+            "owners": [
+                "sam"
+            ],
+            "cadence": {
+                "kind": "monthly",
+                "nth": 3,
+                "day": 0,
+                "months": "every"
+            },
+            "order": 20,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000015": {
+            "id": "c0de0000-0000-4000-8000-000000000015",
+            "title": "Furnace filter",
+            "owners": [
+                "alex"
+            ],
+            "cadence": {
+                "kind": "monthly",
+                "nth": 1,
+                "day": 1,
+                "months": "odd"
+            },
+            "order": 21,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        }
+    },
+    "choreMarks": {
+        "c0de0000-0000-4000-8000-000000000001:2026-11-03": {
+            "id": "c0de0000-0000-4000-8000-000000000001:2026-11-03",
+            "ruleId": "c0de0000-0000-4000-8000-000000000001",
+            "date": "2026-11-03",
+            "state": "done",
+            "moved": false,
+            "revision": 1,
+            "updatedBy": "alex",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        },
+        "c0de0000-0000-4000-8000-000000000002:2026-11-04": {
+            "id": "c0de0000-0000-4000-8000-000000000002:2026-11-04",
+            "ruleId": "c0de0000-0000-4000-8000-000000000002",
+            "date": "2026-11-04",
+            "state": "letgo",
+            "moved": false,
+            "revision": 1,
+            "updatedBy": "sam",
+            "updatedAt": "2026-11-01T09:00:00+00:00"
+        }
+    },
+    "rhythm": {
+        "anchor": "2026-11-02",
+        "start": "2026-11-02",
+        "revision": 1,
+        "updatedBy": "alex",
+        "updatedAt": "2026-11-01T09:00:00+00:00"
+    },
+    "prefs": {
+        "alex": {
+            "selection": {
+                "base": "both",
+                "overlays": [
+                    "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c"
+                ]
+            },
+            "sidebar": "hidden"
+        },
+        "sam": {
+            "selection": {
+                "base": "sam",
+                "overlays": []
+            }
+        }
+    }
+}

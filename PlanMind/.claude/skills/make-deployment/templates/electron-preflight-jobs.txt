@@ -1,0 +1,6 @@
+Tag, notes and the draft release
+mac (arm64)
+mac (x64)
+windows (optional in preflight)
+linux (optional in preflight)
+summary (optional in preflight)

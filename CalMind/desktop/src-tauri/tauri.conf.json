@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CalMind",
+  "version": "1.62.0",
+  "identifier": "com.seancheren.calmind.desktop",
+  "build": {
+    "frontendDist": "../dist-desktop",
+    "beforeBuildCommand": "sh stage-dist.sh",
+    "beforeDevCommand": "sh stage-dist.sh"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CalMind",
+        "width": 480,
+        "height": 800,
+        "minWidth": 480,
+        "maxWidth": 480,
+        "minHeight": 480,
+        "resizable": true,
+        "backgroundColor": "#111111",
+        "url": "/calmind/index.html"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://seancheren.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "msi",
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "Productivity"
+  }
+}

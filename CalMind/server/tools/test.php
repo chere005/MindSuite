@@ -1,0 +1,1903 @@
+<?php
+/**
+ * The server test run — the suite's harness idea: boot `php -S` on a scratch data
+ * dir and drive the real endpoint over real HTTP. `php server/tools/test.php`.
+ */
+
+$root    = dirname(__DIR__);
+// The harness asks what day it is and compares that against what the SERVER
+// says, so both have to keep the same clock or the run turns red every evening
+// between 7pm Chicago and midnight UTC — which is exactly how the missing
+// timezone announced itself. The config is read the way app_config() reads it
+// rather than including app.php, which would collide with the store the specs
+// require directly further down.
+$tzCfg = is_file($root . '/lib/config.php') ? require $root . '/lib/config.php' : [];
+date_default_timezone_set((string) ($tzCfg['timezone'] ?? 'America/Chicago'));
+
+
+// Constants only, no state: webauthn.php defines no globals and touches
+// nothing, so requiring it here lets a spec name WEBAUTHN_MAX_CHALLENGES
+// rather than hardcoding a number that would silently drift from the server's.
+require_once $root . '/lib/webauthn.php';
+// The data files are ENCRYPTED (store.php, ENC1: + AES). Reading one with
+// json_decode returns null, and a spec that then counted `?: []` would pass on
+// an empty array while proving nothing — which is exactly how the first
+// version of the cap spec below went green against a cap that did not work.
+require_once $root . '/lib/store.php';
+// Pure functions, no state: the SSRF guard is worth testing directly rather
+// than through an endpoint that does not exist yet.
+require_once $root . '/lib/fetchurl.php';
+
+$scratch = sys_get_temp_dir() . '/calmind-api-test-' . getmypid();
+@mkdir($scratch, 0700, true);
+
+$sock = stream_socket_server('tcp://127.0.0.1:0', $e1, $e2);
+$port = (int) explode(':', stream_socket_get_name($sock, false))[1];
+fclose($sock);
+$srv = proc_open(
+    [PHP_BINARY, '-d', 'display_errors=1', '-d', 'error_reporting=E_ALL', '-S', '127.0.0.1:' . $port, '-t', $root . '/public'],
+    // Whose request page this instance serves. The availability editor is
+    // the owner's alone, so the harness has to be able to BE the owner; the
+    // scratch dir is new every run, so a fixed name never collides.
+    [1 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'w'], 2 => ['file', $scratch . '/server.log', 'w']],
+    $pipes, null, array_merge(getenv(), ['CALMIND_DATA_DIR' => $scratch, 'CALMIND_MEETREQ_USER' => 'mrowner',
+        // Mail is off here, so the harness reads reset codes from mail.log. That is the
+        // debug flag and nothing else sets it; tools/abuse-test.php runs without it.
+        'CALMIND_DEBUG_LOG_CODES' => '1'])
+);
+register_shutdown_function(function () use (&$srv, $scratch) {
+    if (is_resource($srv)) { proc_terminate($srv); proc_close($srv); }
+    @array_map('unlink', glob($scratch . '/*') ?: []);
+    @array_map('unlink', glob($scratch . '/.*') ?: []);
+    @rmdir($scratch);
+});
+for ($i = 0; $i < 100; $i++) {
+    $c = @fsockopen('127.0.0.1', $port, $x, $y, 0.2);
+    if ($c) { fclose($c); break; }
+    usleep(100000);
+}
+
+$pass = 0; $fail = 0;
+
+/** The mail now leaves from a detached worker after the reply, so the log line lands a moment later: wait for it. */
+function mail_log_codes(string $scratch): array
+{
+    preg_match_all('/code=(\d{6})/', (string) @file_get_contents($scratch . '/mail.log'), $m);
+    return $m[1];
+}
+function wait_for_code(string $scratch, int $before): string
+{
+    for ($i = 0; $i < 100; $i++) {
+        $c = mail_log_codes($scratch);
+        if (count($c) > $before) { return (string) end($c); }
+        usleep(50000);
+    }
+    return '';
+}
+function wait_for_log(string $scratch, string $needle): string
+{
+    for ($i = 0; $i < 100; $i++) {
+        $log = (string) @file_get_contents($scratch . '/mail.log');
+        if (str_contains($log, $needle)) { return $log; }
+        usleep(50000);
+    }
+    return (string) @file_get_contents($scratch . '/mail.log');
+}
+
+function api(array $body, string $token = ''): array
+{
+    global $port;
+    $hdr = "Content-Type: application/json\r\n" . ($token !== '' ? "Authorization: Bearer $token\r\n" : '');
+    $ctx = stream_context_create(['http' => [
+        'method' => 'POST', 'header' => $hdr, 'content' => json_encode($body), 'ignore_errors' => true,
+    ]]);
+    $raw    = (string) @file_get_contents("http://127.0.0.1:$port/api/index.php", false, $ctx);
+    $status = 0;
+    foreach ($http_response_header ?? [] as $h) {
+        if (preg_match('#^HTTP/\S+ (\d{3})#', $h, $m)) { $status = (int) $m[1]; }
+    }
+    // The harness runs the server with display_errors on: a warning would corrupt
+    // the JSON, so decoding doubles as the page-is-quiet check.
+    $data = json_decode($raw, true);
+    if (!is_array($data)) { throw new RuntimeException("non-JSON reply ($status): " . substr($raw, 0, 200)); }
+    return ['status' => $status, 'body' => $data, 'raw' => $raw];
+}
+
+/**
+ * The same POST, but with the Authorization header written out verbatim.
+ *
+ * api() always spells a correct `Bearer <token>`, which is exactly why nothing
+ * noticed that require_auth's anchors were doing no work — every header it had
+ * ever been sent was the right shape.
+ */
+function api_raw_auth(array $body, string $authHeader): array
+{
+    global $port;
+    $hdr = "Content-Type: application/json\r\nAuthorization: $authHeader\r\n";
+    $ctx = stream_context_create(['http' => [
+        'method' => 'POST', 'header' => $hdr, 'content' => json_encode($body), 'ignore_errors' => true,
+    ]]);
+    $raw    = (string) @file_get_contents("http://127.0.0.1:$port/api/index.php", false, $ctx);
+    $status = 0;
+    foreach ($http_response_header ?? [] as $h) {
+        if (preg_match('#^HTTP/\S+ (\d{3})#', $h, $m)) { $status = (int) $m[1]; }
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data)) { throw new RuntimeException("non-JSON reply ($status): " . substr($raw, 0, 200)); }
+    return ['status' => $status, 'body' => $data];
+}
+
+function t(string $label, callable $fn): void
+{
+    global $pass, $fail;
+    try { $fn(); $pass++; echo "  \033[32m✓\033[0m $label\n"; }
+    catch (Throwable $e) { $fail++; echo "  \033[31m✗ $label — {$e->getMessage()}\033[0m\n"; }
+}
+function ok($cond, string $why): void { if (!$cond) { throw new RuntimeException($why); } }
+function eq($want, $got, string $why = ''): void
+{
+    if ($want !== $got) { throw new RuntimeException("$why: expected " . var_export($want, true) . ", got " . var_export($got, true)); }
+}
+
+$rec = fn(string $id, int $updated, string $text, bool $deleted = false) => [
+    'id' => $id, 'type' => 'reminder', 'updated' => $updated, 'deleted' => $deleted,
+    'payload' => ['text' => $text, 'due' => null, 'time' => null, 'done' => false,
+                  'repeat' => null, 'folderId' => 'f', 'sectionId' => 's', 'indent' => 0, 'ord' => 'V'],
+];
+
+echo "\n\033[1maccounts\033[0m\n";
+$tokenA = '';
+t('signup validates and issues a token', function () use (&$tokenA) {
+    eq(400, api(['action' => 'signup', 'username' => 'x', 'email' => 'a@b.c', 'password' => 'longenough'])['status'], 'short name');
+    eq(400, api(['action' => 'signup', 'username' => 'alice', 'email' => 'nope', 'password' => 'longenough'])['status'], 'bad email');
+    eq(400, api(['action' => 'signup', 'username' => 'alice', 'email' => 'a@b.c', 'password' => 'tiny'])['status'], 'short pass');
+    $r = api(['action' => 'signup', 'username' => 'alice', 'email' => 'alice@example.com', 'password' => 'alicepass']);
+    eq(200, $r['status'], 'good signup');
+    ok(strlen($r['body']['token'] ?? '') === 64, 'token issued');
+    $tokenA = $r['body']['token'];
+    eq(409, api(['action' => 'signup', 'username' => 'alice', 'email' => 'a@b.c', 'password' => 'longenough'])['status'], 'name taken');
+});
+t('login checks the hash, and the stored file holds no plaintext', function () use (&$tokenA) {
+    eq(401, api(['action' => 'login', 'username' => 'alice', 'password' => 'wrong'])['status'], 'wrong pass');
+    $r = api(['action' => 'login', 'username' => 'alice', 'password' => 'alicepass']);
+    eq(200, $r['status'], 'right pass');
+    global $scratch;
+    require_once dirname(__DIR__) . '/lib/store.php';
+    $acc = store_read(['data_dir' => $scratch], $scratch . '/accounts.json');
+    ok(!str_contains(json_encode($acc), 'alicepass'), 'no plaintext password at rest');
+    ok(str_starts_with($acc['alice']['hash'], '$2y$') || str_starts_with($acc['alice']['hash'], '$argon2'), 'a real hash');
+});
+t('whoami answers the token and rejects garbage', function () use ($tokenA) {
+    eq('alice', api(['action' => 'whoami'], $tokenA)['body']['username'], 'whoami');
+    eq(401, api(['action' => 'whoami'], str_repeat('0', 64))['status'], 'bad token');
+    eq(401, api(['action' => 'whoami'])['status'], 'no token');
+});
+t('account deletion removes account data, shared references, and credentials', function () use ($rec) {
+    global $scratch;
+    $new = api(['action' => 'signup', 'username' => 'deleteme', 'email' => 'delete@example.com', 'password' => 'deletepass']);
+    eq(200, $new['status'], 'create disposable account');
+    $token = $new['body']['token'];
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('own-default', 1000, 'private')]], $token);
+    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('own-chef', 1000, 'recipe')]], $token);
+    $cfg = ['data_dir' => $scratch];
+    store_write($cfg, $scratch . '/passkeys.json', [
+        'delete-key' => ['user' => 'deleteme', 'label' => 'phone'],
+        'keep-key' => ['user' => 'alice', 'label' => 'phone'],
+    ]);
+    store_write($cfg, $scratch . '/challenges.json', [
+        'delete-challenge' => ['user' => 'deleteme', 'created' => time()],
+        'keep-challenge' => ['user' => 'alice', 'created' => time()],
+    ]);
+    store_write($cfg, $scratch . '/recover.json', ['deleteme' => ['code' => '123456'], 'alice' => ['code' => '654321']]);
+    store_write($cfg, $scratch . '/lockouts.json', ['deleteme' => ['fails' => 4], 'alice' => ['fails' => 2]]);
+    store_write($cfg, $scratch . '/records-bob.json', ['seq' => 4, 'recs' => ['share' => [
+        'id' => 'share', 'type' => 'share', 'updated' => 1000,
+        'payload' => ['partners' => ['alice', 'deleteme'], 'labels' => ['alice' => 'A', 'deleteme' => 'D'],
+                      'sel' => ['deleteme' => ['calendars' => [], 'folders' => [], 'notefolders' => []]], 'calendars' => [], 'folders' => [], 'notefolders' => []],
+    ]]]);
+    file_put_contents($scratch . '/usage.log', "now\t1.2.3.4\tdeleteme\tlogin\nnow\t1.2.3.5\talice\tlogin\n");
+    file_put_contents($scratch . '/usage.log.1', "old\t1.2.3.4\tdeleteme\tlogin\nold\t1.2.3.5\talice\tlogin\n");
+    file_put_contents($scratch . '/mail.log', "now  to=delete@example.com  code=123456\nnow  to=alice@example.com  code=654321\n");
+    file_put_contents($scratch . '/meetreq-mail.log', "now  by=deleteme  to=x@example.com  kind=accepted  when=Tue  log-only\nnow  by=alice  to=y@example.com  kind=declined  when=  log-only\n");
+    // Two subscriptions (one of them already removed — a tombstone keeps its
+    // payload, and its cache may outlive it) and the caches they would fill,
+    // at the paths handle_calsub_fetch derives. A third cache is someone
+    // else's and must survive.
+    $subs = [
+        ['id' => 'sub-ics', 'type' => 'calsub', 'updated' => 1000, 'deleted' => true,
+         'payload' => ['url' => 'webcal://cal.example.com/secret-link.ics', 'name' => 'Work', 'color' => '#000', 'ord' => 'V']],
+        ['id' => 'sub-dav', 'type' => 'calsub', 'updated' => 1000,
+         'payload' => ['url' => 'https://dav.example.com/cal/', 'name' => 'Home', 'color' => '#111', 'ord' => 'W',
+                       'source' => 'caldav', 'username' => 'me', 'password' => 'app-secret']],
+    ];
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => $subs], $token);
+    @mkdir($scratch . '/icscache', 0700, true);
+    $icsCache = $scratch . '/icscache/' . sha1('https://cal.example.com/secret-link.ics') . '.json';
+    $davCache = $scratch . '/icscache/caldav-' . hash_hmac('sha256',
+        json_encode(['deleteme', 'https://dav.example.com/cal/', 'me', 'app-secret'], JSON_THROW_ON_ERROR), store_key($cfg)) . '.json';
+    $otherCache = $scratch . '/icscache/' . sha1('https://someone-else.example.com/cal.ics') . '.json';
+    foreach ([$icsCache, $davCache, $otherCache] as $f) { store_write($cfg, $f, ['at' => time(), 'ics' => "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"]); }
+
+    eq(401, api(['action' => 'delete_account'])['status'], 'auth required');
+    eq(200, api(['action' => 'delete_account'], $token)['status'], 'delete succeeds');
+    eq(401, api(['action' => 'whoami'], $token)['status'], 'old token is invalid');
+    eq(403, api(['action' => 'reset', 'username' => 'deleteme', 'code' => '123456', 'password' => 'newpass'])['status'], 'a recovery code cannot recreate a deleted account');
+    $accounts = store_read($cfg, $scratch . '/accounts.json');
+    $tokens = store_read($cfg, $scratch . '/tokens.json');
+    ok(!isset($accounts['deleteme']), 'account is gone');
+    foreach (['records-deleteme.json', 'records-chef-deleteme.json'] as $f) {
+        ok(!file_exists($scratch . '/' . $f), "$f is gone");
+    }
+    foreach ([['passkeys.json', 'delete-key'], ['challenges.json', 'delete-challenge']] as [$f, $key]) {
+        $rows = store_read($cfg, $scratch . '/' . $f);
+        ok(!isset($rows[$key]), "$f drops deleted user's entry");
+    }
+    foreach (['recover.json', 'lockouts.json'] as $f) {
+        $rows = store_read($cfg, $scratch . '/' . $f);
+        ok(!isset($rows['deleteme']), "$f drops deleted user");
+        ok(isset($rows['alice']), "$f retains other users");
+    }
+    ok(!isset($tokens[hash('sha256', $token)]), 'bearer token is gone');
+    $bob = store_read($cfg, $scratch . '/records-bob.json');
+    eq(['alice'], $bob['recs']['share']['payload']['partners'], "other user's share no longer names deleted account");
+    ok(!isset($bob['recs']['share']['payload']['labels']['deleteme']), 'the deleted label is gone');
+    ok(!isset($bob['recs']['share']['payload']['sel']['deleteme']), 'the deleted selection is gone');
+    ok(!str_contains((string) file_get_contents($scratch . '/usage.log'), "\tdeleteme\t"), 'current usage log is scrubbed');
+    ok(!str_contains((string) file_get_contents($scratch . '/usage.log.1'), "\tdeleteme\t"), 'rotated usage log is scrubbed');
+    ok(!str_contains((string) file_get_contents($scratch . '/mail.log'), 'delete@example.com'), 'recovery-code log is scrubbed');
+    $mr = (string) file_get_contents($scratch . '/meetreq-mail.log');
+    ok(!str_contains($mr, 'by=deleteme'), 'meeting-request answers it sent are scrubbed');
+    ok(str_contains($mr, 'by=alice'), "and another account's are kept");
+    ok(!file_exists($icsCache), "a removed subscription's iCal cache is gone");
+    ok(!file_exists($davCache), "the CalDAV cache keyed to this account's credentials is gone");
+    ok(file_exists($otherCache), "a cache no subscription of theirs names is kept");
+    ok(str_contains((string) file_get_contents($scratch . '/mail.log'), 'alice@example.com'), 'other mail log is retained');
+    @unlink($scratch . '/records-bob.json');
+});
+
+echo "\n\033[1msync\033[0m\n";
+t('push then pull round-trips through the cursor', function () use ($tokenA, $rec) {
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('r1', 1000, 'buy milk')]], $tokenA);
+    eq(200, $r['status'], 'push');
+    eq(1, count($r['body']['changes']), 'my own push comes back in the tail');
+    $cursor = $r['body']['cursor'];
+    $r2 = api(['action' => 'sync', 'cursor' => $cursor, 'changes' => []], $tokenA);
+    eq(0, count($r2['body']['changes']), 'nothing new past my cursor');
+});
+t('LWW: the later write wins, the earlier is refused', function () use ($tokenA, $rec) {
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('r1', 3000, 'newer')]], $tokenA);
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('r1', 2000, 'stale')]], $tokenA);
+    $texts = array_column(array_column($r['body']['changes'], 'payload'), 'text');
+    eq(['newer'], $texts, 'stale write lost');
+});
+t('an EQUAL stamp with different content is accepted — the server breaks the tie', function () use ($tokenA, $rec) {
+    // "Two devices can disagree forever": strictly-newer on both sides meant a
+    // tie left every party holding its own copy, silently and permanently,
+    // and neither would push again because neither was dirty. The owner's call,
+    // 2026-08-11 — the server arbitrates, because it is the one thing both
+    // devices agree on. The winner is whichever edit reached here last.
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('tie1', 7000, 'from A')]], $tokenA);
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('tie1', 7000, 'from B')]], $tokenA);
+    $byId = [];
+    foreach ($r['body']['changes'] as $c) { $byId[$c['id']] = $c; }
+    eq('from B', $byId['tie1']['payload']['text'] ?? null, 'the equal-stamped write that arrived second wins');
+});
+t('an EQUAL stamp with the SAME content is ignored, so echoes do not churn the sequence', function () use ($tokenA, $rec) {
+    // Without this, every re-push of a record the server already holds would
+    // bump seq and re-broadcast it to every device on every sync — a tie that
+    // is not one, forever.
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('echo1', 7100, 'same')]], $tokenA);
+    $c1 = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokenA)['body']['cursor'];
+    $c2 = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('echo1', 7100, 'same')]], $tokenA)['body']['cursor'];
+    eq($c1, $c2, 'an identical re-push does not advance the sequence');
+});
+t('a superseded tombstone keeps its flag across the round trip', function () use ($tokenA) {
+    // The record is REBUILT from a fixed list of keys, so a top-level field
+    // that is not named there is dropped without a word. `superseded` marks a
+    // tombstone left by a CONVERSION rather than a deletion, so undo does not
+    // offer to resurrect something the user never deleted — and it is useless
+    // unless it survives a sync. Without the server half this test fails and
+    // the client half would have worked on one device and quietly stopped
+    // working the moment it synced.
+    $conv = ['id' => 'sup1', 'type' => 'reminder', 'updated' => 7300, 'deleted' => true,
+             'superseded' => true, 'payload' => ['text' => 'converted away']];
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$conv]], $tokenA);
+    $byId = [];
+    foreach ($r['body']['changes'] as $c) { $byId[$c['id']] = $c; }
+    ok(!empty($byId['sup1']['superseded']), 'the flag comes back');
+});
+t('…and an ordinary tombstone does not grow one', function () use ($tokenA) {
+    // The other half. Without it the test above passes just as well against a
+    // server that stamps every record superseded, which would hide every
+    // deletion from undo instead of only the conversions.
+    $del = ['id' => 'sup2', 'type' => 'reminder', 'updated' => 7310, 'deleted' => true,
+            'payload' => ['text' => 'really deleted']];
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$del]], $tokenA);
+    $byId = [];
+    foreach ($r['body']['changes'] as $c) { $byId[$c['id']] = $c; }
+    ok(!empty($byId['sup2']['deleted']), 'it is a tombstone');
+    ok(empty($byId['sup2']['superseded']), 'but not a superseded one');
+});
+t('an unrecognised top-level field is still dropped', function () use ($tokenA) {
+    // The default has to STAY the default: naming superseded must not turn the
+    // rebuild into a pass-through, or a malformed row becomes stored state.
+    $odd = ['id' => 'sup3', 'type' => 'reminder', 'updated' => 7320,
+            'nonsense' => 'do not store me', 'payload' => ['text' => 'x']];
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$odd]], $tokenA);
+    $byId = [];
+    foreach ($r['body']['changes'] as $c) { $byId[$c['id']] = $c; }
+    ok(isset($byId['sup3']), 'the record landed');
+    ok(!isset($byId['sup3']['nonsense']), 'the stray field did not');
+});
+t('key ORDER is not content — a reordered payload is still an echo', function () use ($tokenA) {
+    // The canonicalisation, checked rather than assumed: a client that
+    // serialises the same object in a different order must not read as a
+    // conflict on every sync.
+    $a = ['id' => 'ord1', 'type' => 'note', 'updated' => 7200,
+          'payload' => ['title' => 't', 'body' => 'b', 'folderId' => 'f']];
+    $b = ['id' => 'ord1', 'type' => 'note', 'updated' => 7200,
+          'payload' => ['folderId' => 'f', 'body' => 'b', 'title' => 't']];
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$a]], $tokenA);
+    $c1 = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokenA)['body']['cursor'];
+    $c2 = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$b]], $tokenA)['body']['cursor'];
+    eq($c1, $c2, 'the same payload with its keys shuffled is not a difference');
+});
+t('a tombstone syncs like any edit', function () use ($tokenA, $rec) {
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('r1', 4000, 'newer', true)]], $tokenA);
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokenA);
+    // Found by id, not by position. This read changes[0] and so depended on
+    // r1 happening to be the lowest sequence in the whole file — adding any
+    // test above it moved the tail and failed this one for a reason that had
+    // nothing to do with tombstones.
+    $byId = [];
+    foreach ($r['body']['changes'] as $c) { $byId[$c['id']] = $c; }
+    ok(isset($byId['r1']), 'r1 is in the tail at all');
+    eq(true, $byId['r1']['deleted'] ?? null, 'delete arrived');
+});
+t('malformed rows drop; the rest of the batch still lands', function () use ($tokenA, $rec) {
+    $bad = ['id' => '../evil', 'type' => 'reminder', 'updated' => 1, 'payload' => null];
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$bad, $rec('r2', 1000, 'good row')]], $tokenA);
+    $ids = array_column($r['body']['changes'], 'id');
+    ok(!in_array('../evil', $ids, true), 'traversal id refused');
+    ok(in_array('r2', $ids, true), 'good row landed');
+});
+t('malformed records are explicitly rejected by id', function () use ($tokenA, $rec) {
+    $badId = ['id' => '../bad-id', 'type' => 'reminder', 'updated' => 10, 'payload' => null];
+    $badType = ['id' => 'badtype', 'type' => 'bad-type', 'updated' => 10, 'payload' => null];
+    $badUpdated = ['id' => 'badstamp', 'type' => 'reminder', 'updated' => 0, 'payload' => null];
+    $r = api(['action' => 'sync', 'cursor' => 0,
+        'changes' => [$badId, $badType, $badUpdated, $rec('r_valid_after_rejections', 1000, 'good row')]], $tokenA);
+    eq(['../bad-id', 'badtype', 'badstamp'], $r['body']['rejected'] ?? null, 'all identifiable malformed ids are reported');
+    $ids = array_column($r['body']['changes'], 'id');
+    ok(!in_array('../bad-id', $ids, true), 'invalid id did not land');
+    ok(!in_array('badtype', $ids, true), 'invalid type did not land');
+    ok(!in_array('badstamp', $ids, true), 'invalid updated did not land');
+    ok(in_array('r_valid_after_rejections', $ids, true), 'valid row after rejections landed');
+    // The reason travels with each id, so the client can tell "too long"
+    // (the user's to fix) from a malformed record (the app's bug) instead of
+    // calling every refusal a note that is too long.
+    eq(['../bad-id' => 'bad_id', 'badtype' => 'bad_type', 'badstamp' => 'bad_updated'],
+        $r['body']['rejectedWhy'] ?? null, 'each rejection carries its reason');
+    eq(0, $r['body']['dropped'] ?? null, 'and nothing went uncounted');
+});
+t('a row with no string id is COUNTED, never lost without a word', function () use ($tokenA, $rec) {
+    $noId = ['type' => 'reminder', 'updated' => 10, 'payload' => null];
+    $numId = ['id' => 42, 'type' => 'reminder', 'updated' => 10, 'payload' => null];
+    $emptyId = ['id' => '', 'type' => 'reminder', 'updated' => 10, 'payload' => null];
+    $r = api(['action' => 'sync', 'cursor' => 0,
+        'changes' => [$noId, $numId, $emptyId, 'not a row', $rec('r_valid_after_dropped', 1000, 'good row')]], $tokenA);
+    eq(200, $r['status'], 'the batch still answers');
+    eq(4, $r['body']['dropped'] ?? null, 'all four unnameable rows are counted');
+    eq([], $r['body']['rejected'] ?? null, 'none of them can be named');
+    ok(in_array('r_valid_after_dropped', array_column($r['body']['changes'], 'id'), true), 'the valid row still landed');
+});
+t("users are walls — bob never sees alice's records", function () use ($rec) {
+    $tokenB = api(['action' => 'signup', 'username' => 'bob', 'email' => 'bob@example.com', 'password' => 'bobpassword'])['body']['token'];
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokenB);
+    eq(0, count($r['body']['changes']), 'empty for bob');
+});
+t('the cursor only ever advances', function () use ($tokenA, $rec) {
+    $c1 = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokenA)['body']['cursor'];
+    $c2 = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('r3', 5000, 'later')]], $tokenA)['body']['cursor'];
+    ok($c2 > $c1, "a push advances it ($c1 -> $c2)");
+    eq($c2, api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokenA)['body']['cursor'], 'a pull leaves it');
+});
+t('an oversized batch is refused whole; an oversized payload drops alone', function () use ($tokenA, $rec) {
+    $batch = array_map(fn($i) => $rec("b$i", 1000, 'x'), range(0, 500));
+    eq(400, api(['action' => 'sync', 'cursor' => 0, 'changes' => $batch], $tokenA)['status'], '501 rows is too many');
+    $fat = $rec('fat', 1000, str_repeat('x', 70000));
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$fat, $rec('slim', 1000, 'fits')]], $tokenA);
+    $ids = array_column($r['body']['changes'], 'id');
+    ok(!in_array('fat', $ids, true), 'the fat row was dropped');
+    ok(in_array('slim', $ids, true), 'the slim row landed');
+});
+t('records rest encrypted — ENC1 on disk, no plaintext content', function () use ($scratch) {
+    $raw = (string) file_get_contents($scratch . '/records-alice.json');
+    ok(str_starts_with($raw, 'ENC1:'), 'the store prefix');
+    ok(!str_contains($raw, 'buy milk') && !str_contains($raw, 'newer'), 'no reminder text readable');
+});
+t('logout revokes exactly that token', function () {
+    $t1 = api(['action' => 'login', 'username' => 'bob', 'password' => 'bobpassword'])['body']['token'];
+    $t2 = api(['action' => 'login', 'username' => 'bob', 'password' => 'bobpassword'])['body']['token'];
+    api(['action' => 'logout'], $t1);
+    eq(401, api(['action' => 'whoami'], $t1)['status'], 'the logged-out token is dead');
+    eq(200, api(['action' => 'whoami'], $t2)['status'], 'the other device stays signed in');
+});
+
+echo "\n\033[1mpasswords\033[0m\n";
+t('change_password needs the old one and revokes other tokens', function () use (&$tokenA) {
+    eq(403, api(['action' => 'change_password', 'old' => 'wrong', 'new' => 'alicepass2'], $tokenA)['status'], 'wrong old');
+    $stale = api(['action' => 'login', 'username' => 'alice', 'password' => 'alicepass'])['body']['token'];
+    $r = api(['action' => 'change_password', 'old' => 'alicepass', 'new' => 'alicepass2'], $tokenA);
+    eq(200, $r['status'], 'change ok');
+    eq(401, api(['action' => 'whoami'], $stale)['status'], 'old session dead');
+    $tokenA = $r['body']['token'];
+    eq('alice', api(['action' => 'whoami'], $tokenA)['body']['username'], 'fresh token lives');
+});
+t('recover emails a code that resets the password once', function () use ($scratch) {
+    @unlink($scratch . '/abuse-recover.json'); @unlink($scratch . '/caps-recover.json');   // the throttle has its own tests (abuse-test.php)
+    eq(200, api(['action' => 'recover', 'username' => 'nobody'])['status'], 'unknown user leaks nothing');
+    $had = count(mail_log_codes($scratch));
+    api(['action' => 'recover', 'username' => 'alice']);
+    $code = wait_for_code($scratch, $had);
+    ok($code !== false, 'a code was mailed (logged)');
+    eq(403, api(['action' => 'reset', 'username' => 'alice', 'code' => '000000' === $code ? '111111' : '000000', 'password' => 'alicepass3'])['status'], 'wrong code');
+    $r = api(['action' => 'reset', 'username' => 'alice', 'code' => $code, 'password' => 'alicepass3']);
+    eq(200, $r['status'], 'right code resets');
+    eq(403, api(['action' => 'reset', 'username' => 'alice', 'code' => $code, 'password' => 'alicepass4'])['status'], 'a code is single-use');
+    eq(200, api(['action' => 'login', 'username' => 'alice', 'password' => 'alicepass3'])['status'], 'new password works');
+});
+t('five wrong codes burn the recovery — the right one no longer works', function () use ($scratch) {
+    @unlink($scratch . '/abuse-recover.json'); @unlink($scratch . '/caps-recover.json');
+    $had = count(mail_log_codes($scratch));
+    api(['action' => 'recover', 'username' => 'alice']);
+    $code = wait_for_code($scratch, $had);
+    $wrong = $code === '000000' ? '111111' : '000000';
+    for ($i = 0; $i < 5; $i++) {
+        api(['action' => 'reset', 'username' => 'alice', 'code' => $wrong, 'password' => 'alicepass9']);
+    }
+    eq(403, api(['action' => 'reset', 'username' => 'alice', 'code' => $code, 'password' => 'alicepass9'])['status'],
+        'exhausted — even the right code is refused');
+    eq(200, api(['action' => 'login', 'username' => 'alice', 'password' => 'alicepass3'])['status'], 'the password never moved');
+});
+
+
+echo "\n\033[1msharing\033[0m\n";
+$mkUser = function (string $name) {
+    $r = api(['action' => 'signup', 'username' => $name, 'email' => "$name@example.com", 'password' => 'longenough1']);
+    return (string) $r['body']['token'];
+};
+$shareRec = fn(array $p, int $u = 1) => ['id' => 'share', 'type' => 'share', 'updated' => $u, 'payload' => $p];
+$tokP = ''; $tokQ = '';
+t('one-sided naming shares nothing; mutual opens the buckets', function () use ($mkUser, $shareRec, &$tokP, &$tokQ) {
+    $tokP = $mkUser('val');
+    $tokQ = $mkUser('ana');
+    // val owns a folder+section+reminder and a private folder beside them.
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        ['id' => 'fs', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'Dinner', 'color' => '#4c8bf0', 'ord' => 'a', 'app' => 'reminders']],
+        ['id' => 'ss', 'type' => 'section', 'updated' => 1, 'payload' => ['name' => 'General', 'folderId' => 'fs', 'ord' => 'a']],
+        ['id' => 'rs', 'type' => 'reminder', 'updated' => 1, 'payload' => ['text' => 'peel garlic', 'due' => null, 'time' => null, 'done' => false, 'repeat' => null, 'folderId' => 'fs', 'sectionId' => 'ss', 'indent' => 0, 'ord' => 'a']],
+        ['id' => 'fp', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'Private', 'color' => '#ea5853', 'ord' => 'b', 'app' => 'reminders']],
+        ['id' => 'rp', 'type' => 'reminder', 'updated' => 1, 'payload' => ['text' => 'secret', 'due' => null, 'time' => null, 'done' => false, 'repeat' => null, 'folderId' => 'fp', 'sectionId' => 'ss2', 'indent' => 0, 'ord' => 'a']],
+        $shareRec(['partners' => ['ana'], 'calendars' => [], 'folders' => ['fs'], 'notefolders' => []]),
+    ]], $tokP);
+    // ana has not named val yet: nothing arrives, badge says waiting.
+    $r = api(['action' => 'shared_pull'], $tokQ);
+    eq(200, $r['status']);
+    eq(null, $r['body']['partner'], 'no mutual partner yet');
+    // ana names val back — now the shared folder flows, the private one never.
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        $shareRec(['partners' => ['val'], 'calendars' => [], 'folders' => [], 'notefolders' => []]),
+    ]], $tokQ);
+    $r = api(['action' => 'shared_pull'], $tokQ);
+    eq('val', $r['body']['partner']);
+    $ids = array_column($r['body']['records'], 'id');
+    sort($ids);
+    eq(['fs', 'rs', 'ss'], $ids, 'exactly the shared folder, its section, its row');
+    // val sees ana as mutual now, sharing nothing back yet.
+    $r = api(['action' => 'shared_pull'], $tokP);
+    eq('ana', $r['body']['partner']);
+    eq([], $r['body']['records'], 'ana shares no buckets');
+});
+t('shared_put ticks their row, refuses structure and private rows', function () use (&$tokP, &$tokQ) {
+    // ana ticks val's shared reminder — allowed, lands in val's store.
+    $r = api(['action' => 'shared_put', 'partner' => 'val', 'record' =>
+        ['id' => 'rs', 'type' => 'reminder', 'updated' => 5, 'payload' => ['text' => 'peel garlic', 'due' => null, 'time' => null, 'done' => true, 'repeat' => null, 'folderId' => 'fs', 'sectionId' => 'ss', 'indent' => 0, 'ord' => 'a']]], $tokQ);
+    eq(200, $r['status'], 'tick in shared scope');
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokP);
+    $rs = array_values(array_filter($r['body']['changes'], fn($c) => $c['id'] === 'rs'))[0];
+    eq(true, $rs['payload']['done'], "the tick is in val's store");
+    // structure is theirs: a section write is refused whatever it says.
+    eq(403, api(['action' => 'shared_put', 'partner' => 'val', 'record' =>
+        ['id' => 'ss', 'type' => 'section', 'updated' => 6, 'payload' => ['name' => 'Mine now', 'folderId' => 'fs', 'ord' => 'a']]], $tokQ)['status'], 'structural write');
+    // a private row can be neither edited nor dragged into view.
+    eq(403, api(['action' => 'shared_put', 'partner' => 'val', 'record' =>
+        ['id' => 'rp', 'type' => 'reminder', 'updated' => 6, 'payload' => ['text' => 'seen', 'due' => null, 'time' => null, 'done' => false, 'repeat' => null, 'folderId' => 'fs', 'sectionId' => 'ss', 'indent' => 0, 'ord' => 'a']]], $tokQ)['status'], 'private row by id');
+    eq(403, api(['action' => 'shared_put', 'partner' => 'val', 'record' =>
+        ['id' => 'rnew', 'type' => 'reminder', 'updated' => 6, 'payload' => ['text' => 'sneak', 'due' => null, 'time' => null, 'done' => false, 'repeat' => null, 'folderId' => 'fp', 'sectionId' => 'x', 'indent' => 0, 'ord' => 'a']]], $tokQ)['status'], 'add outside the buckets');
+});
+t('a shared write breaks an equal-stamp tie the same way sync does', function () use (&$tokP, &$tokQ) {
+    // the owner's call, 2026-08-11: the server arbitrates, because it is the one
+    // thing both devices agree on. That went into the sync handler and NOT
+    // into this one, so the same tie resolved two different ways depending on
+    // whose store was being written — ana's tick on val's row was dropped on
+    // an equal stamp while the API answered ok, and the reconcile pulled back
+    // the untouched copy so the tap simply did nothing.
+    $row = fn(int $u, bool $done) => ['id' => 'rs', 'type' => 'reminder', 'updated' => $u,
+        'payload' => ['text' => 'peel garlic', 'due' => null, 'time' => null, 'done' => $done,
+                      'repeat' => null, 'folderId' => 'fs', 'sectionId' => 'ss', 'indent' => 0, 'ord' => 'a']];
+    api(['action' => 'shared_put', 'partner' => 'val', 'record' => $row(8, false)], $tokQ);
+    $r = api(['action' => 'shared_put', 'partner' => 'val', 'record' => $row(8, true)], $tokQ);
+    eq(200, $r['status'], 'the equal-stamped write is answered ok');
+    $sy = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokP);
+    $rs = array_values(array_filter($sy['body']['changes'], fn($c) => $c['id'] === 'rs'))[0];
+    eq(true, $rs['payload']['done'], 'and it actually landed');
+});
+t('…but an equal stamp with the SAME content still changes nothing', function () use (&$tokP, &$tokQ) {
+    // The other half, and the reason the tie is on CONTENT rather than on the
+    // stamp alone: an echo that bumped the sequence would re-broadcast itself
+    // to every device on every sync.
+    $same = ['id' => 'rs', 'type' => 'reminder', 'updated' => 8,
+        'payload' => ['text' => 'peel garlic', 'due' => null, 'time' => null, 'done' => true,
+                      'repeat' => null, 'folderId' => 'fs', 'sectionId' => 'ss', 'indent' => 0, 'ord' => 'a']];
+    $before = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokP)['body']['cursor'];
+    api(['action' => 'shared_put', 'partner' => 'val', 'record' => $same], $tokQ);
+    $after = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokP)['body']['cursor'];
+    eq($before, $after, 'an identical re-push does not advance their sequence');
+});
+t('removal on either side ends sharing instantly, both ways', function () use ($shareRec, &$tokP, &$tokQ) {
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        $shareRec(['partners' => [], 'calendars' => [], 'folders' => [], 'notefolders' => []], 9),
+    ]], $tokQ);
+    eq(null, api(['action' => 'shared_pull'], $tokQ)['body']['partner'], 'ana dropped val');
+    eq(null, api(['action' => 'shared_pull'], $tokP)['body']['partner'], 'and val loses ana the same instant');
+    eq(403, api(['action' => 'shared_put', 'partner' => 'val', 'record' =>
+        ['id' => 'rs', 'type' => 'reminder', 'updated' => 10, 'payload' => ['text' => 'x', 'due' => null, 'time' => null, 'done' => false, 'repeat' => null, 'folderId' => 'fs', 'sectionId' => 'ss', 'indent' => 0, 'ord' => 'a']]], $tokQ)['status'], 'writes die with the handshake');
+});
+t('per-partner sel: each partner sees THEIR selection, absence means the flat lists', function () use ($mkUser, $shareRec) {
+    $tokR = $mkUser('eve');
+    $tokS = $mkUser('sam');
+    $tokT = $mkUser('otto');
+    $row = fn(string $id, string $fold) => ['id' => $id, 'type' => 'reminder', 'updated' => 1,
+        'payload' => ['text' => $id, 'due' => null, 'time' => null, 'done' => false, 'repeat' => null,
+                      'folderId' => $fold, 'sectionId' => 's' . $fold, 'indent' => 0, 'ord' => 'a']];
+    // eve: two folders, flat share of f1, and a sel steering sam to f2 only.
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        ['id' => 'f1', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'One', 'color' => '#4c8bf0', 'ord' => 'a', 'app' => 'reminders']],
+        ['id' => 'f2', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'Two', 'color' => '#ea5853', 'ord' => 'b', 'app' => 'reminders']],
+        $row('r1', 'f1'),
+        $row('r2', 'f2'),
+        $shareRec(['partners' => ['sam', 'otto'], 'calendars' => [], 'folders' => ['f1'], 'notefolders' => [],
+                   'sel' => ['sam' => ['calendars' => [], 'folders' => ['f2'], 'notefolders' => []]]]),
+    ]], $tokR);
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        $shareRec(['partners' => ['eve'], 'calendars' => [], 'folders' => [], 'notefolders' => []]),
+    ]], $tokS);
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        $shareRec(['partners' => ['eve'], 'calendars' => [], 'folders' => [], 'notefolders' => []]),
+    ]], $tokT);
+    // sam gets his sel — f2 and its row, never the flat f1.
+    $ids = array_column(api(['action' => 'shared_pull'], $tokS)['body']['records'], 'id');
+    sort($ids);
+    eq(['f2', 'r2'], $ids, 'sam sees his own selection');
+    // otto has no sel entry: the flat lists still govern, unchanged.
+    $ids = array_column(api(['action' => 'shared_pull'], $tokT)['body']['records'], 'id');
+    sort($ids);
+    eq(['f1', 'r1'], $ids, 'otto falls back to the flat lists');
+    // Writes obey the same per-viewer scope: sam cannot touch f1, otto cannot touch f2.
+    eq(403, api(['action' => 'shared_put', 'partner' => 'eve', 'record' => array_replace($row('r1', 'f1'), ['updated' => 2])], $tokS)['status'], 'outside sam\'s sel');
+    eq(200, api(['action' => 'shared_put', 'partner' => 'eve', 'record' => array_replace($row('r2', 'f2'), ['updated' => 2])], $tokS)['status'], 'inside sam\'s sel');
+    eq(403, api(['action' => 'shared_put', 'partner' => 'eve', 'record' => array_replace($row('r2', 'f2'), ['updated' => 3])], $tokT)['status'], 'outside otto\'s flat scope');
+    eq(200, api(['action' => 'shared_put', 'partner' => 'eve', 'record' => array_replace($row('r1', 'f1'), ['updated' => 3])], $tokT)['status'], 'inside otto\'s flat scope');
+    // An ALL-DIGIT username: json_decode turns the sel key '4242' into
+    // int(4242), which a string-only sanitizer silently dropped — and the
+    // fallback then showed this partner the flat lists, MORE than their
+    // ticks say. The pull below is the proof the int key still resolves.
+    $tok4 = $mkUser('4242');
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        $shareRec(['partners' => ['sam', 'otto', '4242'], 'calendars' => [], 'folders' => ['f1'], 'notefolders' => [],
+                   'sel' => ['sam'  => ['calendars' => [], 'folders' => ['f2'], 'notefolders' => []],
+                             '4242' => ['calendars' => [], 'folders' => ['f2'], 'notefolders' => []]]], 2),
+    ]], $tokR);
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        $shareRec(['partners' => ['eve'], 'calendars' => [], 'folders' => [], 'notefolders' => []]),
+    ]], $tok4);
+    $ids = array_column(api(['action' => 'shared_pull'], $tok4)['body']['records'], 'id');
+    sort($ids);
+    eq(['f2', 'r2'], $ids, 'a numeric-named partner gets their sel, not the flat lists');
+    eq(403, api(['action' => 'shared_put', 'partner' => 'eve', 'record' => array_replace($row('r1', 'f1'), ['updated' => 4])], $tok4)['status'], 'and their writes are scoped the same way');
+});
+
+t('an OVERSIZED record is REFUSED by name, not dropped in silence', function () {
+    // Its own account: the password specs above revoke the shared token.
+    $tok = api(['action' => 'signup', 'username' => 'bigrow', 'email' => 'big@example.com', 'password' => 'bigpassword'])['body']['token'];
+    // This used to be a spec documenting a hole: a payload over MAX_PAYLOAD
+    // was skipped by the row loop and the reply was still 200 with a fresh
+    // cursor, so the client cleared it from dirty and the note lived on that
+    // one device while the app called itself synced. 64KB is ~10k words —
+    // rare, not impossible, and silent is the worst way for it to fail.
+    $big = ['id' => 'toobig', 'type' => 'note', 'updated' => 5,
+            'payload' => ['title' => 'huge', 'body' => str_repeat('x', 70000),
+                          'date' => null, 'folderId' => 'f', 'sectionId' => 's', 'ord' => 'a']];
+    $small = ['id' => 'fine', 'type' => 'note', 'updated' => 5,
+              'payload' => ['title' => 'ok', 'body' => 'short', 'date' => null,
+                            'folderId' => 'f', 'sectionId' => 's', 'ord' => 'a']];
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$big, $small]], $tok);
+    eq(200, $r['status'], 'the rest of the batch still lands');
+    $ids = array_column($r['body']['changes'], 'id');
+    ok(in_array('fine', $ids, true), 'the ordinary row landed');
+    ok(!in_array('toobig', $ids, true), 'the oversized row did NOT');
+    eq(['toobig'], $r['body']['rejected'] ?? [], 'and the reply names what it refused');
+    eq(['toobig' => 'too_large'], $r['body']['rejectedWhy'] ?? null, 'and says it was refused for size');
+    // A batch with nothing wrong in it says so plainly rather than omitting
+    // the field, so the client never has to guess what absence means.
+    $r2 = api(['action' => 'sync', 'cursor' => 0, 'changes' => [$small]], $tok);
+    eq([], $r2['body']['rejected'] ?? null, 'an ordinary batch refuses nothing');
+    ok(str_contains($r2['raw'], '"rejectedWhy":{}'), 'rejectedWhy is an object even when empty');
+});
+
+t('a damaged store file refuses rather than reading as empty', function () {
+    // The write is atomic now — temp file then rename — so this should not
+    // happen. If it ever does, the failure has to be loud: an unreadable file
+    // answering [] looks exactly like an account with no records, and the very
+    // next sync would persist that and turn damage into deletion.
+    $tok  = api(['action' => 'signup', 'username' => 'bent', 'email' => 'bent@example.com', 'password' => 'bentpassword'])['body']['token'];
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        ['id' => 'keepme', 'type' => 'note', 'updated' => 9100,
+         'payload' => ['title' => 'keep me', 'body' => '', 'date' => null,
+                       'folderId' => 'f', 'sectionId' => 's', 'ord' => 'a']],
+    ]], $tok);
+    global $scratch;
+    $file = $scratch . '/records-bent.json';
+    ok(is_file($file), 'the records file exists');
+
+    // Truncate it the way a killed process would.
+    $whole = (string) file_get_contents($file);
+    file_put_contents($file, substr($whole, 0, 24));
+    $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok);
+    ok($r['status'] >= 500, 'a truncated file is an error, not an empty account — got ' . $r['status']);
+
+    // Put it back and the records are still there, which is the point: the
+    // damage was refused rather than written over.
+    file_put_contents($file, $whole);
+    $back = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok);
+    eq(200, $back['status'], 'and it reads again once whole');
+    ok(in_array('keepme', array_column($back['body']['changes'], 'id'), true), 'the note survived');
+});
+
+t('a write leaves no temp files behind', function () {
+    global $scratch;
+    $strays = glob($scratch . '/*.tmp') ?: [];
+    eq([], $strays, 'no .tmp residue from the atomic writes');
+});
+
+t('the mail log records whether the code could be sent, not just that it exists', function () {
+    // recover always answers ok — which usernames exist is nobody's business —
+    // so a user who never gets a code cannot be told why. The log is the only
+    // place the truth can live, and it used to say only that a code had been
+    // issued, never whether it had a hope of arriving.
+    $u = 'maily' . substr((string) time(), -5);
+    api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'mailypassword']);
+    global $scratch;
+    @unlink($scratch . '/abuse-recover.json'); @unlink($scratch . '/caps-recover.json');
+    api(['action' => 'recover', 'username' => $u]);
+    $log = wait_for_log($scratch, 'user=' . $u);
+    ok(str_contains($log, 'user=' . $u) && !str_contains($log, $u . '@example.com'), 'the user is logged, not the address');
+    ok(str_contains($log, 'log-only') || str_contains($log, 'mailed') || str_contains($log, 'MAIL REFUSED'),
+       'and how it went: this host does not send, so log-only');
+});
+
+t('the usage log rotates instead of growing forever', function () {
+    // Every device polls every thirty seconds, so this file gained a couple of
+    // thousand lines a day per device and nothing ever read the whole thing to
+    // notice. One rotation at 5MB keeps months of history and a bounded disk.
+    global $scratch;
+    $path = $scratch . '/usage.log';
+    @unlink($path . '.1');
+    file_put_contents($path, str_repeat("x\n", 3 * 1024 * 1024));  // over the cap
+    // The harness drives HTTP and never loads app.php, so USAGE_LOG_MAX is not
+    // in scope here; 5MB is written out with its name beside it.
+    ok(filesize($path) > 5 * 1024 * 1024, 'the log is over USAGE_LOG_MAX (5MB) to begin with');
+
+    $u = 'rot' . substr((string) time(), -5);
+    api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'rotpassword']);
+
+    ok(is_file($path . '.1'), 'the old log was set aside');
+    ok(filesize($path) < 1024, 'and the live one starts fresh — got ' . filesize($path));
+    $fresh = (string) file_get_contents($path);
+    ok(str_contains($fresh, 'signup'), 'with the action that triggered it');
+});
+
+t('the URL fetcher refuses the addresses a server must never be asked for', function () {
+    // A URL typed into an app becomes a request made BY THE SERVER, from
+    // inside the host, so it can reach places the person typing cannot. These
+    // are the ones that matter, including the cloud metadata address, which is
+    // the classic target and sits in no private range.
+    foreach (['127.0.0.1', '10.0.0.5', '192.168.1.1', '169.254.169.254', '0.0.0.0'] as $ip) {
+        ok(fetch_ip_is_private($ip), "$ip is refused");
+    }
+    ok(!fetch_ip_is_private('93.184.216.34'), 'a public address is allowed');
+
+    foreach (['http://127.0.0.1/x', 'https://localhost/x', 'http://169.254.169.254/latest/meta-data'] as $u) {
+        $r = fetch_url($u);
+        ok(!$r['ok'], "refused: $u");
+        ok(str_contains($r['error'], 'not one this server will fetch'), "and says why: $u — got '{$r['error']}'");
+    }
+
+    // Not a URL, and not a scheme we speak. file:// is the one that reads the
+    // disk if nobody checks.
+    eq(false, fetch_url('file:///etc/passwd')['ok'], 'file:// is refused');
+    eq(false, fetch_url('notaurl')['ok'], 'nonsense is refused');
+    ok(str_contains(fetch_url('file:///etc/passwd')['error'], 'only http'), 'and says which schemes it speaks');
+});
+
+t('an empty or unwritable data key REFUSES, instead of encrypting with a public one', function () use ($scratch) {
+    // store_key used to fall through to hash('sha256', '') whenever the key
+    // file could not be read — the hash of the empty string, a constant
+    // anybody can compute. Two ways in, both silent: a data dir that cannot
+    // be written to, and a .datakey left empty by an interrupted write.
+    //
+    // It costs the data as well as the secrecy. Once a real key is written
+    // later, everything encrypted under the empty-string one stops
+    // decrypting, and store_read refuses it for ever — correctly.
+    $public = hash('sha256', '', true);
+
+    // A working directory still mints a real, stable key.
+    $ok = $scratch . '/keyok';
+    @mkdir($ok, 0700, true);
+    $k1 = store_key(['data_dir' => $ok]);
+    eq($k1, store_key(['data_dir' => $ok]), 'the key is stable across calls');
+    ok($k1 !== $public, 'and is not the empty-string hash');
+
+    // An EMPTY .datakey — the truncated-write case.
+    $empty = $scratch . '/keyempty';
+    @mkdir($empty, 0700, true);
+    file_put_contents($empty . '/.datakey', '');
+    $threw = false;
+    try { store_key(['data_dir' => $empty]); } catch (Throwable $e) { $threw = true; }
+    ok($threw, 'an empty data key must be refused, not silently replaced by a public one');
+
+    // An explicit key in the config is unaffected — that path never touches
+    // the file, and breaking it would break every deployment that sets one.
+    $viaCfg = store_key(['data_dir' => $empty, 'data_key' => 'a real configured secret']);
+    ok($viaCfg !== $public, 'a configured data_key still works and is not the public hash');
+});
+
+t('a store write that cannot be encoded REFUSES, instead of wiping the account', function () use ($scratch) {
+    // json_encode returns false rather than throwing, and the old code handed
+    // that straight to openssl_encrypt: the empty string was encrypted and
+    // written, producing a file that announces ENC1, base64-decodes,
+    // decrypts, and json_decodes to null — which store_read answers as an
+    // account with no records. Every layer says fine and the data is gone.
+    //
+    // store_read cannot catch this and it is not its fault: there is nothing
+    // wrong with the file. The refusal has to be at the write.
+    $dir  = $scratch . '/encodefail';
+    @mkdir($dir, 0700, true);
+    $cfg  = ['data_dir' => $dir, 'store_key' => str_repeat('k', 32)];
+    $file = $dir . '/store.json';
+
+    store_write($cfg, $file, ['records' => [['id' => 'a', 'text' => 'a real note']]]);
+    eq(1, count(store_read($cfg, $file)['records']), 'the good write lands');
+    $goodBytes = file_get_contents($file);
+
+    // An invalid UTF-8 byte: json_encode's commonest refusal.
+    $threw = false;
+    try {
+        store_write($cfg, $file, ['records' => [['id' => 'a', 'text' => "bad \xB1\x31 byte"]]]);
+    } catch (Throwable $e) {
+        $threw = true;
+    }
+    ok($threw, 'store_write must refuse a payload it cannot encode');
+
+    // The point of refusing: the previous file is untouched, because the
+    // write is a temp file plus a rename and we never reached the rename.
+    eq($goodBytes, file_get_contents($file), 'the last good file is still on disk, byte for byte');
+    eq(1, count(store_read($cfg, $file)['records']), 'and still reads back as one record');
+});
+
+t('with_lock actually serialises writers', function () use ($scratch, $root) {
+    // Dropping flock(LOCK_EX) failed nothing — found by mutation, 2026-08-11.
+    // Nothing here had ever run two writers at once, and it cannot be done
+    // through the API either: php -S serialises requests all by itself, so a
+    // parallel HTTP test would prove the dev server's behaviour, not the
+    // lock's. Real processes against with_lock directly is the only way to
+    // make the race happen.
+    //
+    // The shape that loses data is read-modify-write: two workers read the
+    // same number, both add one, and one increment is gone. usleep widens that
+    // window so the unlocked version fails every time rather than occasionally
+    // — a flaky demonstration would be no demonstration.
+    $worker = $scratch . '/lockworker.php';
+    file_put_contents($worker, '<?php
+require_once $argv[1] . "/lib/store.php";
+$cfg  = ["data_dir" => $argv[2]];
+$file = $argv[2] . "/lockcount.json";
+for ($i = 0; $i < 40; $i++) {
+    with_lock($cfg, "counttest", function () use ($cfg, $file) {
+        $d = store_read($cfg, $file);
+        $n = (int) ($d["n"] ?? 0);
+        usleep(500);
+        store_write($cfg, $file, ["n" => $n + 1]);
+    });
+}
+');
+    $cfg  = ['data_dir' => $scratch];
+    $file = $scratch . '/lockcount.json';
+    store_write($cfg, $file, ['n' => 0]);
+
+    $procs = [];
+    for ($k = 0; $k < 4; $k++) {
+        $procs[] = proc_open(
+            [PHP_BINARY, $worker, $root, $scratch],
+            [1 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'w'], 2 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'w']],
+            $pipes,
+        );
+    }
+    foreach ($procs as $p) { if (is_resource($p)) { proc_close($p); } }
+
+    eq(160, (int) (store_read($cfg, $file)['n'] ?? 0), 'every increment survived — four writers, forty each');
+});
+
+t('the origin check gives its exception to localhost ONLY', function () {
+    // webauthn_origin_ok had no direct test, and the passkey spec above cannot
+    // stand in for one: this harness EXPECTS http://127.0.0.1:$port, and the
+    // foreign origin it tries differs in port as well as host, so the port
+    // comparison refuses it and the host restriction is never exercised.
+    // Widening the localhost test to `fn($h) => true` therefore passed the
+    // whole suite while accepting https://evil.example as
+    // https://calmind.example — found by mutation, 2026-08-11.
+    //
+    // The exception exists because a browser at http://localhost:8081 and one
+    // at http://127.0.0.1:8081 are the same place, and dev moves between them.
+    // Everything about that is narrow on purpose: same port, and both ends
+    // one of those two names.
+    ok(webauthn_origin_ok('https://calmind.example', 'https://calmind.example'), 'an exact match is fine');
+    ok(!webauthn_origin_ok('https://evil.example', 'https://calmind.example'), 'a different host is not, ports or no ports');
+    ok(!webauthn_origin_ok('https://calmind.example.evil', 'https://calmind.example'), 'nor a suffix of the real one');
+    ok(!webauthn_origin_ok('http://calmind.example', 'https://calmind.example'), 'nor the same host over http');
+
+    ok(webauthn_origin_ok('http://127.0.0.1:8081', 'http://localhost:8081'), 'localhost and 127.0.0.1 are the same place');
+    ok(webauthn_origin_ok('http://localhost:8081', 'http://127.0.0.1:8081'), 'in either direction');
+    ok(!webauthn_origin_ok('http://localhost:3000', 'http://localhost:8081'), 'but not across ports');
+    ok(!webauthn_origin_ok('http://evil.example:8081', 'http://localhost:8081'), 'and the exception is for those two names only');
+
+    ok(!webauthn_origin_ok('', 'https://calmind.example'), 'an empty origin is refused');
+    ok(!webauthn_origin_ok('not a url', 'https://calmind.example'), 'and so is nonsense');
+});
+
+t('a redirect resolves to the address it actually means', function () {
+    // The redirect branch had NO cover: mutation replaced the recursive call
+    // with a function that does not exist and every spec still passed, because
+    // a redirect cannot be driven locally — every server this harness can
+    // reach is on 127.0.0.1, which the address guard refuses first. The
+    // resolution arithmetic is testable on its own, so it is its own function
+    // now and this is it.
+    $u = parse_url('https://example.com:8443/a/b');
+
+    eq('https://other.example/x', fetch_next_url($u, 'https://other.example/x'), 'an absolute Location is taken as it stands');
+    eq('http://other.example/x', fetch_next_url($u, 'http://other.example/x'), 'including one that drops to http');
+
+    // THE PORT. 'https://example.com:8443/a/b' -> '/c' used to answer
+    // 'https://example.com/c': port 443, a different service on the same host,
+    // fetched with nobody the wiser.
+    eq('https://example.com:8443/c', fetch_next_url($u, '/c'), 'a rooted Location keeps the port');
+    eq('https://example.com:8443/c', fetch_next_url($u, 'c'), 'and so does a bare one, which also gains its slash');
+
+    // Protocol-relative: '//host/x' means "same scheme, that host". It is not
+    // matched by ^https?:// so it used to be pasted on as a path, giving
+    // 'https://example.com//other.example/x' — safe, since it stayed on a host
+    // already checked, and quietly not what the server asked for.
+    eq('https://other.example/x', fetch_next_url($u, '//other.example/x'), 'protocol-relative takes the scheme and the host it names');
+
+    // A host with no port keeps the shape it had.
+    eq('https://example.com/c', fetch_next_url(parse_url('https://example.com/a'), '/c'), 'no port, none invented');
+
+    // And whatever it resolves to still goes back through fetch_url, so a
+    // redirect aimed at a private address is refused like a direct one.
+    eq('http://127.0.0.1/x', fetch_next_url($u, 'http://127.0.0.1/x'), 'a private target resolves…');
+    eq(false, fetch_url('http://127.0.0.1/x')['ok'], '…and is then refused by the same guard as any other');
+});
+
+t('recipe_fetch: the ENDPOINT is behind auth and behind the address guard', function () {
+    // The tests above drive fetch_url() directly, and the browser specs mock
+    // this action out entirely — so between them, nothing ran the actual
+    // endpoint. A handler that stopped calling fetch_url, or dropped
+    // require_auth, would have left every one of them green while the server
+    // became an unauthenticated proxy that fetches whatever it is told to.
+    // What is being checked here is the WIRING, not the guard.
+    $u = 'chef' . substr((string) mt_rand(), 0, 6);
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'recipepassword'])['body']['token'] ?? '';
+    ok($tok !== '', 'signed up for a token');
+
+    // No token at all: a URL fetcher anyone can aim is the whole problem.
+    eq(401, api(['action' => 'recipe_fetch', 'url' => 'https://example.com/'])['status'], 'refused without a token');
+
+    // With a token, the private addresses must STILL be refused — and the
+    // reason has to be the guard's, which is what proves the handler goes
+    // through it rather than round it.
+    foreach (['http://127.0.0.1/x', 'http://169.254.169.254/latest/meta-data', 'https://localhost/x'] as $bad) {
+        $r = api(['action' => 'recipe_fetch', 'url' => $bad], $tok);
+        eq(400, $r['status'], "refused: $bad");
+        ok(str_contains((string) ($r['body']['error'] ?? ''), 'not one this server will fetch'),
+            "and for the guard's reason: $bad — got '" . ($r['body']['error'] ?? '') . "'");
+    }
+    // file:// reads the disk if nobody checks the scheme.
+    $f = api(['action' => 'recipe_fetch', 'url' => 'file:///etc/passwd'], $tok);
+    eq(400, $f['status'], 'file:// refused at the endpoint');
+    ok(str_contains((string) ($f['body']['error'] ?? ''), 'only http'), 'and says which schemes it speaks');
+
+    // An empty url is a 400 with a message, not a 500 and not a blank one —
+    // a message that says nothing is how a real failure looked like nothing
+    // happening at all.
+    $e = api(['action' => 'recipe_fetch', 'url' => ''], $tok);
+    eq(400, $e['status'], 'an empty url is a 400');
+    ok(trim((string) ($e['body']['error'] ?? '')) !== '', 'and carries a reason');
+});
+
+t('a sync SPACE is a separate store under the same login', function () use ($rec) {
+    // ChefMind (the owner, 2026-08-21) reuses these accounts and keeps its own
+    // reminders and notes. One token, two stores — so what is proved here is
+    // that the space actually SEPARATES: that a record written into 'chef'
+    // never appears in a spaceless pull, and the reverse.
+    //
+    // Both directions, deliberately. A records_file that ignored the space
+    // entirely would still pass a one-sided check that only asked "is my chef
+    // record here?", because it would be — in the shared file, alongside
+    // everything else.
+    $u   = 'space' . substr((string) mt_rand(), 0, 6);
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'spacepassword'])['body']['token'] ?? '';
+    ok($tok !== '', 'signed up for a token');
+
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('cal1', 100, 'calmind only')]], $tok);
+    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('chef1', 100, 'chefmind only')]], $tok);
+
+    $ids = function (array $r): array {
+        $out = array_map(fn($c) => (string) $c['id'], $r['body']['changes'] ?? []);
+        sort($out);
+        return $out;
+    };
+    eq(['cal1'], $ids(api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok)),
+       "CalMind's pull holds only CalMind's record");
+    eq(['chef1'], $ids(api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => []], $tok)),
+       "the chef space holds only the chef record");
+
+    // The cursors are per store too. Sharing one would make the second app's
+    // first sync look already-caught-up and hand it nothing.
+    $c1 = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok)['body']['cursor'] ?? -1;
+    $c2 = api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => []], $tok)['body']['cursor'] ?? -1;
+    eq(1, $c1, "CalMind's sequence counts its own records");
+    eq(1, $c2, "the chef space counts its own");
+
+    // The space reaches a FILENAME. It is whitelisted rather than sanitised,
+    // and the whitelist is what is checked here — traversal included, because
+    // that is the shape of the mistake this is guarding against.
+    foreach (['nope', '../../../etc/passwd', 'chef/../..', 'CHEF'] as $bad) {
+        $r = api(['action' => 'sync', 'space' => $bad, 'cursor' => 0, 'changes' => []], $tok);
+        eq(400, $r['status'], "refused space: $bad");
+    }
+    // And nothing outside the data dir was created by any of that.
+    ok(!is_file('/tmp/records-' . $u . '.json'), 'no file escaped the data dir');
+
+    // The capability check the ChefMind deploy gates on. It must answer
+    // WITHOUT a token — the deploy holds none — and it must name the space,
+    // because an API that does not know `space` ignores the parameter and
+    // quietly merges ChefMind's records into CalMind's store.
+    $cap = api(['action' => 'spaces']);
+    eq(200, $cap['status'], 'spaces answers without auth');
+    ok(in_array('chef', (array) ($cap['body']['spaces'] ?? []), true), "and names 'chef'");
+});
+
+t('sharing is PER SPACE — a CalMind partnership shares nothing into ChefMind', function () use ($mkUser, $shareRec) {
+    /**
+     * The leak this exists for, found by the owner the minute ChefMind went live:
+     * sync had a space and sharing did not, so ChefMind pulled his partner's
+     * CALMIND folders and drew them inside an app that is supposed to share
+     * nothing with CalMind but the login.
+     *
+     * What is proved here is BOTH halves, because either alone passes with
+     * the bug present: that a CalMind partnership does not reach into the
+     * chef space, and that a chef partnership DOES work — same UX, same
+     * mutual rule, different file.
+     */
+    $a = 'sa' . substr((string) mt_rand(), 0, 6);
+    $b = 'sb' . substr((string) mt_rand(), 0, 6);
+    $tokA = $mkUser($a);
+    $tokB = $mkUser($b);
+
+    // They are partners in CALMIND, and a owns a shared folder there.
+    $cal = [
+        ['id' => 'cf', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'CalMind folder', 'color' => '#4c8bf0', 'ord' => 'a', 'app' => 'reminders']],
+        ['id' => 'cs', 'type' => 'section', 'updated' => 1, 'payload' => ['name' => 'General', 'folderId' => 'cf', 'ord' => 'a']],
+        $shareRec(['partners' => [$b], 'calendars' => [], 'folders' => ['cf'], 'notefolders' => []]),
+    ];
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => $cal], $tokA);
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [$shareRec(['partners' => [$a], 'calendars' => [], 'folders' => [], 'notefolders' => []])]], $tokB);
+    eq($a, api(['action' => 'shared_pull'], $tokB)['body']['partner'], 'they are partners in CalMind');
+
+    // ChefMind: no partner, no records. Every account starts blank, its
+    // partner list included.
+    $chef = api(['action' => 'shared_pull', 'space' => 'chef'], $tokB);
+    eq(200, $chef['status']);
+    eq(null, $chef['body']['partner'], "the CalMind partnership does not reach into chef");
+    eq([], $chef['body']['partners'], 'and names nobody there');
+    eq([], $chef['body']['records'], 'and hands over nothing');
+
+    // Now they pair up IN CHEFMIND, and a shares a chef folder.
+    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [
+        ['id' => 'kf', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'Chef folder', 'color' => '#f0b429', 'ord' => 'a', 'app' => 'notes']],
+        ['id' => 'ks', 'type' => 'section', 'updated' => 1, 'payload' => ['name' => 'General', 'folderId' => 'kf', 'ord' => 'a']],
+        ['id' => 'kn', 'type' => 'note', 'updated' => 1, 'payload' => ['title' => 'Pancakes', 'body' => '', 'date' => null, 'folderId' => 'kf', 'sectionId' => 'ks', 'ord' => 'a']],
+        $shareRec(['partners' => [$b], 'calendars' => [], 'folders' => [], 'notefolders' => ['kf']]),
+    ]], $tokA);
+    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$shareRec(['partners' => [$a], 'calendars' => [], 'folders' => [], 'notefolders' => []])]], $tokB);
+
+    $chef = api(['action' => 'shared_pull', 'space' => 'chef'], $tokB);
+    eq($a, $chef['body']['partner'], 'a chef partnership works, same rule');
+    $ids = array_column($chef['body']['records'], 'id');
+    sort($ids);
+    eq(['kf', 'kn', 'ks'], $ids, "and hands over the chef folder — never CalMind's");
+
+    // The reverse leak: CalMind's pull must not have grown the chef folder.
+    $ids = array_column(api(['action' => 'shared_pull'], $tokB)['body']['records'], 'id');
+    sort($ids);
+    eq(['cf', 'cs'], $ids, "CalMind's pull still holds only CalMind's");
+
+    // And a WRITE lands in the space it was sent for. b ticks a's chef note;
+    // a's CalMind store must be untouched by it.
+    $put = api(['action' => 'shared_put', 'space' => 'chef', 'partner' => $a, 'record' => [
+        'id' => 'kn', 'type' => 'note', 'updated' => 99,
+        'payload' => ['title' => 'Pancakes (b was here)', 'body' => '', 'date' => null, 'folderId' => 'kf', 'sectionId' => 'ks', 'ord' => 'a'],
+    ]], $tokB);
+    eq(200, $put['status'], 'the shared write is allowed in chef');
+    $mine = api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => []], $tokA)['body']['changes'];
+    $note = null;
+    foreach ($mine as $r) { if ($r['id'] === 'kn') { $note = $r; } }
+    ok($note !== null && ($note['payload']['title'] ?? '') === 'Pancakes (b was here)', "and a sees it in chef");
+    foreach (api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokA)['body']['changes'] as $r) {
+        ok($r['id'] !== 'kn', "a's CalMind store never grew the chef note");
+    }
+
+    // A chef write with NO space would land in CalMind. There is no chef
+    // partnership at '' , so it is refused rather than misfiled.
+    eq(403, api(['action' => 'shared_put', 'partner' => $a, 'record' => [
+        'id' => 'kn', 'type' => 'note', 'updated' => 100,
+        'payload' => ['title' => 'wrong store', 'body' => '', 'date' => null, 'folderId' => 'kf', 'sectionId' => 'ks', 'ord' => 'a'],
+    ]], $tokB)['status'], 'a spaceless write is refused, not misfiled');
+});
+
+t("the server's day is Chicago's, not UTC", function () {
+    // Anything here that asks what day it is gets this answer. Left on UTC it
+    // turned over at 7pm Chicago, so every server-decided date was a day early
+    // all evening. Found through the widget feed, since removed; repeats and
+    // dated reads still ask, so the rule outlived the thing that exposed it.
+    eq('America/Chicago', date_default_timezone_get(), 'the default the config can move');
+    // And the answer itself: the server's date must equal Chicago's date,
+    // which is the thing that actually bit — not merely a string setting.
+    $chicago = (new DateTime('now', new DateTimeZone('America/Chicago')))->format('Y-m-d');
+    eq($chicago, date('Y-m-d'), "date('Y-m-d') is the Chicago day");
+});
+
+// ---------------------------------------------------------------- passkeys
+//
+// A software authenticator, so the ceremony is driven end to end rather than
+// mocked at the seam where the bugs live. It generates a real P-256 key,
+// builds real CBOR, and signs what a browser would sign.
+
+function cbor_uint_e(int $n, int $major = 0): string
+{
+    $m = $major << 5;
+    if ($n < 24)    { return chr($m | $n); }
+    if ($n < 256)   { return chr($m | 24) . chr($n); }
+    if ($n < 65536) { return chr($m | 25) . pack('n', $n); }
+    return chr($m | 26) . pack('N', $n);
+}
+function cbor_int_e(int $n): string { return $n >= 0 ? cbor_uint_e($n) : cbor_uint_e(-1 - $n, 1); }
+function cbor_bytes_e(string $b): string { return cbor_uint_e(strlen($b), 2) . $b; }
+function cbor_text_e(string $t): string { return cbor_uint_e(strlen($t), 3) . $t; }
+function cbor_map_e(array $pairs): string
+{
+    $out = cbor_uint_e(count($pairs), 5);
+    foreach ($pairs as [$k, $v]) { $out .= $k . $v; }
+    return $out;
+}
+
+/** Returns [privateKeyResource, coseKeyBytes]. */
+function fake_authenticator_key(): array
+{
+    $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    $d   = openssl_pkey_get_details($key);
+    $x   = str_pad($d['ec']['x'], 32, "\0", STR_PAD_LEFT);
+    $y   = str_pad($d['ec']['y'], 32, "\0", STR_PAD_LEFT);
+    $cose = cbor_map_e([
+        [cbor_int_e(1), cbor_int_e(2)],       // kty: EC2
+        [cbor_int_e(3), cbor_int_e(-7)],      // alg: ES256
+        [cbor_int_e(-1), cbor_int_e(1)],      // crv: P-256
+        [cbor_int_e(-2), cbor_bytes_e($x)],
+        [cbor_int_e(-3), cbor_bytes_e($y)],
+    ]);
+    return [$key, $cose];
+}
+
+function fake_authdata(string $rpId, int $flags, int $count, string $credId = '', string $cose = ''): string
+{
+    $out = hash('sha256', $rpId, true) . chr($flags) . pack('N', $count);
+    if ($credId !== '') {
+        $out .= str_repeat("\0", 16) . pack('n', strlen($credId)) . $credId . $cose;
+    }
+    return $out;
+}
+
+function fake_client_data(string $type, string $challenge, string $origin): string
+{
+    return json_encode(['type' => $type, 'challenge' => $challenge, 'origin' => $origin], JSON_UNESCAPED_SLASHES);
+}
+
+t('CBOR bounds reject unsafe integers, offsets, nesting and containers', function () {
+    $max = PHP_INT_SIZE === 8 ? "\x1b" . pack('J', PHP_INT_MAX) : "\x1a" . pack('N', PHP_INT_MAX);
+    eq(PHP_INT_MAX, cbor_decode($max), 'largest supported unsigned integer');
+    eq(PHP_INT_MIN, cbor_decode(chr(ord($max[0]) | 0x20) . substr($max, 1)), 'smallest supported negative integer');
+    $off = 1;
+    eq([1 => [false, true, null, 'x']], cbor_decode("\x00\xa1\x01\x84\xf4\xf5\xf6\x61x\x00", $off), 'nested data at an offset');
+    eq(9, $off, 'consumes one item');
+
+    $large = "\x99\x08\x00" . str_repeat("\xf6", 2048);
+    foreach ([
+        ['rewinding byte string', hex2bin('825bfffffffffffffff6'), 'integer out of range'],
+        ['overflowing integer', hex2bin('1b8000000000000000'), 'integer out of range'],
+        ['overflowing negative integer', hex2bin('3bffffffffffffffff'), 'integer out of range'],
+        ['truncated integer', "\x1b\x01", 'ran off the end'],
+        ['truncated text', "\x62x", 'ran off the end'],
+        ['impossible array', "\x9a\x7f\xff\xff\xff\xf6", 'array length exceeds bounds'],
+        ['impossible map', "\xa2\x00\xf6", 'map length exceeds bounds'],
+        ['nested item budget', "\x82" . $large . $large, 'array length exceeds bounds'],
+        ['excessive nesting', str_repeat("\x81", 16) . "\xf6", 'nesting limit exceeded'],
+        ['container map key', "\xa1\x80\xf6", 'invalid map key'],
+        ['duplicate map key', "\xa2\x01\xf6\x01\xf6", 'invalid map key'],
+    ] as [$label, $bin, $why]) {
+        $rejection = '';
+        try { cbor_decode($bin); }
+        catch (RuntimeException $e) { $rejection = $e->getMessage(); }
+        eq('cbor: ' . $why, $rejection, $label);
+    }
+    $off = -1;
+    $rejection = '';
+    try { cbor_decode("\xf6", $off); }
+    catch (RuntimeException $e) { $rejection = $e->getMessage(); }
+    eq('cbor: ran off the end', $rejection, 'negative initial offset');
+});
+
+$pkUser = 'pk' . substr((string) time(), -6);
+$pkTok  = api(['action' => 'signup', 'username' => $pkUser, 'email' => $pkUser . '@example.com', 'password' => 'passkeypw'])['body']['token'] ?? '';
+$pkOrigin = "http://127.0.0.1:$port";
+$pkRp     = '127.0.0.1';
+[$pkKey, $pkCose] = fake_authenticator_key();
+$pkCredId = random_bytes(32);
+$pkId     = rtrim(strtr(base64_encode($pkCredId), '+/', '-_'), '=');
+$b64u     = fn(string $b) => rtrim(strtr(base64_encode($b), '+/', '-_'), '=');
+
+t('passkey registration rejects overflowing CBOR in attestation and COSE', function () use ($pkTok, $pkOrigin, $pkRp, $pkCredId, $b64u) {
+    $bad = hex2bin('825bfffffffffffffff6');
+    $embedded = cbor_map_e([
+        [cbor_text_e('fmt'), cbor_text_e('none')],
+        [cbor_text_e('attStmt'), cbor_map_e([])],
+        [cbor_text_e('authData'), cbor_bytes_e(fake_authdata($pkRp, 0x45, 0, $pkCredId, $bad))],
+    ]);
+    foreach ([$bad, $embedded] as $att) {
+        $begin = api(['action' => 'passkey_register_begin'], $pkTok);
+        eq(200, $begin['status'], 'register_begin');
+        $cd = fake_client_data('webauthn.create', $begin['body']['challenge'], $pkOrigin);
+        $fin = api([
+            'action' => 'passkey_register_finish',
+            'clientDataJSON' => $b64u($cd), 'attestationObject' => $b64u($att),
+        ], $pkTok);
+        eq(400, $fin['status'], 'malformed CBOR status');
+        eq('passkey: cbor: integer out of range', $fin['body']['error'] ?? '', 'malformed CBOR JSON error');
+    }
+});
+
+t('a passkey registers against a real ceremony', function () use ($pkTok, $pkOrigin, $pkRp, $pkCose, $pkCredId, $pkId, $b64u) {
+    $begin = api(['action' => 'passkey_register_begin'], $pkTok);
+    eq(200, $begin['status'], 'register_begin');
+    eq($pkRp, $begin['body']['rp']['id'] ?? '', 'the RP id is derived from the host');
+    $cd  = fake_client_data('webauthn.create', $begin['body']['challenge'], $pkOrigin);
+    $ad  = fake_authdata($pkRp, 0x45, 0, $pkCredId, $pkCose);
+    $att = cbor_map_e([
+        [cbor_text_e('fmt'), cbor_text_e('none')],
+        [cbor_text_e('attStmt'), cbor_map_e([])],
+        [cbor_text_e('authData'), cbor_bytes_e($ad)],
+    ]);
+    $fin = api([
+        'action' => 'passkey_register_finish', 'label' => 'test key',
+        'clientDataJSON' => $b64u($cd), 'attestationObject' => $b64u($att),
+    ], $pkTok);
+    eq(200, $fin['status'], 'register_finish: ' . json_encode($fin['body']));
+    eq($pkId, $fin['body']['id'] ?? '', 'the credential id comes back');
+
+    $list = api(['action' => 'passkey_list'], $pkTok);
+    eq(1, count($list['body']['passkeys'] ?? []), 'one passkey on the account');
+    eq('test key', $list['body']['passkeys'][0]['label'] ?? '', 'it kept its label');
+});
+
+t('registration will not take a challenge twice', function () use ($pkTok, $pkOrigin, $pkRp, $pkCose, $b64u) {
+    $begin = api(['action' => 'passkey_register_begin'], $pkTok);
+    $cd    = fake_client_data('webauthn.create', $begin['body']['challenge'], $pkOrigin);
+    $id2   = random_bytes(32);
+    $att   = cbor_map_e([
+        [cbor_text_e('fmt'), cbor_text_e('none')],
+        [cbor_text_e('attStmt'), cbor_map_e([])],
+        [cbor_text_e('authData'), cbor_bytes_e(fake_authdata($pkRp, 0x45, 0, $id2, $pkCose))],
+    ]);
+    $body = ['action' => 'passkey_register_finish', 'clientDataJSON' => $b64u($cd), 'attestationObject' => $b64u($att)];
+    eq(200, api($body, $pkTok)['status'], 'first use');
+    eq(400, api($body, $pkTok)['status'], 'the same challenge again is refused');
+    api(['action' => 'passkey_remove', 'id' => $b64u($id2)], $pkTok);
+});
+
+t('a passkey signs in without a username, and the token works', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkUser, $b64u) {
+    $begin = api(['action' => 'passkey_login_begin']);
+    eq(200, $begin['status'], 'login_begin needs no auth');
+    $cd = fake_client_data('webauthn.get', $begin['body']['challenge'], $pkOrigin);
+    $ad = fake_authdata($pkRp, 0x05, 1);
+    openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+    $fin = api([
+        'action' => 'passkey_login_finish', 'id' => $pkId,
+        'clientDataJSON' => $b64u($cd), 'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig),
+    ]);
+    eq(200, $fin['status'], 'login_finish: ' . json_encode($fin['body']));
+    eq($pkUser, $fin['body']['username'] ?? '', 'the authenticator said who it was');
+    $who = api(['action' => 'whoami'], $fin['body']['token']);
+    eq($pkUser, $who['body']['username'] ?? '', 'and the token it issued is a real one');
+});
+
+t('a tampered signature, a foreign origin and a stale challenge are all refused', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
+    // Tampered signature.
+    $b1 = api(['action' => 'passkey_login_begin']);
+    $cd = fake_client_data('webauthn.get', $b1['body']['challenge'], $pkOrigin);
+    $ad = fake_authdata($pkRp, 0x05, 2);
+    openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+    $bad = $sig;
+    $bad[strlen($bad) - 1] = chr(ord($bad[strlen($bad) - 1]) ^ 0x01);
+    eq(401, api(['action' => 'passkey_login_finish', 'id' => $pkId, 'clientDataJSON' => $b64u($cd),
+        'authenticatorData' => $b64u($ad), 'signature' => $b64u($bad)])['status'], 'a bent signature');
+
+    // A page on another origin, signing a genuine challenge.
+    $b2  = api(['action' => 'passkey_login_begin']);
+    $cd2 = fake_client_data('webauthn.get', $b2['body']['challenge'], 'https://evil.example');
+    $ad2 = fake_authdata($pkRp, 0x05, 3);
+    openssl_sign($ad2 . hash('sha256', $cd2, true), $sig2, $pkKey, OPENSSL_ALGO_SHA256);
+    eq(400, api(['action' => 'passkey_login_finish', 'id' => $pkId, 'clientDataJSON' => $b64u($cd2),
+        'authenticatorData' => $b64u($ad2), 'signature' => $b64u($sig2)])['status'], 'a foreign origin');
+
+    // A challenge that was already spent.
+    $b3  = api(['action' => 'passkey_login_begin']);
+    $cd3 = fake_client_data('webauthn.get', $b3['body']['challenge'], $pkOrigin);
+    $ad3 = fake_authdata($pkRp, 0x05, 4);
+    openssl_sign($ad3 . hash('sha256', $cd3, true), $sig3, $pkKey, OPENSSL_ALGO_SHA256);
+    $replay = ['action' => 'passkey_login_finish', 'id' => $pkId, 'clientDataJSON' => $b64u($cd3),
+        'authenticatorData' => $b64u($ad3), 'signature' => $b64u($sig3)];
+    eq(200, api($replay)['status'], 'the first use');
+    eq(400, api($replay)['status'], 'the replay');
+});
+
+t('a passkey that was not UNLOCKED on the device is refused', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
+    // POSITION IS LOAD-BEARING, twice, and both were found by getting it wrong.
+    // Placed AFTER the counter-regression spec, all three refusals still
+    // passed — for the wrong reason, because that spec REMOVES the passkey at
+    // the end and a 401 'not recognised' reads exactly like a 401 'not
+    // verified'. The positive case below is the only thing that exposed it.
+    // And that positive case signs in for real, advancing the stored
+    // signCount, so it uses 8: above this spec's own attempts, below the 9 the
+    // counter spec needs to succeed with, and above the 2 it needs refused.
+    //
+    // The flags byte carries UP (0x01, someone touched it) and UV (0x04,
+    // someone proved it was them — a face, a fingerprint, a PIN). Every other
+    // passkey spec here sends 0x05, both set, so the guard requiring them was
+    // never exercised: removing it outright failed nothing. Found by mutation,
+    // 2026-08-11.
+    //
+    // It is the server's only say in the matter. The flags come from the
+    // client, which is untrusted by definition, so "a real authenticator sets
+    // them properly" is not a check — it is a hope. Everything else about
+    // these assertions is valid: the signature is genuine, over this exact
+    // authenticator data, for a fresh challenge. Only the flags differ.
+    foreach ([[0x01, 'user present but never verified'], [0x04, 'verified but never touched'], [0x00, 'neither']] as [$flags, $why]) {
+        $begin = api(['action' => 'passkey_login_begin']);
+        $cd = fake_client_data('webauthn.get', $begin['body']['challenge'], $pkOrigin);
+        $ad = fake_authdata($pkRp, $flags, 8);
+        openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+        $r = api([
+            'action' => 'passkey_login_finish', 'id' => $pkId,
+            'clientDataJSON' => $b64u($cd), 'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig),
+        ]);
+        eq(401, $r['status'], "flags 0x" . dechex($flags) . " — $why");
+    }
+    // And the same assertion with BOTH flags set still signs in, so this is
+    // not simply "refuse everything".
+    $begin = api(['action' => 'passkey_login_begin']);
+    $cd = fake_client_data('webauthn.get', $begin['body']['challenge'], $pkOrigin);
+    $ad = fake_authdata($pkRp, 0x05, 8);
+    openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+    eq(200, api([
+        'action' => 'passkey_login_finish', 'id' => $pkId,
+        'clientDataJSON' => $b64u($cd), 'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig),
+    ])['status'], 'a properly unlocked passkey still works');
+});
+
+
+t('a counter that goes backwards is refused, and a removed passkey stops working', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkTok, $b64u) {
+    // The stored counter is at 4 after the last test; 2 is a clone's answer.
+    $b1 = api(['action' => 'passkey_login_begin']);
+    $cd = fake_client_data('webauthn.get', $b1['body']['challenge'], $pkOrigin);
+    $ad = fake_authdata($pkRp, 0x05, 2);
+    openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+    eq(401, api(['action' => 'passkey_login_finish', 'id' => $pkId, 'clientDataJSON' => $b64u($cd),
+        'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig)])['status'], 'counter went backwards');
+
+    eq(200, api(['action' => 'passkey_remove', 'id' => $pkId], $pkTok)['status'], 'remove');
+    $b2  = api(['action' => 'passkey_login_begin']);
+    $cd2 = fake_client_data('webauthn.get', $b2['body']['challenge'], $pkOrigin);
+    $ad2 = fake_authdata($pkRp, 0x05, 9);
+    openssl_sign($ad2 . hash('sha256', $cd2, true), $sig2, $pkKey, OPENSSL_ALGO_SHA256);
+    eq(401, api(['action' => 'passkey_login_finish', 'id' => $pkId, 'clientDataJSON' => $b64u($cd2),
+        'authenticatorData' => $b64u($ad2), 'signature' => $b64u($sig2)])['status'], 'a removed passkey');
+});
+
+t('the challenge store cannot be grown without limit by anyone', function () use ($pkOrigin, $pkRp) {
+    // passkey_login_begin takes no token — deliberately, since asking who you
+    // are before a discoverable login would leak which names exist. That makes
+    // it the one endpoint a stranger can make write to disk, and every other
+    // request on the server reads and rewrites that same file.
+    for ($i = 0; $i < 240; $i++) {
+        api(['action' => 'passkey_login_begin']);
+    }
+    global $scratch;
+    $cfg = ['data_dir' => $scratch];
+    $all = store_read($cfg, $scratch . '/challenges.json');
+    ok(count($all) > 0, 'the challenge file is actually being read (it is encrypted)');
+    ok(count($all) <= WEBAUTHN_MAX_CHALLENGES, 'the file is capped, not merely aged out — got ' . count($all));
+    // And the cap keeps the NEWEST, so a ceremony started a moment ago still
+    // completes while the flood's own challenges are the ones evicted.
+    $begin = api(['action' => 'passkey_login_begin']);
+    $all2 = store_read($cfg, $scratch . '/challenges.json');
+    ok(isset($all2[$begin['body']['challenge']]), 'the challenge just issued survived the cap');
+});
+
+t('the password is still a way in', function () use ($pkUser) {
+    // Passkeys are an addition, not a replacement: losing one must not lock
+    // anyone out of their own account.
+    $r = api(['action' => 'login', 'username' => $pkUser, 'password' => 'passkeypw']);
+    eq(200, $r['status'], 'password login still works after a passkey exists');
+});
+
+t('the Authorization header must BE a bearer token, not merely contain one', function () use ($pkUser) {
+    // require_auth anchors its match: ^Bearer <64 hex>$. Loosening it to a
+    // bare search passed every test here — found by mutation, 2026-08-11 —
+    // because nothing ever sent a header of the wrong shape carrying a real
+    // token. Low stakes on its own (you still need the secret) and worth a
+    // line anyway: the anchors are the difference between a header this
+    // server defines and any string a proxy or a client library might put
+    // there.
+    $r = api(['action' => 'login', 'username' => $pkUser, 'password' => 'passkeypw']);
+    eq(200, $r['status'], 'a password login to get a real token');
+    $tok = $r['body']['token'];
+    eq(200, api(['action' => 'whoami'], $tok)['status'], 'the token itself works');
+    foreach (['Basic ' . $tok, 'Bearer ' . $tok . ' extra', 'x' . $tok, $tok] as $hdr) {
+        eq(401, api_raw_auth(['action' => 'whoami'], $hdr)['status'], "header: $hdr");
+    }
+});
+
+
+t('five wrong guesses lock the account — and the RIGHT password is locked too', function () use ($scratch) {
+    eq(200, api(['action' => 'signup', 'username' => 'locky', 'email' => 'locky@example.com', 'password' => 'rightpass'])['status']);
+    for ($i = 1; $i <= 5; $i++) {
+        eq(401, api(['action' => 'login', 'username' => 'locky', 'password' => 'wrong' . $i])['status'], "miss $i is an ordinary 401");
+    }
+    // The fifth miss armed the lock; from here even the true password waits.
+    $r = api(['action' => 'login', 'username' => 'locky', 'password' => 'rightpass']);
+    eq(429, $r['status'], 'the right password is refused while locked');
+    ok(str_contains((string) $r['body']['error'], 'locked for 5m'), 'the message names the wait: ' . $r['body']['error']);
+});
+
+t('an unknown username never locks — that would confirm which names exist', function () use ($scratch) {
+    for ($i = 1; $i <= 7; $i++) {
+        eq(401, api(['action' => 'login', 'username' => 'ghost', 'password' => 'x' . $i])['status'], "ghost miss $i stays a 401");
+    }
+    $db = store_read(['data_dir' => $scratch], $scratch . '/lockouts.json');
+    ok(!isset($db['ghost']), 'no lockout entry was minted for a name that does not exist');
+});
+
+t('the lock expires, and each further round holds LONGER — 5m then 10m', function () use ($scratch) {
+    $cfg = ['data_dir' => $scratch];
+    // Reach into the store the way the backend disable does — this is also
+    // the documented manual override, so the test doubles as its proof.
+    $db = store_read($cfg, $scratch . '/lockouts.json');
+    ok(isset($db['locky']) && (int) $db['locky']['until'] > time(), 'round one is held');
+    eq(1, (int) $db['locky']['rounds']);
+    $db['locky']['until'] = time() - 1;
+    store_write($cfg, $scratch . '/lockouts.json', $db);
+    // Five more misses arm round TWO, which holds twice as long.
+    for ($i = 1; $i <= 5; $i++) {
+        eq(401, api(['action' => 'login', 'username' => 'locky', 'password' => 'nope' . $i])['status']);
+    }
+    $db = store_read($cfg, $scratch . '/lockouts.json');
+    eq(2, (int) $db['locky']['rounds'], 'the ladder climbed');
+    $hold = (int) $db['locky']['until'] - time();
+    ok($hold > 9 * 60 && $hold <= 10 * 60 + 5, "round two holds ~10m (got {$hold}s)");
+    eq(429, api(['action' => 'login', 'username' => 'locky', 'password' => 'rightpass'])['status'], 'and the door is shut again');
+});
+
+t('a clean sign-in clears the ladder — consecutive is the word in the rule', function () use ($scratch) {
+    $cfg = ['data_dir' => $scratch];
+    $db  = store_read($cfg, $scratch . '/lockouts.json');
+    $db['locky']['until'] = time() - 1;    // let round two lapse
+    store_write($cfg, $scratch . '/lockouts.json', $db);
+    // Three misses, then the right password: the counter must reset, so the
+    // NEXT miss is one-of-five again rather than four-of-five.
+    for ($i = 1; $i <= 3; $i++) {
+        api(['action' => 'login', 'username' => 'locky', 'password' => 'meh' . $i]);
+    }
+    eq(200, api(['action' => 'login', 'username' => 'locky', 'password' => 'rightpass'])['status'], 'in, once the lock lapsed');
+    $db = store_read($cfg, $scratch . '/lockouts.json');
+    ok(!isset($db['locky']), 'the slate is clean — fails AND rounds');
+});
+
+t('a password reset lifts the lockout — recovery proves the mailbox', function () use ($scratch) {
+    for ($i = 1; $i <= 5; $i++) {
+        api(['action' => 'login', 'username' => 'locky', 'password' => 'bad' . $i]);
+    }
+    eq(429, api(['action' => 'login', 'username' => 'locky', 'password' => 'rightpass'])['status'], 'locked again first');
+    @unlink($scratch . '/abuse-recover.json'); @unlink($scratch . '/caps-recover.json');
+    $had = count(mail_log_codes($scratch));
+    api(['action' => 'recover', 'username' => 'locky']);
+    $code = wait_for_code($scratch, $had);
+    eq(200, api(['action' => 'reset', 'username' => 'locky', 'code' => $code, 'password' => 'freshpass1'])['status'], 'the reset itself is not gated');
+    eq(200, api(['action' => 'login', 'username' => 'locky', 'password' => 'freshpass1'])['status'], 'and the front door opens at once');
+});
+
+
+t('calsub_fetch: authed, guarded, and webcal:// means https', function () {
+    // Same wiring proof as recipe_fetch's: the guard itself is tested above,
+    // so what matters here is that the ENDPOINT goes through it and through
+    // require_auth, rather than around either.
+    $u = 'cal' . substr((string) mt_rand(), 0, 6);
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'calsubpassword'])['body']['token'] ?? '';
+    ok($tok !== '', 'signed up for a token');
+
+    eq(401, api(['action' => 'calsub_fetch', 'url' => 'https://example.com/cal.ics'])['status'], 'refused without a token');
+
+    $r = api(['action' => 'calsub_fetch', 'url' => 'http://127.0.0.1/cal.ics'], $tok);
+    eq(400, $r['status'], 'a private address is refused through the endpoint');
+    ok(str_contains((string) ($r['body']['error'] ?? ''), 'not one this server will fetch'), "for the guard's reason");
+
+    // webcal:// is what calendar apps hand out; it MEANS https. Proven by the
+    // guard refusing the ADDRESS rather than the scheme: a handler that did
+    // not normalise would answer 'only http(s)' here instead.
+    $w = api(['action' => 'calsub_fetch', 'url' => 'webcal://127.0.0.1/cal.ics'], $tok);
+    eq(400, $w['status'], 'webcal to a private address is still refused');
+    ok(str_contains((string) ($w['body']['error'] ?? ''), 'not one this server will fetch'),
+        "and by the address guard, so the scheme was normalised first — got '" . ($w['body']['error'] ?? '') . "'");
+
+    $e = api(['action' => 'calsub_fetch', 'url' => ''], $tok);
+    eq(400, $e['status'], 'an empty url is a 400');
+    ok(trim((string) ($e['body']['error'] ?? '')) !== '', 'and carries a reason');
+});
+
+t('calsub_fetch: a fresh cache answers without fetching; a stale one is the fallback', function () use ($scratch) {
+    // Every reachable test server is on 127.0.0.1, which the SSRF guard
+    // rightly refuses — the fetchurl tests above say so — so the cache is the
+    // one path that CAN be driven end-to-end offline, by seeding the file the
+    // handler reads. That inversion is also the proof that the cache is
+    // consulted BEFORE the network: a handler that fetched first would 400 on
+    // this URL instead of answering.
+    $u = 'cch' . substr((string) mt_rand(), 0, 6);
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'cachepassword'])['body']['token'] ?? '';
+    $cfg = ['data_dir' => $scratch];
+    $url = 'https://127.0.0.1/seeded.ics';
+    $ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:seeded\r\nSUMMARY:Seeded\r\nDTSTART:20260819T170000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    $file = $scratch . '/icscache/' . sha1($url) . '.json';
+
+    store_write($cfg, $file, ['at' => time(), 'ics' => $ics]);
+    $r = api(['action' => 'calsub_fetch', 'url' => $url], $tok);
+    eq(200, $r['status'], 'a fresh cache answers');
+    eq(true, $r['body']['cached'] ?? null, 'and says it was the cache');
+    ok(str_contains((string) ($r['body']['ics'] ?? ''), 'SUMMARY:Seeded'), 'with the seeded calendar');
+    foreach (['ical', 'google'] as $source) {
+        $explicit = api(['action' => 'calsub_fetch', 'source' => $source, 'url' => $url], $tok);
+        eq(200, $explicit['status'], "the UI's explicit $source source is accepted");
+        eq($ics, $explicit['body']['ics'] ?? null, "$source uses the existing feed cache");
+    }
+
+    // Stale: the fetch runs, the guard refuses it, and last week's calendar
+    // beats an error on a train.
+    // 960 = CALSUB_CACHE_TTL (900, app.php — not included here; the API is
+    // driven over HTTP) plus a minute of slack.
+    store_write($cfg, $file, ['at' => time() - 960, 'ics' => $ics]);
+    $s = api(['action' => 'calsub_fetch', 'url' => $url], $tok);
+    eq(200, $s['status'], 'a stale cache still answers when the fetch fails');
+    eq(true, $s['body']['stale'] ?? null, 'and admits it is stale');
+    ok(str_contains((string) ($s['body']['ics'] ?? ''), 'SUMMARY:Seeded'), 'with the old copy');
+
+    // And the cache file is ENC1 at rest — a private feed's content is
+    // someone's calendar, and this is the same trade the record store makes.
+    ok(str_starts_with((string) file_get_contents($file), 'ENC1:'), 'the cache is encrypted at rest');
+});
+
+require __DIR__ . '/caldav-tests.php';
+
+t('CalDAV API requires login and validates HTTPS, credentials and public addresses', function () {
+    $u = 'dav' . substr((string) mt_rand(), 0, 6);
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'caldavpassword'])['body']['token'] ?? '';
+    ok($tok !== '', 'disposable account has a valid token');
+    eq(401, api(['action' => 'calsub_discover', 'url' => 'https://127.0.0.1/'])['status']);
+    foreach (['calsub_discover', 'calsub_fetch'] as $action) {
+        $base = ['action' => $action, 'source' => 'caldav', 'url' => 'https://127.0.0.1/', 'username' => 'alice', 'password' => 'secret'];
+        $blocked = api($base, $tok);
+        eq(400, $blocked['status']);
+        ok(str_contains($blocked['body']['error'], 'not one this server will fetch'), 'private host refused before network');
+        eq(400, api(array_merge($base, ['url' => 'http://127.0.0.1/']), $tok)['status'], 'no HTTP credentials');
+        eq(400, api(array_merge($base, ['password' => '']), $tok)['status'], 'credentials required');
+    }
+    eq(400, api(['action' => 'calsub_fetch', 'source' => 'unknown', 'url' => 'https://127.0.0.1/'], $tok)['status']);
+});
+
+t('CalDAV API uses encrypted credential-specific cache and retains stale calendars offline', function () use ($scratch) {
+    $u = 'dvc' . substr((string) mt_rand(), 0, 6);
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => $u . '@example.com', 'password' => 'caldavpassword'])['body']['token'] ?? '';
+    ok($tok !== '', 'disposable account has a valid token');
+    $cfg = ['data_dir' => $scratch];
+    $url = 'https://127.0.0.1/private-caldav/';
+    $file = caldav_cache_file($cfg, $u, $url, 'davuser', 'app-secret');
+    $ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n";
+    $body = ['action' => 'calsub_fetch', 'source' => 'caldav', 'url' => $url, 'username' => 'davuser', 'password' => 'app-secret'];
+    store_write($cfg, $file, ['at' => time(), 'ics' => $ics]);
+    eq($ics, api($body, $tok)['body']['ics'] ?? null, 'fresh cache answers');
+    store_write($cfg, $file, ['at' => time() - 960, 'ics' => $ics]);
+    eq(true, api($body, $tok)['body']['stale'] ?? null, 'offline refresh retains last good copy');
+    eq(400, api(array_merge($body, ['password' => 'different-password']), $tok)['status'], 'new credentials cannot reuse old cache');
+    ok(str_starts_with(file_get_contents($file), 'ENC1:'), 'private calendar cache encrypted');
+});
+
+
+// ---------------------------------------------------------------- meeting requests
+
+t('the public slot list is the window minus the calendar, and only open/closed leaves', function () use ($scratch) {
+    $u = 'mru' . time();
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => "$u@x.com", 'password' => 'meetreq-pw-1'])['body']['token'];
+    // Two events on a fixed weekday — the window varies by day now, so the
+    // expectation below is only right on a 10am–8pm day. 'next monday' is
+    // always strictly in the future (from a Monday it means +7), so no
+    // passed-hours-today arithmetic can leak in. A timed event at 14:00
+    // blocks 14:00; one with an end spanning two slots (10:30–12:10) blocks
+    // 10:00, 11:00 and 12:00.
+    $d = date('Y-m-d', strtotime('next monday'));
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        ['id' => 'ev1', 'type' => 'event', 'updated' => 1, 'payload' => ['text' => 'SECRET-TITLE', 'date' => $d, 'time' => '14:00', 'repeat' => null, 'calendarId' => 'c', 'ord' => 'a']],
+        ['id' => 'ev2', 'type' => 'event', 'updated' => 2, 'payload' => ['text' => 'x', 'date' => $d, 'time' => '10:30', 'end' => '12:10', 'repeat' => null, 'calendarId' => 'c', 'ord' => 'b']],
+        ['id' => 'ev3', 'type' => 'event', 'updated' => 3, 'payload' => ['text' => 'timeless day marker', 'date' => $d, 'time' => null, 'repeat' => null, 'calendarId' => 'c', 'ord' => 'c']],
+    ]], $tok);
+    $r = api(['action' => 'meetreq_slots', 'user' => $u, 'from' => $d, 'days' => 1]);
+    eq(200, $r['status'], 'public, no auth');
+    $slots = $r['body']['days'][$d] ?? null;
+    eq(['13:00', '15:00', '16:00', '17:00', '18:00', '19:00'], $slots, 'window minus the busy hours, timeless blocking nothing');
+    ok(!str_contains(json_encode($r['body']), 'SECRET-TITLE'), 'and no event content leaks');
+    // Yesterday offers nothing, however empty the calendar was.
+    $y = api(['action' => 'meetreq_slots', 'user' => $u, 'from' => date('Y-m-d', strtotime('-1 day')), 'days' => 1]);
+    eq([], array_values($y['body']['days'])[0], 'the past is closed');
+});
+
+// ---- the owner's availability overrides (the owner, 2026-08-21) ----------------
+//
+// The half that only the server can prove: that his settings are the FINAL
+// SAY on what a stranger may ask for. core's meetavail.test.ts pins the same
+// arithmetic for the screen he taps; these pin what the endpoint enforces,
+// which is the one that matters — a rule the server does not run is a rule
+// anyone can post straight past.
+
+/** Push one availability record for a day, as his client would. */
+function avail_put(string $tok, string $date, array $off, array $on, int $updated = 1): void
+{
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [[
+        'id' => 'meetavail_' . $date, 'type' => 'meetavail', 'updated' => $updated,
+        'payload' => ['date' => $date, 'off' => $off, 'on' => $on],
+    ]]], $tok);
+}
+
+t('the owner sees his whole window, busy hours included; nobody else has an editor', function () {
+    $tok = api(['action' => 'signup', 'username' => 'mrowner', 'email' => 'mrowner@x.com', 'password' => 'meetreq-pw-1'])['body']['token'];
+    $d = date('Y-m-d', strtotime('next monday'));   // a 10am–8pm day
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        ['id' => 'av-ev1', 'type' => 'event', 'updated' => 1, 'payload' => ['text' => 'Standup', 'date' => $d, 'time' => '14:00', 'repeat' => null, 'calendarId' => 'c', 'ord' => 'a']],
+    ]], $tok);
+
+    eq(401, api(['action' => 'meetreq_day', 'date' => $d])['status'], 'the editor needs a session');
+
+    $r = api(['action' => 'meetreq_day', 'date' => $d], $tok);
+    eq(200, $r['status']);
+    ok($r['body']['owner'] === true, 'the request page is his, so he gets the editor');
+    $times = array_column($r['body']['slots'], 'time');
+    eq(['10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'], $times,
+        'the WHOLE window — the busy hour is not omitted from his own view');
+    $busy = array_column($r['body']['slots'], 'busy', 'time');
+    ok($busy['14:00'] === true && $busy['13:00'] === false, 'and the clash is flagged rather than removed');
+    // The public page, same day, same moment: the busy hour IS omitted there.
+    $pub = api(['action' => 'meetreq_slots', 'user' => 'mrowner', 'from' => $d, 'days' => 1])['body']['days'][$d];
+    ok(!in_array('14:00', $pub, true), 'a stranger is never told about the clash');
+
+    // Anyone else: no editor, and no way to ask about a day of his either.
+    $u2 = 'mrother' . time();
+    $t2 = api(['action' => 'signup', 'username' => $u2, 'email' => "$u2@x.com", 'password' => 'meetreq-pw-1'])['body']['token'];
+    $other = api(['action' => 'meetreq_day', 'date' => $d], $t2);
+    ok($other['body']['owner'] === false && $other['body']['slots'] === [], 'no request page behind that account, no editor');
+    // The `user` parameter the PUBLIC pair honours must do nothing here.
+    $pry = api(['action' => 'meetreq_day', 'date' => $d, 'user' => 'mrowner'], $t2);
+    ok($pry['body']['owner'] === false && $pry['body']['slots'] === [], 'and it cannot be pointed at someone else');
+});
+
+t('his settings are the final say — closed hours vanish, opened clashes come back', function () {
+    $tok = api(['action' => 'login', 'username' => 'mrowner', 'password' => 'meetreq-pw-1'])['body']['token'];
+    $d = date('Y-m-d', strtotime('next monday'));   // 14:00 is busy, from above
+    $slots = fn() => api(['action' => 'meetreq_slots', 'user' => 'mrowner', 'from' => $d, 'days' => 1])['body']['days'][$d];
+
+    // Closing an hour the rules opened takes it off the public page…
+    avail_put($tok, $d, ['15:00'], [], 2);
+    ok(!in_array('15:00', $slots(), true), 'a closed hour leaves the public list');
+    // …and refuses a create for it, not just hides it. Drawing is not enforcing.
+    $no = api(['action' => 'meetreq_create', 'user' => 'mrowner', 'name' => 'X', 'email' => 'x@x.com', 'date' => $d, 'time' => '15:00']);
+    eq(409, $no['status'], 'and posting straight at it is refused');
+
+    // Opening an hour his own calendar had taken puts it back — the override
+    // he asked for, over the top of a real clash.
+    avail_put($tok, $d, [], ['14:00'], 3);
+    ok(in_array('14:00', $slots(), true), 'the clash he overrode is offered');
+    $yes = api(['action' => 'meetreq_create', 'user' => 'mrowner', 'name' => 'X', 'email' => 'x@x.com', 'date' => $d, 'time' => '14:00']);
+    eq(200, $yes['status'], 'and a stranger may take it');
+    ok(in_array('15:00', $slots(), true), 'the hour he re-opened is back');
+
+    // A day switched off entirely offers nothing at all.
+    avail_put($tok, $d, ['10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'], [], 4);
+    eq([], $slots(), 'All-off empties the day');
+
+    // A tombstoned record is no override: the rules resume, clash and all.
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [[
+        'id' => 'meetavail_' . $d, 'type' => 'meetavail', 'updated' => 5, 'deleted' => true, 'payload' => null,
+    ]]], $tok);
+    $back = $slots();
+    ok(in_array('15:00', $back, true), 'deleting the record restores the rules');
+    ok(!in_array('14:00', $back, true), 'including the clash it had been overriding');
+
+    // Nothing overrides the past. A day gone is gone however it was set.
+    $past = date('Y-m-d', strtotime('-1 day'));
+    avail_put($tok, $past, [], ['10:00','11:00'], 6);
+    eq([], api(['action' => 'meetreq_slots', 'user' => 'mrowner', 'from' => $past, 'days' => 1])['body']['days'][$past],
+        'yesterday cannot be opened');
+});
+
+t('a create is validated against the same rule, lands as a record, and syncs back', function () use ($scratch) {
+    $u = 'mrc' . time();
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => "$u@x.com", 'password' => 'meetreq-pw-1'])['body']['token'];
+    $d = date('Y-m-d', strtotime('+2 day'));
+    api(['action' => 'sync', 'cursor' => 0, 'changes' => [
+        ['id' => 'ev1', 'type' => 'event', 'updated' => 1, 'payload' => ['text' => 'busy', 'date' => $d, 'time' => '14:00', 'repeat' => null, 'calendarId' => 'c', 'ord' => 'a']],
+    ]], $tok);
+    // The busy hour refuses; the open one lands.
+    $bad = api(['action' => 'meetreq_create', 'user' => $u, 'name' => 'Sam', 'email' => 'sam@example.test', 'date' => $d, 'time' => '14:00']);
+    eq(409, $bad['status'], 'a taken slot refuses');
+    foreach ([['', 'sam@example.test', 'a name is required'], ['Sam', 'not-an-email', 'a real email'], ['Sam', 'sam@example.test', 'on the hour', '14:30'], ['Sam', 'sam@example.test', 'on the hour', '09:00']] as $case) {
+        $r = api(['action' => 'meetreq_create', 'user' => $u, 'name' => $case[0], 'email' => $case[1], 'date' => $d, 'time' => $case[3] ?? '15:00']);
+        eq(400, $r['status'], 'refused: ' . $case[2]);
+        ok(str_contains((string) $r['body']['error'], $case[2]), 'and says why: ' . $case[2]);
+    }
+    $okr = api(['action' => 'meetreq_create', 'user' => $u, 'name' => 'Sam', 'email' => 'sam@example.test', 'date' => $d, 'time' => '15:00']);
+    eq(200, $okr['status'], 'an open slot lands');
+    // …and the OWNER sees it through ordinary sync — the whole point.
+    $pull = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok);
+    $reqs = array_values(array_filter($pull['body']['changes'], fn($c) => $c['type'] === 'meetreq'));
+    eq(1, count($reqs), 'one request record in the store');
+    eq('Sam', $reqs[0]['payload']['name']);
+    eq('15:00', $reqs[0]['payload']['time']);
+    eq('new', $reqs[0]['payload']['status']);
+    // A pending request does NOT block the slot — only an accepted one has
+    // become an event; anything else lets a stranger squat the calendar.
+    $again = api(['action' => 'meetreq_slots', 'user' => $u, 'from' => $d, 'days' => 1]);
+    ok(in_array('15:00', $again['body']['days'][$d], true), 'a pending request leaves its slot open');
+    // An account that does not exist gets a quiet ok and no file — which
+    // usernames exist is nobody\'s business (recover\'s rule).
+    $ghost = api(['action' => 'meetreq_create', 'user' => 'nobody' . time(), 'name' => 'X', 'email' => 'x@x.com', 'date' => $d, 'time' => '15:00']);
+    eq(200, $ghost['status'], 'an unknown user answers ok');
+});
+
+t('the window is the owner\'s week: Tuesday from 2pm, Friday and Saturday to 11pm', function () {
+    // A user that does not exist is fine here: the slot list computes over an
+    // empty calendar (the full window), and a window refusal happens BEFORE
+    // the account check and BEFORE the throttle — so this block spends none
+    // of the hour's per-IP budget the throttle test below counts on.
+    $u = 'mrw' . time();
+    $day = fn(string $when) => date('Y-m-d', strtotime($when));
+    $slots = fn(string $d) => api(['action' => 'meetreq_slots', 'user' => $u, 'from' => $d, 'days' => 1])['body']['days'][$d];
+    eq(['14:00', '15:00', '16:00', '17:00', '18:00', '19:00'], $slots($day('next tuesday')), 'Tuesday opens at 2pm');
+    $fri = $slots($day('next friday'));
+    eq('10:00', $fri[0], 'Friday still opens at 10am');
+    eq('22:00', end($fri), 'and its last ~1h start is 10pm');
+    eq(13, count($fri), 'thirteen starts, 10am through 10pm');
+    eq($fri, $slots($day('next saturday')), 'Saturday keeps Friday\'s hours');
+    $sun = $slots($day('next sunday'));
+    eq(['10:00', '19:00'], [$sun[0], end($sun)], 'Sunday is the plain 10am–8pm day');
+    // The create refuses OUTSIDE the day's own window, and says which window.
+    $early = api(['action' => 'meetreq_create', 'user' => $u, 'name' => 'W', 'email' => 'w@x.com', 'date' => $day('next tuesday'), 'time' => '10:00']);
+    eq(400, $early['status'], 'Tuesday 10am refuses');
+    ok(str_contains((string) $early['body']['error'], '2pm to 8pm'), 'naming Tuesday\'s hours');
+    $late = api(['action' => 'meetreq_create', 'user' => $u, 'name' => 'W', 'email' => 'w@x.com', 'date' => $day('next sunday'), 'time' => '22:00']);
+    eq(400, $late['status'], 'Sunday 10pm refuses');
+    ok(str_contains((string) $late['body']['error'], '10am to 8pm'), 'naming Sunday\'s hours');
+    // 11pm is the CLOSE, not a start — the end stays exclusive on late days.
+    $close = api(['action' => 'meetreq_create', 'user' => $u, 'name' => 'W', 'email' => 'w@x.com', 'date' => $day('next friday'), 'time' => '23:00']);
+    eq(400, $close['status'], 'Friday 11pm refuses — it is the close');
+});
+
+t('the create throttle holds, per IP, and the mail stub logs without sending', function () use ($scratch) {
+    $u = 'mrt' . time();
+    $tok = api(['action' => 'signup', 'username' => $u, 'email' => "$u@x.com", 'password' => 'meetreq-pw-1'])['body']['token'];
+    // A fixed weekday again: these morning starts are only in Monday's window.
+    $d = date('Y-m-d', strtotime('next monday'));
+    // The bucket is emptied first, and that is not tidiness. The whole
+    // harness is ONE IP, so this used to start from "the tests above spent
+    // three of this hour's budget" and expect the leftovers — a number that
+    // silently became wrong the moment any earlier test made one more
+    // request, which is exactly how it broke when the availability tests
+    // were added. Counting from zero here is a test that stays true.
+    @unlink($scratch . '/meetreq-ips.json'); @unlink($scratch . '/caps-meetreq.json');
+    $landed = 0;
+    $throttled = false;
+    foreach (['10:00', '11:00', '12:00', '13:00', '15:00', '16:00'] as $tm) {
+        $r = api(['action' => 'meetreq_create', 'user' => $u, 'name' => 'N', 'email' => 'n@x.com', 'date' => $d, 'time' => $tm]);
+        if ($r['status'] === 200) { $landed++; }
+        if ($r['status'] === 429) { $throttled = true; }
+    }
+    eq(5, $landed, 'a whole hour\'s budget lands');   // MEETREQ_IP_MAX, which this side cannot see
+    ok($throttled, 'and the one past it refuses 429');
+    // The mail STUB: authenticated, always logs, sends nothing unconfigured. Only the
+    // request-page owner may mail an address that is on one of his requests.
+    $noauth = api(['action' => 'meetreq_mail', 'to' => 'sam@example.test', 'kind' => 'accepted', 'when' => "$d 15:00"]);
+    eq(401, $noauth['status'], 'the mail answer needs the owner');
+    $ow = api(['action' => 'login', 'username' => 'mrowner', 'password' => 'meetreq-pw-1'])['body']['token'];
+    @unlink($scratch . '/meetreq-ips.json'); @unlink($scratch . '/caps-meetreq.json');
+    $mk = api(['action' => 'meetreq_create', 'user' => 'mrowner', 'name' => 'Sam', 'email' => 'sam@example.test', 'date' => date('Y-m-d', strtotime('next monday')), 'time' => '16:00']);
+    eq(200, $mk['status'], 'a request from sam@example.test reaches the owner');
+    $m = api(['action' => 'meetreq_mail', 'to' => 'sam@example.test', 'kind' => 'accepted', 'when' => "$d 15:00"], $ow);
+    eq(200, $m['status']);
+    eq('log-only', $m['body']['sent'], 'stubbed: logged, not sent');
+    $log = (string) @file_get_contents($scratch . '/meetreq-mail.log');
+    ok(str_contains($log, 'to=sam@example.test') && str_contains($log, 'kind=accepted'), 'the line is in meetreq-mail.log');
+    $bk = api(['action' => 'meetreq_mail', 'to' => 'sam@example.test', 'kind' => 'shouted', 'when' => ''], $ow);
+    eq(400, $bk['status'], 'an unknown kind refuses');
+});
+
+t('health: mailWorker is ok|missing and nothing else, and says missing only when mail is on with no usable worker binary', function () use ($root) {
+    // PHP_BINARY under mod_php/php-fpm is httpd/php-fpm, which cannot run the worker: the server here is started
+    // from a link named "httpd" so only a usable php_bin can make the answer ok. One server per config.
+    $dir = sys_get_temp_dir() . '/calmind-api-test-health-' . getmypid();
+    @mkdir($dir . '/data', 0700, true);
+    exec('cp -R ' . escapeshellarg($root . '/lib') . ' ' . escapeshellarg($dir . '/lib') . ' && cp -R ' . escapeshellarg($root . '/public') . ' ' . escapeshellarg($dir . '/public'));
+    $odd = $dir . '/httpd';
+    @unlink($odd); @link(PHP_BINARY, $odd) || copy(PHP_BINARY, $odd);
+    chmod($odd, 0755);
+    $mail = ['mail_enabled' => true, 'smtp_host' => 'smtp-marker.example.test', 'smtp_user' => 'user-marker', 'smtp_pass' => 'pass-marker'];
+    $cases = [
+        'mail off'                      => [[], 'ok'],
+        'mail off, a broken php_bin'    => [['php_bin' => 'php'], 'ok'],
+        'mail on, php_bin usable'       => [$mail + ['php_bin' => PHP_BINARY], 'ok'],
+        'mail on, no php_bin'           => [$mail, 'missing'],
+        'mail on, php_bin relative'     => [$mail + ['php_bin' => 'php'], 'missing'],
+        'mail on, php_bin not a file'   => [$mail + ['php_bin' => $dir . '/no-such-php'], 'missing'],
+        'mail on, php_bin a directory'  => [$mail + ['php_bin' => $dir], 'missing'],
+        'mail truthy but not true'      => [['mail_enabled' => 'yes', 'smtp_host' => 'smtp-marker.example.test'], 'ok'],
+    ];
+    foreach ($cases as $label => [$config, $want]) {
+        file_put_contents($dir . '/lib/config.php', '<?php return ' . var_export($config + ['data_dir' => $dir . '/data'], true) . ';');
+        $s = stream_socket_server('tcp://127.0.0.1:0', $e1, $e2);
+        $p = (int) explode(':', stream_socket_get_name($s, false))[1];
+        fclose($s);
+        $proc = proc_open(
+            [$odd, '-d', 'display_errors=1', '-d', 'error_reporting=E_ALL', '-S', '127.0.0.1:' . $p, '-t', $dir . '/public'],
+            [1 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'w'], 2 => ['file', $dir . '/server.log', 'w']],
+            $pipes, null, array_merge(getenv(), ['CALMIND_DATA_DIR' => $dir . '/data'])
+        );
+        try {
+            for ($i = 0; $i < 100; $i++) {
+                $c = @fsockopen('127.0.0.1', $p, $x, $y, 0.2);
+                if ($c) { fclose($c); break; }
+                usleep(100000);
+            }
+            $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => '{"action":"health"}', 'ignore_errors' => true]]);
+            $raw = (string) @file_get_contents("http://127.0.0.1:$p/api/index.php", false, $ctx);
+            $status = 0;
+            foreach ($http_response_header ?? [] as $h) {
+                if (preg_match('#^HTTP/\S+ (\d{3})#', $h, $m)) { $status = (int) $m[1]; }
+            }
+            eq(200, $status, "$label: answers without auth");
+            eq(['ok' => true, 'mailWorker' => $want], json_decode($raw, true), "$label: exactly ok + mailWorker=$want");
+            ok(!str_contains($raw, 'marker') && !str_contains($raw, $dir) && !str_contains($raw, 'php'), "$label: no config value, path or binary name in the answer");
+        } finally {
+            if (is_resource($proc)) { proc_terminate($proc); proc_close($proc); }
+        }
+    }
+    exec('rm -rf ' . escapeshellarg($dir));
+});
+
+t('an instance with no usable meetreq_user serves no request page, whatever account the caller names', function () use ($root) {
+    // The key has no built-in default (an instance names its owner in config.php or the env), so a
+    // host without one must fail closed: no slot list, no request written, and the `user`
+    // parameter the page also accepts must not open it again. A broken value (an array, a number,
+    // a malformed name) counts as missing. Each case is its own server on a copy of the app with
+    // its own config.php; CALMIND_MEETREQ_USER is set to '' rather than dropped, so a value in the
+    // caller's shell cannot configure one.
+    $dir = sys_get_temp_dir() . '/calmind-api-test-nomr-' . getmypid();
+    @mkdir($dir . '/data', 0700, true);
+    exec('cp -R ' . escapeshellarg($root . '/lib') . ' ' . escapeshellarg($dir . '/lib') . ' && cp -R ' . escapeshellarg($root . '/public') . ' ' . escapeshellarg($dir . '/public'));
+    @unlink($dir . '/lib/config.php');
+    $snapshot = function () use ($dir): array {
+        $all = [];
+        foreach (array_diff(scandir($dir . '/data') ?: [], ['.', '..']) as $f) { $all[$f] = md5_file($dir . '/data/' . $f); }
+        ksort($all);
+        return $all;
+    };
+    $cases = [
+        'no key at all'          => '<?php return [];',
+        'an array'               => "<?php return ['meetreq_user' => ['alex']];",
+        'an integer'             => "<?php return ['meetreq_user' => 4242];",
+        'a name that is no name' => "<?php return ['meetreq_user' => 'not a name!'];",
+    ];
+    foreach ($cases as $label => $config) {
+        exec('rm -rf ' . escapeshellarg($dir . '/data') . ' && mkdir -m 0700 ' . escapeshellarg($dir . '/data'));
+        file_put_contents($dir . '/lib/config.php', $config);
+        $s = stream_socket_server('tcp://127.0.0.1:0', $e1, $e2);
+        $p = (int) explode(':', stream_socket_get_name($s, false))[1];
+        fclose($s);
+        $proc = proc_open(
+            [PHP_BINARY, '-d', 'display_errors=1', '-d', 'error_reporting=E_ALL', '-S', '127.0.0.1:' . $p, '-t', $dir . '/public'],
+            [1 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'w'], 2 => ['file', $dir . '/server.log', 'w']],
+            $pipes, null, array_merge(getenv(), ['CALMIND_DATA_DIR' => $dir . '/data', 'CALMIND_MEETREQ_USER' => ''])
+        );
+        try {
+            for ($i = 0; $i < 100; $i++) {
+                $c = @fsockopen('127.0.0.1', $p, $x, $y, 0.2);
+                if ($c) { fclose($c); break; }
+                usleep(100000);
+            }
+            $post = function (array $body) use ($p): array {
+                $ctx = stream_context_create(['http' => [
+                    'method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => json_encode($body), 'ignore_errors' => true,
+                ]]);
+                $raw = (string) @file_get_contents("http://127.0.0.1:$p/api/index.php", false, $ctx);
+                $status = 0;
+                foreach ($http_response_header ?? [] as $h) {
+                    if (preg_match('#^HTTP/\S+ (\d{3})#', $h, $m)) { $status = (int) $m[1]; }
+                }
+                return ['status' => $status, 'raw' => $raw, 'body' => json_decode($raw, true) ?? []];
+            };
+            // An account that exists, so a write would have somewhere to land.
+            eq(200, $post(['action' => 'signup', 'username' => 'alex', 'email' => 'alex@x.com', 'password' => 'meetreq-pw-1'])['status'], "$label: the instance runs");
+            $before = $snapshot();
+            $d = date('Y-m-d', strtotime('+2 day'));
+            foreach ([[], ['user' => 'alex']] as $named) {
+                $who = $named === [] ? 'no account named' : 'an existing account named';
+                $slots = $post(array_merge(['action' => 'meetreq_slots', 'from' => $d, 'days' => 1], $named));
+                eq(404, $slots['status'], "$label, $who: the slot list is off");
+                eq('not configured', $slots['body']['error'] ?? null, "$label, $who: and says so");
+                $make = $post(array_merge(['action' => 'meetreq_create', 'name' => 'Sam', 'email' => 'sam@example.test', 'date' => $d, 'time' => '15:00'], $named));
+                eq(404, $make['status'], "$label, $who: a request is refused");
+                eq('not configured', $make['body']['error'] ?? null, "$label, $who: and says so");
+                ok(!str_contains($make['raw'] . $slots['raw'], 'Warning') && !str_contains($make['raw'] . $slots['raw'], '.php'), "$label, $who: no PHP warning or path in the answer");
+            }
+            eq($before, $snapshot(), "$label: nothing was written to the data dir, the account's records included");
+        } finally {
+            proc_terminate($proc);
+            proc_close($proc);
+        }
+    }
+    exec('rm -rf ' . escapeshellarg($dir));
+});
+
+echo "\n────────────────────────────────\n$pass passed, $fail failed\n";
+exit($fail === 0 ? 0 : 1);

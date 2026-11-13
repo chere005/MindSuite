@@ -1,0 +1,249 @@
+/**
+ * An amount with `=`, `+` and `−` under it.
+ *
+ * The owner, 2026-08-21: tapping a budget amount offers the three, and the buttons
+ * sit UNDERNEATH the field. `=` replaces what is there, `+` adds what you
+ * type, `−` takes it away.
+ *
+ * Why an operator rather than just editing the number: a budget is adjusted
+ * far more often than it is set. "Twenty more for groceries" is the actual
+ * thought, and making someone read the current value, add twenty in their
+ * head and type the total is asking them to do arithmetic the app is holding
+ * all the inputs for — which is also the arithmetic they will get wrong. That
+ * is why `+` is the DEFAULT: adjusting is the common case, and setting is the
+ * one worth a deliberate tap.
+ *
+ * One component, used by the pad on the Budget page and by the line editor,
+ * because two copies of a rule about money is two chances for them to drift.
+ */
+import { useEffect, useRef, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+
+/** `preventDefault` on mousedown, so a tap on a button beside the field does
+ *  not move focus out of it. See BudgetScreen's KEEP_FOCUS for the history. */
+const KEEP_FOCUS = {
+  onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
+} as unknown as Record<string, unknown>;
+import { AMOUNT_OPS, amountDigits, applyOp, formatAmount, parseAmount, type AmountOp } from '@acctmind/core';
+import { SPACE, T, TAP } from './theme';
+
+export function OpAmount({
+  label, value, onValue, testID, autoFocus = false, defaultOp = '+', onSubmit, compact = false,
+}: {
+  /** What this amount is. Omit for the pad, where the card's title says it. */
+  label?: string | undefined;
+  value: number;
+  onValue: (next: number) => void;
+  testID: string;
+  autoFocus?: boolean;
+  defaultOp?: AmountOp;
+  /** Return on the keyboard. The pad commits; the editor has its own Save. */
+  onSubmit?: (() => void) | undefined;
+  /**
+   * The pad's size: small buttons, a smaller field, no label.
+   *
+   * The buttons are drawn at 32 in a 36 target rather than this app's usual
+   * 44. The owner asked for "3 small buttons" in a box that is deliberately tiny,
+   * and three 44s plus the running total do not fit a box narrow enough to
+   * sit under one column. It is the same exception the row action cluster
+   * takes, for the same reason: the container is smaller than the guideline.
+   */
+  compact?: boolean;
+}) {
+  const [op, setOp] = useState<AmountOp>(defaultOp);
+  const [text, setText] = useState('');
+  const [base, setBase] = useState(value);
+  const [editing, setEditing] = useState(false);
+  const field = useRef<TextInput>(null);
+
+  /*
+   * `autoFocus` puts the caret in the field; on the web it does not keep it
+   * there. For the first quarter second, the field takes focus back from
+   * whatever took it.
+   *
+   * What took it, found 2026-09-30: react-native-web's Modal traps focus,
+   * and a sheet that is sliding OUT keeps its trap until the slide ends. So
+   * Done on the category sheet and a tap on an amount inside its 250ms meant
+   * the field focused, the departing sheet pulled focus back into itself, and
+   * the pad's own trap then parked it on the first focusable thing it holds,
+   * the backdrop. The field never saw a focus event and still showed the value
+   * at rest; digits typed next went nowhere, and `=` could not help, because
+   * the buttons keep focus where it is (KEEP_FOCUS) and it was not here.
+   *
+   * Polled a frame at a time rather than answered on blur, the way the
+   * budget's NameField answers it: here the field may never get focus at
+   * all, so there is no blur to answer. The window is the same 250ms and for
+   * NameField's reason: the theft is over within a frame or two of opening,
+   * and a person cannot tap, aim at something else and land it inside a
+   * quarter second. After that, focus goes where they send it, Tab included.
+   *
+   * Web only. Native has no focus trap to lose to, and native's autoFocus
+   * is left exactly as it was.
+   */
+  useEffect(() => {
+    if (!autoFocus || Platform.OS !== 'web') return undefined;
+    const opened = Date.now();
+    let frame = requestAnimationFrame(function hold() {
+      if (field.current !== null && !field.current.isFocused()) field.current.focus();
+      if (Date.now() - opened < 250) frame = requestAnimationFrame(hold);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
+
+  /** What the field says, applied to `from` under `o`. One sum, reached by
+   *  typing a digit or by choosing an operator. */
+  const apply = (from: number, o: AmountOp, clean: string) => {
+    const typed = parseAmount(clean);
+    if (typed === null) {
+      // Nothing typed yet: `=` shows nothing and leaves the value alone until
+      // there is something to replace it WITH.
+      if (o !== '=') onValue(from);
+      return;
+    }
+    const next = applyOp(from, o, typed);
+    if (next !== null) onValue(next);
+  };
+
+  const start = (next: AmountOp) => {
+    setOp(next);
+    if (!editing) {
+      // The value as it stands when the edit opens is what `+` and `−` work
+      // from, for the whole of that edit.
+      setBase(value);
+      setText('');
+      setEditing(true);
+      return;
+    }
+    // Mid-edit, the typed digits STAY. The owner, 2026-09-30: "don't change the
+    // value typed in when switching from + to =". The digits are the number
+    // being said and the operator is only how to apply it, so a switch
+    // re-reads the same number against the same base — it used to empty the
+    // field and make you type it again.
+    apply(base, next, text);
+  };
+
+  const type = (raw: string) => {
+    // Digits only. A typed minus here was never a sign — the − BUTTON is an
+    // operator, so `-5` with `+` chosen quietly subtracted, which is the
+    // button's job said a second way and no way to tell which one applied.
+    const clean = amountDigits(raw);
+    setText(clean);
+    /*
+     * The FULL parser, not the entry rules, and the `.00` toggle does not
+     * reach in here.
+     *
+     * The till rule — bare digits are cents, so `250` is $2.50 — exists for
+     * someone tapping in the third coffee of the day. A budget is a
+     * considered number typed once, where `250` plainly means two hundred and
+     * fifty. The old Assigned field on the category manager already made this
+     * distinction and said so; this is the same number, one level down.
+     */
+    apply(editing ? base : value, op, clean);
+  };
+
+  return (
+    <View style={compact ? styles.fieldCompact : styles.field}>
+      {label !== undefined && <Text style={styles.label}>{label}</Text>}
+      <TextInput
+        ref={field}
+        // Editing shows what is being TYPED; at rest it shows the value.
+        value={editing ? text : formatAmount(value)}
+        onChangeText={type}
+        onFocus={() => { if (!editing) start(defaultOp); }}
+        style={[styles.input, compact && styles.inputCompact]}
+        placeholder={formatAmount(value)}
+        placeholderTextColor={T.faint}
+        autoFocus={autoFocus}
+        selectTextOnFocus
+        keyboardType="decimal-pad"
+        inputMode="decimal"
+        returnKeyType={onSubmit === undefined ? 'default' : 'done'}
+        onSubmitEditing={onSubmit}
+        testID={testID}
+      />
+      {/* UNDERNEATH the field — the owner's placement. */}
+      <View style={[styles.ops, compact && styles.opsCompact]}>
+        {AMOUNT_OPS.map((o) => (
+          <Pressable
+            key={o}
+            onPress={() => start(o)}
+            // Keep the tap from taking focus off the field. On the web a
+            // pressable div is focusable, so choosing `+` moved the caret out
+            // of the input and the digits typed next went nowhere — the same
+            // opening-blur the budget's rename guards, one button later. Web
+            // only and harmless elsewhere: react-native-web forwards the prop
+            // to the DOM node, and native never sees a mousedown.
+            {...KEEP_FOCUS}
+            style={[styles.op, compact && styles.opCompact, editing && op === o && styles.opOn]}
+            accessibilityRole="button"
+            accessibilityLabel={o === '=' ? 'Set to' : o === '+' ? 'Add' : 'Subtract'}
+            accessibilityState={{ selected: editing && op === o }}
+            testID={`${testID}-op-${o === '=' ? 'set' : o === '+' ? 'add' : 'sub'}`}
+          >
+            <Text style={[
+              styles.opText, compact && styles.opTextCompact,
+              editing && op === o && styles.opTextOn,
+            ]}>
+              {o === '-' ? '−' : o}
+            </Text>
+          </Pressable>
+        ))}
+        {/* What it will BE. With `+` and `−` the field holds the change and
+            not the answer, so without this you are doing the sum yourself —
+            which is the thing the operator exists to avoid. */}
+        <Text
+          style={[styles.result, compact && styles.resultCompact]}
+          numberOfLines={1}
+          testID={`${testID}-result`}
+        >
+          {editing ? formatAmount(value) : ''}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  field: { gap: SPACE.sm },
+  fieldCompact: { gap: SPACE.xs },
+  label: { color: T.dim, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.6 },
+  input: {
+    // T.card on whatever holds it, never T.field. Pure black inside a grey
+    // card reads as a hole punched in it rather than as somewhere to type —
+    // the same mistake the add form's Category box had, made again here and
+    // caught on a simulator rather than by anything in the suite.
+    backgroundColor: T.card, color: T.text, fontSize: 20, borderRadius: 10,
+    paddingHorizontal: SPACE.md, minHeight: TAP,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
+    fontVariant: ['tabular-nums'],
+  },
+  ops: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  opsCompact: { gap: SPACE.xs },
+  /*
+   * The compact size, asked for three times and shrunk each time. The buttons
+   * are 30 in a 30 box, well under this app's usual 44.
+   *
+   * That is a deliberate exception and the only one of its kind here: the box
+   * is meant to be a little thing under one number, three of these plus the
+   * running total have to fit inside 168 points, and a 44 would make the box
+   * wider than the column it hangs from. Noted once rather than argued each
+   * time it comes up.
+   */
+  inputCompact: { fontSize: 15, minHeight: 30, paddingHorizontal: SPACE.sm },
+  opCompact: { width: 30, height: 30, borderRadius: 15 },
+  opTextCompact: { fontSize: 14 },
+  resultCompact: { fontSize: 11 },
+  // Drawn at TAP, like every control in this app — hitSlop is a no-op on web.
+  op: {
+    width: TAP, height: TAP, borderRadius: TAP / 2,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: T.card, borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
+  },
+  opOn: { backgroundColor: T.accent, borderColor: T.accent },
+  opText: { color: T.text, fontSize: 18, fontWeight: '700' },
+  opTextOn: { color: '#ffffff' },
+  result: {
+    color: T.text, fontSize: 15, flex: 1, textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+});

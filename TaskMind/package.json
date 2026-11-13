@@ -1,0 +1,33 @@
+{
+  "name": "taskmind",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/preview.mjs",
+    "build": "vite build && node tools/package.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:core": "vitest run && npm run test:atomic",
+    "test:server": "node tools/php.mjs server/tools/test.php && node tools/php.mjs server/tools/staging-test.php",
+    "test:atomic": "node tools/php.mjs server/tools/atomic-test.php",
+    "test:deploy": "sh tools/test-deploy.sh",
+    "test:deploy:mutations": "sh tools/test-deploy.sh --mutations",
+    "test:e2e": "playwright test",
+    "test": "npm run typecheck && npm run check:limits && npm run test:core && npm run test:server && npm run test:deploy",
+    "check:core": "node tools/check-core.mjs",
+    "check:limits": "node tools/check-limits.mjs",
+    "deploy": "sh tools/deploy.sh",
+    "dtp": "sh tools/dtp.sh",
+    "tdtp": "sh tools/tdtp.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@mind/core": "file:../packages/mind-core"
+  }
+}

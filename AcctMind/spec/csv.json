@@ -1,0 +1,269 @@
+{
+  "_": "Importing a bank CSV. The reader is general — quoted fields, any column order, header matched by name — and only the NAME cleanup knows one bank's habits. The owner's file is a Wells Fargo checking export (2026-09-15, 1952 rows). See packages/core/src/csv.ts.",
+  "_delimited": "Splitting CSV text into rows of fields. Rows are [input, expected rows]. A trailing newline must NOT produce a final empty row — that would import as a transaction with no date, which is the kind of thing that lands silently and is then hunted for.",
+  "delimited": [
+    [
+      "a,b\nc,d",
+      [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "c",
+          "d"
+        ]
+      ]
+    ],
+    [
+      "a,b\nc,d\n",
+      [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "c",
+          "d"
+        ]
+      ]
+    ],
+    [
+      "a,b\r\nc,d\r\n",
+      [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "c",
+          "d"
+        ]
+      ]
+    ],
+    [
+      "\"a\",\"b\"",
+      [
+        [
+          "a",
+          "b"
+        ]
+      ]
+    ],
+    [
+      "\"a,1\",\"b\"",
+      [
+        [
+          "a,1",
+          "b"
+        ]
+      ]
+    ],
+    [
+      "\"he said \"\"hi\"\"\",x",
+      [
+        [
+          "he said \"hi\"",
+          "x"
+        ]
+      ]
+    ],
+    [
+      "\"two\nlines\",x",
+      [
+        [
+          "two\nlines",
+          "x"
+        ]
+      ]
+    ],
+    [
+      "a,,c",
+      [
+        [
+          "a",
+          "",
+          "c"
+        ]
+      ]
+    ],
+    [
+      "",
+      []
+    ],
+    [
+      "\n\n",
+      []
+    ],
+    [
+      "a,b\n\nc,d",
+      [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "c",
+          "d"
+        ]
+      ]
+    ]
+  ],
+  "_usDate": "MM/DD/YYYY to YYYY-MM-DD, with no Date object anywhere near it. Rows are [input, expected or null].",
+  "usDate": [
+    [
+      "09/15/2026",
+      "2026-09-15"
+    ],
+    [
+      "1/2/2026",
+      "2026-01-02"
+    ],
+    [
+      "12/31/2024",
+      "2024-12-31"
+    ],
+    [
+      " 08/16/2024 ",
+      "2024-08-16"
+    ],
+    [
+      "2026-09-15",
+      null
+    ],
+    [
+      "13/01/2026",
+      null
+    ],
+    [
+      "09/32/2026",
+      null
+    ],
+    [
+      "",
+      null
+    ],
+    [
+      "09/15/26",
+      null
+    ]
+  ],
+  "_name": "The short name a person reads in the list. Cosmetic by design — the bank's raw text is kept on the record either way — which is why it is allowed to be a ladder of patterns. Rows are [bank description, expected name]. Every input here is a real line from the owner's export.",
+  "name": [
+    [
+      "ZELLE TO ALICE EXAMPLE ON 09/14 REF # WFCT00000000",
+      "Zelle to Alice Example"
+    ],
+    [
+      "ZELLE FROM BOB EXAMPLE ON 09/12 REF # WFCT00000001",
+      "Zelle from Bob Example"
+    ],
+    [
+      "PURCHASE PP*INSTACART 0000000000    CA CARD0000",
+      "Instacart"
+    ],
+    [
+      "PURCHASE APPLE.COM/US 800-676-2775  CA CARD0000",
+      "Apple"
+    ],
+    [
+      "PURCHASE                                AUTHORIZED ON   09/08 AMAZON MKTPL*53742",
+      "Amazon"
+    ],
+    [
+      "PURCHASE                                AUTHORIZED ON   09/10 Uber Eats",
+      "Uber Eats"
+    ],
+    [
+      "WOLFRAM RESEARCH PAYROLL    260911 004538          JANE DOE",
+      "Wolfram Research payroll"
+    ],
+    [
+      "VANGUARD GROUP   EBT LNPYMT 260914 000002117331",
+      "Vanguard Group"
+    ],
+    [
+      "PAYPAL           TRANSFER   260915 105308263495",
+      "PayPal transfer"
+    ],
+    [
+      "PAYPAL           INST XFER  260912 PYPL PAYIN4     JANE DOE",
+      "PayPal transfer"
+    ],
+    [
+      "PAYPAL           PURCHASE   260909 UBER            JANE DOE",
+      "PayPal purchase"
+    ],
+    [
+      "NON-WELLS FARGO ATM TRANSACTION FEE",
+      "ATM fee"
+    ],
+    [
+      "NON-WF ATM WITHDRAWAL          AUTHORIZED ON   09/10 1st Avenue North          Springfield",
+      "ATM withdrawal"
+    ],
+    [
+      "PURCHASE                                AUTHORIZED ON   09/09 EXAMPLE FOODS 7 SPRINGFIELD MN",
+      "Example Foods 7"
+    ],
+    [
+      "",
+      "Transaction"
+    ]
+  ],
+  "_key": "What makes two lines the same transaction. The NAME is deliberately not in the key: renaming the cleanup rules must never make an already-imported row look new. Rows are [a, b, same?] where each is [date, amount, description].",
+  "key": [
+    [
+      [
+        "2026-09-15",
+        -1146,
+        "X"
+      ],
+      [
+        "2026-09-15",
+        -1146,
+        "X"
+      ],
+      true
+    ],
+    [
+      [
+        "2026-09-15",
+        -1146,
+        "X"
+      ],
+      [
+        "2026-09-14",
+        -1146,
+        "X"
+      ],
+      false
+    ],
+    [
+      [
+        "2026-09-15",
+        -1146,
+        "X"
+      ],
+      [
+        "2026-09-15",
+        -1147,
+        "X"
+      ],
+      false
+    ],
+    [
+      [
+        "2026-09-15",
+        -1146,
+        "X"
+      ],
+      [
+        "2026-09-15",
+        -1146,
+        "Y"
+      ],
+      false
+    ]
+  ]
+}

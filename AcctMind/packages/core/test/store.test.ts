@@ -1,0 +1,616 @@
+/**
+ * The store, and the distinction this whole app depends on:
+ * **empty is not the same as broken.**
+ *
+ * There is no server copy. If a damaged read returned an empty store, the
+ * screen would render "no transactions" and the next save would write that
+ * emptiness over the only copy someone has. Every test below that asserts
+ * `ok: false` is guarding that specific sequence.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  STORE_VERSION, addTxn, budgetIn, emptyStore, live, mergeStores, normalizeTxn, parseStore,
+  INCOME, budgetStart, putBudgetStart, serialize, tombstone, tombstoneMany, undoTo, updateTxn,
+} from '../src/index';
+import type { Store, Txn } from '../src/index';
+
+const txn = (over: Partial<Txn> = {}): Txn => ({
+  id: 'a', name: 'Coffee', description: '', amount: -450,
+  date: '2026-08-20', created: 1000, updated: 1000, account: 'a1', category: null, order: 0, ...over,
+});
+
+describe('a store that was never written', () => {
+  it('reads as empty, from null, undefined and blank', () => {
+    for (const raw of [null, undefined, '', '   ']) {
+      const r = parseStore(raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.store.txns).toEqual([]);
+    }
+  });
+});
+
+describe('a store that is damaged', () => {
+  // Each of these used to be the same as "empty" in the bug this guards.
+  it('refuses unreadable JSON rather than reporting no transactions', () => {
+    const r = parseStore('{"v":1,"txns":[');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/JSON/);
+  });
+
+  it('refuses JSON that is not a store', () => {
+    for (const raw of ['[]', '"hello"', '42', 'null', 'true']) {
+      expect(parseStore(raw).ok, raw).toBe(false);
+    }
+  });
+
+  it('refuses a version NEWER than it reads', () => {
+    // A file from a newer build. Rendering it would be wrong; saving over it
+    // would be worse. (An OLDER version is upgraded instead — see
+    // merge.test.ts. The asymmetry is deliberate.)
+    // One PAST whatever this build writes, so the case stays "from the
+    // future" as STORE_VERSION moves. Written as a literal it stopped testing
+    // anything the day the store caught up with it.
+    const future = STORE_VERSION + 1;
+    const r = parseStore(JSON.stringify({ v: future, txns: [] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain(`version ${future}`);
+    // No version at all is not a store this build should touch either.
+    expect(parseStore('{"txns":[]}').ok).toBe(false);
+  });
+
+  it('refuses a store whose transaction list is not a list', () => {
+    expect(parseStore('{"v":1}').ok).toBe(false);
+    expect(parseStore('{"v":1,"txns":{}}').ok).toBe(false);
+  });
+});
+
+describe('a store with some bad rows', () => {
+  it('keeps the good ones and counts the rest', () => {
+    const raw = JSON.stringify({
+      v: 1,
+      txns: [
+        txn({ id: 'good1' }),
+        null,
+        'nope',
+        { id: 'noamount', name: 'x', date: '2026-08-20' },
+        { id: 'floaty', name: 'x', amount: 4.5, date: '2026-08-20' },
+        { id: 'badday', name: 'x', amount: 100, date: '2026-02-30' },
+        { id: '', name: 'x', amount: 100, date: '2026-08-20' },
+        txn({ id: 'good2' }),
+      ],
+    });
+    const r = parseStore(raw);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.store.txns.map((t) => t.id)).toEqual(['good1', 'good2']);
+    expect(r.dropped).toBe(6);
+  });
+
+  it('keeps the first of a duplicated id, so a delete stays unambiguous', () => {
+    const raw = JSON.stringify({
+      v: 1, txns: [txn({ id: 'dup', name: 'first' }), txn({ id: 'dup', name: 'second' })],
+    });
+    const r = parseStore(raw);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.store.txns).toHaveLength(1);
+    expect(r.store.txns[0]?.name).toBe('first');
+    expect(r.dropped).toBe(1);
+  });
+});
+
+describe('normalizeTxn', () => {
+  it('fills a missing description rather than rejecting the row', () => {
+    const t = normalizeTxn({ id: 'a', name: 'x', amount: 1, date: '2026-08-20' });
+    expect(t?.description).toBe('');
+    expect(t?.created).toBe(0);
+  });
+
+  it('rejects a float amount outright', () => {
+    // Not truncated. A float here means something wrote this file without
+    // following the integer rule, and guessing what it meant is how a cent
+    // goes missing.
+    expect(normalizeTxn({ id: 'a', name: 'x', amount: 0.1 + 0.2, date: '2026-08-20' })).toBeNull();
+    expect(normalizeTxn({ id: 'a', name: 'x', amount: 1e300, date: '2026-08-20' })).toBeNull();
+  });
+});
+
+describe('editing a store', () => {
+  it('round-trips through serialize', () => {
+    // A WELL-FORMED store: the transaction's account exists. Without the
+    // account record this does not round-trip, and rightly — see the
+    // adoption tests below.
+    const base = emptyStore();
+    const store = addTxn(
+      { ...base, accounts: [{
+        id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0,
+      }] },
+      txn(),
+    );
+    const r = parseStore(serialize(store));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.store).toEqual(store);
+  });
+
+  it('never mutates what it is handed', () => {
+    const before = addTxn(emptyStore(), txn());
+    const snapshot = serialize(before);
+    addTxn(before, txn({ id: 'b' }));
+    updateTxn(before, txn({ name: 'changed' }));
+    expect(serialize(before)).toBe(snapshot);
+  });
+
+  it('updates by id, and shrugs at a miss', () => {
+    const store = addTxn(emptyStore(), txn());
+    expect(updateTxn(store, txn({ name: 'Tea' })).txns[0]?.name).toBe('Tea');
+    expect(updateTxn(store, txn({ id: 'nope', name: 'Tea' })).txns[0]?.name).toBe('Coffee');
+  });
+});
+
+
+describe('every transaction ends up with an account that exists', () => {
+  /*
+   * Three ways a transaction can be homeless, and all three end the same way:
+   * a home is made, rather than the row being dropped. Losing real money over
+   * a bookkeeping detail is the one outcome that is not acceptable here.
+   */
+  it('adopts the rows of a store that predates accounts', () => {
+    const v2 = JSON.stringify({
+      v: 2,
+      txns: [{
+        id: 'x', name: 'Coffee', description: '', amount: -450,
+        date: '2026-08-20', created: 1000, updated: 1000,
+      }],
+    });
+    const r = parseStore(v2);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.migrated).toBe(true);
+    expect(r.store.accounts).toHaveLength(1);
+    expect(r.store.txns[0]?.account).toBe(r.store.accounts[0]?.id);
+    expect(r.store.txns[0]?.category).toBeNull();
+  });
+
+  it('and TWO devices migrating the same old ledger arrive at the same account', () => {
+    // The reason the id is derived from the oldest transaction rather than
+    // generated: an old phone and an old Mac both updating would otherwise
+    // each invent an account, and merge to two identical ones nobody can
+    // tell apart or merge afterwards.
+    const v2 = JSON.stringify({
+      v: 2,
+      txns: [{
+        id: 'x', name: 'Coffee', description: '', amount: -450,
+        date: '2026-08-20', created: 1000, updated: 1000,
+      }],
+    });
+    const phone = parseStore(v2);
+    const mac = parseStore(v2);
+    expect(phone.ok && mac.ok).toBe(true);
+    if (!phone.ok || !mac.ok) return;
+    expect(phone.store.accounts[0]?.id).toBe(mac.store.accounts[0]?.id);
+  });
+
+  it('files rows under an EXISTING account rather than inventing another', () => {
+    const raw = JSON.stringify({
+      v: 3,
+      accounts: [{
+        id: 'real', name: 'Current', color: '#4c8bf0', order: 0, created: 1, updated: 1,
+      }],
+      categories: [],
+      txns: [{
+        id: 'x', name: 'Coffee', description: '', amount: -450, date: '2026-08-20',
+        account: 'vanished', category: null, created: 1, updated: 1,
+      }],
+    });
+    const r = parseStore(raw);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.store.accounts).toHaveLength(1);
+    expect(r.store.txns[0]?.account).toBe('real');
+  });
+
+  it('forgets a category that has gone, because "none" is already a state', () => {
+    // Unlike an account, a missing category needs nothing invented: the model
+    // already has a word for a transaction nobody has filed.
+    const raw = JSON.stringify({
+      v: 3,
+      accounts: [{
+        id: 'a1', name: 'Current', color: '#4c8bf0', order: 0, created: 1, updated: 1,
+      }],
+      categories: [],
+      txns: [{
+        id: 'x', name: 'Coffee', description: '', amount: -450, date: '2026-08-20',
+        account: 'a1', category: 'vanished', created: 1, updated: 1,
+      }],
+    });
+    const r = parseStore(raw);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.store.txns[0]?.category).toBeNull();
+  });
+});
+
+describe('v4 — the money moves off the category and onto a line', () => {
+  /** A v3 store: one category holding a budget, one transaction filed to it. */
+  const v3 = (budget = 12000) => JSON.stringify({
+    v: 3,
+    txns: [{
+      id: 'x', name: 'Apples', description: '', amount: -8437,
+      date: '2026-08-20', account: 'a1', category: 'c1', order: 0,
+      created: 1000, updated: 1000,
+    }],
+    accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0 }],
+    categories: [{ id: 'c1', name: 'Groceries', color: '#4c8bf0', budget, order: 0, created: 5, updated: 7 }],
+  });
+
+  it('gives the category one line carrying its old name and its old money', () => {
+    const r = parseStore(v3());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.migrated).toBe(true);
+    expect(r.store.lines).toHaveLength(1);
+    const line = r.store.lines[0];
+    expect(line?.name).toBe('Groceries');
+    expect(line?.category).toBe('c1');
+    expect(line?.budget).toBe(12000);
+    // The category is a heading now and carries no money at all.
+    expect((r.store.categories[0] as unknown as Record<string, unknown>)['budget']).toBeUndefined();
+  });
+
+  it('and re-files the category’s transactions onto that line', () => {
+    const r = parseStore(v3());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // The transaction pointed at the CATEGORY and now points at the LINE.
+    // Left alone it would point at a category id that nothing files under,
+    // and `Groceries` would show a budget with no spending against it.
+    expect(r.store.txns[0]?.category).toBe(r.store.lines[0]?.id);
+    expect(r.store.txns[0]?.category).not.toBe('c1');
+  });
+
+  it('and TWO devices upgrading the same ledger arrive at the same line', () => {
+    // The reason the id is derived rather than generated, and the same lesson
+    // v3's account learned. Two random ids here would merge into two lines
+    // holding the same money, and every budget in the file would read double
+    // with no way to tell which half is real.
+    const phone = parseStore(v3());
+    const mac = parseStore(v3());
+    expect(phone.ok && mac.ok).toBe(true);
+    if (!phone.ok || !mac.ok) return;
+    expect(phone.store.lines[0]?.id).toBe(mac.store.lines[0]?.id);
+    expect(phone.store.txns[0]?.category).toBe(mac.store.txns[0]?.category);
+  });
+
+  it('carries the category’s clock, so neither device wins on the upgrade alone', () => {
+    // Stamped with `now` instead, whichever device was opened SECOND would
+    // outrank the other on a merge it has no new information for.
+    const r = parseStore(v3());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.store.lines[0]?.updated).toBe(7);
+    expect(r.store.lines[0]?.created).toBe(5);
+  });
+
+  it('does NOT invent lines for a v4 store that simply has none', () => {
+    // The version decides, never `lines.length`. Deciding by the count would
+    // resurrect a line the instant someone deleted their last one.
+    const v4 = JSON.stringify({
+      v: 4,
+      txns: [],
+      accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0 }],
+      categories: [{ id: 'c1', name: 'Groceries', color: '#4c8bf0', order: 0, created: 5, updated: 7 }],
+      lines: [],
+    });
+    const r = parseStore(v4);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.migrated).toBe(false);
+    expect(r.store.lines).toEqual([]);
+  });
+
+  it('buries a line whose category has gone', () => {
+    // Tombstoned rather than dropped: a delete that vanishes is handed back
+    // by the next merge, which is the rule every other record here follows.
+    const orphan = JSON.stringify({
+      v: 4,
+      txns: [],
+      accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0 }],
+      categories: [],
+      lines: [{ id: 'l1', name: 'Produce', category: 'gone', budget: 500, order: 0, created: 1, updated: 1 }],
+    });
+    const r = parseStore(orphan);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.store.lines[0]?.deleted).toBe(true);
+  });
+
+  it('carries the starting day through a save, a load and a merge', () => {
+    // A ledger SETTING (2026-09-25): it has to reach the other devices, or
+    // the phone and the Mac draw two different budgets.
+    const base = emptyStore();
+    const mine = { ...base, settings: putBudgetStart(base, '2026-09-21', 10) };
+    const r = parseStore(serialize(mine));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(budgetStart(r.store)).toBe('2026-09-21');
+    const theirs = { ...base, settings: putBudgetStart(mine, '2026-09-20', 20) };
+    expect(budgetStart(mergeStores(mine, theirs))).toBe('2026-09-20');
+    expect(budgetStart(mergeStores(theirs, mine))).toBe('2026-09-20');
+    // A file from before settings existed loads with none.
+    const old = parseStore(JSON.stringify({ ...base, settings: undefined }));
+    expect(old.ok && old.store.settings).toEqual([]);
+  });
+
+  it('keeps a transaction filed as Income, which is a line with no record', () => {
+    // The owner, 2026-09-25: "add a category for incoming cash". INCOME is a fixed
+    // id, not a record, so the dangling-line rule below must not forget it —
+    // every load would otherwise unfile every paycheque.
+    const paid = JSON.stringify({
+      v: 4,
+      txns: [{
+        id: 'x', name: 'Payday', description: '', amount: 250000,
+        date: '2026-09-15', account: 'a1', category: INCOME, order: 0,
+        created: 1000, updated: 1000,
+      }],
+      accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0 }],
+      categories: [],
+      lines: [],
+    });
+    const r = parseStore(paid);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.store.txns[0]?.category).toBe(INCOME);
+  });
+
+  it('forgets a transaction pointing at a line that is not there', () => {
+    const dangling = JSON.stringify({
+      v: 4,
+      txns: [{
+        id: 'x', name: 'Apples', description: '', amount: -8437,
+        date: '2026-08-20', account: 'a1', category: 'nope', order: 0,
+        created: 1000, updated: 1000,
+      }],
+      accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0 }],
+      categories: [],
+      lines: [],
+    });
+    const r = parseStore(dangling);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Forgotten, not fabricated — "no line" is a state the model already has.
+    expect(r.store.txns[0]?.category).toBeNull();
+  });
+});
+
+describe('the cleared flag on a stored transaction', () => {
+  it('keeps the literal true and drops anything else', () => {
+    const row = { id: 'a', name: 'x', amount: 1, date: '2026-08-20' };
+    expect(normalizeTxn({ ...row, cleared: true })?.cleared).toBe(true);
+    for (const junk of [false, 'true', 1, null]) {
+      const t = normalizeTxn({ ...row, cleared: junk });
+      expect(t, `row with cleared=${String(junk)} still parses`).not.toBeNull();
+      expect('cleared' in t!, `cleared=${String(junk)} is not stored`).toBe(false);
+    }
+  });
+
+  it('survives a round trip through serialize', () => {
+    const base = emptyStore();
+    const store = addTxn(
+      { ...base, accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 0, updated: 0 }] },
+      txn({ cleared: true }),
+    );
+    const back = parseStore(serialize(store));
+    expect(back.ok).toBe(true);
+    if (back.ok) expect(back.store.txns[0]?.cleared).toBe(true);
+  });
+});
+
+describe('tombstoneMany — the pick bar\'s Delete', () => {
+  const store = () => ({
+    ...emptyStore(),
+    txns: [txn({ id: 'a' }), txn({ id: 'b' }), txn({ id: 'c' })],
+  });
+
+  it('marks every named row deleted and leaves the rest alone', () => {
+    const next = tombstoneMany(store(), ['a', 'c'], 5000);
+    expect(live(next.txns).map((t) => t.id)).toEqual(['b']);
+    // A tombstone, not a removal: the rows are still there to travel.
+    expect(next.txns).toHaveLength(3);
+  });
+
+  it('gives the whole batch one clock', () => {
+    // They were deleted by one press, so a merge orders them together
+    // rather than interleaving another device's edits between them.
+    const next = tombstoneMany(store(), ['a', 'b'], 5000);
+    const clocks = next.txns.filter((t) => t.deleted === true).map((t) => t.updated);
+    expect(clocks).toEqual([5000, 5000]);
+  });
+
+  it('skips an id that names nothing', () => {
+    // A selection can outlive its rows — deleted on another device while it
+    // sat picked here. It must not come back as a fresh tombstone.
+    const next = tombstoneMany(store(), ['a', 'gone'], 5000);
+    expect(next.txns).toHaveLength(3);
+    expect(live(next.txns).map((t) => t.id)).toEqual(['b', 'c']);
+  });
+
+  it('returns the very same store for an empty selection', () => {
+    // Identity, not equality: Delete with nothing picked must not make the
+    // app think the ledger changed and write the file again.
+    const before = store();
+    expect(tombstoneMany(before, [], 5000)).toBe(before);
+  });
+
+  it('does not mutate what it was given', () => {
+    const before = store();
+    tombstoneMany(before, ['a'], 5000);
+    expect(live(before.txns).map((t) => t.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('a file written while NAMED VIEWS existed', () => {
+  /*
+   * They lived from 2026-09-16 to 2026-09-21 — a `views` array of records,
+   * and budget amounts keyed `v:<id>`. The owner: "drop named views."
+   *
+   * The feature going away must not cost anybody a load. This is the whole
+   * of what a device that used one is owed: the file opens, nothing is
+   * reported as damaged, and every record that is still about something
+   * comes through untouched.
+   */
+  const OLD = JSON.stringify({
+    v: 4,
+    accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 1, updated: 1 }],
+    categories: [{ id: 'c1', name: 'Food', color: '#66d695', order: 0, created: 1, updated: 1 }],
+    lines: [{
+      id: 'l1', name: 'Groceries', category: 'c1', budget: 700, needs: 0,
+      snoozed: false, order: 0, created: 1, updated: 1,
+    }],
+    views: [{ id: 'v7', name: 'What if', order: 0, created: 1, updated: 1 }],
+    budgets: [
+      { id: 'm:2026-09|l1', set: 'm:2026-09', line: 'l1', amount: 500, created: 1, updated: 1 },
+      { id: 'v:v7|l1', set: 'v:v7', line: 'l1', amount: 900, created: 1, updated: 1 },
+    ],
+    txns: [],
+  });
+
+  it('opens, and reports nothing as damaged', () => {
+    const out = parseStore(OLD);
+    expect(out.ok).toBe(true);
+    // ZERO. The `views` array is not read any more, and a key nobody reads
+    // is not a bad row — a count here would put "1 saved row could not be
+    // read" in front of someone whose data is perfectly fine.
+    if (out.ok) expect(out.dropped).toBe(0);
+  });
+
+  it('keeps every record that is still about something', () => {
+    const out = parseStore(OLD);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.store.lines[0]?.budget).toBe(700);
+    expect(budgetIn(out.store, 'm:2026-09', out.store.lines[0]!)).toBe(500);
+  });
+
+  it('keeps the view\'s own amounts too, rather than deleting them on load', () => {
+    // Inert, not destroyed. Dropping records because a feature went is how
+    // a bookkeeping change becomes lost money, and this store is the only
+    // copy there is.
+    const out = parseStore(OLD);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.store.budgets.find((b) => b.set === 'v:v7')?.amount).toBe(900);
+  });
+
+  it('does not write the views back out', () => {
+    const out = parseStore(OLD);
+    if (!out.ok) throw new Error(out.error);
+    const again = serialize(out.store);
+    expect(again).not.toContain('"views"');
+    expect(again).not.toContain('What if');
+    // And what it wrote loads as itself — the round trip a save depends on.
+    const back = parseStore(again);
+    expect(back.ok).toBe(true);
+    if (back.ok) expect(back.store).toEqual(out.store);
+  });
+});
+
+
+describe('undoTo — the top bar\'s Undo', () => {
+  const base = (): Store => ({
+    ...emptyStore(),
+    txns: [txn({ id: 'a' }), txn({ id: 'b', name: 'Bus', amount: -200 })],
+  });
+
+  it('puts an edited record back, with a FRESH clock and not the old one', () => {
+    const before = base();
+    const after = updateTxn(before, { ...before.txns[0]!, name: 'Tea', updated: 2000 });
+    const out = undoTo(after, before, 9000);
+
+    const back = out.txns.find((t) => t.id === 'a')!;
+    expect(back.name).toBe('Coffee');
+    // NOT 1000, which is what the snapshot holds. An undo carrying the old
+    // clock loses the next merge to the very edit it was undoing.
+    expect(back.updated).toBeGreaterThanOrEqual(9000);
+  });
+
+  it('leaves a record nobody touched exactly as it is', () => {
+    const before = base();
+    const after = updateTxn(before, { ...before.txns[0]!, name: 'Tea', updated: 2000 });
+    const out = undoTo(after, before, 9000);
+
+    // Clock and all. Touching every row would make one undo look like the
+    // whole ledger changing to every other device, and would win every
+    // merge race for rows nobody went near.
+    expect(out.txns.find((t) => t.id === 'b')).toEqual(before.txns[1]);
+  });
+
+  it('TOMBSTONES what the action created, rather than dropping it', () => {
+    const before = base();
+    const after = addTxn(before, txn({ id: 'c', name: 'New', created: 3000, updated: 3000 }));
+    const out = undoTo(after, before, 9000);
+
+    const gone = out.txns.find((t) => t.id === 'c')!;
+    // Still there, marked dead. Dropping the row works perfectly here and
+    // comes straight back from any device that already has it.
+    expect(gone).toBeDefined();
+    expect(gone.deleted).toBe(true);
+    expect(gone.updated).toBeGreaterThanOrEqual(9000);
+    expect(live(out.txns).map((t) => t.id)).toEqual(['a', 'b']);
+  });
+
+  it('SURVIVES a merge with a device that still holds the delete', () => {
+    /*
+     * The reason this is `undoTo` and not `setPhase(snapshot)`.
+     *
+     * Restoring the snapshot wholesale puts the row back with its ORIGINAL
+     * clock. The other device is holding a tombstone stamped later, the
+     * merge keeps the newer record, and the row a person just undid quietly
+     * disappears again with nothing anywhere reporting a failure.
+     */
+    const before = base();
+    const deleted = updateTxn(before, tombstone(before.txns[0]!, 5000));
+    const undone = undoTo(deleted, before, 9000);
+
+    // The other device never heard about the undo and still has the delete.
+    const merged = mergeStores(undone, deleted);
+    expect(live(merged.txns).map((t) => t.id)).toEqual(['a', 'b']);
+    // …and in the other order, which a merge must not care about.
+    expect(live(mergeStores(deleted, undone).txns).map((t) => t.id)).toEqual(['a', 'b']);
+  });
+
+  it('reaches every collection, not just the ledger', () => {
+    const line = {
+      id: 'l1', name: 'Groceries', category: 'c1', budget: 0, needs: 0,
+      snoozed: false, order: 0, created: 1, updated: 1,
+    };
+    const before: Store = { ...emptyStore(), lines: [line] };
+    const after: Store = {
+      ...before,
+      lines: [{ ...line, name: 'Food', updated: 2000 }],
+      budgets: [{ id: 'm:2026-09|l1', set: 'm:2026-09', line: 'l1', amount: 500, created: 2, updated: 2 }],
+    };
+    const out = undoTo(after, before, 9000);
+
+    expect(out.lines[0]?.name).toBe('Groceries');
+    // The amount was written by the action being undone, so it goes the way
+    // a created record goes.
+    expect(out.budgets[0]?.deleted).toBe(true);
+  });
+
+  it('does not re-tombstone something already dead', () => {
+    const before = base();
+    const after = addTxn(before, txn({ id: 'c', deleted: true, created: 3000, updated: 3000 }));
+    const out = undoTo(after, before, 9000);
+    // Nothing to undo about a row that is already a tombstone — bumping its
+    // clock would be an edit nobody made, travelling to every device.
+    expect(out.txns.find((t) => t.id === 'c')?.updated).toBe(3000);
+  });
+
+  it('brings back a row the store no longer holds at all', () => {
+    // `prune` is the only thing that removes a record, so a snapshot can
+    // outlive an expired tombstone. Losing it silently would be the one
+    // outcome an undo must never have.
+    const before = base();
+    const after: Store = { ...before, txns: [before.txns[1]!] };
+    const out = undoTo(after, before, 9000);
+    expect(out.txns.map((t) => t.id).sort()).toEqual(['a', 'b']);
+    expect(out.txns.find((t) => t.id === 'a')?.updated).toBeGreaterThanOrEqual(9000);
+  });
+});

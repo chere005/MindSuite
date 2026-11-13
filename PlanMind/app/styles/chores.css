@@ -1,0 +1,97 @@
+/*
+ * The chore rows (panels/chores) and a phone's Chores view, a page that replaces the Day, Week or Month while its Chores tab is on. Colors come from data-c
+ * (styles/tones.css), the owner's: a circle in the owner's color. "Dim" is the dim text color, never an opacity, so words keep their
+ * contrast in every theme (so a done or let go chip fades its tint, not its words). The phone bars at the bottom are the Day's (.day-tabs,
+ * day.css) and Week's and Month's (.wm-tabs, weekmonth.css). The same rows are drawn on a desktop in the Day's Chores list (day.css) and as the chips of
+ * the Month's calendar (weekmonth.css).
+ */
+
+/* One row for the Day, the Week and the Month: a circle (done / not done), the title (a button that hands that turn to the next owner),
+   chips, and for a missed or catch-up row two small buttons. A row sent to Friday or let go is dim with a chip that takes that back; a done row is crossed out. */
+.ch-list{list-style:none;margin:0;padding:0}
+.ch-row{--cs:18px;display:flex;align-items:center;gap:8px;min-width:0;min-height:34px;border-bottom:1px solid var(--line)}
+.ch-circle{appearance:none;position:relative;flex:none;width:var(--cs);height:var(--cs);min-height:0;margin:0 2px;padding:0;border:1.5px solid var(--tone-line);border-radius:50%;background:transparent;cursor:pointer}
+.ch-circle::before{content:"";position:absolute;inset:-5px -13px}
+.ch-circle:checked{background:var(--tone-bg)}
+.ch-circle:checked::after{content:"✓";position:absolute;inset:0;text-align:center;font-size:calc(var(--cs) * .66);line-height:calc(var(--cs) - 3px);color:var(--tone-fg)}
+.ch-ghost{flex:none;width:var(--cs);height:var(--cs);margin:0 2px;border:1.5px dashed var(--tone-line);border-radius:50%}
+.ch-title{flex:1;min-width:0;padding:3px 0;font-size:14px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-row.ch-done .ch-title{color:var(--dim);text-decoration:line-through}
+.ch-row.ch-moved .ch-title,.ch-row.ch-letgo .ch-title{color:var(--dim)}
+.ch-chip{flex:none;font-size:11px;line-height:14px;color:var(--dim);white-space:nowrap}
+span.ch-chip:not(.ch-date){padding:1px 6px;border:1px solid var(--line);border-radius:6px}
+/* The Day's cadence badge is that quiet chip, after the title (which gives way to it, ellipsis and all). */
+button.ch-chip{position:relative;padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--text)}
+button.ch-chip::before{content:"";position:absolute;inset:-6px -4px}
+.ch-btn{position:relative;flex:none;align-self:stretch;margin:3px 0;padding:0 8px;min-width:36px;border:1px solid var(--line);border-radius:6px;font-size:12px;color:var(--text)}
+.ch-btn::before{content:"";position:absolute;inset:-3px -6px}
+.ch-btn:hover,button.ch-chip:hover{background:var(--surface-2)}
+.ch-label{margin:0;padding:8px 0 3px;font-size:12px;font-weight:500;line-height:16px;color:var(--dim);border-bottom:0}
+.ch-off{margin:0;padding:6px 0;font-size:13px;color:var(--dim)}
+.ch-list :is(button,input):focus-visible{outline-offset:0}
+
+/* The view: the period's body above its bar. */
+.ch-view{min-width:0}
+.ch-body{min-width:0}
+
+/* The Week: the daily grid (a cell for each day, today's column marked), then a group for each day. */
+.ch-weekhead{margin:0 0 6px;font-size:13px;font-weight:600}
+.ch-grid{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+.ch-grid th,.ch-grid td{padding:0;text-align:center;font-weight:400}
+.ch-gcol{height:22px;font-size:11px;color:var(--dim)}
+.ch-grid .ch-gname{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-gname span{vertical-align:middle}
+.ch-grid tr+tr .ch-gname,.ch-grid tr+tr td{border-top:1px solid var(--line)}
+.ch-grid th.ch-gcol:not(:first-child){width:30px}
+.ch-dot{display:inline-block;width:9px;height:9px;margin-right:7px;vertical-align:middle;border-radius:50%;background:var(--tone-line)}
+.ch-cell{height:32px;color:var(--dim)}
+.ch-cell.today,.ch-gcol.today{background:var(--accent-soft);color:var(--text)}
+.ch-s-done,.ch-s-today,.ch-s-missed{color:var(--text)}
+.ch-gbtn,.ch-gsym{display:flex;align-items:center;justify-content:center;width:100%;height:100%;min-height:32px;font-size:15px;line-height:1;color:inherit}
+.ch-gbtn:hover{background:var(--surface-2)}
+.ch-days{margin-top:10px}
+.ch-dg{min-width:0}
+.ch-dg .ch-label{display:flex;justify-content:space-between;gap:8px}
+.ch-today{font-weight:400}
+.ch-dg.today .ch-label{color:var(--text)}
+
+/* The Month as a list (a phone): groups of rows with a date button each. */
+.ch-month .ch-label:not(:first-child){padding-top:12px}
+.ch-month .ch-list{display:flex;flex-direction:column;gap:6px}
+.ch-date{margin-left:auto}
+button.ch-date{padding:3px 9px;border-color:var(--tone-line);color:var(--tone-fg);font-size:12px}
+button.ch-date:hover{background:var(--tone-bg);filter:brightness(1.15)}
+:is(.ch-month,.wm-day) .ch-row:is(.ch-done,.ch-moved,.ch-letgo) button.ch-date{border-color:var(--line);color:var(--dim)}
+
+/* A chip of the Month (the phone's list, the desktop's calendar cells, .wm-day): the owner's soft tint behind the row, its circle drawn in the chip's text color
+   (the tint's own line color is under 3:1 on the tint) and filled once done. Done, sent away and let go fade the tint, never the words; a turn that was missed keeps its color and gains a warning left edge. */
+:is(.ch-month,.wm-day) .ch-row{border-bottom:0;border-radius:8px;background:var(--tone-bg);color:var(--tone-fg)}
+:is(.ch-month,.wm-day) .ch-circle{border-color:var(--tone-fg)}
+:is(.ch-month,.wm-day) .ch-circle:checked{background:var(--tone-fg)}
+:is(.ch-month,.wm-day) .ch-circle:checked::after{color:var(--tone-bg)}
+:is(.ch-month,.wm-day) .ch-row:is(.ch-done,.ch-moved,.ch-letgo){background:color-mix(in srgb,var(--tone-bg) 35%,transparent)}
+:is(.ch-month,.wm-day) .ch-row[data-state=missed]{box-shadow:inset 3px 0 0 var(--warn)}
+.ch-month .ch-row{min-height:46px;padding:0 10px 0 8px}
+.ch-month .ch-title{align-self:stretch;display:flex;align-items:center;padding:6px 0;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+
+/* ---- A phone: the page is the period's body and, under it, the period's own tab bar with Chores chosen. ---- */
+.ch-view[data-layout=phone]{display:flex;flex-direction:column;height:100%}
+.ch-view[data-layout=phone] .ch-body{flex:1;min-height:0}
+/* The Day: rows 34px, shrinking to 30px; past that the list scrolls inside itself (as the To-do list does) and nothing else does. */
+.ch-view[data-layout=phone][data-period=day] .ch-body{display:flex;flex-direction:column;overflow:hidden;padding:6px 12px 4px}
+.ch-view[data-layout=phone][data-period=day] .ch-day{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+/* The list is a scroll area, which clips what hangs outside it: its 12px of padding (taken back by the margin, so the rows keep their places) leaves the circle's 44px-wide grab area whole. */
+.ch-view[data-layout=phone][data-period=day] .ch-list{position:relative;flex:0 1 auto;min-height:0;display:flex;flex-direction:column;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-inline:12px;margin-inline:-12px}
+.ch-view[data-layout=phone][data-period=day] .ch-row{flex:0 1 34px;min-height:30px}
+.ch-view[data-layout=phone][data-period=day] .ch-label{flex:none;padding:5px 0 1px}
+.ch-view[data-layout=phone][data-period=day] .ch-circle::before{inset:-7px -14px}
+.ch-view[data-layout=phone][data-period=day] .ch-off{padding:10px 2px}
+/* The Week and the Month scroll with their body; their rows are finger-sized, and the days with nothing to show are not drawn. The list under the planner's Month grid (.wm-chorelist) is the same rows. */
+.ch-view[data-layout=phone]:not([data-period=day]) .ch-body{overflow:auto;padding:14px 16px 20px;-webkit-overflow-scrolling:touch}
+:is(.ch-view[data-layout=phone]:not([data-period=day]),.wm-chorelist) .ch-row{min-height:46px}
+:is(.ch-view[data-layout=phone]:not([data-period=day]),.wm-chorelist) .ch-title{font-size:15px}
+:is(.ch-view[data-layout=phone]:not([data-period=day]),.wm-chorelist) .ch-circle::before{inset:-14px}
+:is(.ch-view[data-layout=phone]:not([data-period=day]),.wm-chorelist) :is(.ch-btn,button.ch-chip)::before{inset:-8px -4px}
+:is(.ch-view[data-layout=phone],.wm-chorelist) .ch-month button.ch-date::before{inset:-12px -6px}
+.ch-view[data-layout=phone] .ch-cell{height:44px}
+.ch-view[data-layout=phone] .ch-gbtn,.ch-view[data-layout=phone] .ch-gsym{min-height:44px}

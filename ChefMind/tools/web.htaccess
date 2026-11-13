@@ -1,0 +1,46 @@
+# Deployed as .htaccess beside the web client's index.html. The bundle files
+# carry content hashes and can cache forever; index.html must always
+# revalidate, or a phone shows last week's app against this week's data.
+<Files "index.html">
+  Header set Cache-Control "no-cache"
+</Files>
+<FilesMatch "\.(js|png)$">
+  Header set Cache-Control "public, max-age=31536000, immutable"
+</FilesMatch>
+<Files "favicon.ico">
+  Header set Cache-Control "public, max-age=3600"
+</Files>
+# The manifest: Apache has no type for .webmanifest out of the box, and a
+# manifest served as text/plain is one a browser can refuse to install from.
+# It revalidates like index.html — the icons and name are allowed to change.
+<Files "manifest.webmanifest">
+  AddType application/manifest+json .webmanifest
+  Header set Cache-Control "no-cache"
+</Files>
+
+# The service worker itself must NEVER be cached immutably, or the *.js rule
+# above would make a broken one permanent: the browser would keep serving the
+# worker it already has and there would be no way to ship a replacement. This
+# comes after that rule deliberately, so it wins. It is also what makes
+# tools/sw-kill.js a usable escape hatch rather than a theory.
+<Files "sw.js">
+  Header set Cache-Control "no-cache"
+</Files>
+
+# NO HOST ROUTING HERE — and it was here, and it took the sandbox down.
+#
+# This file began as a copy of CalMind's web.htaccess, which carries CalMind's
+# subdomain routing: on a `test.` host, rewrite everything under this
+# directory to /test/calmind/. That block is CalMind's — it exists so
+# /home/public/calmind's own per-directory config re-applies the site's
+# test→/test/ mapping for CalMind's OWN path. In ChefMind's directory it was
+# dead code on the apex (the host never matches) and a live wrong answer on
+# test.seancheren.com: every request under /ChefMind was served CalMind's
+# index.html and CalMind's bundle, while TestChefMind's files sat correctly on
+# disk beside it. Found by TestChefMind's first qdtp, 2026-09-15 — the
+# served-page proof said "that is not TestChefMind's page", and it was right.
+#
+# The site's root .htaccess already maps test.seancheren.com/ChefMind to
+# /test/ChefMind before this file is consulted, so this directory needs no
+# routing of its own; only the cache rules above. (ChefMind's production copy
+# still carries the CalMind block — harmless there, latent everywhere else.)

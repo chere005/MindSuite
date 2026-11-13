@@ -1,0 +1,446 @@
+# AcctMind, in detail
+
+**This is a personal project to have some fun with claude code, which generated essentially all of the code, and the rest of this readme:**
+
+`README.md` is the front door and stays short. This file is everything behind
+it, for agents and humans both: what the app does, where the data lives, how
+the five surfaces are built, how a release goes out, and why each of those is
+the way it is. `TESTING.md` is what the tests are worth; `AGENTS.md` is how to
+work in here.
+
+A ledger. One list of transactions, on every screen the owner owns.
+
+Five surfaces — web, iOS, Android, macOS, Windows — from two builds and
+a shell. Every rule the product has is written once, in TypeScript, and every
+surface renders it. Two tabs today — a ledger grouped by account, and a
+two-level budget — plus the optional sync links below.
+
+The architecture is CalMind's (`~/GIT/CalMind`), applied to money and started
+from scratch rather than rediscovered.
+
+## What it does, in full
+
+Two tabs, on a bar at the bottom.
+
+### Transactions
+
+**Transactions** groups every row under an **account** — a current account, a
+card, cash in a drawer. Each section folds shut, carries its own running
+total, and has its own **+** that adds into that account. The section
+picker, up in the top bar after the pencil, is CalMind's round colour button:
+one account shows its colour, all of them show the rainbow. Behind the picker
+sits the **cog**, which holds the things that are about the APP rather than
+the screen — Import from CSV, Export budget, and **Whole dollars**. The row
+under the title carries the sort. (This is where the collapse-all and the
+`.00` toggle used to live. Collapse-all went altogether — holding an account's
+caret folds or unfolds every account — and `.00` went up to the top bar as a
+round toggle on 2026-09-18, then behind the cog on 2026-09-21 as a named
+checkbox, because two controls for one setting is what that circle became the
+moment the menu row existed. `AGENTS.md` carries the rule: things about the
+app live in the cog, not in the bar.)
+
+Rows are ordered by **date**, by **amount** (on the absolute value — sorted
+signed, the largest expense sinks below every small credit), or by **hand**.
+The hand order rides on the record, so the Mac agrees with the phone; the
+other two are device preferences. An untouched list looks identical in all
+three.
+
+**A single tap** on a row's name or amount edits it in place, and a tap on the
+date opens the day grid — the common change costs one tap and never leaves the
+list. The **pencil** in the top bar is edit mode, where every row at once
+grows four small circles over its right side (edit, duplicate, copy, delete)
+and rows can be picked out; pick several and the pick bar reports what they
+come to. **Swipe left** to park a delete button; one more tap on it
+deletes, and a tap anywhere else puts it away. None of this moves the row, so
+nothing shifts under a thumb that is already aiming. In **Custom** order the
+pencil also grows a grip on the left of each row, and rows are dragged by it —
+custom order alone is not enough, because a hand order the next render would
+undo reads as the app ignoring you. Its space is reserved in every order and
+every mode, so neither switching sort nor opening the pencil ever slides a
+name sideways.
+
+**Undo** is the arrow left of the pencil, on both tabs. ONE step — the last
+change, whatever it was and whichever tab made it — and it is a set of edits
+rather than a rewind: a record put back carries a fresh merge clock, so an
+undone delete does not delete itself again the next time the phone and the
+Mac talk. It goes dead the moment another device's change arrives, because
+undoing across somebody else's edit would take that with it.
+
+### Budget
+
+**Budget** is two levels. A **category** is a heading with a name and a colour
+and no money of its own; the **+** beside it adds a **line**, and a line is
+what holds a budget and what a transaction is filed against. Each line shows
+three numbers:
+
+| | |
+|---|---|
+| **Budgeted** | set aside. The only one of the three that is stored. |
+| **Spent** | the sum of the line's transactions. Read-only — a budget screen that let you type over the money that actually moved would be a budget screen that lies. |
+| **Available** | budgeted **plus** spent. Money out is negative, so it is a sum. |
+
+Tapping either editable number opens a small **pad over the list** — not a
+screen instead of it, because changing one figure is a two-second thought and
+a full editor hides the list you were reading to decide. The pad has the
+amount and **=**, **+**, **−** underneath, **defaulting to +**: adjusting is
+the common case and setting is the one worth a deliberate tap. `+` and `−`
+work from the value as it stood when you chose the operator, so typing two
+digits does not compound. Tapping the line's NAME opens the whole line, to
+rename or remove it.
+
+Edit **either** budgeted or available and the other follows, because they are
+two views of one stored number.
+
+**The budget is read a month at a time, and only a month.** Arrows either
+side of the month name step through the year; what a line is assigned is
+stored per month, so September's plan is not October's, and what a month
+leaves unspent carries into the next one. There was a `View:` dropdown here
+until 2026-09-21, offering All Time and **named what-if views**; both are
+gone — "always have a month selected", then "drop named views". No record
+was deleted for it: a file written when views existed loads unchanged, its
+amounts are simply never read again, and the store is still v4.
+
+**Lines are selectable**, the same round tick the ledger's rows wear, with a
+bar at the foot of the screen saying how many. No sum: a budget selection is
+made in order to ASSIGN to it, not to add it up. Beside **All** and **Clear**
+sit three buttons, each an `=` and the column it levels ASSIGNED against —
+`= 0` empties it, `= ⚑` tops it up to what the line NEEDS (never down), and
+`= $` (green, the Available mark) brings it to match what has been SPENT,
+which is the same as taking Available to nothing. There is **no Delete** on
+this bar — a line is removed one at a time, on its row, behind the pencil.
+The ledger's bar keeps one, two presses, at the far end where no thumb
+reaching for Clear can find it.
+
+Categories and accounts are made in one **Manage** screen, reached from the
+last row of either picker — and nowhere else, so there is one place that knows
+what a new one starts as.
+
+### Adding a transaction
+
+The add form takes a **Name**, a **Category** (a dropdown of lines, grouped by
+category, that filters as you type), an **Amount**, and a **Description**. The
+date is a small calendar beside the name, starting on today.
+
+**Amounts fill from the cents.** `450` is $4.50 and `1234` is $12.34, the way
+a card terminal works, because nearly every amount in a ledger has cents in
+it. A typed `.` overrides that — `50.` is $50.00 — and the **Whole dollars**
+checkbox in the cog menu flips the default for anyone entering round numbers
+all afternoon. The value formats where it is typed.
+
+**The sign is a button, and only a button.** A **−** sits left of the field and
+holds it; the field itself takes digits and at most one dot, so a typed minus
+is dropped like a `$` or a comma. It read the leading `-` too until 0.11.0,
+which meant the minus was drawn twice — once by the button and once in the
+text, a cursor away from being edited into something else. A new transaction
+starts negative, because almost everything in a ledger is money going out.
+
+## Where the data lives
+
+**On the device.** There is no API and no database. The web app keeps its
+ledger in the browser's own storage; the phone and the desktop
+shells keep theirs on the machine. On Apple, the iPhone and the Mac also share
+one iCloud Drive file (see Sync, below); Windows, Android and web do not sync.
+
+That has one consequence worth stating plainly, because the code is shaped
+around it: **the device is the only copy**, so a store that will not parse is
+never treated as an empty one. `parseStore` returns an error rather than an
+empty ledger, and the app refuses to write until a person says to discard it.
+
+Money is stored and computed in integer minor units and formatted only at the
+edge; days are local `YYYY-MM-DD` strings. Both live in `packages/core`.
+
+## Sync, and what each transport actually does
+
+Two links, neither of which needs the owner's server, both optional — every
+surface is a working app with both switched off. What merges is one function
+(`mergeStores`), proven commutative, associative and idempotent, so any link
+can deliver in any order, twice, or years late.
+
+| Link | Between | Needs | State |
+| --- | --- | --- | --- |
+| Local network | iOS binaries — iPhone, iPad | A free Apple team | **On** |
+| iCloud Drive file | iPhone ⇄ Mac (Tauri) | A **paid** Apple team | **On** |
+
+Windows, Android and the web build have neither link: their ledger is the one
+on that device.
+
+**Local network** is Bonjour discovery and a TLS connection carrying whole
+ledgers, `apps/app/modules/peer-sync/`. Two devices pair once by typing a
+25-character code — 120 bits from the system CSPRNG, which becomes the
+pre-shared key (a short code could be ground out offline from a recorded
+handshake). The link is TLS 1.2 with `TLS_PSK_WITH_AES_128_GCM_SHA256`, which
+is what Apple's PSK support negotiates; nobody on the network can read the
+ledger or feed it rows. It has **no forward secrecy**: someone who records a
+session and later gets the code could read it, and the code lives in the
+Keychain, so that means having the device (`PeerLink.swift` has the full note).
+**Both devices must be awake, on the same network, with AcctMind open** — iOS
+suspends a backgrounded app, and a suspended app holds no listener.
+
+**iCloud Drive file** is one document, `store.json`, in the container
+`iCloud.com.seancheren.acctmind`, shown to the user as an **AcctMind** folder in
+iCloud Drive. A file rather than the key-value store, which caps at 1 MB when
+the ledger was 1.26 MB (the key-value path was removed 2026-09-22).
+`planSync` in core decides what to read, merge and write; the surfaces only move
+the string.
+
+- **iPhone**: the `icloud-file` Expo module (FileManager + NSFileCoordinator),
+  with a metadata query that wakes it when the file changes.
+- **Mac**: the Tauri shell has no native modules, so Rust reads and writes
+  `~/Library/Mobile Documents/iCloud~com~seancheren~acctmind/Documents/store.json`
+  by path (`desktop/src-tauri/src/main.rs`, macOS only; elsewhere it reports no
+  container). It reads on launch and after its own writes — macOS sends no
+  change event. It will not create the container: the phone has to launch once.
+- **Cost**: iCloud needs a paid Apple Developer membership (the team is).
+  `ACCTMIND_ICLOUD=1` requests the entitlements; `tools/build-platforms.sh`
+  defaults it on, `app.config.js` defaults it off so a free team can still build.
+
+## The sign-in, and what it is for
+
+The web build is on the open internet, so that surface asks who you are. It
+reuses the live suite's sign-in exactly: same accounts, same
+password, same session cookie — which already covers the whole domain, so
+being signed into the suite signs you into this.
+
+That is the entire server side. `server/public/index.php` decides whether to
+hand over the page and serves it; there is nothing else there, and no user
+data for it to hold. **No other surface has a login** — the phone
+and both desktop shells read a ledger kept on the device (on Apple, also in the
+user's own iCloud Drive), and a password on those would protect nothing.
+
+## The map
+
+```
+packages/core/   The brain, shared verbatim by every surface: money in
+                 integer cents, days as local YYYY-MM-DD, the month grid,
+                 validation, ordering, and the store's damage handling.
+                 No dependencies, no build step — consumed as
+                 TypeScript source. Its typecheck forbids Node, DOM and
+                 React Native types, so "core is platform-neutral" is a
+                 checked property rather than a convention.
+spec/            The behavior contract as JSON vectors — the same file a
+                 native port would replay. Changing what AcctMind DOES
+                 starts HERE, not in a screen.
+apps/app/        One Expo app -> iOS, Android and web. Screens, gestures and
+                 styling only; every rule is imported from core.
+apps/app/modules/
+                 Two small native modules, both Apple-only and both no-ops
+                 elsewhere: peer-sync (Bonjour + TLS) and icloud-file
+                 (the iCloud Drive document). Each moves opaque strings; neither of
+                 them merges anything.
+server/          The doorway, in plain PHP — index.php, an .htaccess that
+                 pins DirectoryIndex, and the suite that tests them. Under
+                 seventy lines of code in a 185-line file; the rest is the
+                 note on why it is that short.
+desktop/         A Tauri 2 shell around the identical web export -> macOS
+                 locally, Windows on a CI runner. It has its own README.
+e2e/             Playwright: the real export at the real base path, on
+                 desktop and phone viewports. Mouse for most of it; the
+                 swipe needs a real touch stream over CDP, which is
+                 Chromium-only — see TESTING.md.
+tools/           The checks no browser can reach — the deploy guards, the
+                 Swift seam, the export's head patch and build stamp.
+```
+
+## Running it
+
+```sh
+npm install                       # once, at the root
+npm run test:dev                  # the between-runs suite — under a minute, no browser
+npm test                          # core + server + the full gesture run
+npm run web                       # Expo web on :8083 (pinned — 8081 is where
+                                  #   CalMind's bundler answers)
+npm run export:web                # the dist every shell and the e2e suite run on
+npx playwright test --ui          # the gesture suite, watchable
+npm run test:peer                 # the Bonjour service type, plist against core
+sh desktop/check-assets.sh        # the desktop's cheap checks
+./desktop/smoke.sh                # macOS: build, carry THIS export, launch, quit
+cd apps/app && npx expo start     # then i / a for the iOS / Android simulator
+```
+
+`export:web` is the export PLUS `tools/patch-web-html.mjs` — the head patch
+and the build stamp ride in it, and a bare `expo export` ships an index.html
+that renders a white strip above a dark app on an iPhone. Nothing should call
+it directly.
+
+### The iOS binary on the Mac
+
+The iOS binary can also be run natively on the Mac — no Catalyst, no second
+codebase, and the same bundle identifier as the phone, which is what would let
+the two share a pairing. It is **not** the macOS surface (that is `desktop/`'s
+Tauri bundle) and it is part of no deploy. It builds:
+
+```sh
+cd apps/app/ios && xcodebuild -workspace AcctMind.xcworkspace -scheme AcctMind -configuration Release -destination 'platform=macOS,variant=Designed for iPad' build
+```
+
+**But you cannot launch what that produces from a shell**, and that is worth
+knowing before planning around it. The product is a `platform 2` (iOS) Mach-O
+in `Release-iphoneos/`, which is correct for "Designed for iPad" — and macOS
+refuses it: `open` says "incorrect executable format", and registering it with
+`lsregister` changes nothing. Running one of these locally is an Xcode action:
+open `apps/app/ios/AcctMind.xcworkspace`, choose **My Mac (Designed for
+iPad)**, Run. There is no command-line equivalent.
+
+The alternative, if a double-clickable Mac app is wanted, is Mac Catalyst.
+Ticket #60's spike built a Release AcctMind Catalyst app for arm64 on
+2026-10-22. The checked-in config plugin at
+`apps/app/plugins/withMacCatalyst.js` enables the destination in the generated
+project and Podfile; a plain setting in `ios/` would be erased by prebuild.
+
+Expo's default prebuilt frameworks do not include a Catalyst slice in this
+SDK set, so a plain prebuild followed by an arm64 build fails at
+`ExpoModulesCore`. Build its dependencies from source instead. The proven
+spike used a disposable copy of the repo, then:
+
+```sh
+EXPO_USE_PRECOMPILED_MODULES=0 RCT_USE_PREBUILT_RNCORE=0 \
+  LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean --no-install
+cd apps/app/ios
+EXPO_USE_PRECOMPILED_MODULES=0 RCT_USE_PREBUILT_RNCORE=0 \
+  LANG=en_US.UTF-8 pod install
+xcodebuild -quiet -workspace AcctMind.xcworkspace -scheme AcctMind \
+  -configuration Release \
+  -destination 'platform=macOS,variant=Mac Catalyst,arch=arm64' \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
+```
+
+That compile produced `AcctMind.app` and its JavaScript bundle. It was
+unsigned and was not launched, installed, or submitted to the App Store; this
+proves the Catalyst build path, not signing, iCloud behavior, desktop UX, or
+distribution readiness. Keep the clean prebuild inside a disposable checkout
+until a repeatable build script is added, since it replaces generated `ios/`.
+
+### Android
+
+Android needs `ANDROID_HOME` in the environment — `expo run:android` sets it,
+a bare `./gradlew` does not, and the failure ("SDK location not found") reads
+like a broken project rather than a missing variable:
+
+```sh
+cd apps/app/android && ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew assembleRelease
+```
+
+## Deploying
+
+```sh
+cp deploy.conf.sample deploy.conf   # once: set SSH_DEST and SITE_URL
+./deploy.sh                         # the sandbox AND production, sandbox first
+./deploy.sh --quick                 # the fast lane for a small fix
+./deploy.sh --verify                # read-only: what is each instance serving?
+```
+
+Both instances, every time — the owner's call, 2026-08-20, and it stays that way
+until he says to switch to test-only.
+
+The two destinations are guarded constants in `deploy.sh`, and the guard is an
+ALLOW-LIST: those two paths are writable and every other path on the host —
+the site root, a neighbouring app's area, even a differently-cased spelling of
+our own — is refused. A deny-list would only refuse the mistakes somebody
+thought of. The host's address is not in this repo at all; it lives in
+`deploy.conf`, and it is used only to prove a deploy landed, never to decide
+where anything is written. Every guard is re-proven on each run of
+`npm run test:deploy` by breaking a copy of the script and watching it stop.
+
+A deploy reaches the host over ONE SSH connection (2026-10-01): the first
+`ssh` opens a master on a socket private to that run, and every later `ssh`
+and `rsync` rides it, so twelve handshakes become one. Only the transport is
+shared — every command line, path and check is the one it was — and a master
+that has gone is replaced by a fresh connection, never a failure. `deploy.sh`
+carries the why next to the code.
+
+`npm run dtp` and `npm run tdtp` are the release lanes — deploy, tag, push,
+with the full test run in front for `tdtp`. `AGENTS.md` carries both in full,
+along with the version files, the hand-bumped iOS build number, and which
+platform each lane builds. The pushed tag also builds the Windows and macOS
+installers on GitHub and publishes them as one release (README.md, "Releases").
+
+## Where the rest is written down
+
+- `TESTING.md` — every harness, what it watches, and what nobody is watching.
+- `AGENTS.md` — the standing rules, the version and release mechanics, the
+  platform notes, and the traps that have already cost real time here.
+- `desktop/README.md` — the Tauri shell, and the base-path bug it is shaped
+  around.
+- `spec/*.json` — the behaviour contract itself, as data.
+
+## License
+
+BSD 3-Clause — see [LICENSE](LICENSE). Do what you like with it: use it,
+change it, fold it into something else, commercially or not, no permission
+needed and no warranty given. The two things the licence does ask are that
+the copyright notice travels with the source, and that you don't use the owner's
+name to endorse whatever you build from it.
+
+The same licence CalMind and seancheren-site use, so the repositories agree
+rather than each having their own answer.
+
+The dependency tree is MIT/ISC/Apache/BSD throughout, with no copyleft that
+would conflict with the App Store's terms. `node-forge` reports
+`BSD-3-Clause OR GPL-2.0`; it is dual-licensed, the BSD side applies, and it
+is build tooling that never reaches the binary.
+
+## Releases
+
+Pushing a version tag releases the desktop apps. The tag is namespaced (`AcctMind/0.56.0`) and
+the suite root's `.github/workflows/acctmind-release.yml` does the rest on GitHub's own runners:
+
+1. checks that the tag equals the version in every file that carries it (the six
+   `tools/check-version.mjs` holds together) and that the release is not already
+   published, then opens a **draft** GitHub release named `AcctMind <version>`, with
+   the tag's annotation as its notes;
+2. builds on Windows (typecheck, core suite, web export, Tauri build, and an
+   install-and-launch smoke of the `.msi`) and on macOS (Apple silicon), attaching
+   each build's files to that draft;
+3. when every expected file is on the draft, writes `SHA256SUMS.txt` and publishes
+   the release (Latest; a version with a `-` is a pre-release). If a file is missing,
+   the release stays a draft.
+
+The assets, for version `X`:
+
+| Platform | File |
+| --- | --- |
+| Windows (x64) | `AcctMind_X_x64_en-US.msi`, `AcctMind_X_x64-setup.exe` |
+| macOS (Apple silicon) | `AcctMind_X_aarch64.dmg` |
+| All | `SHA256SUMS.txt` |
+
+There is no Linux build and nothing for Intel Macs.
+
+**Cutting one.** `npm run dtp` (or `npm run tdtp`, with the full test run in front)
+bumps the version, deploys, runs the preflight, tags and pushes. tdtp then follows the
+release (`tools/gh-bot.sh release`) and prints the run and the published release; dtp
+does not wait, and the next lane run warns at its start if the last release never
+published. If it is not published, the deploy stands: the lane says so, prints
+`gh workflow run acctmind-release.yml --ref <tag> -f tag=<tag>` (e.g. `AcctMind/0.56.0`), and exits non-zero.
+
+**Quiet CI** (AgentSuite/ci.md; `python3 ../AgentSuite/tools/check-workflows.py .`).
+GitHub mails a run's outcome to whoever triggered it. A run a person starts (the tag
+push, a dispatch, a re-run) runs only `handoff`, which dispatches the same workflow as
+github-actions[bot]; the bot's run does the builds, so no failure, timeout or runner
+GitHub never provides can mail anyone. Every job is `continue-on-error`; the scripts
+read each job. A release run that ends with a platform missing dispatches itself again
+(input `attempt`, three runs at most), building only what the draft lacks.
+
+**Releasing a tag that already exists** (the first release of a past version, or a
+retry once a fix is on the tag's commit):
+
+```sh
+gh workflow run acctmind-release.yml --ref AcctMind/0.55.0 -f tag=AcctMind/0.55.0
+```
+
+**Preflight.** `sh tools/preflight.sh` runs the same jobs against HEAD before it is
+tagged: it pushes HEAD to a throwaway `preflight/acctmind/<sha>` branch, starts the workflow
+there with `preflight=true`, prints PASS or the failing jobs and steps, and deletes the
+branch. It waits for the bot's run (see Quiet CI); nothing is created, uploaded or
+published.
+The lane does this before every tag; `--skip-preflight` leaves it out. The workflow
+must already be on the default branch to be started by name.
+
+**Why no build artifacts.** The workflow never uses `actions/upload-artifact`: this
+account's Actions artifact storage quota is full, and every run that tried to upload
+one failed. Release assets do not count against it, so each build uploads straight to
+the release with `gh release upload`.
+
+**Installing.** The builds are not code-signed. On first run Windows SmartScreen says
+"Windows protected your PC": choose *More info*, then *Run anyway*. macOS Gatekeeper
+stops an app that is not notarized: right-click it and choose *Open*, or use System
+Settings > Privacy & Security > *Open Anyway*.
