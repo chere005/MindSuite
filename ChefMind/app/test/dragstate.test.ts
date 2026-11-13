@@ -83,6 +83,7 @@ function rowHarness(n: number, layout: () => { y: number; h: number }[], opts?: 
   return {
     rows,
     onDrop,
+    register: (i: number) => drag.registerRow(i)(rows.ref(i) as never),
     rerender: (count: number, o?: RowDragOptions) => { drag = render(count, o); },
     handlers: (i: number) => drag.handleFor(i) as unknown as Handlers,
   };
@@ -138,16 +139,45 @@ describe('row drag: a drop names rows by key when the list changed mid-drag', ()
     expect(h.onDrop).toHaveBeenCalledWith(1, 3); // by index it would stop at x, one short of c
   });
 
-  test('a row inserted above: the grip is handed to the dragged row\'s new index and the drop keeps the index rule', async () => {
+  test('a row inserted above: the drop lands where the pointer travel puts the row, by id, in the new list', async () => {
     // The row's own index changed, so its grip now carries the responder of
-    // index 2 (e2e/dragunder.spec.ts pins that this lands right in a browser):
-    // the release arrives on THAT responder, whose index is already the row's.
-    const { h } = await pickUp(['a', 'b', 'c', 'd']);
+    // index 2 and the release arrives on THAT responder, whose own dy counts
+    // only the movement since the handoff. The drop must use the whole travel
+    // since the grant and the list as it is now (e2e/zzreviewprobe found it
+    // landing one row short, or not at all).
+    for (const [releaseY, to] of [[50, 3], [70, 4]] as const) {
+      rt.slots = []; rt.at = 0;
+      let layout = evenRows(4)();
+      const h = rowHarness(4, () => layout, keysOf(['a', 'b', 'c', 'd']));
+      const grab = h.handlers(1); // 'b'
+      (grab.onPanResponderGrant as (e: unknown, g: unknown) => void)({}, { y0: 30 });
+      await h.rows.answer();
+      grab.onPanResponderMove({}, { dy: 10, moveY: 40 });
+      layout = evenRows(5)();
+      const next = ['x', 'a', 'b', 'c', 'd'];
+      h.rerender(next.length, keysOf(next));
+      for (let i = 0; i < 5; i++) h.register(i);
+      h.handlers(2).onPanResponderMove({}, { dy: 5, moveY: releaseY });
+      h.handlers(2).onPanResponderRelease({}, { dy: 5, moveY: releaseY });
+      await h.rows.answer();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, to);
+    }
+  });
+
+  test('a row inserted above, released with no move after the handoff: the last pointer position is used', async () => {
+    let layout = evenRows(4)();
+    const h = rowHarness(4, () => layout, keysOf(['a', 'b', 'c', 'd']));
+    const grab = h.handlers(1);
+    (grab.onPanResponderGrant as (e: unknown, g: unknown) => void)({}, { y0: 30 });
+    await h.rows.answer();
+    grab.onPanResponderMove({}, { dy: 20, moveY: 50 });
+    layout = evenRows(5)();
     const next = ['x', 'a', 'b', 'c', 'd'];
     h.rerender(next.length, keysOf(next));
-    h.handlers(2).onPanResponderRelease({}, { dy: 25 });
-    expect(h.onDrop).toHaveBeenCalledTimes(1);
-    expect(h.onDrop.mock.calls[0]![0]).toBe(2);
+    h.handlers(2).onPanResponderRelease({}, { dy: 0, moveY: 0 });
+    await h.rows.answer();
+    expect(h.onDrop).toHaveBeenCalledWith(2, 3);
   });
 
   test('the dragged row removed: nothing moves', async () => {
@@ -234,5 +264,15 @@ describe('section drag', () => {
     grip.onPanResponderRelease({}, { moveY: 150 });
     expect(later).toHaveBeenCalledTimes(1);
     expect(h.first).not.toHaveBeenCalled();
+  });
+
+  test('every move before the measure answered, the release after it: the release point is placed', async () => {
+    const h = sectionHarness(() => [0, 100, 200]);
+    const grip = h.grip('s0');
+    grip.onPanResponderGrant();
+    grip.onPanResponderMove({}, { moveY: 150 });
+    await h.answer();
+    grip.onPanResponderRelease({}, { moveY: 150 });
+    expect(h.first).toHaveBeenCalledWith('s0', expect.objectContaining({ key: 'before:s1' }));
   });
 });

@@ -77,6 +77,9 @@ type Session = {
   count: number;
   /** The entry the gesture was granted on. */
   from: number;
+  /** The pointer's Y at the grant and at the latest move, whichever responder saw it (null when the platform gave none). */
+  startY: number | null;
+  lastY: number | null;
 };
 
 /**
@@ -160,14 +163,14 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     return new Map(measured.map((m) => [m.i, m.mid]));
   };
 
-  const begin = (from: number): Session => {
+  const begin = (from: number, y0?: number): Session => {
     const { count: n, keyOf } = cfg.current;
     let keys: (string | null)[] | null = null;
     if (keyOf) {
       keys = [];
       for (let k = 0; k < n; k++) keys.push(keyOf(k));
     }
-    const s: Session = { mids: new Map(), measured: false, ready: Promise.resolve(), keys, count: n, from };
+    const s: Session = { mids: new Map(), measured: false, ready: Promise.resolve(), keys, count: n, from, startY: y0 && y0 > 0 ? y0 : null, lastY: null };
     s.ready = measure().then((m) => { s.mids = m; s.measured = true; });
     return s;
   };
@@ -210,12 +213,13 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
           // silently TERMINATED before it could drop. Refusing the request is
           // what makes a drag survive on a real-length list.
           onPanResponderTerminationRequest: () => false,
-          onPanResponderGrant: () => {
+          onPanResponderGrant: (_e, g) => {
             setUi({ dragIdx: i, dragDy: 0, slot: null });
             setLiveSlot(null);
-            sess.current = begin(i);
+            sess.current = begin(i, g?.y0);
           },
           onPanResponderMove: (_e, g) => {
+            if (sess.current && g.moveY > 0) sess.current.lastY = g.moveY;
             const to = destFor(sess.current?.mids ?? NO_MIDS, i, g.dy);
             const slot = to === null ? null : to > i ? to + 1 : to;
             if (live) {
@@ -231,14 +235,35 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
             const s = sess.current;
             reset(i);
             if (!s) return;
+            if (i !== s.from && s.keys) {
+              // The dragged row's own index moved under the finger (a row
+              // arrived or left above it), so the grant's midpoints name other
+              // rows now. Re-find the row by key, measure the list as it IS,
+              // and place the row's displaced centre — its live home plus the
+              // pointer's whole travel since the grant — among the others.
+              const travel = s.startY !== null && (g.moveY > 0 || s.lastY !== null)
+                ? (g.moveY > 0 ? g.moveY : s.lastY!) - s.startY
+                : g.dy;
+              const dragKey = s.keys[s.from];
+              void measure().then((m) => {
+                const { count: n, keyOf } = cfg.current;
+                if (dragKey == null || !keyOf) return;
+                let f = -1;
+                for (let k = 0; k < n; k++) if (keyOf(k) === dragKey) { f = k; break; }
+                if (f < 0) return;
+                const to = destFor(m, f, travel);
+                if (to === null) return;
+                const bounded = Math.max(0, Math.min(n - 1, to));
+                if (bounded !== f) cfg.current.onDrop(f, bounded);
+              });
+              return;
+            }
             const drop = () => {
               const to = destFor(s.mids, i, g.dy);
               if (to === null) return;
-              // The responder follows its row: when the list changes under
-              // the finger and the dragged row's own index moves, its grip
-              // hands the gesture to the responder of the NEW index (dragunder
-              // .spec pins that this lands right), so `i` is no longer the
-              // grant's index and is already the row's live one.
+              // Without keys the responder follows its row by index: the
+              // grip is handed to the responder of the NEW index, and `i` is
+              // the row's live one (dragunder.spec).
               if (i !== s.from) {
                 const bounded = Math.max(0, Math.min(cfg.current.count - 1, to));
                 if (i !== bounded) cfg.current.onDrop(i, bounded);

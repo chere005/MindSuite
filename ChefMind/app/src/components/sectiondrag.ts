@@ -107,7 +107,10 @@ export function useSectionDrag(
             setLineKey(null);
             if (!r) return;
             if (r.measured) {
-              if (r.live) drop.current(sectionId, r.live);
+              // The last move may have been before the measure answered (r.live
+              // still null): place the release point itself on the boundaries.
+              const slot = r.live ?? (r.moved ? hitAt(r.slots, g.moveY, sectionId)?.slot ?? null : null);
+              if (slot) drop.current(sectionId, slot);
             } else if (r.moved) {
               // Released before THIS drag's measure answered: wait for it and
               // place the release point on it, never on an earlier drag's.
