@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The app window: its own commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
