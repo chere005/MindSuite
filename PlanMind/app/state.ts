@@ -1,4 +1,4 @@
-import { DEFAULT_SIDEBAR, periodStart, type CalmindAllDay, type CalmindEvent, type CalmindReply, type SetCalmindReply, type SetBothColorReply, type ColorKey, personalSettings, type Settings, periodWindow, resolveSelection, shiftPeriod, todayIn, type ApiErrorCode, type Mutation, type Selection, type Session, type SetThemeReply, type SidebarState, type Snapshot, type View } from '../packages/core/src/planner';
+import { DEFAULT_SIDEBAR, mutationKeys, periodStart, predict, predictable, type CalmindAllDay, type CalmindEvent, type CalmindReply, type SetCalmindReply, type SetBothColorReply, type ColorKey, personalSettings, type Settings, periodWindow, resolveSelection, shiftPeriod, todayIn, type ApiErrorCode, type Mutation, type Selection, type Session, type SetThemeReply, type SidebarState, type Snapshot, type View } from '../packages/core/src/planner';
 import { shiftDate } from '../packages/core/src/parse';
 import { ApiFailure, type Loaded } from './api';
 import type { Place } from './place';
@@ -39,7 +39,9 @@ const sameSelection = (a: Selection, b: Selection) => a.base === b.base && a.ove
  * desktop sidebar is shown, which period is open, unsent drafts and the status of writes. Nothing here is written to browser storage.
  * - A response older than the revision held is ignored, and a failed read never replaces state.
  * - The snapshot's `prefs` are read once, at load. Later responses only heal the selection against the lists.
- * - One write at a time; a poll waits for it.
+ * - Writes go out one at a time, in the order they were made; a poll waits for them. A write the screen can answer at once (`send(..., { optimistic: true })`:
+ *   a tick, a chore mark, an entry moved) is laid over the snapshot as it will read once saved (core optimistic.ts) until its reply arrives, so the screen answers
+ *   without waiting and a poll cannot put older state over it. A refused or failed write takes only its own change off again (and any later write built on the same record).
  * - `place` is where a page that reloaded itself for a new release puts the person back (the view, the period, Chores, the Back); without one it starts on today's Day.
  */
 export function createState(initial: Session, io: StateIo, place?: Omit<Place, 'tab'>) {
@@ -58,7 +60,24 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let choresTab = false;
   // The view a Day was opened from (a tap on a day of the Month), so a Back button can return to it; choosing a view by hand forgets it.
   let backTo: View | null = place?.back ?? null;
-  let busy = false, fetching = false, alive = true;
+  let fetching = false, alive = true;
+  // The writes made and not yet answered, in order; the first is the one on its way. `optimistic` ones show on the screen at once.
+  type Entry = { mutation: Mutation; optimistic: boolean; keys: string[]; started: boolean; waiters: ((result: SendResult) => void)[] };
+  let queue: Entry[] = [], pumping = false, wasBusy = false, wasQueued = false, queueVersion = 0, settling = 0;
+  let shown: { base: Session; version: number; value: Session } | null = null;
+  /** Whether a write the screen does not answer by itself is waiting or on its way (forms are held and a redraw waits for it). */
+  const isBusy = () => queue.some(entry => !entry.optimistic);
+  /** Whether any write is waiting or on its way, or one was just refused and the code that awaited it has not run yet: the shell holds its redraw until none is, then draws once what the screen should read. */
+  const isQueued = () => settling > 0 || queue.length > 0;
+  const emitBusy = () => { const [now, queued] = [isBusy(), isQueued()]; if (now !== wasBusy || queued !== wasQueued) { wasBusy = now; wasQueued = queued; emit('busy'); } };
+  /** The snapshot as the screen reads it: the server's, with the unanswered optimistic writes laid over it. */
+  function display(): Session {
+    if (!queue.some(entry => entry.optimistic)) { return session; }
+    if (shown && shown.base === session && shown.version === queueVersion) { return shown.value; }
+    const value = queue.reduce((data, entry) => (entry.optimistic ? predict(data, entry.mutation, session.user) : data), session);
+    shown = { base: session, version: queueVersion, value };
+    return value;
+  }
   let status = 'Up to date';
   let error: { message: string; source: 'write' | 'poll' | 'panel' } | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -132,12 +151,12 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     checkToday();
     calmindTicks = (calmindTicks + 1) % CALMIND_EVERY;
     void syncCalmind(calmindTicks === 0);
-    if (fetching || busy || !alive || io.hidden()) { return; }
+    if (fetching || queue.length > 0 || !alive || io.hidden()) { return; }
     fetching = true;
     try {
       const response = await io.load(session.revision);
       // A write that began meanwhile has a newer answer than this poll.
-      if (!alive || busy) { return; }
+      if (!alive || queue.length > 0) { return; }
       applyResponse(response);
       if (error?.source === 'poll') { error = null; }
       setStatus('Up to date');
@@ -149,27 +168,73 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     } finally { fetching = false; }
   }
 
-  async function send(mutation: Mutation): Promise<SendResult> {
-    if (busy || !alive) { return { ok: false, message: '', code: null, uncertain: false, skipped: true }; }
-    busy = true; error = null; status = 'Saving…';
-    emit('busy'); emit('status');
+  const SKIPPED: SendResult = { ok: false, message: '', code: null, uncertain: false, skipped: true };
+  /**
+   * One write. It joins the line behind the writes already made and resolves when it has been answered. A write the screen cannot answer by itself is
+   * refused (skipped) while another of that kind is waiting, as before. An optimistic write shows at once; a not yet sent one for the same record
+   * is folded into it (a tick and its undo make one write that ends where the last press left it).
+   */
+  function send(mutation: Mutation, options: { optimistic?: boolean } = {}): Promise<SendResult> {
+    if (!alive) { return Promise.resolve(SKIPPED); }
+    const optimistic = options.optimistic === true && predictable(mutation);
+    if (!optimistic && isBusy()) { return Promise.resolve(SKIPPED); }
+    const keys = mutationKeys(mutation);
+    return new Promise<SendResult>(resolve => {
+      const last = optimistic && keys.length === 1 ? queue.map(e => e.keys.includes(keys[0]!)).lastIndexOf(true) : -1;
+      const merge = last >= 0 && !queue[last]!.started && queue[last]!.optimistic && queue[last]!.keys.length === 1 ? queue[last]! : null;
+      if (merge) {
+        merge.mutation = { ...mutation, revision: (merge.mutation as { revision: number }).revision } as Mutation;
+        merge.waiters.push(resolve);
+      } else {
+        queue.push({ mutation, optimistic, keys, started: false, waiters: [resolve] });
+      }
+      queueVersion++;
+      error = null; status = 'Saving…';
+      if (optimistic) { emit('data'); }
+      emitBusy(); emit('status');
+      void pump();
+    });
+  }
+
+  async function pump(): Promise<void> {
+    if (pumping) { return; }
+    pumping = true;
     let reload = false;
     try {
-      applyResponse(await io.send(mutation));
-      setStatus('Saved');
-      return { ok: true };
-    } catch (e) {
-      if (!alive) { return { ok: false, message: '', code: null, uncertain: false, skipped: true }; }
-      const failure = e instanceof ApiFailure ? e : new ApiFailure(e instanceof Error ? e.message : 'Unable to save.', 0, null);
-      const message = failure.uncertain ? UNCERTAIN : failure.message;
-      // The record changed or went away under us: show what is true now.
-      reload = failure.code === 'stale' || failure.code === 'gone';
-      error = { message, source: 'write' }; status = 'Needs attention';
-      emit('status');
-      return { ok: false, message, code: failure.code, uncertain: failure.uncertain };
+      while (alive && queue.length > 0) {
+        const entry = queue[0]!;
+        entry.started = true;
+        let reply: Snapshot | null = null, failure: ApiFailure | null = null;
+        try { reply = await io.send(entry.mutation); }
+        catch (e) { failure = e instanceof ApiFailure ? e : new ApiFailure(e instanceof Error ? e.message : 'Unable to save.', 0, null); }
+        if (!alive) { return; }
+        // The answer is taken in while the write still counts as queued, so the shell holds its redraw (as it always did while a write was on its way) until the line is empty.
+        if (reply) {
+          if (!applyResponse(reply)) { emit('data'); }
+          queue.shift(); queueVersion++;
+          if (queue.length === 0) { setStatus('Saved'); }
+          entry.waiters.forEach(done => done({ ok: true }));
+        } else if (failure) {
+          const message = failure.uncertain ? UNCERTAIN : failure.message;
+          // The record changed or went away under us, or the outcome is unknown: show what is true now.
+          if (failure.code === 'stale' || failure.code === 'gone' || failure.uncertain) { reload = true; }
+          // Writes built on this one's record cannot stand without it.
+          const behind = queue.filter(other => other !== entry && other.keys.some(key => entry.keys.includes(key)));
+          error = { message, source: 'write' }; status = 'Needs attention';
+          // The refused change leaves the line before the shell is told, so the last picture it draws for the failure is already without it.
+          queue = queue.filter(other => other !== entry && !behind.includes(other)); queueVersion++;
+          // The line still counts as busy for a macrotask, so the shell holds its redraw until the code that awaited the refused write has run (a form shows its reason first), then draws the corrected picture.
+          settling++; setTimeout(() => { settling--; if (alive && settling === 0) { wasBusy = isBusy(); wasQueued = isQueued(); emit('busy'); } }, 0);
+          emit('data'); emit('status');
+          entry.waiters.forEach(done => done({ ok: false, message, code: failure!.code, uncertain: failure!.uncertain }));
+          behind.forEach(other => other.waiters.forEach(done => done(SKIPPED)));
+        }
+        emitBusy();
+      }
     } finally {
-      busy = false; emit('busy');
-      if (reload) { void refresh(); }
+      pumping = false;
+      emitBusy();
+      if (reload && alive) { void refresh(); }
     }
   }
 
@@ -197,7 +262,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   }
 
   return {
-    get session() { return session; },
+    get session() { return display(); },
     /** The settings the views read: the household's, with `bothColor` this person's own pick when they made one (core personalSettings). */
     get settings(): Settings {
       if (!settingsFor || settingsFor.settings !== session.settings || settingsFor.mine !== bothColor) {
@@ -224,13 +289,17 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     /** The middle of the 15-row date list; moves with shiftCenter. */
     get center() { return center; },
     get today() { return today; },
-    get busy() { return busy; },
+    get busy() { return isBusy(); },
+    /** Whether any write, an optimistic one too, is waiting or on its way. */
+    get queued() { return isQueued(); },
+    /** True for the macrotask after a refusal, while the code that awaited the write runs: no redraw, even one a panel asked for, goes before it. */
+    get settling() { return settling > 0; },
     /** Whether the host now serves another release than the one this page started under (the shell reloads at a quiet moment). */
     get newRelease() { return io.release?.changed ?? false; },
     /** Whether a change of the picker or sidebar is still waiting for its save (a reload now would lose it). */
     get prefsPending() { return saveTimer !== undefined; },
     /** Whether any write of this page is under way or waiting: a save in flight, a picker or sidebar change waiting for its pause or its answer, a theme being stored. A reload now would lose it. */
-    get writing() { return busy || saveTimer !== undefined || quietWrites > 0; },
+    get writing() { return queue.length > 0 || saveTimer !== undefined || quietWrites > 0; },
     get status() { return status; },
     /** CalMind's events the Day draws: none while this account hides them. */
     get calmindEvents(): readonly CalmindEvent[] { return calmindHidden ? [] : calmindEvents; },
@@ -365,6 +434,8 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     close() {
       if (!alive) { return; }
       alive = false;
+      const unanswered = queue; queue = [];
+      unanswered.forEach(entry => entry.waiters.forEach(done => done(SKIPPED)));
       clearTimeout(saveTimer);
       stopTimers?.();
       drafts.clear();

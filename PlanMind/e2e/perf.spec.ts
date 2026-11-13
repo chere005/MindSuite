@@ -97,7 +97,8 @@ const INSTRUMENTS = () => {
       const box = e.target as HTMLInputElement, flipped = box.checked;
       const look = () => {
         if (first >= 0 || done) { return; }
-        if ((box.isConnected && box.checked === flipped) || test()) { painted(() => { if (first < 0) { first = performance.now() - t0; } }); return; }
+        // Recorded at the frame callback that first sees it (the next paint shows it), not a second frame later.
+        if ((box.isConnected && box.checked === flipped) || test()) { first = performance.now() - t0; return; }
         requestAnimationFrame(look);
       };
       requestAnimationFrame(look);
@@ -185,7 +186,13 @@ const report = (name: string, samples: Sample[]) => summarise(name, samples.map(
 // ---- pointer drags, mouse and finger ----------------------------------------------------------------------------
 
 type Pt = { x: number; y: number };
-const centre = async (l: Locator): Promise<Pt> => { await l.scrollIntoViewIfNeeded(); const b = (await l.boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+// A reply's redraw can land between the scroll and the measure (the element is then detached once): measure again.
+const centre = async (l: Locator): Promise<Pt> => {
+  for (let attempt = 0; ; attempt++) {
+    try { await l.scrollIntoViewIfNeeded(); const b = (await l.boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; }
+    catch (e) { if (attempt >= 4) { throw e; } await l.page().waitForTimeout(50); }
+  }
+};
 async function drag(page: Page, phone: boolean, from: Pt, dx: number, dy: number, steps = 20) {
   const armed = page.evaluate(() => (window as any).__armDrag());
   if (phone) {
@@ -289,5 +296,186 @@ test.describe('performance', { tag: '@perf' }, () => {
       const box = (await page.locator('.day-lanes').boundingBox())!, from = await centre(page.locator('.day-ev', { hasText: `Perf lane ${i}` }).first());
       return { from, dx: box.x + box.width * 0.5 - from.x, dy: 0 };
     }, false, RUNS);
+  });
+
+  // ---- interactions under write latency -------------------------------------------------------------------------
+  // Run with PLANMIND_PERF_LATENCY=150 (and 400) on every write. Each scenario is repeated PLANMIND_PERF_RUNS times on fresh items and reports the time from each
+  // input to the frame that shows its answer (null: never shown, an input that was dropped), whether the end state is right on the screen and on the server, and the
+  // time until the server holds everything. CPU throttle as above.
+  let fresh = 0;
+  const BASE = 40 + Math.floor(Math.random() * 3000);
+  const nextDay = () => farDate(BASE + fresh++);
+  // REVIEW: the page only learns of items made over the API at its next poll or reply: reload it so they are on screen.
+  const freshDay = async (page: Page, date: string) => { await page.reload(); await page.locator('#sidebar .date-row.selected').waitFor({ state: 'attached' }); await openDay(page, date); };
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  /** Makes `n` open to-dos on a new day for the owner; returns the day and the titles. */
+  async function makeTodos(baseURL: string, n: number, label: string) {
+    const owner = await apiLogin(baseURL, OWNER);
+    const date = nextDay(), tag = crypto.randomUUID().slice(0, 6);
+    const titles = Array.from({ length: n }, (_, i) => `${label} ${tag} ${i}`);
+    for (const title of titles) { await add(owner, { kind: 'todo', scope: 'day', date, owners: [OWNER], title }); }
+    return { owner, date, titles };
+  }
+  async function settled(api: Api, ok: (snapshot: any) => boolean, ms: number) {
+    const start = Date.now();
+    while (Date.now() - start < ms) { if (ok(await api.snapshot())) { return Date.now() - start; } await sleep(100); }
+    return null;
+  }
+  /** In the page: clicks the circle of each title `gap` ms apart (a circle that is disabled or missing ignores the click) and returns the ms from each click to the frame that showed it flipped. */
+  const clickCircles = (page: Page, steps: { title: string; want: boolean }[], gap: number) => page.evaluate(async ({ steps, gap }) => {
+    const circle = (title: string) => document.querySelector<HTMLInputElement>(`input.day-circle[aria-label$=" ${title}"]`);
+    const seen: (number | null)[] = steps.map(() => null), clicked: number[] = [];
+    let stop = false;
+    const watch = () => {
+      steps.forEach((step, i) => { if (seen[i] === null && clicked[i] !== undefined && circle(step.title)?.checked === step.want) { seen[i] = performance.now() - clicked[i]!; } });
+      if (!stop) { requestAnimationFrame(watch); }
+    };
+    requestAnimationFrame(watch);
+    for (let i = 0; i < steps.length; i++) {
+      clicked[i] = performance.now();
+      circle(steps[i]!.title)?.click();
+      await new Promise(r => setTimeout(r, gap));
+    }
+    await new Promise(r => setTimeout(r, 400));
+    stop = true;
+    return { seen, onScreen: steps.map(step => circle(step.title)?.checked) };
+  }, { steps, gap });
+  const dayRow = (name: string, rows: { visible: (number | null)[]; ok: boolean; saved: number | null }[]) => {
+    const all = rows.flatMap(r => r.visible), shown = all.filter((v): v is number => v !== null);
+    const row = {
+      runs: rows.length, inputs: all.length, dropped: all.length - shown.length, visible_median_ms: round(quantile(shown, 0.5)), visible_p95_ms: round(quantile(shown, 0.95)), visible_max_ms: round(Math.max(...shown)),
+      end_state_right: rows.filter(r => r.ok).length, server_saved_median_ms: round(quantile(rows.map(r => r.saved ?? NaN).filter(v => !Number.isNaN(v)), 0.5)), latency_ms: LATENCY,
+    };
+    results[`${name} @${LATENCY}ms`] = row;
+    console.log(`PERF ${name} @${LATENCY}ms ${JSON.stringify(row)}`);
+  };
+
+  test('latency: five different items ticked 80 ms apart', async ({ page, baseURL }, info) => {
+    await setup(page);
+    const rows = [];
+    for (let run = 0; run < RUNS; run++) {
+      const { owner, date, titles } = await makeTodos(baseURL!, 5, 'Rapid');
+      await freshDay(page, date); await showTodos(page); await page.locator(`input.day-circle[aria-label$=" ${titles[0]}"]`).waitFor();
+      await throttle(THROTTLE);
+      const r = await clickCircles(page, titles.map(title => ({ title, want: true })), 80);
+      const saved = await settled(owner, s => titles.every(t => s.tasks.find((x: any) => x.title === t)?.done), 10_000 + 5 * LATENCY * 2);
+      await throttle(1);
+      const server = (await owner.snapshot()).tasks.filter((x: any) => titles.includes(x.title));
+      rows.push({ visible: r.seen, ok: r.onScreen.every(Boolean) && server.every((x: any) => x.done) && saved !== null, saved });
+      await owner.dispose();
+    }
+    dayRow(`${info.project.name} rapid check-offs`, rows);
+  });
+
+  test('latency: tick then untick the same item at once', async ({ page, baseURL }, info) => {
+    await setup(page);
+    const rows = [];
+    for (let run = 0; run < RUNS; run++) {
+      const { owner, date, titles } = await makeTodos(baseURL!, 1, 'Flip');
+      await freshDay(page, date); await showTodos(page); await page.locator(`input.day-circle[aria-label$=" ${titles[0]}"]`).waitFor();
+      await throttle(THROTTLE);
+      const r = await clickCircles(page, [{ title: titles[0]!, want: true }, { title: titles[0]!, want: false }], 40);
+      await sleep(LATENCY * 3 + 200);
+      const saved = await settled(owner, s => s.tasks.find((x: any) => x.title === titles[0])?.done === false, 5000);
+      await throttle(1);
+      rows.push({ visible: r.seen, ok: r.onScreen[1] === false && saved !== null, saved });
+      await owner.dispose();
+    }
+    dayRow(`${info.project.name} tick then untick`, rows);
+  });
+
+  /** A press, a move of `dy` px in 20 steps, a release: a mouse, or a finger that holds first. Returns when the release has been sent. */
+  async function rawDrag(page: Page, phone: boolean, from: Pt, dy: number) {
+    if (phone) {
+      const send = (type: string, x = 0, y = 0) => cdp!.send('Input.dispatchTouchEvent', { type: type as 'touchStart', touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+      await send('touchStart', from.x, from.y);
+      await page.waitForTimeout(480);
+      for (let i = 1; i <= 20; i++) { await send('touchMove', from.x, from.y + (dy * i) / 20); }
+      await page.waitForTimeout(40);
+      await send('touchEnd');
+    } else {
+      await page.mouse.move(from.x, from.y); await page.mouse.down();
+      for (let i = 1; i <= 20; i++) { await page.mouse.move(from.x, from.y + (dy * i) / 20); }
+      await page.mouse.up();
+    }
+  }
+  /** A day with two entries in the owner's lane (an hour each, with room to move down by an hour) and, for the check-off scenario, to-dos. */
+  async function makeDay(baseURL: string, todos = 0) {
+    const day = await makeTodos(baseURL, todos, 'During');
+    await add(day.owner, { kind: 'event', date: day.date, owners: [OWNER], text: 'DragA', start: 420, length: 60 });
+    await add(day.owner, { kind: 'event', date: day.date, owners: [OWNER], text: 'DragB', start: 600, length: 60 });
+    return day;
+  }
+  const minuteHeight = async (page: Page) => { const grid = (await page.locator('.day-lanes').boundingBox())!, span = Number(await page.locator('.day-lanes').getAttribute('data-span')); return grid.height / span; };
+  const starts = async (api: Api, date: string) => Object.fromEntries((await api.snapshot()).events.filter((e: any) => e.date === date).map((e: any) => [e.text, e.start]));
+
+  test('latency: a drag started 100 ms after a drop, and a check-off during the save', async ({ page, baseURL }, info) => {
+    const phone = isPhone(info.project.name);
+    await setup(page);
+    const second: { ok: boolean; saved: number | null }[] = [], tickRows = [];
+    for (let run = 0; run < RUNS; run++) {
+      // Two drags in a row.
+      let day = await makeDay(baseURL!);
+      await freshDay(page, day.date); await page.locator('.day-ev', { hasText: 'DragA' }).first().waitFor();
+      await throttle(THROTTLE);
+      const hour = 60 * await minuteHeight(page);
+      const a = await centre(page.locator('.day-ev', { hasText: 'DragA' }).first());
+      await rawDrag(page, phone, a, hour);
+      await page.waitForTimeout(100);
+      const b = await centre(page.locator('.day-ev', { hasText: 'DragB' }).first());
+      await rawDrag(page, phone, b, hour);
+      let saved = await settled(day.owner, s => s.events.find((e: any) => e.date === day.date && e.text === 'DragA')?.start === 480 && s.events.find((e: any) => e.date === day.date && e.text === 'DragB')?.start === 660, 10_000);
+      await throttle(1);
+      second.push({ ok: saved !== null, saved }); 
+      await day.owner.dispose();
+      // A check-off in the middle of a drop's save.
+      day = await makeDay(baseURL!, 1);
+      await freshDay(page, day.date); await page.locator('.day-ev', { hasText: 'DragA' }).first().waitFor();
+      await throttle(THROTTLE);
+      const mover = await centre(page.locator('.day-ev', { hasText: 'DragA' }).first());
+      await rawDrag(page, phone, mover, hour);
+      const r = await page.evaluate(async ({ title, tab }) => {
+        if (tab) { [...document.querySelectorAll<HTMLElement>('[role=tab]')].find(t => t.textContent?.trim() === 'To-do')?.click(); await new Promise(res => setTimeout(res, 40)); }
+        const circle = () => document.querySelector<HTMLInputElement>(`input.day-circle[aria-label$=" ${title}"]`);
+        const t0 = performance.now();
+        let seen: number | null = null;
+        const watch = () => { if (seen === null && circle()?.checked) { seen = performance.now() - t0; } if (seen === null) { requestAnimationFrame(watch); } };
+        requestAnimationFrame(watch);
+        circle()?.click();
+        await new Promise(res => setTimeout(res, 400));
+        return { seen, on: circle()?.checked ?? false };
+      }, { title: day.titles[0]!, tab: phone });
+      saved = await settled(day.owner, s => s.events.find((e: any) => e.date === day.date && e.text === 'DragA')?.start === 480 && s.tasks.find((t: any) => t.title === day.titles[0])?.done === true, 10_000);
+      await throttle(1);
+      tickRows.push({ visible: [r.seen], ok: r.on && saved !== null, saved });
+      await day.owner.dispose();
+    }
+    const row = { runs: second.length, both_drags_landed: second.filter(x => x.ok).length, server_saved_median_ms: round(quantile(second.map(x => x.saved ?? NaN).filter(v => !Number.isNaN(v)), 0.5)), latency_ms: LATENCY };
+    results[`${info.project.name} drag 100 ms after a drop @${LATENCY}ms`] = row;
+    console.log(`PERF ${info.project.name} drag 100 ms after a drop @${LATENCY}ms ${JSON.stringify(row)}`);
+    dayRow(`${info.project.name} check-off during a drag's save`, tickRows);
+  });
+
+  test('latency: how long a finger holds before an entry lifts', async ({ page, baseURL }, info) => {
+    test.skip(!isPhone(info.project.name), 'touch only');
+    await setup(page);
+    const day = await makeDay(baseURL!);
+    await freshDay(page, day.date); await page.locator('.day-ev', { hasText: 'DragA' }).first().waitFor();
+    const a = await centre(page.locator('.day-ev', { hasText: 'DragA' }).first());
+    const lifts: number[] = [];
+    for (let i = 0; i < RUNS; i++) {
+      const armed = page.evaluate(() => new Promise<number>(resolve => {
+        const t0 = performance.now();
+        const mo = new MutationObserver(() => { if (document.querySelector('[data-moving]')) { mo.disconnect(); resolve(performance.now() - t0); } });
+        mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-moving'] });
+        setTimeout(() => { mo.disconnect(); resolve(-1); }, 2000);
+      }));
+      await cdp!.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a.x, y: a.y, id: 1 }] });
+      lifts.push(await armed);
+      await cdp!.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(500);
+    }
+    summarise(`${info.project.name} touch hold to lift`, lifts, []);
+    await day.owner.dispose();
   });
 });

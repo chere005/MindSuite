@@ -134,8 +134,10 @@ export function attachEventDrag(section: HTMLElement, host: MoveHost): () => voi
           delete block.dataset.moving;
           keepFocus();
           swallowClick();
-          if (cancelled || (at === event.start && sameOwners(who, event.owners))) { host.preview(block, event, event.start, event.owners); busy = false; return; }
-          void host.drop(block, event, at, who).then(stuck => { if (!stuck) { host.preview(block, event, event.start, event.owners); } }).finally(() => { busy = false; });
+          busy = false;
+          if (cancelled || (at === event.start && sameOwners(who, event.owners))) { host.preview(block, event, event.start, event.owners); return; }
+          // The next press does not wait for this drop's write: the screen already shows the entry where it landed.
+          void host.drop(block, event, at, who).then(stuck => { if (!stuck && block.isConnected) { host.preview(block, event, event.start, event.owners); } });
         },
       });
     };

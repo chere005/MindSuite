@@ -468,7 +468,7 @@ test.describe('dragging an entry with a mouse or a pen', () => {
     } finally { await clearDay(owner, date); await owner.dispose(); }
   });
 
-  test('Alt+Arrow presses that come while a write is in flight wait in line instead of being dropped; a press on a block while saving says so', async ({ page, baseURL }) => {
+  test('Alt+Arrow presses that come while a write is in flight wait in line instead of being dropped; a press on another block while saving is not refused', async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER), date = farDate(633);
     await add(owner, event(date, { text: 'Alpha', start: 540 }));
     await add(owner, event(date, { text: 'Bravo', start: 720 }));
@@ -481,9 +481,10 @@ test.describe('dragging an entry with a mouse or a pen', () => {
       });
       await block(page, `Alpha, 9a to 10a, ${OWNER_NAME}`).focus();
       for (let i = 0; i < 3; i++) { await page.keyboard.press('Alt+ArrowDown'); }
-      // While the first write is out, a press on another block is refused out loud.
+      // While the first write is out, a press on another block is taken, not refused (no input waits for a save).
       await block(page, `Bravo, 12p to 1p, ${OWNER_NAME}`).dispatchEvent('pointerdown', { isPrimary: true, button: 0, pointerType: 'mouse' });
-      await expect(page.locator('#live')).toHaveText('Still saving. Try again in a moment.');
+      await block(page, `Bravo, 12p to 1p, ${OWNER_NAME}`).dispatchEvent('pointerup', { isPrimary: true, button: 0, pointerType: 'mouse' });
+      await expect(page.locator('#live')).not.toHaveText('Still saving. Try again in a moment.');
       await expect.poll(async () => (await stored(owner, date))[0].start, { timeout: 10000 }).toBe(585);
       expect(posts.map(p => [p.start, p.revision])).toEqual([[555, 1], [570, 2], [585, 3]]);
       await expect(page.locator('#live')).toHaveText('Alpha moved to 9:45a – 10:45a.');

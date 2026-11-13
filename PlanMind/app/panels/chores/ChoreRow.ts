@@ -8,7 +8,7 @@ import type { SendResult } from '../../state';
  * describes it: an open row has a circle (done / not done) and its title, which is a button that hands that one turn to the next owner;
  * a missed row also has "Fri" (send it to the catch-up Friday) and "Let go"; a catch-up row says where it is from and has "Let go"; a
  * row sent away or let go by hand is dim with a chip that takes that back; a done row is crossed out. Every control that writes has
- * data-writes. The colour of the circle is the owner's (data-c). Which turn a row is comes from its data-rule and data-date, read
+ * (never data-writes: a write in flight does not disable a tap). The colour of the circle is the owner's (data-c). Which turn a row is comes from its data-rule and data-date, read
  * again from the snapshot at tap time, so a row that went stale in the markup still writes against the revision held now. The Day's rows
  * say how often they come in a quiet badge ("Weekly", "Week A", "Week B", "Monthly"; none on a daily chore) before their other chips. The Month's
  * rows are chips tinted by their owner (data-state says missed, for its left edge), in the phone's list and in the calendar's cells (panels/month/MonthGrid.ts); the date chip of the list opens that Day.
@@ -31,8 +31,8 @@ const titleName = (row: ChoreRow) => `${row.title}, for ${row.ownerName}. Tap to
 function controls(row: ChoreRow): string {
   const label = esc(row.title);
   switch (row.kind) {
-    case 'missed': return `<button type="button" class="ch-btn" data-act="move" data-writes aria-label="Move ${label} to Friday">Fri</button><button type="button" class="ch-btn" data-act="letgo" data-writes aria-label="Let go of ${label}">Let go</button>`;
-    case 'catchup': return `<button type="button" class="ch-btn" data-act="letgo" data-writes aria-label="Let go of ${label}">Let go</button>`;
+    case 'missed': return `<button type="button" class="ch-btn" data-act="move" aria-label="Move ${label} to Friday">Fri</button><button type="button" class="ch-btn" data-act="letgo" aria-label="Let go of ${label}">Let go</button>`;
+    case 'catchup': return `<button type="button" class="ch-btn" data-act="letgo" aria-label="Let go of ${label}">Let go</button>`;
     default: return '';
   }
 }
@@ -49,13 +49,13 @@ export function rowHtml(row: ChoreRow, options: RowOptions = {}): string {
   const shell = (inner: string) => `<li class="ch-row ch-${row.kind}" data-id="${esc(row.id)}" data-rule="${esc(row.rule.id)}" data-date="${row.date}" data-kind="${row.kind}" data-state="${row.state}" data-c="${row.color}">${inner}</li>`;
   // Sent to Friday, or let go by hand: no circle, the row is dim and its chip takes the choice back.
   if (row.kind === 'moved') {
-    return shell(`<span class="ch-ghost" aria-hidden="true"></span><span class="ch-title"${tip}>${label}</span>${chips}<button type="button" class="ch-chip ch-undo" data-act="unmove" data-writes aria-label="${label} was sent to Friday. Undo">→ Fri</button>`);
+    return shell(`<span class="ch-ghost" aria-hidden="true"></span><span class="ch-title"${tip}>${label}</span>${chips}<button type="button" class="ch-chip ch-undo" data-act="unmove" aria-label="${label} was sent to Friday. Undo">→ Fri</button>`);
   }
   if (row.kind === 'letgo') {
-    return shell(`<span class="ch-ghost" aria-hidden="true"></span><span class="ch-title"${tip}>${label}</span>${chips}<button type="button" class="ch-chip ch-undo" data-act="unletgo" data-writes aria-label="${label} was let go. Undo">Let go</button>`);
+    return shell(`<span class="ch-ghost" aria-hidden="true"></span><span class="ch-title"${tip}>${label}</span>${chips}<button type="button" class="ch-chip ch-undo" data-act="unletgo" aria-label="${label} was let go. Undo">Let go</button>`);
   }
-  return shell(`<input type="checkbox" class="ch-circle" data-writes${row.done ? ' checked' : ''} aria-label="${row.done ? 'Reopen' : 'Complete'} ${label}">
-  <button type="button" class="ch-title"${tip} data-act="owner" data-writes aria-label="${esc(titleName(row))}">${label}</button>${chips}${controls(row)}`);
+  return shell(`<input type="checkbox" class="ch-circle"${row.done ? ' checked' : ''} aria-label="${row.done ? 'Reopen' : 'Complete'} ${label}">
+  <button type="button" class="ch-title"${tip} data-act="owner" aria-label="${esc(titleName(row))}">${label}</button>${chips}${controls(row)}`);
 }
 
 /** A group of rows, in the flat list the page draws: its label (Missed, Catch-up) as an item of its own when it has one. */
@@ -80,7 +80,7 @@ export function mountRows(root: HTMLElement, ctx: PanelContext): () => void {
   const on = { signal: abort.signal };
   const write = (rule: string, date: string, kind: ChoreRowKind | undefined, tap: ChoreTap): Promise<SendResult> | undefined => {
     const turn = turnAt(ctx, rule, date);
-    return turn ? ctx.send(choreMark({ ...turn, kind }, tap)) : undefined;
+    return turn ? ctx.send(choreMark({ ...turn, kind }, tap), { optimistic: true }) : undefined;
   };
   root.addEventListener('change', event => {
     const box = event.target as HTMLInputElement;

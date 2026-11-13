@@ -59,7 +59,7 @@ const rowShell = (kit: Kit, row: TodoRow, inner: string, editing = false) => {
   const { item, color, linked, wentTo } = row, done = rowDone(row);
   const circle = wentTo
     ? `<input type="checkbox" class="day-circle" data-c="${color}" aria-disabled="true" aria-label="${esc(`Done on ${dayLabel(wentTo, { weekday: 'short', month: 'short', day: 'numeric' })}: ${item.title}`)}">`
-    : `<input type="checkbox" class="day-circle" data-c="${color}" data-writes${done ? ' checked' : ''} aria-label="${done ? 'Reopen' : 'Complete'} ${esc(item.title)}">`;
+    : `<input type="checkbox" class="day-circle" data-c="${color}"${done ? ' checked' : ''} aria-label="${done ? 'Reopen' : 'Complete'} ${esc(item.title)}">`;
   return `<li class="day-task${done ? ' day-done' : ''}${editing ? ' day-editing' : ''}" data-id="${esc(item.id)}" data-row="todo"${wentTo ? ' data-went' : ''}${editing ? ` data-editing data-key="${keyOf(item.id)}"` : ''}>
   ${circle}
   ${inner}
@@ -180,7 +180,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     const task = found(event), box = event.target as HTMLInputElement;
     if (!task || box.type !== 'checkbox') { return; }
     // The tick the browser just made stays on screen while the write is on its way (the reply redraws the row); a write that did not happen puts the box back to what is stored.
-    void ctx.send({ action: 'complete', id: task.id, revision: task.revision, done: !task.done, ...(task.done ? {} : { doneOn: ctx.date }) }).then(result => { if (!result.ok && box.isConnected) { box.checked = task.done; } });
+    void ctx.send({ action: 'complete', id: task.id, revision: task.revision, done: !task.done, ...(task.done ? {} : { doneOn: ctx.date }) }, { optimistic: true }).then(result => { if (!result.ok && box.isConnected) { box.checked = task.done; } });
   });
   // The circle of a to-do that was done on another day (its own day shows it unchecked) does nothing: its click is not a tick.
   list.addEventListener('click', event => {

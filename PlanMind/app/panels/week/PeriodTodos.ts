@@ -44,7 +44,7 @@ const blankLine = (line: number) => `<li class="wm-free" data-slot="${line}" ari
 const newKey = (line: number) => `wm:todo:new:${line}`;
 
 const rowShell = (ctx: PanelContext, { item, color }: TodoRow, inner: string, editing = false) => `<li class="wm-todo${item.done ? ' done' : ''}${editing ? ' wm-editing' : ''}" data-id="${esc(item.id)}" data-c="${color}"${editing ? ` data-editing data-key="${keyOf(item.id)}"` : ''}>
-  <input type="checkbox" class="wm-check" data-writes${item.done ? ' checked' : ''} aria-label="${item.done ? 'Reopen' : 'Complete'} ${esc(item.title)}">
+  <input type="checkbox" class="wm-check"${item.done ? ' checked' : ''} aria-label="${item.done ? 'Reopen' : 'Complete'} ${esc(item.title)}">
   ${inner}
   <span class="wm-owner sr-only">${esc(ownerName(ctx, item.owners))}</span></li>`;
 
@@ -132,7 +132,7 @@ export function mountTodos(root: HTMLElement, ctx: PanelContext, scope: TodoScop
       const task = found(event), box = event.target as HTMLInputElement;
       if (!task || box.type !== 'checkbox') { return; }
       // The tick the browser just made stays on screen while the write is on its way (the reply redraws the row); a write that did not happen puts the box back to what is stored.
-      void ctx.send({ action: 'complete', id: task.id, revision: task.revision, done: !task.done }).then(result => { if (!result.ok && box.isConnected) { box.checked = task.done; } });
+      void ctx.send({ action: 'complete', id: task.id, revision: task.revision, done: !task.done }, { optimistic: true }).then(result => { if (!result.ok && box.isConnected) { box.checked = task.done; } });
     });
     list.addEventListener('click', event => {
       const task = found(event);

@@ -15,7 +15,7 @@ function cellHtml(row: ChoreGridRow, cell: ChoreGridCell): string {
   const name = `${row.title}, ${choreDayLabel(cell.date)}: ${STATE_WORD[cell.state]}`;
   const classes = `ch-cell ch-s-${cell.state}${cell.today ? ' today' : ''}`;
   if (cell.canToggle) {
-    return `<td class="${classes}"><button type="button" class="ch-gbtn" data-act="cell" data-cell data-writes data-rule="${esc(row.rule.id)}" data-date="${cell.date}" aria-label="${esc(`${name}. Tap to mark it ${cell.state === 'done' ? 'not done' : 'done'}`)}">${cell.symbol}</button></td>`;
+    return `<td class="${classes}"><button type="button" class="ch-gbtn" data-act="cell" data-cell data-rule="${esc(row.rule.id)}" data-date="${cell.date}" aria-label="${esc(`${name}. Tap to mark it ${cell.state === 'done' ? 'not done' : 'done'}`)}">${cell.symbol}</button></td>`;
   }
   return `<td class="${classes}"><span class="ch-gsym" role="img" aria-label="${esc(name)}">${cell.symbol}</span></td>`;
 }
