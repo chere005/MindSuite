@@ -23,8 +23,8 @@
  * and pretending otherwise would mean a row that silently snapped back with no
  * reason given.
  */
-import { useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View, type PanResponderInstance } from 'react-native';
 import { AISLES, byRecOrd, duplicateItem, ingredientAisle, ingredientParts, newId, ordBetween, pantryHas, pantryItemsFromPages, type Aisle, type Rec } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
@@ -304,7 +304,63 @@ function FlagList({ kind }: { kind: Kind }) {
    */
 
   // The flat display index of a row, which is what the drag hook counts in.
-  const idxOf = (id: string) => rows.findIndex((r) => r.id === id);
+  // One pass per list change, not a scan per row per render.
+  const idxById = useMemo(() => new Map(rows.map((r, i) => [r.id, i])), [rows]);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  /**
+   * PERFORMANCE: every pointermove of a drag re-renders this component (the
+   * drag hook keeps its position in state), and a tick re-renders it too. The
+   * rows are memoised (`ShopRow`) so a move or a tick re-renders only the rows
+   * whose own props changed; what makes that possible is that everything a row
+   * calls is reached through ONE stable `h` that reads the latest closures from
+   * a ref, so no row's props change just because this render made new
+   * closures.
+   */
+  const live = useRef<LiveRow>(null as unknown as LiveRow);
+  live.current = {
+    drag, swipe, justHeld, toggleSelected, setPageEdit, setEditText, commitEdit,
+    startEdit: (r) => { setEditing(r.id); setEditText(r.payload.text); },
+    dup: (id) => {
+      const res = duplicateItem(recs, id, newId);
+      if (!('error' in res)) mutate((e) => res.put.forEach((x) => e.put(x)));
+    },
+    del: (id) => mutate((e) => e.del(id)),
+    swipeDel: (id) => { swipe.clear(); mutate((e) => e.del(id)); },
+  };
+  const h = useMemo<RowHandlers>(() => {
+    const regs = new Map<number, (ref: View | null) => void>();
+    return {
+      reg: (i) => {
+        let f = regs.get(i);
+        if (!f) { f = (ref) => live.current.drag.registerRow(i)(ref); regs.set(i, f); }
+        return f;
+      },
+      grip: (i) => live.current.drag.handleFor(i),
+      swipeHandlers: (id) => live.current.swipe.handlersFor(id),
+      onPick: (id) => {
+        const l = live.current;
+        if (l.justHeld.current) { l.justHeld.current = false; return; }
+        if (l.swipe.justSwiped()) return;
+        l.toggleSelected(id);
+      },
+      onHold: () => { const l = live.current; l.justHeld.current = true; l.setPageEdit(true); },
+      onRowPress: (r) => {
+        const l = live.current;
+        if (l.justHeld.current) { l.justHeld.current = false; return; }
+        if (l.swipe.justSwiped()) return;
+        if (l.swipe.swiped) { l.swipe.clear(); return; }
+        // A tap EDITS, in edit mode as much as out of it — the dot beside it
+        // is what picks, so the row keeps one meaning (the owner, 2026-09-16).
+        l.startEdit(r);
+      },
+      setEditText: (t) => live.current.setEditText(t),
+      commitEdit: (r) => live.current.commitEdit(r),
+      dup: (id) => live.current.dup(id),
+      del: (id) => live.current.del(id),
+      swipeDel: (id) => live.current.swipeDel(id),
+    };
+  }, []);
 
   return (
     <View style={s.page}>
@@ -346,108 +402,26 @@ function FlagList({ kind }: { kind: Kind }) {
                   reads as a bug rather than as a tidy shortcut. */}
               <Text testID={`${copy.prefix}-aisle-${g.aisle}`} style={s.aisle}>{g.aisle}</Text>
               {g.rows.map((r) => {
-                const i = idxOf(r.id);
-                const picked = selected.includes(r.id);
+                const i = idxById.get(r.id) ?? -1;
                 // A SELECTOR DOT, ALWAYS, on both lists (the owner, 2026-09-16:
                 // "the Pantry and Shopping page should now have the same
-                // always visible selector dots").
-                //
-                // It was ONE CONTROL WITH TWO MEANINGS — a square tick for
-                // "got it" out of edit mode, a round select inside it. The
-                // pantry lost the tick first, because everything in a pantry
-                // is already got; shopping lost it here. A bought row leaves
-                // by being selected and deleted, which is one idea instead of
-                // two and the same idea the other two screens use.
+                // always visible selector dots"): a bought row leaves by being
+                // selected and deleted, one idea instead of two.
                 return (
-                  <View key={r.id}>
-                    {drag.slot === i && <View style={s.dropLine} />}
-                    <View
-                      ref={drag.registerRow(i)}
-                      {...(pageEdit ? {} : swipe.handlersFor(r.id))}
-                      style={[s.row, s.rowNoSelect, drag.dragIdx === i && { opacity: 0.55, transform: [{ translateY: drag.dragDy }] }]}
-                    >
-                      <View
-                        testID={`${copy.prefix}-grip`}
-                        {...(pageEdit ? drag.handleFor(i) : {})}
-                        style={[s.grip, !pageEdit && s.gripHidden]}
-                        pointerEvents={pageEdit ? 'auto' : 'none'}
-                        hitSlop={6}
-                      >
-                        <WebHitSlop slop={6} />
-                        <Text style={s.gripText}>≡</Text>
-                      </View>
-                      <Pressable
-                        testID={`${copy.prefix}-pick`}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: picked }}
-                        accessibilityLabel={`Select ${r.payload.text}`}
-                        onPress={() => {
-                          if (justHeld.current) { justHeld.current = false; return; }
-                          if (swipe.justSwiped()) return;
-                          toggleSelected(r.id);
-                        }}
-                        onLongPress={() => { justHeld.current = true; setPageEdit(true); }}
-                        delayLongPress={350}
-                        hitSlop={8}
-                        style={s.boxWrap}
-                      >
-                        <WebHitSlop slop={8} />
-                        <View style={[s.box, s.boxCircle, picked && s.boxOn]}>
-                          {picked && <Text style={s.boxTick}>✓</Text>}
-                        </View>
-                      </Pressable>
-                      {editing === r.id ? (
-                        <Field
-                          testID={`${copy.prefix}-edit-field`}
-                          value={editText}
-                          onChangeText={setEditText}
-                          autoFocus
-                          onBlur={() => commitEdit(r)}
-                          onSubmitEditing={() => commitEdit(r)}
-                          style={s.editField}
-                        />
-                      ) : (
-                        <Pressable
-                          testID={`${copy.prefix}-row`}
-                          style={s.rowBody}
-                          onPress={() => {
-                            if (justHeld.current) { justHeld.current = false; return; }
-                            if (swipe.justSwiped()) return;
-                            if (swipe.swiped) { swipe.clear(); return; }
-                            // A tap EDITS, in edit mode as much as out of it —
-                            // the dot beside it is what picks, so the row keeps
-                            // one meaning. Recipes' rows read the same way
-                            // (the owner, 2026-09-16: "the list items should behave
-                            // the same ... in Recipes, Pantry, and Shopping").
-                            setEditing(r.id);
-                            setEditText(r.payload.text);
-                          }}
-                          // The way into edit mode, now that the pencil is gone
-                          // from the bar above.
-                          onLongPress={() => { justHeld.current = true; setPageEdit(true); }}
-                          delayLongPress={350}
-                        >
-                          <Text style={s.rowText}>{r.payload.text}</Text>
-                        </Pressable>
-                      )}
-                      {/* Duplicate and delete, the pair Recipes puts in edit
-                          mode beside its grip — "holding a listed entry enters
-                          edit mode which brings up the duplicate, drag, and
-                          delete buttons". */}
-                      {pageEdit && (
-                        <>
-                          <CircleBtn testID={`${copy.prefix}-dup`} glyph="⧉" label="Duplicate" size={22} onPress={() => {
-                            const res = duplicateItem(recs, r.id, newId);
-                            if (!('error' in res)) mutate((e) => res.put.forEach((x) => e.put(x)));
-                          }} />
-                          <ConfirmDelete testID={`${copy.prefix}-del`} onDelete={() => mutate((e) => e.del(r.id))} />
-                        </>
-                      )}
-                      {swipe.swiped === r.id && !pageEdit && (
-                        <ConfirmDelete testID={`${copy.prefix}-swipedel`} onDelete={() => { swipe.clear(); mutate((e) => e.del(r.id)); }} />
-                      )}
-                    </View>
-                  </View>
+                  <ShopRow
+                    key={r.id}
+                    r={r}
+                    idx={i}
+                    prefix={copy.prefix}
+                    pageEdit={pageEdit}
+                    picked={selectedSet.has(r.id)}
+                    slotHere={drag.slot === i}
+                    dragDy={drag.dragIdx === i ? drag.dragDy : null}
+                    editing={editing === r.id}
+                    editText={editing === r.id ? editText : ''}
+                    swiped={swipe.swiped === r.id}
+                    h={h}
+                  />
                 );
               })}
             </View>
@@ -513,6 +487,124 @@ function FlagList({ kind }: { kind: Kind }) {
     </View>
   );
 }
+
+type LiveRow = {
+  drag: ReturnType<typeof useRowDrag>;
+  swipe: ReturnType<typeof useSwipeLeft>;
+  justHeld: { current: boolean };
+  toggleSelected: (id: string) => void;
+  setPageEdit: (v: boolean) => void;
+  setEditText: (t: string) => void;
+  commitEdit: (r: Row) => void;
+  startEdit: (r: Row) => void;
+  dup: (id: string) => void;
+  del: (id: string) => void;
+  swipeDel: (id: string) => void;
+};
+
+/** Stable handlers a row reaches its screen through (see `live` in FlagList). */
+type RowHandlers = {
+  reg: (i: number) => (ref: View | null) => void;
+  grip: (i: number) => PanResponderInstance['panHandlers'];
+  swipeHandlers: (id: string) => PanResponderInstance['panHandlers'];
+  onPick: (id: string) => void;
+  onHold: () => void;
+  onRowPress: (r: Row) => void;
+  setEditText: (t: string) => void;
+  commitEdit: (r: Row) => void;
+  dup: (id: string) => void;
+  del: (id: string) => void;
+  swipeDel: (id: string) => void;
+};
+
+type ShopRowProps = {
+  r: Row;
+  idx: number;
+  prefix: string;
+  pageEdit: boolean;
+  picked: boolean;
+  /** The drag's drop line sits above this row. */
+  slotHere: boolean;
+  /** Non-null only on the row being dragged: its travel. */
+  dragDy: number | null;
+  editing: boolean;
+  editText: string;
+  swiped: boolean;
+  h: RowHandlers;
+};
+
+/** One list row. Memoised: a pointermove or a tick re-renders only the rows whose props moved. */
+const ShopRow = memo(function ShopRow({ r, idx, prefix, pageEdit, picked, slotHere, dragDy, editing, editText, swiped, h }: ShopRowProps) {
+  return (
+    <View>
+      {slotHere && <View style={s.dropLine} />}
+      <View
+        ref={h.reg(idx)}
+        {...(pageEdit ? {} : h.swipeHandlers(r.id))}
+        style={[s.row, s.rowNoSelect, dragDy !== null && { opacity: 0.55, transform: [{ translateY: dragDy }] }]}
+      >
+        <View
+          testID={`${prefix}-grip`}
+          {...(pageEdit ? h.grip(idx) : {})}
+          style={[s.grip, !pageEdit && s.gripHidden]}
+          pointerEvents={pageEdit ? 'auto' : 'none'}
+          hitSlop={6}
+        >
+          <WebHitSlop slop={6} />
+          <Text style={s.gripText}>≡</Text>
+        </View>
+        <Pressable
+          testID={`${prefix}-pick`}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: picked }}
+          accessibilityLabel={`Select ${r.payload.text}`}
+          onPress={() => h.onPick(r.id)}
+          onLongPress={h.onHold}
+          delayLongPress={350}
+          hitSlop={8}
+          style={s.boxWrap}
+        >
+          <WebHitSlop slop={8} />
+          <View style={[s.box, s.boxCircle, picked && s.boxOn]}>
+            {picked && <Text style={s.boxTick}>✓</Text>}
+          </View>
+        </Pressable>
+        {editing ? (
+          <Field
+            testID={`${prefix}-edit-field`}
+            value={editText}
+            onChangeText={h.setEditText}
+            autoFocus
+            onBlur={() => h.commitEdit(r)}
+            onSubmitEditing={() => h.commitEdit(r)}
+            style={s.editField}
+          />
+        ) : (
+          <Pressable
+            testID={`${prefix}-row`}
+            style={s.rowBody}
+            onPress={() => h.onRowPress(r)}
+            // The way into edit mode, now that the pencil is gone from the bar above.
+            onLongPress={h.onHold}
+            delayLongPress={350}
+          >
+            <Text style={s.rowText}>{r.payload.text}</Text>
+          </Pressable>
+        )}
+        {/* Duplicate and delete, the pair Recipes puts in edit mode beside its grip. */}
+        {pageEdit && (
+          <>
+            <CircleBtn testID={`${prefix}-dup`} glyph="⧉" label="Duplicate" size={22} onPress={() => h.dup(r.id)} />
+            <ConfirmDelete testID={`${prefix}-del`} onDelete={() => h.del(r.id)} />
+          </>
+        )}
+        {swiped && !pageEdit && (
+          <ConfirmDelete testID={`${prefix}-swipedel`} onDelete={() => h.swipeDel(r.id)} />
+        )}
+      </View>
+    </View>
+  );
+});
 
 const s = themed(() => StyleSheet.create({
   page: { flex: 1, backgroundColor: T.bg },

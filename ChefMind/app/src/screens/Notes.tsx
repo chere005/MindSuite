@@ -10,8 +10,8 @@
  * plus a plain-text body autosaving on the store's debounce. Notes never
  * convert out and never repeat; a date in the title puts one on the calendar.
  */
-import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { memo, useEffect, useMemo, useState, useRef } from 'react';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View, type PanResponderInstance } from 'react-native';
 import { LONG_PRESS_MS, defaultNoteTitle, looksLikeDefaultNoteTitle, deleteSection, renameSection, sectionNameTaken, byRecOrd, findVariant, ingredientParts, isRecipeNote, joinRecipeBody, liveSections, recipeSections, richLines, scaleRecipeBody, splitRecipeBody, variantBody, duplicateItem, prefsPut, moveNote, moveSection, moveSectionEmptyingFolder, newId, nowStr, ordBetween, parseWhenFromText, todayStr, type Rec, type RecipeVariant } from '@calmind/core';
 import * as Clipboard from 'expo-clipboard';
 import { useStore } from '../store';
@@ -59,6 +59,9 @@ const SCALES: [number, string, string][] = [[0.5, '½×', 'half'], [1, '1×', 'o
  * render in which the note changes, so the wrong value is never shown even
  * once, and the next person gets it for free.
  */
+const NO_SECTIONS: Rec<'section'>[] = [];
+const NO_NOTES: Rec<'note'>[] = [];
+
 function useNoteScoped<T>(noteId: string | null, initial: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [value, setValue] = useState<T>(initial);
   const [seen, setSeen] = useState(noteId);
@@ -441,8 +444,14 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     const folders = visibleFolders;
     const sections = recs.filter((r): r is Rec<'section'> => r.type === 'section').sort(byRecOrd);
     const notes = recs.filter((r): r is Rec<'note'> => r.type === 'note').sort(byRecOrd);
-    const sectionsOf = (fid: string) => sections.filter((x) => x.payload.folderId === fid);
-    const notesOf = (sid: string) => notes.filter((x) => x.payload.sectionId === sid);
+    // Grouped once (sorted order kept), so a lookup is a Map hit rather than a
+    // filter over every record — it is called per section and per row, per render.
+    const secByFolder = new Map<string, Rec<'section'>[]>();
+    for (const x of sections) { const a = secByFolder.get(x.payload.folderId); if (a) a.push(x); else secByFolder.set(x.payload.folderId, [x]); }
+    const noteBySec = new Map<string, Rec<'note'>[]>();
+    for (const x of notes) { const a = noteBySec.get(x.payload.sectionId); if (a) a.push(x); else noteBySec.set(x.payload.sectionId, [x]); }
+    const sectionsOf = (fid: string) => secByFolder.get(fid) ?? NO_SECTIONS;
+    const notesOf = (sid: string) => noteBySec.get(sid) ?? NO_NOTES;
     // Everything Select-all can reach: the recipes that are ON SCREEN, in the
     // folders currently shown. Not every note in the store — selecting rows
     // that are folded away, filtered out or a partner's would hand the
@@ -549,7 +558,66 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
   });
-  const flatIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'row' && x.rec.id === id);
+  const flatIdx = useMemo(() => {
+    const m = new Map<string, number>();
+    flatRows.forEach((x, i) => { if (x.kind === 'row') m.set(x.rec.id, i); });
+    return m;
+  }, [flatRows]);
+  const flatIdxOf = (id: string) => flatIdx.get(id) ?? -1;
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  // PERFORMANCE: a drag move or a tick re-renders this whole screen. Rows are
+  // memoised (`NoteRow`) and reach their handlers through ONE stable `h` that
+  // reads the latest closures from a ref, so only rows whose own props moved render.
+  const live = useRef<NoteLive>(null as unknown as NoteLive);
+  live.current = {
+    drag, swipe, justHeld, lastTap, tapTimer, toggleSelected, setPageEdit, setOpenId, setDateFor,
+    dup: (id) => {
+      const res = duplicateItem(recs, id, newId);
+      if (!('error' in res)) mutate((e) => res.put.forEach((p) => e.put(p)));
+    },
+    del: (id) => mutate((e) => e.del(id)),
+    swipeDel: (id) => { swipe.clear(); mutate((e) => e.del(id)); },
+  };
+  const h = useMemo<NoteHandlers>(() => {
+    const regs = new Map<number, (ref: import('react-native').View | null) => void>();
+    return {
+      reg: (i) => {
+        let f = regs.get(i);
+        if (!f) { f = (ref) => live.current.drag.registerRow(i)(ref); regs.set(i, f); }
+        return f;
+      },
+      grip: (i) => live.current.drag.handleFor(i),
+      swipeHandlers: (id) => live.current.swipe.handlersFor(id),
+      toggle: (id) => live.current.toggleSelected(id),
+      onHold: () => { const l = live.current; l.justHeld.current = true; l.setPageEdit(true); },
+      onRowPress: (id) => {
+        const l = live.current;
+        if (l.justHeld.current) { l.justHeld.current = false; return; }
+        if (l.swipe.justSwiped()) return;
+        if (l.swipe.swiped) { l.swipe.clear(); return; }
+        // A tap OPENS, in edit mode as much as out of it, and a DOUBLE TAP goes into edit mode.
+        const now = Date.now();
+        const prev = l.lastTap.current;
+        if (prev && prev.id === id && now - prev.at < 250) {
+          if (l.tapTimer.current) clearTimeout(l.tapTimer.current);
+          l.tapTimer.current = null;
+          l.lastTap.current = null;
+          l.setPageEdit(true);
+          return;
+        }
+        l.lastTap.current = { id, at: now };
+        if (l.tapTimer.current) clearTimeout(l.tapTimer.current);
+        l.tapTimer.current = setTimeout(() => {
+          l.tapTimer.current = null;
+          l.setOpenId(id);
+        }, 250);
+      },
+      dateChip: (id) => live.current.setDateFor(id),
+      dup: (id) => live.current.dup(id),
+      del: (id) => live.current.del(id),
+      swipeDel: (id) => live.current.swipeDel(id),
+    };
+  }, []);
   const emptyIdxOf = (sectionId: string) => flatRows.findIndex((x) => x.kind === 'empty' && x.sectionId === sectionId);
   const headIdxOf = (sectionId: string) => flatRows.findIndex((x) => x.kind === 'head' && x.sectionId === sectionId);
   /**
@@ -1395,109 +1463,22 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
                     </View>
                   </View>
                 )}
-                {!nfolded.has(sec.id) && notesOf(sec.id).map((n) => (
-                  <View key={n.id}>
-                    {drag.slot !== null && flatIdxOf(n.id) === drag.slot && <View style={s.dropLine} />}
-                    <View ref={drag.registerRow(flatIdxOf(n.id))} {...(pageEdit ? {} : swipe.handlersFor(n.id))} style={[s.row, s.rowNoSelect, drag.dragIdx !== null && flatIdxOf(n.id) === drag.dragIdx && { opacity: 0.55, transform: [{ translateY: drag.dragDy }] }]}>
-                      <View testID="note-grip" {...(pageEdit ? drag.handleFor(flatIdxOf(n.id)) : {})} style={[s.rowGrip, !pageEdit && s.gripHidden]} pointerEvents={pageEdit ? 'auto' : 'none'} hitSlop={6}>
-                    <WebHitSlop slop={6} />
-                        <Text style={s.rowGripText}>≡</Text>
-                      </View>
-                      {/* The tick, ALWAYS — it leads the row rather than
-                          hiding behind the other controls, and it is the one
-                          control here that no longer waits on a mode. */}
-                      {(
-                        <Pressable
-                          testID={`recipe-pick-${n.payload.title}`}
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: selected.includes(n.id) }}
-                          accessibilityLabel={`Select ${n.payload.title}`}
-                          onPress={() => toggleSelected(n.id)}
-                          hitSlop={8}
-                          style={s.pickWrap}
-                        >
-                          <WebHitSlop slop={8} />
-                          <View style={[s.pick, selected.includes(n.id) && s.pickOn]}>
-                            {selected.includes(n.id) && <Text style={s.pickTick}>✓</Text>}
-                          </View>
-                        </Pressable>
-                      )}
-                      <Pressable
-                        testID="note-row"
-                        onPress={() => {
-                          if (justHeld.current) { justHeld.current = false; return; }
-                          if (swipe.justSwiped()) return;
-                          if (swipe.swiped) { swipe.clear(); return; }
-                          // A tap OPENS, in edit mode as much as out of it.
-                          // It used to pick instead while the mode was on,
-                          // which was the only way to reach the selection —
-                          // the circle beside it is that way now, so the row
-                          // keeps one meaning and the chevron stops having to
-                          // disappear to warn about the other.
-                          // DOUBLE TAP into edit mode.
-                          const now = Date.now();
-                          const prev = lastTap.current;
-                          if (prev && prev.id === n.id && now - prev.at < 250) {
-                            if (tapTimer.current) clearTimeout(tapTimer.current);
-                            tapTimer.current = null;
-                            lastTap.current = null;
-                            setPageEdit(true);
-                            return;
-                          }
-                          lastTap.current = { id: n.id, at: now };
-                          if (tapTimer.current) clearTimeout(tapTimer.current);
-                          tapTimer.current = setTimeout(() => {
-                            tapTimer.current = null;
-                            setOpenId(n.id);
-                          }, 250);
-                        }}
-                        // Edit mode, and NOTHING selected by arriving in it:
-                        // the gesture asks for the grips, and a PickBar that
-                        // opened by itself would be answering a question
-                        // nobody asked.
-                        onLongPress={() => { justHeld.current = true; setPageEdit(true); }}
-                        delayLongPress={350}
-                        style={s.rowBody}
-                      >
-                        <Text style={s.rowTitle} numberOfLines={1}>{n.payload.title}</Text>
-                        {/* The chevron means "tap to open", which is now true
-                            in edit mode too — so it only goes away for a
-                            SWIPED row, where a tap puts the delete back
-                            rather than opening anything. */}
-                        {swipe.swiped !== n.id && <Text style={s.chev}>›</Text>}
-                      </Pressable>
-                      {/* The date itself is the other way in: the owner asked that
-                          tapping a date in edit mode open the same editor. */}
-                      {pageEdit && n.payload.date && (
-                        <Pressable testID={`note-datechip-${n.payload.title}`} onPress={() => setDateFor(n.id)} hitSlop={6}>
-                          <WebHitSlop slop={6} />
-                          <Text style={s.dateChip}>{n.payload.date}</Text>
-                        </Pressable>
-                      )}
-                      {pageEdit && (
-                        <>
-                          {/* NO calendar button. The owner, 2026-08-22: "remove the
-                              calendar icon in edit mode in chefmind". A recipe
-                              is not a dated thing — that is CalMind's job, and
-                              the button was upstream's arriving with the
-                              clone. The date CHIP above stays, so a date that
-                              already exists can still be changed or cleared;
-                              what is gone is the invitation to add one. */}
-                          <CircleBtn testID="note-dup" glyph="⧉" label="Duplicate" size={22} onPress={() => {
-                            const res = duplicateItem(recs, n.id, newId);
-                            if (!('error' in res)) mutate((e) => res.put.forEach((p) => e.put(p)));
-                          }} />
-                          <ConfirmDelete onDelete={() => mutate((e) => e.del(n.id))} />
-                        </>
-                      )}
-                      {swipe.swiped === n.id && !pageEdit && (
-                        <View style={s.swipePark}>
-                          <ConfirmDelete forceArmed onDelete={() => { swipe.clear(); mutate((e) => e.del(n.id)); }} />
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                ))}
+                {!nfolded.has(sec.id) && notesOf(sec.id).map((n) => {
+                  const fi = flatIdxOf(n.id);
+                  return (
+                    <NoteRow
+                      key={n.id}
+                      n={n}
+                      idx={fi}
+                      pageEdit={pageEdit}
+                      picked={selectedSet.has(n.id)}
+                      slotHere={drag.slot !== null && fi === drag.slot}
+                      dragDy={drag.dragIdx !== null && fi === drag.dragIdx ? drag.dragDy : null}
+                      swiped={swipe.swiped === n.id}
+                      h={h}
+                    />
+                  );
+                })}
               </View>
             ))}
             {secDrag.lineKey === `end:${f.id}` && <View style={s.dropLine} />}
@@ -1795,6 +1776,114 @@ function SharedNotes({ viewKey, partner }: { viewKey: string; partner: string })
     </View>
   );
 }
+
+type NoteLive = {
+  drag: ReturnType<typeof useRowDrag>;
+  swipe: ReturnType<typeof useSwipeLeft>;
+  justHeld: { current: boolean };
+  lastTap: { current: { id: string; at: number } | null };
+  tapTimer: { current: ReturnType<typeof setTimeout> | null };
+  toggleSelected: (id: string) => void;
+  setPageEdit: (v: boolean) => void;
+  setOpenId: (id: string) => void;
+  setDateFor: (id: string) => void;
+  dup: (id: string) => void;
+  del: (id: string) => void;
+  swipeDel: (id: string) => void;
+};
+
+/** Stable handlers a recipe row reaches the screen through (see `live` in Notes). */
+type NoteHandlers = {
+  reg: (i: number) => (ref: import('react-native').View | null) => void;
+  grip: (i: number) => PanResponderInstance['panHandlers'];
+  swipeHandlers: (id: string) => PanResponderInstance['panHandlers'];
+  toggle: (id: string) => void;
+  onHold: () => void;
+  onRowPress: (id: string) => void;
+  dateChip: (id: string) => void;
+  dup: (id: string) => void;
+  del: (id: string) => void;
+  swipeDel: (id: string) => void;
+};
+
+type NoteRowProps = {
+  n: Rec<'note'>;
+  idx: number;
+  pageEdit: boolean;
+  picked: boolean;
+  slotHere: boolean;
+  /** Non-null only on the row being dragged: its travel. */
+  dragDy: number | null;
+  swiped: boolean;
+  h: NoteHandlers;
+};
+
+/** One recipe row. Memoised: a pointermove or a tick re-renders only the rows whose props moved. */
+const NoteRow = memo(function NoteRow({ n, idx, pageEdit, picked, slotHere, dragDy, swiped, h }: NoteRowProps) {
+  return (
+    <View>
+      {slotHere && <View style={s.dropLine} />}
+      <View ref={h.reg(idx)} {...(pageEdit ? {} : h.swipeHandlers(n.id))} style={[s.row, s.rowNoSelect, dragDy !== null && { opacity: 0.55, transform: [{ translateY: dragDy }] }]}>
+        <View testID="note-grip" {...(pageEdit ? h.grip(idx) : {})} style={[s.rowGrip, !pageEdit && s.gripHidden]} pointerEvents={pageEdit ? 'auto' : 'none'} hitSlop={6}>
+          <WebHitSlop slop={6} />
+          <Text style={s.rowGripText}>≡</Text>
+        </View>
+        {/* The tick, ALWAYS — it leads the row rather than hiding behind the
+            other controls, and it is the one control here that no longer
+            waits on a mode. */}
+        <Pressable
+          testID={`recipe-pick-${n.payload.title}`}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: picked }}
+          accessibilityLabel={`Select ${n.payload.title}`}
+          onPress={() => h.toggle(n.id)}
+          hitSlop={8}
+          style={s.pickWrap}
+        >
+          <WebHitSlop slop={8} />
+          <View style={[s.pick, picked && s.pickOn]}>
+            {picked && <Text style={s.pickTick}>✓</Text>}
+          </View>
+        </Pressable>
+        <Pressable
+          testID="note-row"
+          onPress={() => h.onRowPress(n.id)}
+          // Edit mode, and NOTHING selected by arriving in it: the gesture
+          // asks for the grips, and a PickBar that opened by itself would be
+          // answering a question nobody asked.
+          onLongPress={h.onHold}
+          delayLongPress={350}
+          style={s.rowBody}
+        >
+          <Text style={s.rowTitle} numberOfLines={1}>{n.payload.title}</Text>
+          {/* The chevron means "tap to open", which is true in edit mode too —
+              it only goes away for a SWIPED row, where a tap puts the delete
+              back rather than opening anything. */}
+          {!swiped && <Text style={s.chev}>›</Text>}
+        </Pressable>
+        {/* The date itself is the other way in: tapping a date in edit mode opens the same editor. */}
+        {pageEdit && n.payload.date && (
+          <Pressable testID={`note-datechip-${n.payload.title}`} onPress={() => h.dateChip(n.id)} hitSlop={6}>
+            <WebHitSlop slop={6} />
+            <Text style={s.dateChip}>{n.payload.date}</Text>
+          </Pressable>
+        )}
+        {pageEdit && (
+          <>
+            {/* NO calendar button (the owner, 2026-08-22: "remove the calendar icon in edit mode in chefmind"); the date CHIP above stays. */}
+            <CircleBtn testID="note-dup" glyph="⧉" label="Duplicate" size={22} onPress={() => h.dup(n.id)} />
+            <ConfirmDelete onDelete={() => h.del(n.id)} />
+          </>
+        )}
+        {swiped && !pageEdit && (
+          <View style={s.swipePark}>
+            <ConfirmDelete forceArmed onDelete={() => h.swipeDel(n.id)} />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+});
 
 const s = themed(() => StyleSheet.create({
   page: { flex: 1, backgroundColor: T.bg },
