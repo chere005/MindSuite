@@ -72,7 +72,7 @@ export function Requests({ onClose }: { onClose: () => void }) {
         setAvDay(day);
         // The section is left as it was rather than torn down: a dropped
         // connection is not evidence that the request page stopped being his.
-        setAvNote(day.failed ? 'Could not read that day — the hours below may be out of date.' : '');
+        setAvNote(day.failed ? 'Could not read the hours for that day.' : '');
       },
       setAvOwner,
     );
