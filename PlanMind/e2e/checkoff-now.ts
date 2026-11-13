@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { periodStart } from '../packages/core/src/planner';
-import { apiLogin, farDate, login, resetPrefs, showTodos, todo, unique, type Api } from './helpers';
+import { apiLogin, farDate, login, resetChores, resetPrefs, showTodos, todo, unique, type Api } from './helpers';
 import { OWNER } from './people';
 
 // #230: a check-off crosses the row out and moves it where done rows go in the frame of the tap, not when the last save returns. Every write is held at the
@@ -23,6 +23,8 @@ async function hold(page: Page): Promise<Held> {
   });
   return { release: () => open(), replies: () => replies, posts: () => posts, refuse: (code, body) => { refusal = { code, body }; } };
 }
+
+const THU = '2027-03-11';   // the 2nd Thursday of a Week A: Dishes is the first of the day's own chores (chores.spec.ts)
 
 export function defineCheckoffNow(phone: boolean) {
   const press = (target: Locator) => (phone ? target.tap() : target.click());
@@ -129,16 +131,49 @@ export function defineCheckoffNow(phone: boolean) {
     const target = circle(page, 'day', c);
     const at = (await target.boundingBox())!;
     await page.evaluate(() => { document.querySelectorAll('.day-tasks > li').forEach((li, i) => { (li as HTMLElement & { mark?: number }).mark = i + 1; }); });
+    const cdp = await page.context().newCDPSession(page), [x, y] = [at.x + at.width / 2, at.y + at.height / 2];
     if (phone) {
-      const cdp = await page.context().newCDPSession(page);
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x + at.width / 2, y: at.y + at.height / 2, id: 1 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
     } else { await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2); await page.mouse.down(); }
     held.release();
     await expect.poll(() => held.replies()).toBe(1);
     await page.waitForTimeout(200);
     expect(await page.evaluate(() => [...document.querySelectorAll('.day-tasks > li')].every((li, i) => (li as HTMLElement & { mark?: number }).mark === i + 1)), 'the list was not drawn again under the pointer').toBe(true);
-    if (phone) { await (await page.context().newCDPSession(page)).send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); } else { await page.mouse.up(); }
+    // Let go away from the circle (a scroll, a mouse released elsewhere), so the press is not a tap on C.
+    if (phone) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + 70, id: 1 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } else { await page.mouse.move(x + 300, y); await page.mouse.up(); }
+    // Let go, the list is drawn again: the first check-off is crossed out among the done rows.
+    await expect.poll(() => rows(page, 'day', titles)).toEqual([[b, false], [c, false], [d, false], [a, true]]);
     await expect.poll(async () => state(api, titles), { timeout: 8000 }).toEqual([[a, true], [b, false], [c, false], [d, false]]);
     await api.dispose();
+  });
+
+  test(`${sized} chores: a ticked chore is crossed out among the done rows before any reply, an untick comes back`, async ({ page, baseURL }) => {
+    const owner = await apiLogin(baseURL!, OWNER);
+    await resetChores(owner, '2027-03');
+    try {
+      await page.clock.install({ time: new Date(`${THU}T12:00:00-06:00`) });
+      await login(page); const held = await hold(page);
+      await page.locator(phone ? '#pill-date' : '#jump-date').fill(THU);
+      await expect(page.locator('#sidebar .date-row.selected')).toHaveAttribute('data-date', THU);
+      if (phone) { await page.getByRole('tab', { name: 'Chores', exact: true }).tap(); }
+      else { await page.getByRole('button', { name: /^Lists: / }).click(); await page.getByRole('group', { name: 'Lists', exact: true }).getByRole('switch', { name: 'Chores', exact: true }).click(); }
+      const list = (what: 'kind' | 'state') => page.locator('.ch-row').evaluateAll((lis, what) => lis.map(li => [li.querySelector('.ch-title')?.textContent ?? '', (li as HTMLElement).dataset[what]]), what);
+      const dishes = page.locator('input.ch-circle[aria-label$=" Dishes"]');
+      await expect(dishes).toBeVisible();
+      const first = (await list('kind'))[0]!;
+      expect(first).toEqual(['Dishes', 'open']);
+      await press(dishes);
+      await expect.poll(async () => { const rows = await list('kind'); return rows[rows.length - 1]; }, { timeout: 1500 }).toEqual(['Dishes', 'done']);
+      expect(held.replies(), 'no reply has come').toBe(0);
+      await press(page.locator('input.ch-circle[aria-label$=" Dishes"]'));
+      await expect.poll(async () => (await list('kind'))[0], { timeout: 1500 }).toEqual(['Dishes', 'open']);
+      held.release();
+      await expect.poll(() => held.posts().length > 0 && held.replies() === held.posts().length, { timeout: 8000 }).toBe(true);
+      await expect.poll(async () => (await owner.snapshot()).choreMarks.filter((m: { date: string; state: string }) => m.date === THU && m.state === 'done').length, { timeout: 8000 }).toBe(0);
+      await expect(page.locator('#error')).toBeHidden();
+    } finally { await resetChores(owner, '2027-03'); await owner.dispose(); }
   });
 }

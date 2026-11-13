@@ -87,8 +87,8 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   /** Whether the page shown is the phone's Chores view: the flag is on and the window is a phone (on the Week and the Month only when the phone's own tab turned it on, never the Day's switch). Widening the window with it on lands on the planner, the Day with its switch on. */
   const choresPage = () => ctx.choresPage;
   // The panel is rendered from scratch whenever the data changes, but not while that would cost the person something:
-  // a write is in flight, a text field has focus or a pointer is down. It waits, then renders.
-  // A redraw the panel itself asked for (a tab, an edit opened) does not wait for the writes the screen already answers (they are laid over the snapshot), only for one it cannot show.
+  // a write the screen cannot answer is in flight, a text field has focus or a pointer is down. It waits, then renders.
+  // The writes the screen already answers (a tick, a chore mark, an entry moved: laid over the snapshot, core optimistic.ts) do not hold a redraw back, so a checked row is drawn crossed out in its new place at once (redraw.ts).
   const quiet = () => mayRedraw({
     asked: panelAsked, busy: state.busy, queued: state.queued, settling: state.settling, pointerDown,
     textFocused: host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null),
@@ -257,9 +257,11 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
     else if (change === 'nav' || change === 'chores') { drawHeader(); topBar.draw(); seatBanner(); sidebar.draw(); render(true); }
     else if (change === 'data' || change === 'selection') {
       for (const key of orphanDrafts(state.drafts.keys(), listIds())) { state.drafts.delete(key); }
-      drawHeader(); topBar.draw(); sidebar.draw(); render(false);
+      drawHeader(); topBar.draw(); sidebar.draw();
+      // With writes in flight the redraw is a macrotask later, so the code that made the write (the tap's own handler) has run first; it shows the display, the snapshot with those writes laid over it.
+      if (state.queued) { pending = true; later(); } else { render(false); }
     }
-    else if (change === 'busy') { syncBusy(); if (!state.queued || (panelAsked && !state.busy)) { later(); } }
+    else if (change === 'busy') { syncBusy(); later(); }
     else if (change === 'sidebar') { drawSidebar(); }
     else if (change === 'theme') { setTheme(state.theme); }
     else { drawStatus(); reloadForRelease(); }

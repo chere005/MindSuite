@@ -67,7 +67,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let shown: { base: Session; version: number; value: Session } | null = null;
   /** Whether a write the screen does not answer by itself is waiting or on its way (forms are held and a redraw waits for it). */
   const isBusy = () => queue.some(entry => !entry.optimistic);
-  /** Whether any write is waiting or on its way, or one was just refused and the code that awaited it has not run yet: the shell holds its redraw until none is, then draws once what the screen should read. */
+  /** Whether any write is waiting or on its way, or one was just refused and the code that awaited it has not run yet. The shell's redraw waits only for `busy` (a write the screen cannot answer) and `settling`, not for this: an optimistic write is drawn from `display()` at once. */
   const isQueued = () => settling > 0 || queue.length > 0;
   const emitBusy = () => { const [now, queued] = [isBusy(), isQueued()]; if (now !== wasBusy || queued !== wasQueued) { wasBusy = now; wasQueued = queued; emit('busy'); } };
   /** The snapshot as the screen reads it: the server's, with the unanswered optimistic writes laid over it. */
@@ -208,7 +208,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
         try { reply = await io.send(entry.mutation); }
         catch (e) { failure = e instanceof ApiFailure ? e : new ApiFailure(e instanceof Error ? e.message : 'Unable to save.', 0, null); }
         if (!alive) { return; }
-        // The answer is taken in while the write still counts as queued, so the shell holds its redraw (as it always did while a write was on its way) until the line is empty.
+        // The answer is taken in while the write still counts as queued, so a write the screen cannot answer (`busy`) holds the shell's redraw until it has been handled; an optimistic one is already drawn.
         if (reply) {
           if (!applyResponse(reply)) { emit('data'); }
           queue.shift(); queueVersion++;
