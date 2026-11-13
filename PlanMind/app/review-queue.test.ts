@@ -82,7 +82,7 @@ describe('review: polls and the write line', () => {
     r.state.close(); vi.useRealTimers();
   });
 
-  it('a tick the server refuses outright is gone from the picture at the last data event, with the line already emptied', async () => {
+  it('a tick the server refuses outright is gone from the picture at the last data event', async () => {
     vi.useFakeTimers();
     const r = rig(['a']);
     r.refusing.add('a');
@@ -96,8 +96,34 @@ describe('review: polls and the write line', () => {
     expect(r.state.queued).toBe(false);
     expect(r.state.status).toBe('Needs attention');
     expect(drawn[0]!.done).toEqual(['a']);                     // the tick, shown at once
-    expect(drawn.at(-1)).toEqual({ done: [], queued: false }); // the failure's data event comes after the entry left
+    expect(drawn.at(-1)!.done).toEqual([]);                    // the failure's data event comes after the entry left
     expect(done(r.state)).toEqual([]);
+    r.state.close(); vi.useRealTimers();
+  });
+
+  it('a shell that draws when the line is empty draws a refusal only after the code that awaited the write has run, and without the refused tick', async () => {
+    vi.useFakeTimers();
+    const r = rig(['a']);
+    r.refusing.add('a');
+    const log: string[] = [], pictures: string[][] = [];
+    let pending = false;
+    const render = () => { pending = false; pictures.push(done(r.state)); log.push('render'); };
+    // The shell's rules: a data event draws now only when nothing is queued, else waits; the line going quiet draws a macrotask later.
+    r.state.subscribe(change => {
+      if (change === 'data') { if (r.state.queued) { pending = true; } else { render(); } }
+      else if (change === 'busy' && !r.state.queued) { setTimeout(() => { if (pending) { render(); } }, 0); }
+    });
+    const result = r.state.send(tick('a', 3, true), { optimistic: true });
+    void result.then(() => { log.push('handler'); });
+    pending = true;                                            // a panel asked for a redraw while the write was out
+    await r.open();
+    await vi.runAllTimersAsync();                              // the line settles, then the shell's own macrotask
+    expect(await result).toMatchObject({ ok: false, code: 'unavailable' });
+    expect(log.indexOf('handler')).toBeGreaterThanOrEqual(0);
+    expect(log.slice(log.indexOf('handler'))).toContain('render'); // a drawing after the handler ran
+    expect(log.slice(0, log.indexOf('handler')).filter(x => x === 'render').length).toBe(0); // none before it
+    expect(pictures.at(-1)).toEqual([]);
+    expect(r.state.queued).toBe(false);
     r.state.close(); vi.useRealTimers();
   });
 

@@ -88,7 +88,7 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   // The panel is rendered from scratch whenever the data changes, but not while that would cost the person something:
   // a write is in flight, a text field has focus or a pointer is down. It waits, then renders.
   // A redraw the panel itself asked for (a tab, an edit opened) does not wait for the writes the screen already answers (they are laid over the snapshot), only for one it cannot show.
-  const quiet = () => !(panelAsked ? state.busy : state.queued) && !pointerDown && !host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null);
+  const quiet = () => !(panelAsked ? state.busy || state.settling : state.queued) && !pointerDown && !host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null);
   const syncBusy = () => host.querySelectorAll<HTMLButtonElement | HTMLInputElement>('[data-writes]').forEach(control => { control.disabled = state.busy; });
   /**
    * Remembers which control of the panel has the focus and returns what puts the focus on its twin in the new markup, so a
@@ -255,7 +255,7 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
       for (const key of orphanDrafts(state.drafts.keys(), listIds())) { state.drafts.delete(key); }
       drawHeader(); topBar.draw(); sidebar.draw(); render(false);
     }
-    else if (change === 'busy') { syncBusy(); if (!state.queued) { later(); } }
+    else if (change === 'busy') { syncBusy(); if (!state.queued || (panelAsked && !state.busy)) { later(); } }
     else if (change === 'sidebar') { drawSidebar(); }
     else if (change === 'theme') { setTheme(state.theme); }
     else { drawStatus(); reloadForRelease(); }

@@ -63,12 +63,12 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let fetching = false, alive = true;
   // The writes made and not yet answered, in order; the first is the one on its way. `optimistic` ones show on the screen at once.
   type Entry = { mutation: Mutation; optimistic: boolean; keys: string[]; started: boolean; waiters: ((result: SendResult) => void)[] };
-  let queue: Entry[] = [], pumping = false, wasBusy = false, wasQueued = false, queueVersion = 0;
+  let queue: Entry[] = [], pumping = false, wasBusy = false, wasQueued = false, queueVersion = 0, settling = 0;
   let shown: { base: Session; version: number; value: Session } | null = null;
   /** Whether a write the screen does not answer by itself is waiting or on its way (forms are held and a redraw waits for it). */
   const isBusy = () => queue.some(entry => !entry.optimistic);
-  /** Whether any write is waiting or on its way: the shell holds its redraw until none is, then draws once what the screen should read. */
-  const isQueued = () => queue.length > 0;
+  /** Whether any write is waiting or on its way, or one was just refused and the code that awaited it has not run yet: the shell holds its redraw until none is, then draws once what the screen should read. */
+  const isQueued = () => settling > 0 || queue.length > 0;
   const emitBusy = () => { const [now, queued] = [isBusy(), isQueued()]; if (now !== wasBusy || queued !== wasQueued) { wasBusy = now; wasQueued = queued; emit('busy'); } };
   /** The snapshot as the screen reads it: the server's, with the unanswered optimistic writes laid over it. */
   function display(): Session {
@@ -223,6 +223,8 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
           error = { message, source: 'write' }; status = 'Needs attention';
           // The refused change leaves the line before the shell is told, so the last picture it draws for the failure is already without it.
           queue = queue.filter(other => other !== entry && !behind.includes(other)); queueVersion++;
+          // The line still counts as busy for a macrotask, so the shell holds its redraw until the code that awaited the refused write has run (a form shows its reason first), then draws the corrected picture.
+          settling++; setTimeout(() => { settling--; if (alive && settling === 0) { wasBusy = isBusy(); wasQueued = isQueued(); emit('busy'); } }, 0);
           emit('data'); emit('status');
           entry.waiters.forEach(done => done({ ok: false, message, code: failure!.code, uncertain: failure!.uncertain }));
           behind.forEach(other => other.waiters.forEach(done => done(SKIPPED)));
@@ -290,6 +292,8 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     get busy() { return isBusy(); },
     /** Whether any write, an optimistic one too, is waiting or on its way. */
     get queued() { return isQueued(); },
+    /** True for the macrotask after a refusal, while the code that awaited the write runs: no redraw, even one a panel asked for, goes before it. */
+    get settling() { return settling > 0; },
     /** Whether the host now serves another release than the one this page started under (the shell reloads at a quiet moment). */
     get newRelease() { return io.release?.changed ?? false; },
     /** Whether a change of the picker or sidebar is still waiting for its save (a reload now would lose it). */

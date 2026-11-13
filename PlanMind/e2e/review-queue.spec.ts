@@ -79,3 +79,21 @@ test('a rename committed by pressing the same row\'s circle', async ({ page, bas
   console.log(`REVIEW rename+tick: screen=${JSON.stringify(shownTitles.map(t => t.trim().slice(0, 40)))} circle=${await circle(page, title).isChecked().catch(() => 'n/a')} stored=${JSON.stringify({ title: stored?.title, done: stored?.done })} banner=${JSON.stringify(banner)}`);
   await owner.dispose();
 });
+
+test('an add the server refuses keeps its reason under the add box, with the Add button or Enter', async ({ page }) => {
+  const date = farDate(day++), tag = crypto.randomUUID().slice(0, 5);
+  await login(page); await openDay(page, date);
+  await page.route('**/api.php', async route => {
+    const request = route.request();
+    if (request.method() === 'POST' && JSON.parse(request.postData() ?? '{}').action === 'add') {
+      await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Refused for the test.', code: 'invalid' }) });
+    } else { await route.continue(); }
+  });
+  const field = page.getByLabel('New task', { exact: true });
+  await field.fill(`Rq ${tag} click`);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.locator('.day-msg')).toHaveText('Refused for the test.');
+  await field.fill(`Rq ${tag} enter`);
+  await field.press('Enter');
+  await expect(page.locator('.day-msg')).toHaveText('Refused for the test.');
+});
