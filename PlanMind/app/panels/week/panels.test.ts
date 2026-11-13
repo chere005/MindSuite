@@ -188,7 +188,7 @@ describe('Month', () => {
     const markup = month.html(ctx);
     const mon = cell(markup, '2026-11-02');
     expect(mon).toMatch(/<li class="ch-row ch-done"[^>]*data-state="done" data-c="green"/);
-    expect(mon).toContain('class="ch-circle" data-writes checked');
+    expect(mon).toContain('class="ch-circle" checked');
     expect(mon).toContain('aria-label="Furnace filter, for Alex. Tap to make it for Both"');
     expect(cell(markup, '2026-11-08').match(/<li class="ch-row/g)).toHaveLength(2);
     expect(cell(markup, '2026-11-08')).toMatch(/data-c="yellow"/);

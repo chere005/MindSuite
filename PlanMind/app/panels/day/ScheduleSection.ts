@@ -455,7 +455,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
 
   /** One write that moves a stored entry to a new start, and to other owners when it was dragged across the Both view's thirds. Text and length stay as stored; the write carries its revision. */
   const moveTo = (event: ScheduleEvent, start: number, owners: Owners = event.owners) =>
-    ctx.send({ action: 'edit', kind: 'event', id: event.id, revision: event.revision, date: event.date, owners, text: event.text, start, length: event.length });
+    ctx.send({ action: 'edit', kind: 'event', id: event.id, revision: event.revision, date: event.date, owners, text: event.text, start, length: event.length }, { optimistic: true });
   /** Whom a drag or a key may make an entry for, and how it is said: the thirds of the Both view, a person by name ("you" for the signed-in one), both of us as "both of you". */
   const forWhom = (owners: Owners) => owners.length > 1 ? 'both of you' : owners[0] === ctx.me ? 'you' : kit.nameOf(owners[0]);
 
@@ -471,7 +471,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     events: () => withLinked(ctx.session.events, s),
     eventOf: block => {
       if (block.classList.contains('day-editing')) { return s ? draftOf(s, ctx) : null; }
-      // The write in flight decides what the entry is now: a press on it waits for that, and says so.
+      // A write the screen cannot show yet (a form's save) decides what the entry is now: a press on it waits for that, and says so.
       if (ctx.busy) { ctx.announce('Still saving. Try again in a moment.'); return null; }
       return byId(block.dataset.id);
     },

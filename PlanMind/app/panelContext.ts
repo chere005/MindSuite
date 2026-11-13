@@ -56,7 +56,7 @@ export type PanelContext = {
   readonly busy: boolean;
   readonly drafts: Map<string, Draft>;
   /** One write. Resolves with the outcome; a failure has already been shown in the banner. */
-  send(mutation: Mutation): Promise<SendResult>;
+  send(mutation: Mutation, options?: { optimistic?: boolean }): Promise<SendResult>;
   setSelection(selection: Selection): void;
   /** Turns Chores on or off; from a phone it is that width's Chores tab, from a desktop the Day's switch. */
   setChores(on: boolean): void;
@@ -110,7 +110,7 @@ export function makeContext(state: AppState, rerender: () => void, announce: (me
     get center() { return state.center; },
     get busy() { return state.busy; },
     drafts: state.drafts,
-    send: mutation => state.send(mutation),
+    send: (mutation, options) => state.send(mutation, options),
     setSelection: selection => state.setSelection(selection),
     setChores: on => state.setChores(on, isPhone()),
     go: (date, recenter) => state.go(date, recenter),

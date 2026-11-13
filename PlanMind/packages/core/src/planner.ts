@@ -13,6 +13,7 @@ export * from './limits';
 export * from './views';
 export * from './chores';
 export * from './calmind';
+export * from './optimistic';
 
 /** The selected window starts with seven dates on either side of today. */
 export function dateWindow(center: string, radius = 7): string[] {
