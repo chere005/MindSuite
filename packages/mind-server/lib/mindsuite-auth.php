@@ -157,12 +157,34 @@ function msa_store_read(array $cfg): array
             throw new RuntimeException('MindSuite auth store contains an invalid account.');
         }
     }
+    // Deleted names (msa_account_delete): a store from before them has none; a damaged list fails closed like a damaged account.
+    if (isset($db['deleted']) && !is_array($db['deleted'])) { throw new RuntimeException('MindSuite auth store contains an invalid deleted-name list.'); }
+    foreach ($db['deleted'] ?? [] as $user => $row) {
+        if (msa_normalize_username((string) $user) !== (string) $user || !is_array($row) || !is_int($row['at'] ?? null)) {
+            throw new RuntimeException('MindSuite auth store contains an invalid deleted name.');
+        }
+    }
     return $db;
+}
+
+/**
+ * Was this name deleted by its owner (msa_account_delete)? The store keeps the NAME and the time, nothing else (no hash, no
+ * address, no token), so no later account can start under it by sign-up, by the importer or by any other way until the
+ * operator lifts it (msa_admin_undelete, `undelete=` on the admin page). Each app's data and permissions tied to the name
+ * outlive the account, so a new person under the same name would inherit them.
+ */
+function msa_name_deleted(array $db, string $user): bool
+{
+    return isset($db['deleted'][$user]);
 }
 
 /** Publish one authenticated, encrypted snapshot while the caller holds the store lock. */
 function msa_store_write(array $cfg, array $db): void
 {
+    // The last guard for every way of creating an account: no write may leave an account under a deleted name.
+    foreach (array_keys($db['deleted'] ?? []) as $name) {
+        if (isset($db['accounts'][$name])) { throw new RuntimeException('MindSuite auth store would hold an account under a deleted name.'); }
+    }
     $json = json_encode($db, JSON_THROW_ON_ERROR);
     $iv = random_bytes(12);
     $tag = '';
@@ -212,10 +234,25 @@ function msa_signup(array $cfg, string $username, string $email, string $passwor
     return msa_lock($cfg, function () use ($cfg, $user, $email, $hash): bool {
         $db = msa_store_read($cfg);
         if (isset($db['accounts'][$user])) { return false; }
+        if (msa_name_deleted($db, $user)) {
+            error_log('mindsuite sign-up refused: ' . $user . ' was deleted by its owner');
+            return false;
+        }
         $db['accounts'][$user] = ['email' => $email, 'hash' => $hash, 'created' => time()];
         msa_store_write($cfg, $db);
         return true;
     });
+}
+
+/**
+ * Would a sign-up with this invite be refused only because the name was deleted? True only for the right invite and a
+ * deleted name, so the page can say so to the one person who holds the invite, and to nobody else.
+ */
+function msa_signup_name_deleted(array $cfg, string $username, string $invite): bool
+{
+    $user = msa_normalize_username($username);
+    $code = $cfg['invite_code'] ?? '';
+    return $user !== null && $code !== '' && hash_equals($code, $invite) && msa_name_deleted(msa_store_read($cfg), $user);
 }
 
 /** A session row lives while it was used within the session age: every authenticated use slides it forward. */
@@ -701,13 +738,18 @@ function msa_reset_password(array $cfg, string $username, string $newPassword): 
  * Delete the signed-in person's own account: the account, its passkeys, every session of it (scoped app tokens included) and
  * the passkey challenges pending for those sessions, in ONE write of the store under the store lock; nothing else is touched
  * (another account, the status probes, the importer's records in `import`, which also keep a deleted account's legacy tokens
- * and passkeys from coming back in a later token scan). Needs a full credential (a cookie or unscoped session, never an app
- * token), the account's own name typed exactly (`$confirmName`; judged first and counted as nothing) and the current password
- * (a password still in its transition window counts, as for msa_change_password). A wrong or locked password is refused with
- * the same false as a failed sign-in and counted the same way (msa_note_failure; a locked account pays the dummy bcrypt and
- * is not counted again), so this is no way round the lockout. `$client` is the caller's address, required like msa_login's.
- * False for every refusal; a store that cannot be read or written throws and leaves the old store as it was. One audit line
- * goes to the error log: the account name and counts, no password, hash, token or address.
+ * and passkeys from coming back in a later token scan). The same write records the NAME as deleted (`deleted`: the name and
+ * the time, no secret): every app keeps its own data and permissions under that name, so no account may start under it again,
+ * by sign-up, import or any other way, until the operator says so (msa_admin_undelete). Needs a full credential (a cookie or
+ * unscoped session, never an app token), the account's own name typed again (`$confirmName`: capitals do not matter, as at
+ * sign-in; a stray space does, so the page trims it first; judged first and counted as nothing) and the current password (a password still in its
+ * transition window counts, as for msa_change_password). A wrong or locked password is refused with the same false as a
+ * failed sign-in and counted the same way (msa_note_failure; a locked account pays the dummy bcrypt and is not counted
+ * again), so this is no way round the lockout. `$client` is the caller's address, required like msa_login's. False for every
+ * refusal, an account already gone included (msa_account_exists tells the caller which); a store that cannot be read or
+ * written throws and leaves the old store as it was. One audit line goes to PHP's `error_log` (the server's error log, where the
+ * site's mss_log_failure() writes "mindsuite sign-in unavailable"; a wrong password is logged nowhere): the account name and
+ * counts, no password, hash, token or address.
  */
 function msa_account_delete(array $cfg, array $session, string $password, string $confirmName, string $client): bool
 {
@@ -751,8 +793,37 @@ function msa_account_delete(array $cfg, array $session, string $password, string
         $db['sessions'] = array_diff_key($db['sessions'], array_flip($mine));
         $db['passkeys'] = array_diff_key($db['passkeys'], array_flip($keys));
         unset($db['accounts'][$user]);
+        $db['deleted'][$user] = ['at' => $now];
         msa_store_write($cfg, $db);
         error_log('mindsuite account deleted: ' . $user . ' (' . count($mine) . ' sessions, ' . count($keys) . ' passkeys)');
+        return true;
+    });
+}
+
+/** Whether the shared store holds a tombstone for this name (the name is normalised first). Reads only. */
+function msa_account_deleted(array $cfg, string $username): bool
+{
+    $user = msa_normalize_username($username);
+    return $user !== null && msa_name_deleted(msa_store_read($cfg), $user);
+}
+
+/**
+ * Operator action: lift the deleted-name refusal for one name, so an account may be created under it again. This is the
+ * explicit word (`undelete=<name>` on the admin page); nothing else lifts it. False when the name carries no tombstone.
+ * It restores nothing: the account, its passkeys and sessions stay gone, and whoever then takes the name inherits what the
+ * apps still hold under it. One audit line names the name.
+ */
+function msa_admin_undelete(array $cfg, string $username): bool
+{
+    $user = msa_normalize_username($username);
+    if ($user === null) { return false; }
+    return msa_lock($cfg, function () use ($cfg, $user): bool {
+        $db = msa_store_read($cfg);
+        if (!msa_name_deleted($db, $user)) { return false; }
+        unset($db['deleted'][$user]);
+        if ($db['deleted'] === []) { unset($db['deleted']); }
+        msa_store_write($cfg, $db);
+        error_log('mindsuite deleted name lifted: ' . $user);
         return true;
     });
 }

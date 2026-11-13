@@ -763,7 +763,7 @@ try {
     check(msa_account_exists($cfg, 'sample') === false && !msa_account_delete($cfg, $me, 'password', 'sample', ''), 'a second delete of the same account does nothing');
     $audit = (string) @file_get_contents($auditFile);
     check(str_contains($audit, 'mindsuite account deleted: sample') && substr_count($audit, "\n") === 1, 'one audit line names the account');
-    foreach ([$tk['mine']['token'], $tk['scopedMine']['token'], 'password', $before['accounts']['sample']['hash'], $tk['mine']['csrf']] as $secret) {
+    foreach ([$tk['mine']['token'], $tk['scopedMine']['token'], 'password', $others['accounts']['sample']['hash'], $tk['mine']['csrf']] as $secret) {
         check(!str_contains($audit, $secret), 'the audit line holds no password, hash, token or CSRF secret');
     }
     // a lockout does not stop a deletion by a person who is not locked: the transition password of a merged account is a password too
@@ -789,15 +789,178 @@ try {
     $threw = false;
     try { msa_account_delete($cfg, $me, 'password', 'sample', ''); } catch (RuntimeException) { $threw = true; }
     check($threw && file_get_contents($file) === 'MSA1:damaged', 'a store that cannot be read refuses the deletion and is preserved');
-    // the deletion runs under the store's write lock: while another process holds it, the delete waits and then sees the newer store
-    [$cfg, $tk, $cookie] = $delSetup();
-    $src = file_get_contents(__DIR__ . '/../../packages/mind-server/lib/mindsuite-auth.php');
-    preg_match('/function msa_account_delete\(.*?\n}\n/s', $src, $fm);
-    check(isset($fm[0]) && str_contains($fm[0], 'msa_lock($cfg') && str_contains($fm[0], 'msa_store_write($cfg') && substr_count($fm[0], 'msa_store_write(') === 2,
-        'the deletion writes through msa_lock and msa_store_write only (the counted failure and the delete, nothing else)');
     // legacy mode: an instance that is not switched on has no config, so nothing here can run
     check(msa_app_config('dev', [], 'site') === null && msa_app_config('dev', ['mindsuite_auth_instances' => ['test']], 'site') === null, 'an instance that is not switched on has no shared store to delete from');
     ini_set('error_log', $auditWas === false ? '' : $auditWas);
+
+    // ---- Deleted names (ticket #223 follow-up): the name is held, no account can start under it, and a ceremony in flight cannot mint a session
+    ini_set('error_log', $auditFile);
+    [$cfg, $tk, $cookie] = $delSetup();
+    $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example', 'invite_code' => 'invite-1'];
+    $me = $cookie($tk['mine']['token']);
+    $wrongFirst = msa_account_delete($cfg, $me, 'wrong-guess', 'sample', '');
+    check($wrongFirst === false && !isset(msa_store_read($cfg)['deleted']) && !msa_account_deleted($cfg, 'sample'), 'a refused deletion holds no name');
+    $tombAt = time();
+    check(msa_account_delete($cfg, $me, 'password', 'sample', '') === true, 'control: the deletion that holds the name');
+    $held = msa_store_read($cfg)['deleted'];
+    check(array_keys($held) === ['sample'] && array_keys($held['sample']) === ['at'] && is_int($held['sample']['at']) && $held['sample']['at'] >= $tombAt &&
+        msa_account_deleted($cfg, 'sample') && msa_account_deleted($cfg, 'SAMPLE') && !msa_account_deleted($cfg, 'other') && !msa_account_deleted($cfg, 'not a name'),
+        'a deleted name is held as the name and the time, nothing else');
+    $heldAt = $held['sample']['at'];
+    check(!msa_account_delete($cfg, $me, 'password', 'sample', '') && msa_store_read($cfg)['deleted']['sample']['at'] === $heldAt, 'a second delete leaves the held time as it was');
+    // every way of creating an account under the name is refused
+    $signedUp = [msa_signup($cfg, 'sample', 'new@example.test', 'new-password-1', 'invite-1'), msa_signup($cfg, 'SAMPLE', 'new@example.test', 'new-password-1', 'invite-1')];
+    check($signedUp === [false, false] && !isset(msa_store_read($cfg)['accounts']['sample']) && lg($cfg, 'sample', 'new-password-1', '') === null, 'sign-up with the right invite under a deleted name is refused, in any case');
+    check(msa_signup_name_deleted($cfg, 'Sample', 'invite-1') && !msa_signup_name_deleted($cfg, 'sample', 'wrong-invite') && !msa_signup_name_deleted($cfg, 'sample', '') &&
+        !msa_signup_name_deleted($cfg, 'freshname', 'invite-1') && !msa_signup_name_deleted($cfg + ['invite_code' => ''], 'sample', ''),
+        'the page may say so only to the holder of the invite, and only about a deleted name');
+    check(msa_signup($cfg, 'freshname', 'new@example.test', 'new-password-1', 'invite-1') === true, 'control: another name signs up with the same invite');
+    $aud = (string) @file_get_contents($auditFile);
+    check(str_contains($aud, 'mindsuite sign-up refused: sample was deleted by its owner'), 'the refusal is in the error log with the name only');
+    $db = msa_store_read($cfg);
+    $db['accounts']['sample'] = ['email' => '', 'hash' => $cheap('x-password'), 'created' => time()];
+    check(refused(fn() => msa_store_write($cfg, $db)) && !isset(msa_store_read($cfg)['accounts']['sample']),
+        'no write of the store, from any caller, can leave an account under a deleted name');
+    foreach (['sample' => 'a string', 'Sample' => ['at' => 1], 'ok-name' => 'x', 'ok-name2' => ['at' => 'soon']] as $badName => $badRow) {
+        $db = msa_store_read($cfg);
+        $db['deleted'] = [$badName => $badRow];
+        $raw = $cfg['data_dir'] . '/auth.json';
+        $iv = random_bytes(12);
+        $tag = '';
+        $enc = openssl_encrypt(json_encode($db), 'aes-256-gcm', $cfg['key'], OPENSSL_RAW_DATA, $iv, $tag, $cfg['environment']);
+        $good = file_get_contents($raw);
+        file_put_contents($raw, 'MSA1:' . base64_encode($iv . $tag . $enc));
+        $threw = refused(fn() => msa_store_read($cfg));
+        file_put_contents($raw, $good);
+        check($threw, 'a damaged deleted-name list fails closed (' . json_encode([$badName => $badRow]) . ')');
+    }
+    // only the operator's explicit word lifts it
+    check(msa_admin_undelete($cfg, 'nobody') === false && msa_admin_undelete($cfg, 'not a name') === false && msa_account_deleted($cfg, 'sample'), 'undelete of a name that is not held, or is no name, does nothing');
+    check(msa_admin_undelete($cfg, 'Sample') === true && !msa_account_deleted($cfg, 'sample') && !isset(msa_store_read($cfg)['deleted']) && msa_admin_undelete($cfg, 'sample') === false,
+        'undelete lifts the name once and removes the empty list');
+    check(str_contains((string) @file_get_contents($auditFile), 'mindsuite deleted name lifted: sample'), 'the lift is in the error log');
+    check(msa_signup($cfg, 'sample', 'new@example.test', 'new-password-1', 'invite-1') === true && lg($cfg, 'sample', 'new-password-1', '') !== null &&
+        count(array_filter(msa_store_read($cfg)['passkeys'], static fn($r) => $r['user'] === 'sample')) === 0, 'after the lift the name is a new account: no old passkey, session or password comes with it');
+    // the operator's other tools never bring an account back
+    [$cfg, $tk, $cookie] = $delSetup();
+    msa_account_delete($cfg, $cookie($tk['mine']['token']), 'password', 'sample', '');
+    check(msa_admin_unlock($cfg, 'sample') === false && msa_admin_set_hash($cfg, 'sample', password_hash('abc-def-1', PASSWORD_BCRYPT, ['cost' => 4])) === false &&
+        msa_reset_password($cfg, 'sample', 'brand-new-password') === false && !isset(msa_store_read($cfg)['accounts']['sample']), 'unlock, set-hash and a password reset never recreate a deleted account');
+
+    // a ceremony in flight when the account is deleted
+    $cfg = $fresh(['sample' => $acct('password'), 'other' => $acct('otherpass')]) + ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
+    $rpHash = hash('sha256', $cfg['rp_id'], true);
+    $keyOf = static function (string $user) use ($cfg): array {
+        $private = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $id = b64u_encode(random_bytes(32));
+        $db = msa_store_read($cfg);
+        $db['passkeys'][$id] = ['user' => $user, 'pem' => openssl_pkey_get_details($private)['key'], 'signCount' => 0, 'label' => 'fixture', 'created' => 1];
+        msa_store_write($cfg, $db);
+        return ['id' => $id, 'private' => $private, 'user' => $user];
+    };
+    $answer = static function (array $pk, string $challenge, int $count) use ($cfg, $rpHash): array {
+        $client = client_data('webauthn.get', $challenge, $cfg['origin']);
+        $auth = $rpHash . "\x05" . pack('N', $count);
+        openssl_sign($auth . hash('sha256', $client, true), $signature, $pk['private'], OPENSSL_ALGO_SHA256);
+        return ['id' => $pk['id'], 'clientDataJSON' => b64u_encode($client), 'authenticatorData' => b64u_encode($auth),
+            'signature' => b64u_encode($signature), 'userHandle' => b64u_encode($pk['user'])];
+    };
+    $pk = $keyOf('sample');
+    $sessionsBefore = count(msa_store_read($cfg)['sessions']);
+    $challenge = msa_passkey_login_begin($cfg)['challenge'];
+    $signedIn = msa_passkey_login_finish($cfg, $answer($pk, $challenge, 1), 'Browser');
+    check($signedIn !== null && msa_user($cfg, bearer($signedIn['token']), []) === 'sample', 'control: the passkey ceremony signs the account in');
+    // begun while the account existed, finished after its deletion: the deletion took the passkey, so nothing is minted
+    $mine = msa_login($cfg, 'sample', 'password', 'Browser', '');
+    $challenge = msa_passkey_login_begin($cfg)['challenge'];
+    $response = $answer($pk, $challenge, 2);
+    check(msa_account_delete($cfg, msa_session($cfg, bearer($mine['token']), []), 'password', 'sample', ''), 'the account is deleted between the passkey challenge and the answer');
+    $sessions = count(msa_store_read($cfg)['sessions']);
+    check(!isset(msa_store_read($cfg)['passkeys'][$pk['id']]) && msa_passkey_login_finish($cfg, $response, 'Browser') === null && count(msa_store_read($cfg)['sessions']) === $sessions,
+        'a passkey answer for a challenge begun before the deletion mints no session');
+    // the guard itself: a passkey row that outlived its account (damage, a bad restore) still signs nobody in
+    $cfg2 = $fresh(['sample' => $acct('password'), 'other' => $acct('otherpass')]) + ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
+    $cfg = $cfg2;
+    $pk = $keyOf('sample');
+    $challenge = msa_passkey_login_begin($cfg)['challenge'];
+    $response = $answer($pk, $challenge, 1);
+    $db = msa_store_read($cfg);
+    unset($db['accounts']['sample']);
+    msa_store_write($cfg, $db);
+    $sessions = count(msa_store_read($cfg)['sessions']);
+    check(isset(msa_store_read($cfg)['passkeys'][$pk['id']]) && msa_passkey_login_finish($cfg, $response, 'Browser') === null &&
+        count(msa_store_read($cfg)['sessions']) === $sessions && !isset(msa_store_read($cfg)['accounts']['sample']), 'a passkey whose account is gone signs in nobody and issues no session');
+    $db = msa_store_read($cfg);
+    $db['accounts']['sample'] = $acct('password');
+    msa_store_write($cfg, $db);
+    $challenge = msa_passkey_login_begin($cfg)['challenge'];
+    check(msa_passkey_login_finish($cfg, $answer($pk, $challenge, 1), 'Browser') !== null, 'control: with the account back, the same passkey signs in (so only the account guard refused it)');
+    // a registration begun by a session of the account is dead after the deletion
+    [$cfg, $tk, $cookie] = $delSetup();
+    $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
+    $me = $cookie($tk['mine']['token']);
+    $options = msa_passkey_register_begin($cfg, $me);
+    check($options !== null && msa_account_delete($cfg, $me, 'password', 'sample', ''), 'a passkey registration is begun, then the account is deleted');
+    $private = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    $point = openssl_pkey_get_details($private)['ec'];
+    $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($point['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($point['y'], 32, "\0", STR_PAD_LEFT);
+    $credId = random_bytes(32);
+    $authData = hash('sha256', $cfg['rp_id'], true) . "\x45" . pack('N', 0) . str_repeat("\0", 16) . pack('n', strlen($credId)) . $credId . $cose;
+    $attestation = "\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData\x58" . chr(strlen($authData)) . $authData;
+    $registered = msa_passkey_register_finish($cfg, $me, ['clientDataJSON' => b64u_encode(client_data('webauthn.create', $options['challenge'], $cfg['origin'])),
+        'attestationObject' => b64u_encode($attestation), 'label' => 'late']);
+    check($registered === null && array_filter(msa_store_read($cfg)['passkeys'], static fn($r) => $r['user'] === 'sample') === [], 'the finished registration is refused and adds no passkey for the deleted account');
+    check(msa_passkey_register_begin($cfg, $me) === null && msa_passkey_list($cfg, $me) === [] && !msa_passkey_remove($cfg, $me, 'pk-sample-1') &&
+        !msa_change_password($cfg, $me, 'password', 'a-new-password') && !isset(msa_store_read($cfg)['accounts']['sample']), 'every other call with the old session refuses and recreates nothing');
+    msa_revoke_all($cfg, $me);
+    check(!isset(msa_store_read($cfg)['accounts']['sample']) && !isset(msa_store_read($cfg)['accounts']['sample']['gen']), 'sign out everywhere with the old session recreates nothing');
+
+    // the deletion re-reads the store under the lock: another writer that held the lock first is not overwritten or ignored
+    $raceChild = static function (array $session, string $client) use ($key, $dir): string {
+        return 'require ' . var_export(__DIR__ . '/../../packages/mind-server/lib/mindsuite-auth.php', true) . ';' .
+            '$c = msa_config("dev", ' . var_export($key, true) . ', ' . var_export($dir, true) . ');' .
+            'echo msa_account_delete($c, ' . var_export($session, true) . ', "password", "sample", ' . var_export($client, true) . ') ? "deleted" : "refused";';
+    };
+    $race = static function (callable $whileHeld) use ($delSetup, $raceChild): array {
+        [$cfg, $tk, $cookie] = $delSetup();
+        $me = $cookie($tk['mine']['token']);
+        $holder = fopen($cfg['data_dir'] . '/auth.lock', 'c');
+        flock($holder, LOCK_EX);
+        $proc = proc_open([PHP_BINARY, '-r', $raceChild($me, '192.0.2.77')], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        usleep(900000);
+        $waited = proc_get_status($proc)['running'];
+        $db = msa_store_read($cfg);
+        $whileHeld($db, $cfg);
+        msa_store_write($cfg, $db);
+        flock($holder, LOCK_UN);
+        fclose($holder);
+        $answer = stream_get_contents($pipes[1]);
+        proc_close($proc);
+        return [$waited, $answer, msa_store_read($cfg)];
+    };
+    [$waited, $answer, $after] = $race(function (array &$db) { $db['accounts']['sample']['hash'] = password_hash('changed-meanwhile', PASSWORD_BCRYPT, ['cost' => 4]); });
+    check($waited && $answer === 'refused' && isset($after['accounts']['sample']) && !isset($after['deleted']), 'a delete waiting for the lock is refused when the password was changed meanwhile, and nothing is deleted');
+    [$waited, $answer, $after] = $race(function (array &$db) { $db['accounts']['sample']['wide'] = ['tries' => 0, 'rounds' => 1, 'until' => time() + 900, 'at' => time()]; });
+    check($waited && $answer === 'refused' && isset($after['accounts']['sample']) && !isset($after['deleted']), 'a delete waiting for the lock is refused when the account was locked meanwhile');
+    [$waited, $answer, $after] = $race(function (array &$db) { $db['accounts']['other']['email'] = 'changed-meanwhile@example.test'; });
+    check($waited && $answer === 'deleted' && !isset($after['accounts']['sample']) && isset($after['deleted']['sample']) && $after['accounts']['other']['email'] === 'changed-meanwhile@example.test',
+        'control: a delete that waited for the lock deletes, and keeps what the writer before it wrote to another account');
+    [$waited, $answer, $after] = $race(function (array &$db) { $db['sessions'] = array_filter($db['sessions'], static fn($r) => ($r['user'] ?? '') !== 'sample' || ($r['device'] ?? '') !== 'Browser'); });
+    check($waited && $answer === 'refused' && isset($after['accounts']['sample']), 'a delete waiting for the lock is refused when its session was signed out meanwhile');
+
+    // a locked account pays the dummy bcrypt (the same time as an unknown name), a plain wrong password does not, and neither runs the real hash for a locked account
+    [$cfg, $tk, $cookie] = $delSetup();
+    $me = $cookie($tk['mine']['token']);
+    $n0 = msa_dummy_verify('', true);
+    msa_account_delete($cfg, $me, 'wrong-guess', 'sample', '192.0.2.20');
+    check(msa_dummy_verify('', true) === $n0, 'a wrong password on an account that is not locked pays no dummy bcrypt (it paid the real one)');
+    $db = msa_store_read($cfg);
+    $db['accounts']['sample']['wide'] = ['tries' => 0, 'rounds' => 1, 'until' => time() + 900, 'at' => time()];
+    msa_store_write($cfg, $db);
+    $beforeLock = msa_store_read($cfg);
+    msa_account_delete($cfg, $me, 'password', 'sample', '192.0.2.20');
+    msa_account_delete($cfg, $me, 'wrong-guess', 'sample', '192.0.2.21');
+    check(msa_dummy_verify('', true) === $n0 + 2 && msa_store_read($cfg) === $beforeLock, 'a locked account pays one dummy bcrypt per attempt, right password or wrong, and the lock count does not move');
 
     // ---- Review fixes
     // msa_login: the device and the address are required, scope is not
