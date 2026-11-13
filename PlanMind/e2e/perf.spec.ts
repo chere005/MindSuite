@@ -186,7 +186,13 @@ const report = (name: string, samples: Sample[]) => summarise(name, samples.map(
 // ---- pointer drags, mouse and finger ----------------------------------------------------------------------------
 
 type Pt = { x: number; y: number };
-const centre = async (l: Locator): Promise<Pt> => { await l.scrollIntoViewIfNeeded(); const b = (await l.boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+// A reply's redraw can land between the scroll and the measure (the element is then detached once): measure again.
+const centre = async (l: Locator): Promise<Pt> => {
+  for (let attempt = 0; ; attempt++) {
+    try { await l.scrollIntoViewIfNeeded(); const b = (await l.boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; }
+    catch (e) { if (attempt >= 4) { throw e; } await l.page().waitForTimeout(50); }
+  }
+};
 async function drag(page: Page, phone: boolean, from: Pt, dx: number, dy: number, steps = 20) {
   const armed = page.evaluate(() => (window as any).__armDrag());
   if (phone) {

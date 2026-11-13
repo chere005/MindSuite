@@ -37,8 +37,8 @@ export function renderUnavailable(root: HTMLElement) {
 
 /** Builds the page and keeps it in step with the state. `tab` is the phone tab a page that reloaded itself puts the person back on. Returns what takes it down again. */
 export function mountShell(root: HTMLElement, state: AppState, tab?: string | null): () => void {
-  let unmount: Unmount | undefined, pending = false, pointerDown = false, touching = false;
-  const ctx = makeContext(state, () => { pending = true; later(); }, message => {
+  let unmount: Unmount | undefined, pending = false, panelAsked = false, pointerDown = false, touching = false;
+  const ctx = makeContext(state, () => { pending = true; panelAsked = true; later(); }, message => {
     // Emptied first, so the same words said twice are read twice.
     const live = root.querySelector<HTMLElement>('#live')!;
     live.textContent = '';
@@ -87,7 +87,8 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   const choresPage = () => ctx.choresPage;
   // The panel is rendered from scratch whenever the data changes, but not while that would cost the person something:
   // a write is in flight, a text field has focus or a pointer is down. It waits, then renders.
-  const quiet = () => !state.busy && !pointerDown && !host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null);
+  // A redraw the panel itself asked for (a tab, an edit opened) does not wait for the writes the screen already answers (they are laid over the snapshot), only for one it cannot show.
+  const quiet = () => !(panelAsked ? state.busy : state.queued) && !pointerDown && !host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null);
   const syncBusy = () => host.querySelectorAll<HTMLButtonElement | HTMLInputElement>('[data-writes]').forEach(control => { control.disabled = state.busy; });
   /**
    * Remembers which control of the panel has the focus and returns what puts the focus on its twin in the new markup, so a
@@ -146,7 +147,7 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   }
   function render(force: boolean) {
     if (!force && !quiet()) { pending = true; return; }
-    pending = false;
+    pending = false; panelAsked = false;
     const restoreFocus = rememberFocus(), restoreScroll = rememberScroll();
     unmount?.();
     // Chores replaces the page of the open period on a phone, and the planner's panels know nothing of it.
@@ -254,7 +255,7 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
       for (const key of orphanDrafts(state.drafts.keys(), listIds())) { state.drafts.delete(key); }
       drawHeader(); topBar.draw(); sidebar.draw(); render(false);
     }
-    else if (change === 'busy') { syncBusy(); if (!state.busy) { later(); } }
+    else if (change === 'busy') { syncBusy(); if (!state.queued) { later(); } }
     else if (change === 'sidebar') { drawSidebar(); }
     else if (change === 'theme') { setTheme(state.theme); }
     else { drawStatus(); reloadForRelease(); }

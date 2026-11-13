@@ -63,11 +63,13 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let fetching = false, alive = true;
   // The writes made and not yet answered, in order; the first is the one on its way. `optimistic` ones show on the screen at once.
   type Entry = { mutation: Mutation; optimistic: boolean; keys: string[]; started: boolean; waiters: ((result: SendResult) => void)[] };
-  let queue: Entry[] = [], pumping = false, wasBusy = false, queueVersion = 0;
+  let queue: Entry[] = [], pumping = false, wasBusy = false, wasQueued = false, queueVersion = 0;
   let shown: { base: Session; version: number; value: Session } | null = null;
   /** Whether a write the screen does not answer by itself is waiting or on its way (forms are held and a redraw waits for it). */
   const isBusy = () => queue.some(entry => !entry.optimistic);
-  const emitBusy = () => { const now = isBusy(); if (now !== wasBusy) { wasBusy = now; emit('busy'); } };
+  /** Whether any write is waiting or on its way: the shell holds its redraw until none is, then draws once what the screen should read. */
+  const isQueued = () => queue.length > 0;
+  const emitBusy = () => { const [now, queued] = [isBusy(), isQueued()]; if (now !== wasBusy || queued !== wasQueued) { wasBusy = now; wasQueued = queued; emit('busy'); } };
   /** The snapshot as the screen reads it: the server's, with the unanswered optimistic writes laid over it. */
   function display(): Session {
     if (!queue.some(entry => entry.optimistic)) { return session; }
@@ -206,9 +208,10 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
         try { reply = await io.send(entry.mutation); }
         catch (e) { failure = e instanceof ApiFailure ? e : new ApiFailure(e instanceof Error ? e.message : 'Unable to save.', 0, null); }
         if (!alive) { return; }
-        queue.shift(); queueVersion++;
+        // The answer is taken in while the write still counts as queued, so the shell holds its redraw (as it always did while a write was on its way) until the line is empty.
         if (reply) {
           if (!applyResponse(reply)) { emit('data'); }
+          queue.shift(); queueVersion++;
           if (queue.length === 0) { setStatus('Saved'); }
           entry.waiters.forEach(done => done({ ok: true }));
         } else if (failure) {
@@ -216,10 +219,10 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
           // The record changed or went away under us, or the outcome is unknown: show what is true now.
           if (failure.code === 'stale' || failure.code === 'gone' || failure.uncertain) { reload = true; }
           // Writes built on this one's record cannot stand without it.
-          const behind = queue.filter(other => other.keys.some(key => entry.keys.includes(key)));
-          queue = queue.filter(other => !behind.includes(other));
+          const behind = queue.filter(other => other !== entry && other.keys.some(key => entry.keys.includes(key)));
           error = { message, source: 'write' }; status = 'Needs attention';
           emit('data'); emit('status');
+          queue = queue.filter(other => other !== entry && !behind.includes(other)); queueVersion++;
           entry.waiters.forEach(done => done({ ok: false, message, code: failure!.code, uncertain: failure!.uncertain }));
           behind.forEach(other => other.waiters.forEach(done => done(SKIPPED)));
         }
@@ -284,6 +287,8 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     get center() { return center; },
     get today() { return today; },
     get busy() { return isBusy(); },
+    /** Whether any write, an optimistic one too, is waiting or on its way. */
+    get queued() { return isQueued(); },
     /** Whether the host now serves another release than the one this page started under (the shell reloads at a quiet moment). */
     get newRelease() { return io.release?.changed ?? false; },
     /** Whether a change of the picker or sidebar is still waiting for its save (a reload now would lose it). */
