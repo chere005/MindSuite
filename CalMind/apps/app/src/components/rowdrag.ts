@@ -12,12 +12,13 @@
  *
  * ONE RULE for the picture and the result (`place`): the row is drawn at its
  * home plus the pointer's whole travel since the grant, the line sits where
- * that centre would land, and the release drops exactly there. The home is
- * never read off the dragged row's own node once a shift may be on it — the
- * grant's measure is answered before any shift is drawn, and a later measure
- * places the home from a neighbour no shift of this drag has been drawn on
- * (a dragDy screen shifts whichever row sits at `dragIdx`, which after the
- * list changes can be a neighbour) — because measureInWindow answers late
+ * that centre would land, and the release drops exactly there. No midpoint
+ * is read off a node once a shift of this drag may be on it — the grant's
+ * measure is answered before any shift is drawn, a dragDy screen's `dragIdx`
+ * names the dragged row by key in every render (so no neighbour is ever
+ * drawn shifted), and a later measure carries the home, and the midpoint of
+ * any row it may have seen shifted, from a neighbour no shift of this drag
+ * has been drawn on — because measureInWindow answers late
  * (react-native-web from a setTimeout that a queued pointer move runs ahead
  * of; native over the bridge), and whether its answer includes a transform
  * already drawn differs by platform. A home that held the travel had it added
@@ -85,7 +86,8 @@ type Edge = { top: number; bot: number };
  * midpoint) sits in it. `home` is never read off the dragged row's own node
  * once the row may have been shifted: the grant's measure is taken before
  * any shift is drawn, and a later measure (after the row's index moved)
- * places the home from a row this drag has not drawn shifted (carryHome).
+ * carries the home, and any midpoint it may have seen shifted, from rows
+ * this drag has not drawn shifted (carryEpoch).
  * Null when no home could be placed, which shows no drop line and cancels
  * the drop.
  */
@@ -122,9 +124,13 @@ type Session = {
   travel: number;
   /** The node a live drag last shifted, so a reset clears the right one. */
   node: View | undefined;
-  /** Every node (live) or entry index (dragDy, the screen shifts the row at `dragIdx`) this drag has drawn shifted. */
+  /**
+   * Every node a live drag has drawn shifted. A dragDy screen needs no such
+   * record: with keys, the `dragIdx` it renders is the dragged row's index in
+   * the list of that very render (see the hook's return), so no other row is
+   * ever drawn shifted.
+   */
   shiftedNodes: Set<View>;
-  shiftedIdx: Set<number>;
   /** The current list's keys, cached per render of the hook (keyOf is read live). */
   curKeys: (string | null)[] | null;
   curVer: number;
@@ -178,35 +184,64 @@ function destFor(mids: Map<number, number>, i: number, home: number, dy: number)
 }
 
 /**
- * The dragged row's home in a new measure, from the last one: a row that
- * kept its place relative to the dragged row (the same keys between them, so
- * the same heights) has moved exactly as far as the home has. The nearest such
- * row on either side is used, skipping any that either measure may have seen
- * shifted by this drag: a dragDy screen draws the shift on whichever row sits
- * at its last committed `dragIdx`, and after a row arrives or leaves above,
- * that is a neighbour until the next commit — which a synchronous native
- * measure (Fabric) or a late web render can run ahead of. The dragged row's
- * own node is never read: whether a measure includes the transform already
- * drawn on it differs by platform and by timing.
+ * How far entry `t` of a new measure (entry `pt` of the last one) has moved
+ * since the last measure, read off a row that kept its place relative to it
+ * (the same keys between them, so the same heights): that row has moved
+ * exactly as far. The nearest such row on either side is used, skipping the
+ * dragged row (`f`, `prev.idx`) and any row that either measure may have seen
+ * shifted by this drag: a live drag shifts the node at the responder's index,
+ * and a move that reaches a responder before the screen re-rendered its
+ * grips after a list change shifts a neighbour, which a synchronous native
+ * measure (Fabric) or a late web one can read. Null when no such row exists.
  */
-function carryHome(prev: Epoch, keys: (string | null)[], f: number, edges: Map<number, Edge>, suspect: Set<number>): number | null {
-  if (prev.home === null || !prev.keys || f < 0) return null;
+function carry(
+  prev: Epoch, keys: (string | null)[], t: number, pt: number, f: number, edges: Map<number, Edge>, suspect: Set<number>,
+): number | null {
+  if (!prev.keys || t < 0 || pt < 0) return null;
   const pkeys = prev.keys;
-  const home = prev.home;
   const from = (dir: -1 | 1): number | null => {
     for (let d = 1; ; d++) {
-      const k = f + dir * d;
-      const pk = prev.idx + dir * d;
+      const k = t + dir * d;
+      const pk = pt + dir * d;
       const key = keys[k];
       if (k < 0 || pk < 0 || key == null || pkeys[pk] !== key) return null;
-      if (suspect.has(k) || prev.suspect.has(pk)) continue;
+      if (k === f || pk === prev.idx || suspect.has(k) || prev.suspect.has(pk)) continue;
       const was = prev.edges.get(pk);
       const now = edges.get(k);
       if (!was || !now) return null;
-      return home + (dir < 0 ? now.bot - was.bot : now.top - was.top);
+      return dir < 0 ? now.bot - was.bot : now.top - was.top;
     }
   };
   return from(-1) ?? from(1);
+}
+
+/**
+ * The dragged row's home in a new measure, and every OTHER row's midpoint
+ * there, read so that no shift of this drag can be in them. The dragged row's
+ * own node is never read: whether a measure includes the transform already
+ * drawn on it differs by platform and by timing. Its home is carried from the
+ * last measure (carry). A row this measure may have seen shifted has its
+ * midpoint carried the same way from the last measure, whose midpoints are
+ * clean by the same rule (the grant's measure is taken before any shift is
+ * drawn) — counting a shifted neighbour's drawn midpoint put the drop one row
+ * off once the drag passed it. When either cannot be carried, there is no
+ * home: no line, and the drop is cancelled rather than placed wrong.
+ */
+function carryEpoch(
+  prev: Epoch, keys: (string | null)[], f: number, edges: Map<number, Edge>, mids: Map<number, number>, suspect: Set<number>,
+): number | null {
+  if (prev.home === null || !prev.keys || f < 0) return null;
+  const dh = carry(prev, keys, f, prev.idx, f, edges, suspect);
+  if (dh === null) return null;
+  for (const k of suspect) {
+    if (k === f || !mids.has(k)) continue;
+    const pk = keys[k] == null ? -1 : prev.keys.indexOf(keys[k]);
+    const was = prev.mids.get(pk);
+    const d = carry(prev, keys, k, pk, f, edges, suspect);
+    if (was === undefined || d === null) return null;
+    mids.set(k, was + d);
+  }
+  return prev.home + dh;
 }
 
 export function useRowDrag(count: number, onDrop: (from: number, to: number) => void, options?: RowDragOptions): RowDrag {
@@ -279,19 +314,22 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
       const mids = new Map<number, number>();
       for (const [i, e] of edges) mids.set(i, (e.top + e.bot) / 2);
       // Whatever this drag has shifted so far may be in this answer, committed or not.
-      const suspect = new Set<number>(live ? [] : s.shiftedIdx);
-      if (live) for (const [i, r] of refs) if (s.shiftedNodes.has(r)) suspect.add(i);
+      const suspect = new Set<number>();
+      for (const [i, r] of refs) if (s.shiftedNodes.has(r)) suspect.add(i);
       const prev = s.epoch;
       let idx: number;
       let home: number | null;
       if (!prev) {
-        // The grant's measure. No shift is drawn until it answers (see
-        // draw), so the dragged row's own node is still at home.
-        idx = s.from;
+        // The first measure to answer (the grant's, or one asked for after
+        // the list changed before it answered). No shift is drawn until it
+        // answers (see place), so every node, the dragged row's own
+        // included, is still at home. By key: the list may have changed
+        // since the grant.
+        idx = keys && s.dragKey !== null ? keys.indexOf(s.dragKey) : s.from;
         home = mids.get(idx) ?? null;
       } else {
         idx = keys && s.dragKey !== null ? keys.indexOf(s.dragKey) : s.at;
-        home = keys ? carryHome(prev, keys, idx, edges, suspect) : null;
+        home = keys ? carryEpoch(prev, keys, idx, edges, mids, suspect) : null;
       }
       s.epoch = { mids, edges, keys, count: n, idx, home, suspect };
       s.pending = false;
@@ -306,7 +344,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
       from, dragKey: keys ? keys[from] ?? null : null, keyed: keys !== null, at: from,
       epoch: null, ready: Promise.resolve(), pending: false,
       startY: y0 && y0 > 0 ? y0 : null, lastY: null, travel: 0, node: undefined,
-      shiftedNodes: new Set(), shiftedIdx: new Set(),
+      shiftedNodes: new Set(),
       curKeys: keys, curVer: cfg.current.ver, over: false,
     };
     remeasure(s);
@@ -367,7 +405,6 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
       if (node && p.shift !== 0) s.shiftedNodes.add(node);
       setLiveSlot(p.slot);
     } else {
-      if (p.shift !== 0) s.shiftedIdx.add(i);
       setUi({ dragIdx: i, dragDy: p.shift, slot: p.slot });
     }
   };
@@ -439,7 +476,20 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     return responders.current.get(i)!.panHandlers;
   };
 
-  return { ...ui, registerRow, handleFor, liveSlot: slotStore.current.api };
+  // A keyed drag names its row by key in every render: when the list changes
+  // under it, `ui.dragIdx` (the responder's index, set by the last handler)
+  // names another row until the next move, and a dragDy screen drew the
+  // shift on that neighbour — where a measure (synchronous on native, late on
+  // web) then read it, and the drop counted it. Read here, in the render that
+  // draws it, the index is always the dragged row's own. When the row is gone
+  // the old index stays (the drop is cancelled anyway; the screen keeps its
+  // scroll frozen).
+  let dragIdx = ui.dragIdx;
+  const cur = sess.current;
+  if (cur && cur.keyed && cur.dragKey !== null && dragIdx !== null && options?.keyOf?.(dragIdx) !== cur.dragKey) {
+    for (let k = 0; k < count; k++) if (options?.keyOf?.(k) === cur.dragKey) { dragIdx = k; break; }
+  }
+  return { ...ui, dragIdx, registerRow, handleFor, liveSlot: slotStore.current.api };
 }
 
 function SlotLine({ slot, at, style }: { slot: RowDrag['liveSlot']; at: number; style: object }) {

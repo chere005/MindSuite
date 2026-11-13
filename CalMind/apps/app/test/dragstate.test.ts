@@ -365,8 +365,10 @@ describe('row drag: the drop is where the dragged row\'s centre was released, wh
         for (let n = 0; n < 5; n++) await Promise.resolve();
         commit();
       },
-      grip: (k: string) => {
-        const h = drag.handleFor(keys.indexOf(k)) as unknown as {
+      grip: (k: string | number) => {
+        // A key, or a bare responder index (a move delivered to a responder
+        // whose row changed, before the screen re-rendered its grips).
+        const h = drag.handleFor(typeof k === 'number' ? k : keys.indexOf(k)) as unknown as {
           onPanResponderGrant: (e: unknown, g: unknown) => void;
           onPanResponderMove: (e: unknown, g: unknown) => void;
           onPanResponderRelease: (e: unknown, g: unknown) => void;
@@ -631,7 +633,119 @@ describe('row drag: the drop is where the dragged row\'s centre was released, wh
         await h.tick();
         if (want) expect(h.onDrop, `${k} ${travel}`).toHaveBeenCalledWith(...want);
         else expect(h.onDrop, `${k} ${travel}`).not.toHaveBeenCalled();
+        if (!want) continue;
+        // The screen applies the drop, and the same row is dragged straight back.
+        const next = ['a', 'b', 'c', 'd', 'e'].filter((x) => x !== k);
+        next.splice(want[1], 0, k);
+        h.setKeys(next);
+        h.onDrop.mockClear();
+        const again = h.grip(k);
+        again.grant();
+        again.move(-travel);
+        again.release(-travel);
+        await h.tick();
+        expect(h.onDrop, `${k} ${travel}, second drag`).toHaveBeenCalledTimes(1);
+        expect(h.onDrop, `${k} ${travel}, second drag`).toHaveBeenCalledWith(want[1], want[0]);
       }
+    });
+
+    test(`${lag}: a row arrives above and the drag goes up past the row still drawn shifted`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m, true);
+      h.grip('d').grant();
+      await h.tick();
+      h.grip('d').move(-48);
+      await h.tick(); // dragIdx 3 (d) drawn 48 up
+      h.setKeys(['x', 'a', 'b', 'c', 'd']); // committed with dragIdx still 3: c is drawn 48 up
+      const moved = h.grip('d');
+      moved.move(-48); // the handoff's measure answers from that commit
+      await h.tick();
+      // d's home is 90; 90-48 = 42 passes x (10) and a (30), not b (50) or c (70).
+      expect(h.drawn('d')).toBe(-48);
+      expect(h.slot()).toBe(2);
+      moved.release(-48);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(4, 2);
+    });
+
+    test(`${lag}: a row leaves above and the drag goes down past the row still drawn shifted`, async () => {
+      const h = shiftHarness(['x', 'a', 'b', 'c', 'd', 'e'], m, true);
+      h.grip('a').grant();
+      await h.tick();
+      h.grip('a').move(48);
+      await h.tick(); // dragIdx 1 (a) drawn 48 down
+      h.setKeys(['a', 'b', 'c', 'd', 'e']); // committed with dragIdx still 1: b is drawn 48 down
+      const moved = h.grip('a');
+      moved.move(48);
+      await h.tick();
+      // a's home is 10; 10+48 = 58 passes b (30) and c (50), not d (70).
+      expect(h.drawn('a')).toBe(48);
+      expect(h.slot()).toBe(3);
+      moved.release(48);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(0, 2);
+    });
+  }
+
+  for (const m of MODES) {
+    test(`${name(m)}, answered at once from the last commit: a move reaches the old responder after a row arrived above`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m, true);
+      h.grip('b').grant();
+      await h.tick();
+      h.setKeys(['x', 'a', 'b', 'c', 'd']);
+      // Responder 1 is a's now: a live drag shifts the node there, a.
+      h.grip(1).move(-30);
+      await h.tick();
+      const moved = h.grip('b');
+      moved.move(-30); // the handoff's measure may see a drawn 30 up
+      await h.tick();
+      // b's home is 50; 50-30 = 20 passes x (10), not a (30).
+      expect(h.drawn('b')).toBe(-30);
+      expect(h.drawn('a')).toBe(0);
+      expect(h.slot()).toBe(1);
+      moved.release(-30);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 1);
+    });
+
+    test(`${name(m)}, answered at once from the last commit: a row it may have seen shifted that cannot be placed cancels the drop`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m, true);
+      h.grip('b').grant();
+      await h.tick();
+      h.setKeys(['a', 'x', 'b', 'c', 'd']);
+      // Responder 1 is the new row x's now: a live drag shifts x, which no
+      // earlier measure has seen, so nothing places its midpoint.
+      h.grip(1).move(-30);
+      await h.tick();
+      const moved = h.grip('b');
+      moved.move(-30);
+      await h.tick();
+      expect(h.drawn('b')).toBe(-30);
+      expect(h.drawn('x')).toBe(0);
+      // dragDy rows never draw x shifted: b's home is 50, 50-30 = 20 passes a (10), not x (30).
+      expect(h.slot()).toBe(m.live ? null : 1);
+      moved.release(-30);
+      await h.tick();
+      if (m.live) expect(h.onDrop).not.toHaveBeenCalled();
+      else expect(h.onDrop).toHaveBeenCalledWith(2, 1);
+    });
+
+    test(`${name(m)}: a row arrives above and the new responder moves before the grant's measure answers`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m);
+      h.grip('b').grant(); // its measure waits
+      h.setKeys(['x', 'a', 'b', 'c', 'd']);
+      const moved = h.grip('b');
+      moved.move(30);
+      await h.answer();
+      // b's home is 50 in the new list; 50+30 = 80 passes x, a and c (70), not d (90).
+      expect(h.drawn('b')).toBe(30);
+      expect(h.slot()).toBe(4);
+      moved.release(30);
+      await h.answer();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 3);
     });
   }
 });
