@@ -35,7 +35,7 @@ async function signup(page: Page): Promise<string> {
   return user;
 }
 
-test('a shared tick that cannot reach the server says offline, not nothing', async ({ browser }) => {
+test('a shared tick that cannot reach the server says it was not saved, not nothing', async ({ browser }) => {
   test.setTimeout(180_000);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
@@ -87,11 +87,20 @@ test('a shared tick that cannot reach the server says offline, not nothing', asy
 
   // The dot is the app's one honest signal here, and it carries the sentence
   // as its accessibility label — a coloured circle tells a screen reader
-  // nothing, so that is what this reads.
+  // nothing, so that is what this reads. The change to the PARTNER's list was
+  // not saved and is never retried, so the sentence must not promise a retry
+  // ('Offline — changes sync when you are back' is true of my own lists only).
+  const dot = async () => (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '';
   await expect
-    .poll(async () => (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '',
-      { message: 'the app says offline rather than showing a tick that reached nobody', timeout: 20_000 })
-    .toMatch(/offline/i);
+    .poll(dot, { message: 'the app says the change to the partner list was not saved', timeout: 20_000 })
+    .toMatch(/partner.*not saved/i);
+  expect(await dot()).not.toMatch(/sync when you are back/i);
+
+  // It survives the next own sync (30 s at most): that sync is about MY lists
+  // and proves nothing about the partner's.
+  await pageB.waitForRequest((r) => (r.postData() ?? '').includes('"action":"sync"'), { timeout: 45_000 });
+  await pageB.waitForTimeout(1_500);
+  expect(await dot()).toMatch(/partner.*not saved/i);
 
   await ctxA.close();
   await ctxB.close();

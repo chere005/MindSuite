@@ -163,6 +163,8 @@ type Store = {
   refusedNotes: { id: string; label: string }[];
   /** Why: too long (the user's to fix) or malformed (the app's bug). */
   refusedWhy: 'too_large' | 'invalid';
+  /** A write into the partner's list was refused or failed and taken back; see sharedwrites.ts. */
+  sharedTrouble: boolean;
   signIn: (s: Session) => Promise<void>;
   signOut: () => Promise<void>;
   clearDeletedAccount: () => Promise<void>;
@@ -205,6 +207,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [refusedLabels, setRefusedLabels] = useState<string[]>([]);
   const [refusedNotes, setRefusedNotes] = useState<{ id: string; label: string }[]>([]);
   const [refusedWhy, setRefusedWhy] = useState<'too_large' | 'invalid'>('too_large');
+  const [sharedTrouble, setSharedTrouble] = useState(false);
   const [partners, setPartners] = useState<PartnerBadge[]>([]);
   const [sharedPartner, setSharedPartner] = useState<string | null>(null);
   const [sharedRaw, setSharedRaw] = useState<AnyRec[]>([]);
@@ -290,9 +293,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setPartners(p);
           setSharedPartner(partner);
         },
-        // A refused or failed write has been taken back; 'offline' is the
-        // word this app already uses for sync trouble, and the top bar shows it.
-        onTrouble: () => setSyncState('offline'),
+        // A refused or failed write has been taken back. NOT 'offline': that
+        // promises a retry (partner writes get none) and the next own sync
+        // would wipe it, along with a standing 'refused'. A flag of its own,
+        // cleared by the next acknowledged write, the partner changing or
+        // sign-out (see sharedwrites.ts).
+        onTrouble: () => setSharedTrouble(true),
+        onRecovered: () => setSharedTrouble(false),
       },
     );
   }
@@ -767,7 +774,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [sharedRecs, sharedPartner, sharedPartnerLabel]);
 
   return (
-    <Ctx.Provider value={{ ready, session, recs, syncState, persistFailed, refusedLabels, refusedNotes, refusedWhy, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut, chefRecs }}>
+    <Ctx.Provider value={{ ready, session, recs, syncState, persistFailed, refusedLabels, refusedNotes, refusedWhy, sharedTrouble, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut, chefRecs }}>
       {children}
     </Ctx.Provider>
   );

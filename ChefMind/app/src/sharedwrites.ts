@@ -19,11 +19,17 @@
  *    only that pull is guaranteed to contain it. A pull sent earlier can land
  *    late and is simply laid under the write; a pull older than one already
  *    applied is dropped.
- *  - A write the server refuses (or that never arrives) takes back exactly its
- *    own change. Writes made after it on the SAME record were computed from
- *    the picture it created, so they are taken back with it and never sent;
- *    writes on other records are untouched. The person is told through the
- *    sync dot's existing 'offline' state (onTrouble).
+ *  - A write the server refuses (or that never arrives) is taken back, and so
+ *    is every write still QUEUED for that partner: a later write may be built
+ *    on the failed one (a reminder added into a section that was never
+ *    created), and the realistic causes (sharing ended = 403, dead token =
+ *    401, network down) make every later write into that list fail too, so
+ *    sending them would only land fragments. Writes already acknowledged stay,
+ *    and writes made after the take-back go out normally. The person is told
+ *    once (onTrouble) that the change to the partner's list was not saved; the
+ *    telling stands until a later write to that partner is acknowledged, the
+ *    partner changes, or reset() (onRecovered) — it is not the own-list
+ *    offline state, and no timer clears it.
  *
  * Nothing here is stored: a write that has not reached the server when the app
  * closes is gone, exactly as it was when the POST was awaited. No outbox.
@@ -48,6 +54,8 @@ export type SharedHooks<R extends SharedRec, P> = {
   onPulled(meta: { partners: P[]; partner: string | null }): void;
   /** A write was refused or failed and has been taken back. */
   onTrouble(): void;
+  /** The trouble is over: a write was acknowledged, the partner changed, or reset. */
+  onRecovered(): void;
 };
 
 type State = 'queued' | 'sent' | 'acked';
@@ -71,6 +79,8 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
   private lastStamp = 0;
   private pumping = false;
   private reconcileDue = false;
+  /** A take-back has been reported and nothing has cleared it yet. */
+  private troubled = false;
   /** Bumped by reset(): replies to requests from before it belong to nobody. */
   private epoch = 0;
 
@@ -90,6 +100,11 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
       else byId.set(w.rec.id, w.rec);
     }
     return Array.from(byId.values());
+  }
+
+  /** A take-back has been reported and not yet cleared. */
+  inTrouble(): boolean {
+    return this.troubled;
   }
 
   /** Writes made and not yet acknowledged by the server. */
@@ -133,6 +148,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
       // The partner changed: writes into the old one are not this list's.
       this.dropWhere((w) => w.partner !== r.partner);
       this.partner = r.partner;
+      this.recover();
     }
     this.base = r.records;
     // A pull sent after an acknowledgement contains that write: it can go.
@@ -148,6 +164,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     this.base = [];
     this.partner = null;
     this.reconcileDue = false;
+    this.recover();
     const gone = this.writes;
     this.writes = [];
     for (const w of gone) w.settle();
@@ -191,9 +208,11 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
           this.dropWhere((x) => x !== w && x.state === 'acked' && x.rec.id === w.rec.id && x.partner === w.partner);
           w.settle();
           this.reconcileDue = true;
+          this.recover();
         } else {
           this.takeBack(w);
           this.reconcileDue = true;
+          this.troubled = true;
           this.hooks.onTrouble();
         }
       }
@@ -208,10 +227,15 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     }
   }
 
-  /** The write failed: its change, and everything built on it, goes. */
+  private recover(): void {
+    if (!this.troubled) return;
+    this.troubled = false;
+    this.hooks.onRecovered();
+  }
+
+  /** The write failed: its change, and every write still queued for that partner, goes. */
   private takeBack(failed: Write<R>): void {
-    this.dropWhere((w) =>
-      w === failed || (w.state === 'queued' && w.partner === failed.partner && w.rec.id === failed.rec.id));
+    this.dropWhere((w) => w === failed || (w.state === 'queued' && w.partner === failed.partner));
     this.emit();
   }
 }

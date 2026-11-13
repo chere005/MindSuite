@@ -87,6 +87,12 @@ test('a tick on a row the partner just un-shared fails quietly and honestly', as
   await pageB.getByTestId('shared-tick').first().click();
   await pageB.waitForTimeout(2_000);
 
+  // The person is told the truth: the change to the partner's list was not saved
+  // (not the own-list 'offline', which promises a retry that never comes).
+  const label = (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '';
+  expect(label).toMatch(/partner.*not saved/i);
+  expect(label).not.toMatch(/offline/i);
+
   // Nothing thrown at the page, and the app is still alive and usable.
   expect(errors, 'a refused shared write is not a page error').toEqual([]);
   const rejections = await pageB.evaluate(() => (window as unknown as { __rej?: string[] }).__rej ?? []);

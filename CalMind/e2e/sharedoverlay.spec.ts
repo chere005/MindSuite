@@ -170,7 +170,7 @@ test("a quick add into a partner's section shows at once and reaches them", asyn
   await ctxB.close();
 });
 
-test('a refused write is taken back and the sync dot says offline', async ({ browser }) => {
+test('a refused write is taken back and the sync dot says it was not saved', async ({ browser }) => {
   test.setTimeout(150_000);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
@@ -189,7 +189,7 @@ test('a refused write is taken back and the sync dot says offline', async ({ bro
   await expect(pageB.getByTestId('shared-tick').first().getByText('✓'), 'drawn ticked at once').toBeVisible({ timeout: 200 });
   await expect
     .poll(async () => (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '', { timeout: 10_000 })
-    .toMatch(/offline/i);
+    .toMatch(/partner.*not saved/i);
   // The refused tick is not left behind: after the grace the row is still there, unticked.
   await pageB.waitForTimeout(3_000);
   await expect(pageB.getByText('peel garlic')).toBeVisible();

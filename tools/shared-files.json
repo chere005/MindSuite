@@ -237,6 +237,11 @@
       "copies": ["ChefMind/app/test/sharedwrites.test.ts"]
     },
     {
+      "id": "app-test-synclook-test-ts",
+      "origin": "CalMind/apps/app/test/synclook.test.ts",
+      "copies": ["ChefMind/app/test/synclook.test.ts"]
+    },
+    {
       "id": "app-tsconfig-json",
       "origin": "CalMind/apps/app/tsconfig.json",
       "copies": ["ChefMind/app/tsconfig.json"]

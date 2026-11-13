@@ -163,7 +163,7 @@ function NoteBody({ body, recipe, onLine }: { body: string; recipe: boolean; onL
 }
 
 export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | null; onOpenConsumed?: () => void }) {
-  const { recs, mutate, sharedRecs, sharedPartnerLabel, syncState, persistFailed } = useStore();
+  const { recs, mutate, sharedRecs, sharedPartnerLabel, syncState, persistFailed, sharedTrouble } = useStore();
   const nav = useNav();
   const { view, visible: visibleFolders, visibleShared, sharedView, sharedPartner } = useFolderView('notes');
   const setNotePrefs = (lastView: string) => mutate((e) => e.put(prefsPut(recs, 'notes', { lastView })));
@@ -1159,9 +1159,9 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
           <View style={s.footRow}>
             <Text
               testID="editor-saved"
-              style={[s.saved, (persistFailed || syncState === 'refused') && s.savedBad]}
+              style={[s.saved, (persistFailed || syncState === 'refused' || sharedTrouble) && s.savedBad]}
             >
-              {syncWord(syncState, persistFailed)}
+              {syncWord(syncState, persistFailed, sharedTrouble)}
             </Text>
             {/* Notes has no account dropdown to hang "Copy as Markdown" off —
                 the editor is its own screen — so it gets the control directly.

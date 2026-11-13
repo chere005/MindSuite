@@ -14,6 +14,8 @@ function setup(serverRows: R[] = []) {
   const pullCalls: Array<Held & { snapshot: R[] }> = [];
   const views: R[][] = [];
   const troubles: number[] = [];
+  const recovered: number[] = [];
+  const who = { partner: 'p' };
   const w = new SharedWrites<R, string>(
     {
       put: (_partner, rec) => new Promise<void>((ok, fail) => {
@@ -22,12 +24,12 @@ function setup(serverRows: R[] = []) {
       pull: () => new Promise((ok, fail) => {
         // The server's state AT THE MOMENT THE PULL IS SENT is what it will answer with.
         const snapshot = Array.from(server.values());
-        pullCalls.push({ arg: null, snapshot, ok: () => ok({ partners: ['p'], partner: 'p', records: snapshot }), fail: () => fail(new Error('down')) });
+        pullCalls.push({ arg: null, snapshot, ok: () => ok({ partners: [who.partner], partner: who.partner, records: snapshot }), fail: () => fail(new Error('down')) });
       }),
     },
-    { onView: (v) => views.push(v), onPulled: () => {}, onTrouble: () => troubles.push(views.length) },
+    { onView: (v) => views.push(v), onPulled: () => {}, onTrouble: () => troubles.push(views.length), onRecovered: () => recovered.push(views.length) },
   );
-  return { w, putCalls, pullCalls, views, troubles, server };
+  return { w, who, putCalls, pullCalls, views, troubles, recovered, server };
 }
 
 const row = (id: string, done = false, title = id): R => ({ id, updated: 1, payload: { done, title } });
@@ -73,7 +75,7 @@ describe('(b) writes go out in order, each from the latest picture', () => {
     const sent: number[] = [];
     const w = new SharedWrites<R, string>(
       { put: async (_p, rec) => { sent.push(rec.updated!); }, pull: () => new Promise(() => {}) },
-      { onView: () => {}, onPulled: () => {}, onTrouble: () => {} }, () => 1000);
+      { onView: () => {}, onPulled: () => {}, onTrouble: () => {}, onRecovered: () => {} }, () => 1000);
     void w.put('p', row('a'));
     void w.put('p', row('b'));
     await settle();
@@ -142,15 +144,28 @@ describe('(d) a refused write takes back exactly its own change', () => {
     const t = setup([row('a')]);
     const p = t.w.pull(); t.pullCalls[0].ok(); await p;
     void t.w.put('p', row('new'));
-    void t.w.put('p', { ...row('a'), deleted: true });
-    expect(t.w.view().map((r) => r.id)).toEqual(['new']);
     t.putCalls[0].fail(); await settle();
+    expect(t.w.view().map((r) => r.id)).toEqual(['a']);
+    void t.w.put('p', { ...row('a'), deleted: true });
+    expect(t.w.view().map((r) => r.id)).toEqual([]);
     t.putCalls[1].fail(); await settle();
     expect(t.w.view().map((r) => r.id)).toEqual(['a']);
     expect(t.troubles).toHaveLength(2);
   });
 
-  test('later queued writes on the SAME record are taken back and never sent; other records are untouched', async () => {
+  test('a write built on a failed one on ANOTHER record is taken back and never sent (section then reminder)', async () => {
+    const t = setup([row('list')]);
+    const p = t.w.pull(); t.pullCalls[0].ok(); await p;
+    void t.w.put('p', row('section'));
+    void t.w.put('p', { ...row('reminder'), payload: { title: 'in the section' } });
+    expect(t.w.view().map((r) => r.id).sort()).toEqual(['list', 'reminder', 'section']);
+    t.putCalls[0].fail(); await settle();
+    expect(t.w.view().map((r) => r.id)).toEqual(['list']);
+    expect(t.putCalls).toHaveLength(1); // the reminder was never sent
+    expect(t.troubles).toHaveLength(1);
+  });
+
+  test('later queued writes for the partner are all taken back, same record or not; later ones go out', async () => {
     const t = setup([row('a'), row('b')]);
     const p = t.w.pull(); t.pullCalls[0].ok(); await p;
     void t.w.put('p', { ...row('a'), payload: { done: true } });
@@ -158,14 +173,24 @@ describe('(d) a refused write takes back exactly its own change', () => {
     void t.w.put('p', { ...row('a'), payload: { done: false, title: 'edited' } });
     t.putCalls[0].fail(); await settle();
     expect(done(t.w, 'a')).toBe(false);
-    expect(t.w.view().find((r) => r.id === 'a')!.payload.title).toBe('a'); // the edit went with it
-    expect(done(t.w, 'b')).toBe(true);
-    // only b is sent next; a's second write never is
+    expect(t.w.view().find((r) => r.id === 'a')!.payload.title).toBe('a');
+    expect(done(t.w, 'b')).toBe(false); // the unrelated record went too: same list, same cause
+    expect(t.putCalls).toHaveLength(1);
+    // a write made after the take-back is sent normally
+    void t.w.put('p', { ...row('b'), payload: { done: true } });
     expect(t.putCalls).toHaveLength(2);
-    expect(t.putCalls[1].rec.id).toBe('b');
-    t.putCalls[1].ok(); await settle();
-    expect(t.putCalls).toHaveLength(2);
     expect(done(t.w, 'b')).toBe(true);
+  });
+
+  test('a write already acknowledged on another record survives the failure', async () => {
+    const t = setup([row('a'), row('b')]);
+    const p = t.w.pull(); t.pullCalls[0].ok(); await p;
+    void t.w.put('p', { ...row('b'), payload: { done: true } });
+    t.putCalls[0].ok(); await settle();
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    t.putCalls[1].fail(); await settle();
+    expect(done(t.w, 'b')).toBe(true);
+    expect(done(t.w, 'a')).toBe(false);
   });
 
   test('an earlier acknowledged write on the same record survives a later failure', async () => {
@@ -176,6 +201,67 @@ describe('(d) a refused write takes back exactly its own change', () => {
     void t.w.put('p', { ...row('a'), payload: { done: false } });
     t.putCalls[1].fail(); await settle();
     expect(done(t.w, 'a')).toBe(true);
+  });
+});
+
+describe('(d2) the trouble stands until something true clears it', () => {
+  const fail1 = async () => {
+    const t = setup([row('a')]);
+    const p = t.w.pull(); t.pullCalls[0].ok(); await p;
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    t.putCalls[0].fail(); await settle();
+    return t;
+  };
+
+  test('it is set by a take-back, and a pull alone does not clear it', async () => {
+    const t = await fail1();
+    expect(t.w.inTrouble()).toBe(true);
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.recovered).toHaveLength(0);
+  });
+
+  test('the next acknowledged write clears it, once', async () => {
+    const t = await fail1();
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    expect(t.w.inTrouble()).toBe(true); // made, not yet acknowledged
+    t.putCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a second failure while troubled tells again and still needs one acknowledgement', async () => {
+    const t = await fail1();
+    void t.w.put('p', row('x'));
+    t.putCalls[1].fail(); await settle();
+    expect(t.troubles).toHaveLength(2);
+    expect(t.w.inTrouble()).toBe(true);
+  });
+
+  test('reset clears it', async () => {
+    const t = await fail1();
+    t.w.reset();
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a pull that shows a different partner clears it', async () => {
+    const t = await fail1();
+    const p = t.w.pull(); // pullCalls[1] is the re-read after the failure
+    t.pullCalls[2].ok(); await p;
+    expect(t.w.inTrouble()).toBe(true); // the same partner: still standing
+    t.who.partner = 'q';
+    const p2 = t.w.pull();
+    t.pullCalls[3].ok(); await p2;
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('no trouble reported: nothing to clear', async () => {
+    const t = setup([row('a')]);
+    void t.w.put('p', row('a'));
+    t.putCalls[0].ok(); await settle();
+    expect(t.recovered).toHaveLength(0);
   });
 });
 

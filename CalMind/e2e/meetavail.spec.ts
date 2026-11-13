@@ -44,6 +44,21 @@ function nextMonday(): string {
   return iso(d);
 }
 
+/**
+ * The editor account, whichever case runs first or however often: created if it
+ * does not exist yet, signed in if it does. Each case calls this, so none
+ * depends on another having run (or on its own earlier repeat).
+ */
+async function ownerSession(page: Page) {
+  const r = await api<{ ok?: boolean }>({ action: 'login', username: 'alex', password: 'e2epassword' });
+  if (r.ok === false || (r as { token?: string }).token === undefined) return signup(page, 'alex');
+  await page.goto('.');
+  await page.getByPlaceholder('Username').fill('alex');
+  await page.getByPlaceholder('Password', { exact: true }).fill('e2epassword');
+  await page.getByText('Sign in', { exact: true }).click();
+  await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
+}
+
 async function signup(page: Page, user: string) {
   await page.goto('.');
   await page.getByText('Sign up', { exact: true }).click();
@@ -74,8 +89,15 @@ const publicSlots = (day: string) =>
 test('his taps are the final say on what a stranger is offered', async ({ page, browser }) => {
   test.setTimeout(180_000);
   const day = nextMonday();
-  await signup(page, 'alex');
+  await ownerSession(page);
   const { token } = await api<{ token: string }>({ action: 'login', username: 'alex', password: 'e2epassword' });
+  // The account outlives a repeat of this case: start from the day as the rules
+  // alone would offer it, whatever an earlier run left in his overrides.
+  await api({ action: 'sync', cursor: 0, changes: [
+    { id: `meetavail_${day}`, type: 'meetavail', updated: Date.now(), deleted: true, payload: { on: [] } },
+  ] }, token);
+  await page.reload();
+  await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
 
   // An event at 4pm that day, typed the way a hand types it. It is what the
   // rules will call busy, and what he then overrides.
@@ -169,12 +191,7 @@ test('a day change draws no hours until that day answers, and a slot tap cannot 
   test.setTimeout(120_000);
   const day = nextMonday();
   const nextDay = iso(new Date(new Date(`${day}T12:00:00`).getTime() + 86_400_000)); // a Tuesday: same window
-  // The editor account from the first case, signed back in.
-  await page.goto('.');
-  await page.getByPlaceholder('Username').fill('alex');
-  await page.getByPlaceholder('Password', { exact: true }).fill('e2epassword');
-  await page.getByText('Sign in', { exact: true }).click();
-  await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
+  await ownerSession(page);
   await openAvailability(page, day);
 
   // HOLD the next day's reply open: a loopback server answers before a tap can
@@ -200,4 +217,57 @@ test('a day change draws no hours until that day answers, and a slot tap cannot 
   // Every slot now belongs to the selected day.
   await expect(page.getByLabel(new RegExp(`^${nextDay} \\d\\d:\\d\\d (open|closed)$`)).first()).toBeVisible();
   await expect(page.getByLabel(new RegExp(`^${day} `))).toHaveCount(0);
+});
+
+test('a failed read of a day is retried by tapping the day again or the note, hours empty meanwhile', async ({ page }) => {
+  test.setTimeout(120_000);
+  const day = nextMonday();
+  const nextDay = iso(new Date(new Date(`${day}T12:00:00`).getTime() + 86_400_000));
+  await ownerSession(page);
+  await openAvailability(page, day);
+
+  // Fail the next day's read until told otherwise; hold the retry's answer open.
+  let mode: 'fail' | 'hold' | 'pass' = 'fail';
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => { release = r; });
+  let reads = 0;
+  await page.route('**/api/index.php*', async (route) => {
+    const body = route.request().postData() ?? '';
+    if (body.includes('"meetreq_day"') && body.includes(nextDay)) {
+      reads++;
+      if (mode === 'fail') return route.abort();
+      if (mode === 'hold') await held;
+    }
+    return route.continue();
+  });
+
+  const nextCell = page.getByTestId('av-cell').and(page.getByLabel(nextDay, { exact: true }));
+  await nextCell.click();
+  await expect(page.getByTestId('av-note')).toContainText(/try again/i, { timeout: 10_000 });
+  await expect(page.getByTestId('av-slot')).toHaveCount(0);
+
+  // Tapping the SAME day asks again; the hours stay empty while it is out.
+  mode = 'hold';
+  const before = reads;
+  await nextCell.click();
+  await expect.poll(() => reads).toBe(before + 1);
+  await expect(page.getByTestId('av-slot')).toHaveCount(0);
+  // A tap while it is out does not send a second read.
+  await nextCell.click();
+  await page.waitForTimeout(300);
+  expect(reads).toBe(before + 1);
+  release();
+  await expect(page.getByTestId('av-slot').first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('av-note')).toHaveCount(0);
+
+  // And the note itself retries, after another failure.
+  mode = 'fail';
+  await page.getByTestId('av-cell').and(page.getByLabel(day, { exact: true })).click();
+  await expect(page.getByTestId('av-slot').first()).toBeVisible({ timeout: 10_000 });
+  await nextCell.click();
+  await expect(page.getByTestId('av-note')).toBeVisible({ timeout: 10_000 });
+  mode = 'pass';
+  await page.getByTestId('av-note').click();
+  await expect(page.getByTestId('av-slot').first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel(new RegExp(`^${nextDay} \\d\\d:\\d\\d (open|closed)$`)).first()).toBeVisible();
 });
