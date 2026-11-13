@@ -10,6 +10,17 @@
  * section headers and folder heads between rows never bend the math the way
  * the old uniform-height model did.
  *
+ * ONE RULE for the picture and the result (`place`): the row is drawn at its
+ * home plus the pointer's whole travel since the grant, the line sits where
+ * that centre would land, and the release drops exactly there. The home is
+ * never read off the dragged row's own node once a shift may be on it — the
+ * grant's measure is answered before any shift is drawn, and a later measure
+ * places the home from a neighbour — because measureInWindow answers late
+ * (react-native-web from a setTimeout that a queued pointer move runs ahead
+ * of; native over the bridge), and whether its answer includes a transform
+ * already drawn differs by platform. A home that held the travel had it added
+ * twice, and a quick drag overshot (e2e/dragquick.spec.ts).
+ *
  * The responders are created ONCE per row index and read live values through
  * a ref — a responder rebuilt mid-gesture drops the gesture on the floor,
  * which showed up as text selection instead of a drag.
@@ -64,43 +75,68 @@ export function flatKey(e: { kind: 'row' | 'empty' | 'head'; sectionId: string; 
   return e.kind === 'row' ? (e.rec ? `row:${e.rec.id}` : null) : `${e.kind}:${e.sectionId}`;
 }
 
-const NO_MIDS: Map<number, number> = new Map();
+/** A measured entry: its window-space top and bottom. */
+type Edge = { top: number; bot: number };
+
+/**
+ * One measure of the list, and where the dragged row's HOME (its untouched
+ * midpoint) sits in it. `home` is never read off the dragged row's own node
+ * once the row may have been shifted: the grant's measure is taken before
+ * any shift is drawn, and a later measure (after the row's index moved)
+ * places the home from a neighbour that never moves. Null when no home could
+ * be placed, which shows no drop line and cancels the drop.
+ */
+type Epoch = {
+  mids: Map<number, number>;
+  edges: Map<number, Edge>;
+  /** The flat list's keys when this measure was asked for, or null when the caller gave no keyOf. */
+  keys: (string | null)[] | null;
+  count: number;
+  /** The dragged entry's index in this measure's list. */
+  idx: number;
+  home: number | null;
+};
 
 /** One drag's own state: nothing here outlives the gesture, so nothing leaks into the next one. */
 type Session = {
-  /** Window-space midpoints per entry index, filled when THIS drag's measure answers. */
-  mids: Map<number, number>;
-  measured: boolean;
-  ready: Promise<void>;
-  /** The flat list's keys as they were at the grant, or null when the caller gave no keyOf. */
-  keys: (string | null)[] | null;
-  count: number;
-  /** The entry the gesture was granted on. */
+  /** The entry the gesture was granted on, and the dragged entry's key then (null without keyOf). */
   from: number;
+  dragKey: string | null;
+  keyed: boolean;
+  /** The dragged entry's index now: the responder that last saw the gesture. */
+  at: number;
+  /** The latest measure that has answered; null until the grant's own measure answers. */
+  epoch: Epoch | null;
+  /** The latest measure asked for, and whether it has answered. */
+  ready: Promise<void>;
+  pending: boolean;
   /** The pointer's Y at the grant and at the latest move, whichever responder saw it (null when the platform gave none). */
   startY: number | null;
   lastY: number | null;
+  /** The dragged row's travel since the grant, as last computed. */
+  travel: number;
+  /** The node a live drag last shifted, so a reset clears the right one. */
+  node: View | undefined;
+  /** The current list's keys, cached per render of the hook (keyOf is read live). */
+  curKeys: (string | null)[] | null;
+  curVer: number;
+  over: boolean;
 };
 
 /**
- * Re-find a drop made against the grant-time list in the list as it is now.
+ * Re-find a drop made against a measured list in the list as it is now.
  * Null cancels the drop: the dragged entry or its landing entry is gone, or
  * the list changed so that the move no longer points the same way.
  */
 function resolveDrop(
-  s: Session,
+  was: (string | null)[],
   from: number,
   to: number,
-  keyOf: ((i: number) => string | null) | undefined,
-  count: number,
+  cur: (string | null)[],
 ): { from: number; to: number } | null {
-  if (!s.keys) return { from, to };
-  if (!keyOf) return null;
-  const cur: (string | null)[] = [];
-  for (let k = 0; k < count; k++) cur.push(keyOf(k));
-  if (cur.length === s.keys.length && cur.every((k, x) => k === s.keys![x])) return { from, to };
-  const dragKey = s.keys[from];
-  const anchorKey = s.keys[to];
+  if (cur.length === was.length && cur.every((k, x) => k === was[x])) return { from, to };
+  const dragKey = was[from];
+  const anchorKey = was[to];
   if (dragKey == null || anchorKey == null) return null;
   const f = cur.indexOf(dragKey);
   const t = cur.indexOf(anchorKey);
@@ -115,6 +151,43 @@ function shiftNode(node: View | undefined, dy: number) {
   const n = node as unknown as { setNativeProps?: (p: object) => void; style?: CSSStyleDeclaration };
   if (typeof n.setNativeProps === 'function') n.setNativeProps({ style: { transform: [{ translateY: dy }] } });
   else if (n.style) n.style.transform = dy === 0 ? '' : `translateY(${dy}px)`;
+}
+
+/** The classic sortable rule, on measured geometry: the dragged row's
+ *  DISPLACED midpoint (its home + total travel — so where you grabbed it
+ *  cancels out) is compared against every other row's midpoint, and the
+ *  count it has passed is its destination index. Crossing a row's centre is
+ *  what swaps with it, whatever anyone's height is. */
+function destFor(mids: Map<number, number>, i: number, home: number, dy: number): number | null {
+  // A hair of direction-aware bias so an exact tie of centres resolves the
+  // way the drag is heading instead of falling dead on the knife edge.
+  const c = home + dy + (dy > 0 ? 0.5 : -0.5);
+  let k = 0;
+  for (const [j, mid] of mids) {
+    if (j !== i && mid < c) k++;
+  }
+  return k === i ? null : k;
+}
+
+/**
+ * The dragged row's home in a new measure, from the last one: a neighbour
+ * that was beside it then and is beside it now has moved exactly as far as
+ * its home has (the row's own height and the gap between them are unchanged),
+ * and a neighbour never carries the drag's shift. Its own node is not read:
+ * whether a measure includes the transform already drawn on it differs by
+ * platform and by timing.
+ */
+function carryHome(prev: Epoch, keys: (string | null)[], f: number, edges: Map<number, Edge>): number | null {
+  if (prev.home === null || !prev.keys || f < 0) return null;
+  const above = prev.keys[prev.idx - 1];
+  const was = prev.edges.get(prev.idx - 1);
+  const now = edges.get(f - 1);
+  if (above != null && f > 0 && keys[f - 1] === above && was && now) return prev.home + (now.bot - was.bot);
+  const below = prev.keys[prev.idx + 1];
+  const wasB = prev.edges.get(prev.idx + 1);
+  const nowB = edges.get(f + 1);
+  if (below != null && keys[f + 1] === below && wasB && nowB) return prev.home + (nowB.top - wasB.top);
+  return null;
 }
 
 export function useRowDrag(count: number, onDrop: (from: number, to: number) => void, options?: RowDragOptions): RowDrag {
@@ -138,10 +211,11 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     };
   }
   const setLiveSlot = (v: number | null) => slotStore.current!.set(v);
-  const cfg = useRef({ count, onDrop, keyOf: options?.keyOf });
-  cfg.current = { count, onDrop, keyOf: options?.keyOf };
+  const cfg = useRef({ count, onDrop, keyOf: options?.keyOf, ver: 0 });
+  // Every render may carry a changed list; `ver` tells a drag to read the keys again.
+  cfg.current = { count, onDrop, keyOf: options?.keyOf, ver: cfg.current.ver + 1 };
   const rows = useRef(new Map<number, View>());
-  // The drag in progress: its own midpoints and its own grant-time keys.
+  // The drag in progress: its own measures and its own keys.
   const sess = useRef<Session | null>(null);
   const responders = useRef(new Map<number, PanResponderInstance>());
 
@@ -150,52 +224,140 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     else rows.current.delete(i);
   };
 
-  const measure = async (): Promise<Map<number, number>> => {
+  const keysNow = (): (string | null)[] | null => {
+    const { count: n, keyOf } = cfg.current;
+    if (!keyOf) return null;
+    const keys: (string | null)[] = [];
+    for (let k = 0; k < n; k++) keys.push(keyOf(k));
+    return keys;
+  };
+
+  const curKeys = (s: Session): (string | null)[] => {
+    if (s.curVer !== cfg.current.ver || !s.curKeys) { s.curKeys = keysNow() ?? []; s.curVer = cfg.current.ver; }
+    return s.curKeys;
+  };
+
+  const measure = async (): Promise<Map<number, Edge>> => {
     const entries = [...rows.current.entries()];
     const measured = await Promise.all(
       entries.map(
         ([i, ref]) =>
-          new Promise<{ i: number; mid: number }>((res) =>
-            ref.measureInWindow((_x, y, _w, h) => res({ i, mid: y + h / 2 })),
+          new Promise<{ i: number; e: Edge }>((res) =>
+            ref.measureInWindow((_x, y, _w, h) => res({ i, e: { top: y, bot: y + h } })),
           ),
       ),
     );
-    return new Map(measured.map((m) => [m.i, m.mid]));
+    return new Map(measured.map((m) => [m.i, m.e]));
+  };
+
+  /** Ask for a measure of the list as it is now; the newest one asked for is the one that counts. */
+  const remeasure = (s: Session) => {
+    const keys = keysNow();
+    const n = cfg.current.count;
+    s.pending = true;
+    const p: Promise<void> = measure().then((edges) => {
+      if (s.ready !== p) return;
+      const mids = new Map<number, number>();
+      for (const [i, e] of edges) mids.set(i, (e.top + e.bot) / 2);
+      const prev = s.epoch;
+      let idx: number;
+      let home: number | null;
+      if (!prev) {
+        // The grant's measure. No shift is drawn until it answers (see
+        // draw), so the dragged row's own node is still at home.
+        idx = s.from;
+        home = mids.get(idx) ?? null;
+      } else {
+        idx = keys && s.dragKey !== null ? keys.indexOf(s.dragKey) : s.at;
+        home = keys ? carryHome(prev, keys, idx, edges) : null;
+      }
+      s.epoch = { mids, edges, keys, count: n, idx, home };
+      s.pending = false;
+      if (sess.current === s) draw(s, s.at);
+    });
+    s.ready = p;
   };
 
   const begin = (from: number, y0?: number): Session => {
-    const { count: n, keyOf } = cfg.current;
-    let keys: (string | null)[] | null = null;
-    if (keyOf) {
-      keys = [];
-      for (let k = 0; k < n; k++) keys.push(keyOf(k));
-    }
-    const s: Session = { mids: new Map(), measured: false, ready: Promise.resolve(), keys, count: n, from, startY: y0 && y0 > 0 ? y0 : null, lastY: null };
-    s.ready = measure().then((m) => { s.mids = m; s.measured = true; });
+    const keys = keysNow();
+    const s: Session = {
+      from, dragKey: keys ? keys[from] ?? null : null, keyed: keys !== null, at: from,
+      epoch: null, ready: Promise.resolve(), pending: false,
+      startY: y0 && y0 > 0 ? y0 : null, lastY: null, travel: 0, node: undefined,
+      curKeys: keys, curVer: cfg.current.ver, over: false,
+    };
+    remeasure(s);
     return s;
   };
 
-  /** The classic sortable rule, on measured geometry: the dragged row's
-   *  DISPLACED midpoint (its own mid + total travel — so where you grabbed it
-   *  cancels out) is compared against every other row's midpoint, and the
-   *  count it has passed is its destination index. Crossing a row's centre is
-   *  what swaps with it, whatever anyone's height is. */
-  const destFor = (mids: Map<number, number>, i: number, dy: number): number | null => {
-    const own = mids.get(i);
-    if (own === undefined) return null;
-    // A hair of direction-aware bias so an exact tie of centres resolves the
-    // way the drag is heading instead of falling dead on the knife edge.
-    const c = own + dy + (dy > 0 ? 0.5 : -0.5);
-    let k = 0;
-    for (const [j, mid] of mids) {
-      if (j !== i && mid < c) k++;
-    }
-    return k === i ? null : k;
+  /** The pointer's whole travel since the grant, whichever responder saw it; a responder's own dy when the platform gives no Y. */
+  const travelOf = (s: Session, g: { dy?: number; moveY?: number } | undefined): number => {
+    const y = g?.moveY !== undefined && g.moveY > 0 ? g.moveY : s.lastY;
+    if (s.startY !== null && y !== null) return y - s.startY;
+    return g?.dy ?? s.travel;
   };
 
-  const reset = (i: number) => {
+  /** The dragged row's index now changed (a row arrived or left above it): its grip came to responder `i`. */
+  const follow = (s: Session, i: number) => {
+    if (i === s.at) return;
+    s.at = i;
+    if (!s.keyed || s.over) return;
+    // The measure names other rows now: take the line down (it takes up room
+    // in the list, so it is down before the list is measured again) and
+    // show none until the new measure answers.
+    if (live) setLiveSlot(null);
+    else setUi((u) => ({ ...u, slot: null }));
+    remeasure(s);
+  };
+
+  /**
+   * THE rule, for the picture and the result alike: where the dragged row is
+   * drawn (its home plus the travel), the drop line, and the drop the release
+   * makes. Nothing is drawn shifted until the grant's own measure has
+   * answered, so that measure can never include the shift.
+   */
+  const place = (s: Session): { shift: number; drop: { from: number; to: number } | null; slot: number | null } => {
+    const e = s.epoch;
+    if (!e) return { shift: 0, drop: null, slot: null };
+    const shift = s.travel;
+    // Without keys the responder follows its row by index: the grip is handed
+    // to the responder of the NEW index, and `at` is the row's live one
+    // (dragunder.spec), read against the grant's midpoints as before.
+    const idx = s.keyed ? e.idx : s.at;
+    if (s.keyed && (e.idx !== s.at || s.pending)) return { shift, drop: null, slot: null };
+    const home = s.keyed ? e.home : e.mids.get(idx) ?? null;
+    if (home === null || idx < 0) return { shift, drop: null, slot: null };
+    const to = destFor(e.mids, idx, home, shift);
+    if (to === null) return { shift, drop: null, slot: null };
+    const bounded = Math.max(0, Math.min(e.count - 1, to));
+    if (bounded === idx) return { shift, drop: null, slot: null };
+    // By id when the caller gave keys: the list may have changed since the
+    // measure, and an index would then name another row.
+    const drop = e.keys ? resolveDrop(e.keys, idx, bounded, curKeys(s)) : { from: idx, to: bounded };
+    if (!drop) return { shift, drop: null, slot: null };
+    return { shift, drop, slot: drop.to > drop.from ? drop.to + 1 : drop.to };
+  };
+
+  const draw = (s: Session, i: number) => {
+    const p = place(s);
+    if (live) {
+      const node = rows.current.get(i);
+      if (s.node && s.node !== node) shiftNode(s.node, 0);
+      s.node = node;
+      shiftNode(node, p.shift);
+      setLiveSlot(p.slot);
+    } else {
+      setUi({ dragIdx: i, dragDy: p.shift, slot: p.slot });
+    }
+  };
+
+  const reset = (s: Session | null, i: number) => {
     sess.current = null;
-    if (live) { shiftNode(rows.current.get(i), 0); setLiveSlot(null); }
+    if (live) {
+      if (s?.node) shiftNode(s.node, 0);
+      shiftNode(rows.current.get(i), 0);
+      setLiveSlot(null);
+    }
     setUi({ dragIdx: null, dragDy: 0, slot: null });
   };
 
@@ -219,72 +381,39 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
             sess.current = begin(i, g?.y0);
           },
           onPanResponderMove: (_e, g) => {
-            if (sess.current && g.moveY > 0) sess.current.lastY = g.moveY;
-            const to = destFor(sess.current?.mids ?? NO_MIDS, i, g.dy);
-            const slot = to === null ? null : to > i ? to + 1 : to;
-            if (live) {
-              shiftNode(rows.current.get(i), g.dy);
-              setLiveSlot(slot);
-            } else {
-              setUi({ dragIdx: i, dragDy: g.dy, slot });
-            }
+            const s = sess.current;
+            if (!s) return;
+            if (g.moveY > 0) s.lastY = g.moveY;
+            s.travel = travelOf(s, g);
+            follow(s, i);
+            draw(s, i);
           },
           onPanResponderRelease: (_e, g) => {
             // Compute from the RELEASE's own travel, not the last move — a
             // fast flick can land with barely any move events processed.
             const s = sess.current;
-            reset(i);
+            reset(s, i);
             if (!s) return;
-            if (i !== s.from && s.keys) {
-              // The dragged row's own index moved under the finger (a row
-              // arrived or left above it), so the grant's midpoints name other
-              // rows now. Re-find the row by key, measure the list as it IS,
-              // and place the row's displaced centre — its live home plus the
-              // pointer's whole travel since the grant — among the others.
-              const travel = s.startY !== null && (g.moveY > 0 || s.lastY !== null)
-                ? (g.moveY > 0 ? g.moveY : s.lastY!) - s.startY
-                : g.dy;
-              const dragKey = s.keys[s.from];
-              void measure().then((m) => {
-                const { count: n, keyOf } = cfg.current;
-                if (dragKey == null || !keyOf) return;
-                let f = -1;
-                for (let k = 0; k < n; k++) if (keyOf(k) === dragKey) { f = k; break; }
-                if (f < 0) return;
-                const to = destFor(m, f, travel);
-                if (to === null) return;
-                const bounded = Math.max(0, Math.min(n - 1, to));
-                if (bounded !== f) cfg.current.onDrop(f, bounded);
-              });
-              return;
-            }
+            if (g?.moveY !== undefined && g.moveY > 0) s.lastY = g.moveY;
+            s.travel = travelOf(s, g);
+            follow(s, i);
+            s.over = true;
             const drop = () => {
-              const to = destFor(s.mids, i, g.dy);
-              if (to === null) return;
-              // Without keys the responder follows its row by index: the
-              // grip is handed to the responder of the NEW index, and `i` is
-              // the row's live one (dragunder.spec).
-              if (i !== s.from) {
-                const bounded = Math.max(0, Math.min(cfg.current.count - 1, to));
-                if (i !== bounded) cfg.current.onDrop(i, bounded);
-                return;
-              }
-              const bounded = Math.max(0, Math.min(s.count - 1, to));
-              if (i === bounded) return;
-              // By id when the caller gave keys: the list may have changed
-              // since the grant, and an index would then name another row.
-              const at = resolveDrop(s, i, bounded, cfg.current.keyOf, cfg.current.count);
-              if (at) cfg.current.onDrop(at.from, at.to);
+              const p = place(s);
+              if (p.drop) cfg.current.onDrop(p.drop.from, p.drop.to);
             };
             // measureInWindow is async, and a drag quick enough can be over
             // before it answers — which silently dropped the whole gesture.
             // Wait for THIS drag's own measure (never an earlier drag's
-            // midpoints) and drop on its answer. Nothing but the dragged row
-            // MOVES during a drag, so the grant's measure is as true now.
-            if (s.measured) drop();
-            else void s.ready.then(drop);
+            // midpoints), the newest one it asked for, and drop on its answer.
+            const settle = () => {
+              if (!s.pending) { drop(); return; }
+              const r = s.ready;
+              void r.then(() => { if (s.ready === r) drop(); else settle(); });
+            };
+            settle();
           },
-          onPanResponderTerminate: () => reset(i),
+          onPanResponderTerminate: () => reset(sess.current, i),
         }),
       );
     }

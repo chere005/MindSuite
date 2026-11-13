@@ -276,3 +276,203 @@ describe('section drag', () => {
     expect(h.first).toHaveBeenCalledWith('s0', expect.objectContaining({ key: 'before:s1' }));
   });
 });
+
+/**
+ * 3. A MEASURE THAT SEES THE SHIFT. The grant's measure answers later than the
+ *    first move can arrive (react-native-web answers measureInWindow from a
+ *    setTimeout, and a browser runs a queued pointer move before a timer; a
+ *    native measure is asynchronous as well). By then the first move may have
+ *    shifted the dragged row — a transform on its node in a live drag, a
+ *    dragDy render otherwise — and whether a measure includes that transform
+ *    differs by platform. A row whose measured midpoint included its own
+ *    travel had that travel added a second time and overshot (found in the
+ *    web build: one quick move of 2.4 rows landed 3 rows on).
+ *
+ * The rows here are 20 px high and touch (mids 10, 30, 50, ...), and each
+ * measure reports the row where it is DRAWN when `seesShift` is on.
+ */
+describe('row drag: the drop is where the dragged row\'s centre was released, whenever the measure answers', () => {
+  type Mode = { live: boolean; seesShift: boolean };
+  const MODES: Mode[] = [
+    { live: true, seesShift: true },
+    { live: true, seesShift: false },
+    { live: false, seesShift: true },
+    { live: false, seesShift: false },
+  ];
+  const Y0 = 500; // the pointer's page Y at the grant; only differences count
+
+  function shiftHarness(first: string[], m: Mode) {
+    let keys = first;
+    const shift = new Map<string, number>();
+    const waiting: (() => void)[] = [];
+    const onDrop = vi.fn();
+    let drag = null as unknown as ReturnType<typeof useRowDrag>;
+    const render = () => {
+      rt.at = 0;
+      drag = useRowDrag(keys.length, onDrop, { live: m.live, keyOf: (i) => keys[i] ?? null });
+      return drag;
+    };
+    /** The shift drawn on row `k` now: its node's transform (live), or the dragDy the screen renders it with. */
+    const drawn = (k: string): number => {
+      if (m.live) return shift.get(k) ?? 0;
+      const d = render();
+      return d.dragIdx !== null && keys[d.dragIdx] === k ? d.dragDy : 0;
+    };
+    const nodes = new Map<string, object>();
+    const node = (k: string) => {
+      if (!nodes.has(k)) {
+        nodes.set(k, {
+          setNativeProps: (p: { style: { transform: { translateY: number }[] } }) => { shift.set(k, p.style.transform[0]!.translateY); },
+          measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => {
+            waiting.push(() => cb(0, keys.indexOf(k) * 20 + (m.seesShift ? drawn(k) : 0), 10, 20));
+          },
+        });
+      }
+      return nodes.get(k)!;
+    };
+    let registered = 0;
+    const registerAll = () => {
+      for (let i = keys.length; i < registered; i++) drag.registerRow(i)(null);
+      keys.forEach((k, i) => drag.registerRow(i)(node(k) as never));
+      registered = keys.length;
+    };
+    render();
+    registerAll();
+    const g = (travel: number, dy = travel) => ({ dy, moveY: Y0 + travel });
+    return {
+      onDrop,
+      drawn,
+      /** The list changed (a reorder after a drop, or a second tab's write). */
+      setKeys: (next: string[]) => { keys = next; render(); registerAll(); },
+      grip: (k: string) => {
+        const h = drag.handleFor(keys.indexOf(k)) as unknown as {
+          onPanResponderGrant: (e: unknown, g: unknown) => void;
+          onPanResponderMove: (e: unknown, g: unknown) => void;
+          onPanResponderRelease: (e: unknown, g: unknown) => void;
+        };
+        return {
+          grant: () => h.onPanResponderGrant({}, { y0: Y0, dy: 0 }),
+          move: (travel: number, dy?: number) => h.onPanResponderMove({}, g(travel, dy)),
+          release: (travel: number, dy?: number) => h.onPanResponderRelease({}, g(travel, dy)),
+        };
+      },
+      slot: (): number | null => (m.live ? drag.liveSlot.get() : render().slot),
+      answer: async () => {
+        waiting.splice(0).forEach((f) => f());
+        for (let n = 0; n < 5; n++) await Promise.resolve();
+      },
+    };
+  }
+
+  const name = (m: Mode) => `${m.live ? 'live' : 'dragDy'} rows, measure ${m.seesShift ? 'includes' : 'ignores'} the shift`;
+
+  // [grabbed, travel, expected drop]: 2.4 and 0.6 rows, down and up, from the
+  // first, a middle and the last row of a b c d e.
+  const CASES: [string, number, [number, number] | null][] = [
+    ['b', 48, [1, 3]],   // centre 30+48 = 78 passes c (50) and d (70), not e (90)
+    ['d', -48, [3, 1]],  // 70-48 = 22 passes c and b, not a (10)
+    ['a', 48, [0, 2]],
+    ['e', -48, [4, 2]],
+    ['a', 12, null],     // 0.6 of a row passes no centre
+    ['c', -12, null],
+    ['e', -12, null],
+  ];
+
+  for (const m of MODES) {
+    test(`${name(m)}: one quick move, the measure answering after it (before the release, or after)`, async () => {
+      for (const late of [false, true]) {
+        for (const [k, travel, want] of CASES) {
+          rt.slots = []; rt.at = 0;
+          const h = shiftHarness(['a', 'b', 'c', 'd', 'e'], m);
+          const grip = h.grip(k);
+          grip.grant();
+          grip.move(travel);
+          if (!late) await h.answer();
+          grip.release(travel);
+          if (late) {
+            expect(h.onDrop, `${k} ${travel}: not before its measure`).not.toHaveBeenCalled();
+            await h.answer();
+          }
+          if (want) expect(h.onDrop, `${k} ${travel} late=${late}`).toHaveBeenCalledWith(...want);
+          else expect(h.onDrop, `${k} ${travel} late=${late}`).not.toHaveBeenCalled();
+        }
+      }
+    });
+
+    test(`${name(m)}: moves before the measure answers, the release after it; the picture is the drop`, async () => {
+      for (const [k, travel, want] of CASES) {
+        rt.slots = []; rt.at = 0;
+        const h = shiftHarness(['a', 'b', 'c', 'd', 'e'], m);
+        const grip = h.grip(k);
+        grip.grant();
+        grip.move(travel / 2);
+        grip.move(travel);
+        await h.answer();
+        // Drawn by the same rule the release uses: the row rides its whole
+        // travel, and the line sits where the drop will land.
+        expect(h.drawn(k), `${k} ${travel}: drawn shift`).toBe(travel);
+        expect(h.slot(), `${k} ${travel}: line`).toBe(want ? (want[1] > want[0] ? want[1] + 1 : want[1]) : null);
+        grip.release(travel);
+        if (want) expect(h.onDrop, `${k} ${travel}`).toHaveBeenCalledWith(...want);
+        else expect(h.onDrop, `${k} ${travel}`).not.toHaveBeenCalled();
+      }
+    });
+
+    test(`${name(m)}: a quick second drag right after a drop`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd', 'e'], m);
+      let grip = h.grip('b');
+      grip.grant();
+      grip.move(48);
+      await h.answer();
+      grip.release(48);
+      expect(h.onDrop).toHaveBeenLastCalledWith(1, 3);
+      h.setKeys(['a', 'c', 'd', 'b', 'e']); // the screen applies the drop
+      h.onDrop.mockClear();
+      grip = h.grip('d'); // index 2 now, mid 50
+      grip.grant();
+      grip.move(-48);
+      await h.answer(); // after the move, before the release
+      grip.release(-48);
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 0); // 50-48 = 2 passes a (10)
+    });
+
+    test(`${name(m)}: after a row arrives above, the row rides the whole travel and the line is the drop`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m);
+      const grip = h.grip('b');
+      grip.grant();
+      await h.answer();
+      grip.move(10);
+      h.setKeys(['x', 'a', 'b', 'c', 'd']); // b is index 2 now; its grip carries responder 2
+      const moved = h.grip('b');
+      // The new responder's own dy counts only what it saw (30 of the 40).
+      moved.move(40, 30);
+      expect(h.drawn('b'), 'drawn while the new measure is out').toBe(40);
+      expect(h.slot(), 'no line on the old measure').toBe(null);
+      await h.answer();
+      // b's home is 50 now; 50+40 = 90 passes x (10), a (30), c (70) and d (90).
+      expect(h.drawn('b')).toBe(40);
+      expect(h.slot()).toBe(5);
+      moved.move(30, 20); // 80: passes c (70), not d (90)
+      expect(h.drawn('b')).toBe(30);
+      expect(h.slot()).toBe(4);
+      moved.release(30, 20);
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 3);
+    });
+
+    test(`${name(m)}: the landing row deleted mid-drag takes the line down with the drop`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m);
+      const grip = h.grip('b');
+      grip.grant();
+      grip.move(25);
+      await h.answer();
+      expect(h.slot()).toBe(3); // b past c
+      h.setKeys(['a', 'b', 'd']);
+      grip.move(26);
+      expect(h.slot()).toBe(null);
+      grip.release(26);
+      expect(h.onDrop).not.toHaveBeenCalled();
+    });
+  }
+});
