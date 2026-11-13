@@ -15,7 +15,7 @@ export default defineConfig({
     // Desktop runs every spec except the phone-only ones (file names containing "phone").
     { name: 'desktop', use: { viewport: { width: 1360, height: 900 } }, testIgnore: /phone[^/]*\.spec\.ts$/ },
     // Phone runs planner.spec.ts (the shell on a phone), the account menu and dragging (which have a phone half) and the phone specs.
-    { name: 'phone', use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true }, testMatch: /(planner|account|drag|entry-look|[^/]*phone[^/]*)\.spec\.ts$/ },
+    { name: 'phone', use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true }, testMatch: /(planner|account|drag|entry-look|perf|[^/]*phone[^/]*)\.spec\.ts$/ },
     // WebKit (the engine of the iPhone app's WKWebView) covers schedule hit testing, mouse drags, the Month's scroll places and the all-day strip's grid layout. It is off unless asked for, because it needs
     // `npx playwright install webkit`: PLANMIND_E2E_WEBKIT=1 npx playwright test --project=webkit
     ...(process.env.PLANMIND_E2E_WEBKIT ? [{ name: 'webkit', use: { browserName: 'webkit' as const, viewport: { width: 1360, height: 900 } }, testMatch: /(drag|drag-owners|boundary-drag|entry-look|month-scroll|calmind-allday)\.spec\.ts$/ }] : []),
