@@ -94,7 +94,7 @@ $asg = '/^\s*\$config\[\s*\'([A-Za-z0-9_]+)\'\s*\]\s*=\s*(.*?)\s*;\s*$/D';
 $retRe = '/^\s*return\s+\$config\s*;\s*$/D';
 $literal = static function (string $s, &$out): bool {
     if (preg_match('/^(true|false)$/Di', $s)) { $out = strtolower($s) === 'true'; return true; }
-    if (preg_match('/^-?[0-9]{1,18}$/D', $s)) { $out = (int) $s; return true; }
+    if (preg_match('/^(?:0|-?[1-9][0-9]{0,17})$/D', $s)) { $out = (int) $s; return true; }   // no leading zero: PHP reads 0465 as octal
     if (preg_match("/^'((?:[^'\\\\]|\\\\.)*)'$/Ds", $s, $m)) { $out = preg_replace("/\\\\([\\\\'])/", '$1', $m[1]); return true; }
     return false;
 };
@@ -181,12 +181,24 @@ if ($mode === 'check' || $mode === 'phpbin') {
         if ($isText($oTxt) !== $text) { $die('refusing: the copy changed layout since the pull'); }
         if ($text) {
             [$o] = $parseOwn($oTxt);
-            // Only own-key assignment lines may differ; any other new line (code, a changed $keys list) is refused.
+            // Everything except own-key assignment lines must equal the pulled copy, in the same order (a deleted or moved
+            // $keys / $config = / return line is refused); own-key lines must sit between `$config = ...` and `return $config;`.
+            $nonAsg = function (string $t) use ($asg): array {
+                return array_values(array_filter(array_map('rtrim', explode("\n", $t)), function ($l) use ($asg) { return $l !== '' && !preg_match($asg, $l); }));
+            };
+            if ($nonAsg($txt) !== $nonAsg($oTxt)) { $die('refusing: a line other than an own-key assignment was added, changed, removed or moved'); }
+            $nl = explode("\n", $txt); $from = null; $to = null;
+            foreach ($nl as $i => $l) {
+                if ($from === null && preg_match('/^\s*\$config\s*=/', $l)) { $from = $i; }
+                if (preg_match($retRe, $l)) { $to = $i; }
+            }
+            if ($from === null || $to === null || $from > $to) { $die('refusing: unknown layout ($config = ... must come before return $config;)'); }
             $have = array_count_values(array_map('rtrim', explode("\n", $oTxt)));
-            foreach (explode("\n", $txt) as $l) {
+            foreach ($nl as $i => $l) {
+                if (!preg_match($asg, $l, $mm)) { continue; }
+                if ($i < $from || $i > $to) { $die("refusing: the line for '" . $safeName($mm[1]) . "' is outside the block between \$config = ... and return \$config;"); }
                 $l = rtrim($l);
                 if (!empty($have[$l])) { $have[$l]--; continue; }
-                if (!preg_match($asg, $l, $mm)) { $die('refusing: a line other than an own-key assignment was added or changed'); }
                 if (isset($expr[$mm[1]])) { $die("refusing: '" . $safeName($mm[1]) . "' must be a plain true/false, integer or quoted string"); }
             }
         } else { $o = require $argv[4]; }

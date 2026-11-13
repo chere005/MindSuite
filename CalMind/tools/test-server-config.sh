@@ -328,12 +328,23 @@ hand() {   # label, php code on the text ($t)
 }
 hand "push adds a code line"            '$t=str_replace("return \$config;","system(\"id\");\nreturn \$config;",$t);'
 hand "push edits the \$keys list"       '$t=str_replace("\x27mail_from\x27]","\x27mail_from\x27, \x27data_key\x27]",$t);'
-hand "push adds data_key"               '$t=str_replace("return \$config;","\$config[\"data_key\"] = \"K\";\nreturn \$config;",$t);'
-hand "push adds debug_log_codes"        '$t=str_replace("return \$config;","\$config[\"debug_log_codes\"] = true;\nreturn \$config;",$t);'
-hand "push adds an undocumented key"    '$t=str_replace("return \$config;","\$config[\"surprise\"] = \"x\";\nreturn \$config;",$t);'
-hand "push a relative php_bin"          '$t=str_replace("return \$config;","\$config[\"php_bin\"] = \"php\";\nreturn \$config;",$t);'
-hand "push a php_bin not on the server" '$t=str_replace("return \$config;","\$config[\"php_bin\"] = \"/usr/local/bin/nope\";\nreturn \$config;",$t);'
-hand "push a non-boolean mail_enabled"  '$t=str_replace("true;","\"yes\";",$t);'
+hand "push adds data_key"               '$t=str_replace("return \$config;","\$config[\x27data_key\x27] = \x27K\x27;\nreturn \$config;",$t);'
+hand "push adds debug_log_codes"        '$t=str_replace("return \$config;","\$config[\x27debug_log_codes\x27] = true;\nreturn \$config;",$t);'
+hand "push adds an undocumented key"    '$t=str_replace("return \$config;","\$config[\x27surprise\x27] = \x27x\x27;\nreturn \$config;",$t);'
+hand "push a relative php_bin"          '$t=str_replace("return \$config;","\$config[\x27php_bin\x27] = \x27php\x27;\nreturn \$config;",$t);'
+hand "push a php_bin not on the server" '$t=str_replace("return \$config;","\$config[\x27php_bin\x27] = \x27/usr/local/bin/nope\x27;\nreturn \$config;",$t);'
+hand "push a non-boolean mail_enabled"  '$t=str_replace("\x27mail_enabled\x27] = true;","\x27mail_enabled\x27] = \x27yes\x27;",$t);'
+hand "push a leading-zero integer (PHP octal)" '$t=str_replace("return \$config;","\$config[\x27smtp_port\x27] = 0465;\nreturn \$config;",$t);'
+reset_shared
+sed -i.bak "s/^return .config;/\$config['data_key'] = 'DK';\\
+return \$config;/" "$PROD"; rm -f "$PROD.bak"
+rm -rf "$R/state"; run $SC pull prod
+php -r '$f=$argv[1]; $t=file_get_contents($f); $t=str_replace("\$config[\x27data_key\x27] = \x27DK\x27;\n","",$t); $t=str_replace("\$shared = require","\$config[\x27data_key\x27] = \x27DK\x27;\n\$shared = require",$t); file_put_contents($f,$t);' "$R/state/prod.php"
+before=$(live_sum); run $SC push prod
+[ "$RC" -ne 0 ] && [ "$before" = "$(live_sum)" ] && ok "refused, nothing changed: own data_key moved above the intersect" || bad "NOT refused: data_key moved ($RC) $OUT"
+rm -rf "$R/state"
+hand "push deletes the \$keys line"    '$t=preg_replace("/^\\\$keys.*\\n/m","",$t);'
+hand "push moves return above the intersect" '$t=str_replace("return \$config;\n","",$t); $t=str_replace("\$config = array_intersect_key","return \$config;\n\$config = array_intersect_key",$t);'
 hand "push an expression value"         '$t=str_replace("return \$config;","\$config[\"php_bin\"] = strtolower(\"/USR\");\nreturn \$config;",$t);'
 spull; rm -f "$R/state/prod.orig"
 LABEL="shared: push with the as-pulled record missing"; before=$(live_sum); run $SC push prod
