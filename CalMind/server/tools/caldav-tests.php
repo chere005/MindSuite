@@ -85,6 +85,33 @@ t('CalDAV REPORT preserves timezone components and timezone identifiers', functi
     eq(1, substr_count($ics, 'BEGIN:VCALENDAR'), 'only the wrapper is replaced');
 });
 
+t('CalDAV reads calendars larger than 8MB through transport, XML, and aggregation', function () {
+    // Small individual objects, like a long-lived calendar, keep libxml's
+    // per-node protections in force while exercising a large whole report.
+    $event = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:large\r\nDTSTART:20261026T170000Z\r\nDESCRIPTION:" . str_repeat('x', 65536) . "\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    $response = '<d:response><d:propstat><d:prop><c:calendar-data><![CDATA[' . $event . ']]></c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>';
+    $report = '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">' . str_repeat($response, 129) . '</d:multistatus>';
+    $request = fn($url, $method, $body, $username, $password, $depth) => caldav_request($url, $method, $body, $username, $password, $depth,
+        fn() => ['93.184.216.34'], fn() => ['status' => 207, 'body' => $report]);
+    $ics = caldav_fetch('https://dav.example/work/', 'alice', 'secret', $request);
+    ok(strlen($ics) > 8 * 1024 * 1024, 'the complete calendar exceeds 8MB');
+    eq(129, substr_count($ics, 'BEGIN:VEVENT'), 'every object survives');
+    ok(str_ends_with($ics, "END:VCALENDAR\r\n"), 'the response is complete');
+});
+
+t('CalDAV accepts a 32MB response and refuses larger responses and XML', function () {
+    $resolve = fn() => ['93.184.216.34'];
+    $body = str_repeat('x', 32 * 1024 * 1024);
+    $response = caldav_request('https://dav.example/', 'REPORT', '', 'alice', 'secret', 1, $resolve,
+        fn() => ['status' => 207, 'body' => $body]);
+    eq(strlen($body), strlen($response['body']), 'the transport accepts the limit exactly');
+    unset($response);
+    $body .= 'x';
+    caldav_refuses(fn() => caldav_request('https://dav.example/', 'REPORT', '', 'alice', 'secret', 1, $resolve,
+        fn() => ['status' => 207, 'body' => $body]), 'over 32MB');
+    caldav_refuses(fn() => caldav_xml($body), 'oversized XML');
+});
+
 t('CalDAV resolves relative paths but never crosses origins with credentials', function () {
     eq('https://dav.example:8443/principals/alice/', caldav_href('https://dav.example:8443/dav/root/', '../../principals/alice/'));
     eq('https://dav.example/work/', caldav_href('https://dav.example/root/', '//dav.example/work/'));

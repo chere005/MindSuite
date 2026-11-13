@@ -986,6 +986,10 @@ this server without a second export built for it); its `api.ts` and `Login.tsx` 
 
 ## server/ — the API contract (PHP over real HTTP)
 
+`server/tools/caldav-tests.php` also runs offline: a calendar larger than 8 MB
+passes transport, XML parsing and aggregation intact; 32 MB is accepted at the
+download boundary and larger responses and XML are refused.
+
 - Auth: signup validation, hashed storage (no plaintext on disk), login,
   token revocation on password change, recovery codes (single-use, five
   wrong burns it).

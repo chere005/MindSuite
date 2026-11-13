@@ -6,6 +6,7 @@
 require_once __DIR__ . '/fetchurl.php';
 
 const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
+const CALDAV_SIZE_ERROR = 'that calendar is too large to read (over ' . (FETCH_MAX_BYTES / 1024 / 1024) . 'MB)';
 
 function caldav_url_parts(string $url): array
 {
@@ -101,7 +102,7 @@ function caldav_request(string $url, string $method, string $body, string $usern
         'depth' => $depth, 'ip' => $ips[0], 'host' => $u['host'], 'port' => $u['port'] ?? 443];
     $r = ($send ?? 'caldav_curl')($url, $request);
     if (strlen((string) ($r['body'] ?? '')) > FETCH_MAX_BYTES) {
-        throw new RuntimeException('that calendar is too large to read (over 4MB)');
+        throw new RuntimeException(CALDAV_SIZE_ERROR);
     }
     $status = (int) ($r['status'] ?? 0);
     if (in_array($status, [301, 302, 303, 307, 308], true)) {
@@ -146,7 +147,7 @@ function caldav_curl(string $url, array $request): array
         $errno = curl_errno($ch);
         curl_close($ch);
         throw new RuntimeException(match ($errno) {
-            42 => 'that calendar is too large to read (over 4MB)',
+            42 => CALDAV_SIZE_ERROR,
             28 => 'that CalDAV server took too long to answer',
             default => 'could not securely reach that CalDAV server',
         });
@@ -275,7 +276,7 @@ function caldav_fetch(string $url, string $username, string $password, ?callable
         }
         // A partial report must not replace a complete cached calendar.
         if (!$found) { throw new RuntimeException('the CalDAV server could not read every calendar item'); }
-        if (strlen($out) > FETCH_MAX_BYTES - 32) { throw new RuntimeException('that calendar is too large to read (over 4MB)'); }
+        if (strlen($out) + strlen("END:VCALENDAR\r\n") > FETCH_MAX_BYTES) { throw new RuntimeException(CALDAV_SIZE_ERROR); }
     }
     return $out . "END:VCALENDAR\r\n";
 }

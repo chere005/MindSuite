@@ -22,7 +22,7 @@
  */
 
 const FETCH_TIMEOUT   = 15;               // seconds, whole request
-const FETCH_MAX_BYTES = 4 * 1024 * 1024;  // a very large calendar is ~1MB
+const FETCH_MAX_BYTES = 32 * 1024 * 1024; // room for large calendars and CalDAV XML overhead
 const FETCH_MAX_HOPS  = 4;
 
 /** True when this address is one the server should never be asked to reach. */
