@@ -297,7 +297,10 @@ test.describe('performance', { tag: '@perf' }, () => {
   // input to the frame that shows its answer (null: never shown, an input that was dropped), whether the end state is right on the screen and on the server, and the
   // time until the server holds everything. CPU throttle as above.
   let fresh = 0;
-  const nextDay = () => farDate(40 + fresh++);
+  const BASE = 40 + Math.floor(Math.random() * 3000);
+  const nextDay = () => farDate(BASE + fresh++);
+  // REVIEW: the page only learns of items made over the API at its next poll or reply: reload it so they are on screen.
+  const freshDay = async (page: Page, date: string) => { await page.reload(); await page.locator('#sidebar .date-row.selected').waitFor({ state: 'attached' }); await openDay(page, date); };
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
   /** Makes `n` open to-dos on a new day for the owner; returns the day and the titles. */
   async function makeTodos(baseURL: string, n: number, label: string) {
@@ -346,7 +349,7 @@ test.describe('performance', { tag: '@perf' }, () => {
     const rows = [];
     for (let run = 0; run < RUNS; run++) {
       const { owner, date, titles } = await makeTodos(baseURL!, 5, 'Rapid');
-      await openDay(page, date); await showTodos(page);
+      await freshDay(page, date); await showTodos(page); await page.locator(`input.day-circle[aria-label$=" ${titles[0]}"]`).waitFor();
       await throttle(THROTTLE);
       const r = await clickCircles(page, titles.map(title => ({ title, want: true })), 80);
       const saved = await settled(owner, s => titles.every(t => s.tasks.find((x: any) => x.title === t)?.done), 10_000 + 5 * LATENCY * 2);
@@ -363,7 +366,7 @@ test.describe('performance', { tag: '@perf' }, () => {
     const rows = [];
     for (let run = 0; run < RUNS; run++) {
       const { owner, date, titles } = await makeTodos(baseURL!, 1, 'Flip');
-      await openDay(page, date); await showTodos(page);
+      await freshDay(page, date); await showTodos(page); await page.locator(`input.day-circle[aria-label$=" ${titles[0]}"]`).waitFor();
       await throttle(THROTTLE);
       const r = await clickCircles(page, [{ title: titles[0]!, want: true }, { title: titles[0]!, want: false }], 40);
       await sleep(LATENCY * 3 + 200);
@@ -407,7 +410,7 @@ test.describe('performance', { tag: '@perf' }, () => {
     for (let run = 0; run < RUNS; run++) {
       // Two drags in a row.
       let day = await makeDay(baseURL!);
-      await openDay(page, day.date);
+      await freshDay(page, day.date); await page.locator('.day-ev', { hasText: 'DragA' }).first().waitFor();
       await throttle(THROTTLE);
       const hour = 60 * await minuteHeight(page);
       const a = await centre(page.locator('.day-ev', { hasText: 'DragA' }).first());
@@ -421,7 +424,7 @@ test.describe('performance', { tag: '@perf' }, () => {
       await day.owner.dispose();
       // A check-off in the middle of a drop's save.
       day = await makeDay(baseURL!, 1);
-      await openDay(page, day.date);
+      await freshDay(page, day.date); await page.locator('.day-ev', { hasText: 'DragA' }).first().waitFor();
       await throttle(THROTTLE);
       const mover = await centre(page.locator('.day-ev', { hasText: 'DragA' }).first());
       await rawDrag(page, phone, mover, hour);
@@ -451,7 +454,7 @@ test.describe('performance', { tag: '@perf' }, () => {
     test.skip(!isPhone(info.project.name), 'touch only');
     await setup(page);
     const day = await makeDay(baseURL!);
-    await openDay(page, day.date);
+    await freshDay(page, day.date); await page.locator('.day-ev', { hasText: 'DragA' }).first().waitFor();
     const a = await centre(page.locator('.day-ev', { hasText: 'DragA' }).first());
     const lifts: number[] = [];
     for (let i = 0; i < RUNS; i++) {
