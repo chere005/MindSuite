@@ -31,7 +31,7 @@ try {
             session_write_close();
             unset($workspace);
             $request = \TaskMind\read_mutation_body($_SERVER['CONTENT_TYPE'] ?? '', $_SERVER['CONTENT_LENGTH'] ?? '');
-            $reply = \TaskMind\change_workspace($store, app_config(), tm_users(), $member['id'], $request);
+            $reply = \TaskMind\change_workspace($store, app_config(), tm_accounts(), $member['id'], $request);
             break;
         default:
             header('Allow: GET, POST');
