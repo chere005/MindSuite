@@ -301,8 +301,18 @@ describe('row drag: the drop is where the dragged row\'s centre was released, wh
   ];
   const Y0 = 500; // the pointer's page Y at the grant; only differences count
 
-  function shiftHarness(first: string[], m: Mode) {
+  /**
+   * `sync` models a measure that answers AT ONCE from the last COMMITTED tree
+   * (Fabric's measureInWindow reads the current shadow tree synchronously): a
+   * dragDy screen's shift sits on the row at the committed `dragIdx` of the
+   * committed list, and a setUi made in the same handler is not in it yet.
+   * `tick` is the commit after a handler. Without `sync`, measures wait for
+   * `answer` and read the rows as they are then.
+   */
+  function shiftHarness(first: string[], m: Mode, startSync = false) {
+    let sync = startSync;
     let keys = first;
+    let committed: { idx: number | null; dy: number; keys: string[] } = { idx: null, dy: 0, keys: first };
     const shift = new Map<string, number>();
     const waiting: (() => void)[] = [];
     const onDrop = vi.fn();
@@ -324,7 +334,10 @@ describe('row drag: the drop is where the dragged row\'s centre was released, wh
         nodes.set(k, {
           setNativeProps: (p: { style: { transform: { translateY: number }[] } }) => { shift.set(k, p.style.transform[0]!.translateY); },
           measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => {
-            waiting.push(() => cb(0, keys.indexOf(k) * 20 + (m.seesShift ? drawn(k) : 0), 10, 20));
+            if (sync) {
+              const seen = m.live ? shift.get(k) ?? 0 : committed.idx !== null && committed.keys[committed.idx] === k ? committed.dy : 0;
+              cb(0, committed.keys.indexOf(k) * 20 + (m.seesShift ? seen : 0), 10, 20);
+            } else waiting.push(() => cb(0, keys.indexOf(k) * 20 + (m.seesShift ? drawn(k) : 0), 10, 20));
           },
         });
       }
@@ -338,12 +351,20 @@ describe('row drag: the drop is where the dragged row\'s centre was released, wh
     };
     render();
     registerAll();
+    const commit = () => { const d = render(); committed = { idx: d.dragIdx, dy: d.dragDy, keys: [...keys] }; };
     const g = (travel: number, dy = travel) => ({ dy, moveY: Y0 + travel });
     return {
       onDrop,
       drawn,
       /** The list changed (a reorder after a drop, or a second tab's write). */
-      setKeys: (next: string[]) => { keys = next; render(); registerAll(); },
+      setKeys: (next: string[]) => { keys = next; render(); registerAll(); commit(); },
+      /** From now on, measures answer at once (true) or wait for `answer` (false). */
+      setSync: (on: boolean) => { sync = on; },
+      /** The handler's promise callbacks run, then React commits what it drew. */
+      tick: async () => {
+        for (let n = 0; n < 5; n++) await Promise.resolve();
+        commit();
+      },
       grip: (k: string) => {
         const h = drag.handleFor(keys.indexOf(k)) as unknown as {
           onPanResponderGrant: (e: unknown, g: unknown) => void;
@@ -473,6 +494,144 @@ describe('row drag: the drop is where the dragged row\'s centre was released, wh
       expect(h.slot()).toBe(null);
       grip.release(26);
       expect(h.onDrop).not.toHaveBeenCalled();
+    });
+
+    test(`${name(m)}: while a newer measure is out, no line from an older one; then the line is the drop`, async () => {
+      // The release waits for the newest measure, so a line drawn from an
+      // older one could name another row than the drop.
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m);
+      h.grip('b').grant();
+      await h.answer();
+      h.grip('b').move(25);
+      expect(h.slot()).toBe(3); // b (30+25 = 55) past c (50)
+      h.setKeys(['x', 'a', 'b', 'c', 'd']);
+      h.grip('b').move(25);
+      h.setKeys(['a', 'b', 'y', 'c', 'd']); // b is back at 1, y now sits where c was
+      h.grip('b').move(25);
+      expect(h.slot(), 'the first measure would put the line under c').toBe(null);
+      await h.answer();
+      expect(h.slot()).toBe(3); // 55 passes y (50), not c (70)
+      h.grip('b').release(25);
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(1, 2);
+    });
+
+    test(`${name(m)}: a release clears the shift it drew, after the list changed under it`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m);
+      h.grip('b').grant();
+      await h.answer();
+      h.grip('b').move(30);
+      expect(h.drawn('b')).toBe(30);
+      h.setKeys(['x', 'a', 'b', 'c', 'd']);
+      h.grip('b').release(30);
+      await h.answer();
+      for (const k of ['x', 'a', 'b', 'c', 'd']) expect(h.drawn(k), k).toBe(0);
+    });
+  }
+
+  for (const m of MODES) {
+    const lag = `${name(m)}, answered at once from the last commit`;
+
+    test(`${lag}: a row arrives above; the neighbour a dragDy screen still draws shifted is not the home`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m, true);
+      h.grip('b').grant();
+      await h.tick();
+      h.grip('b').move(10);
+      await h.tick(); // dragIdx 1 (b) drawn 10 down
+      h.setKeys(['x', 'a', 'b', 'c', 'd']); // committed with dragIdx still 1: a is drawn 10 down
+      const moved = h.grip('b');
+      moved.move(40, 30); // the handoff's measure answers from that commit
+      await h.tick();
+      // b's home is 50; 50+40 = 90 passes x, a, c (70) and d (90).
+      expect(h.drawn('b')).toBe(40);
+      expect(h.slot()).toBe(5);
+      moved.move(30, 20);
+      await h.tick();
+      expect(h.slot()).toBe(4); // 80: past c, not d
+      moved.release(30, 20);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 3);
+    });
+
+    test(`${lag}: a row leaves above the top; the row below still drawn shifted is not the home`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd', 'e'], m, true);
+      h.grip('b').grant();
+      await h.tick();
+      h.grip('b').move(-10);
+      await h.tick();
+      h.setKeys(['b', 'c', 'd', 'e']); // b is first; dragIdx 1 is c now, drawn 10 up
+      const moved = h.grip('b');
+      moved.move(45, 55);
+      await h.tick();
+      // b's home is 10; 10+45 = 55 passes c (30) and d (50), not e (70).
+      expect(h.drawn('b')).toBe(45);
+      expect(h.slot()).toBe(3);
+      moved.release(45, 55);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(0, 2);
+    });
+
+    test(`${lag}: the grant's measure answers after a row arrived above; the row then drawn shifted is not the home`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd'], m);
+      h.grip('b').grant(); // its measure waits
+      h.grip('b').move(10);
+      h.setKeys(['x', 'a', 'b', 'c', 'd']);
+      // It answers before the next move: that draw goes to index 1, the old
+      // responder's, which is row a now.
+      await h.answer();
+      await h.tick();
+      h.setSync(true);
+      const moved = h.grip('b');
+      moved.move(40, 30);
+      await h.tick();
+      expect(h.drawn('b')).toBe(40);
+      expect(h.drawn('a')).toBe(0);
+      expect(h.slot()).toBe(5); // 50+40 = 90 passes x, a, c and d
+      moved.move(30, 20);
+      await h.tick();
+      expect(h.slot()).toBe(4);
+      moved.release(30, 20);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 3);
+    });
+
+    test(`${lag}: two handoffs; a row an earlier measure saw shifted is not the home either`, async () => {
+      const h = shiftHarness(['a', 'b', 'c', 'd', 'e', 'f'], m, true);
+      h.grip('c').grant();
+      await h.tick();
+      h.grip('c').move(10);
+      await h.tick();
+      h.setKeys(['x', 'a', 'b', 'c', 'd', 'e', 'f']); // dragIdx 2 is b now
+      h.grip('c').move(20);
+      await h.tick(); // that measure may have seen b shifted
+      h.setKeys(['a', 'b', 'c', 'd', 'e', 'f']); // x gone: c is back at 2, dragIdx 3 is d
+      const back = h.grip('c');
+      back.move(45);
+      await h.tick();
+      // c's home is 50; 50+45 = 95 passes d (70) and e (90), not f (110).
+      expect(h.drawn('c')).toBe(45);
+      expect(h.slot()).toBe(5);
+      back.release(45);
+      await h.tick();
+      expect(h.onDrop).toHaveBeenCalledTimes(1);
+      expect(h.onDrop).toHaveBeenCalledWith(2, 4);
+    });
+
+    test(`${lag}: one quick move and two quick drags in a row`, async () => {
+      for (const [k, travel, want] of CASES) {
+        rt.slots = []; rt.at = 0;
+        const h = shiftHarness(['a', 'b', 'c', 'd', 'e'], m, true);
+        const grip = h.grip(k);
+        grip.grant();
+        grip.move(travel);
+        grip.release(travel);
+        await h.tick();
+        if (want) expect(h.onDrop, `${k} ${travel}`).toHaveBeenCalledWith(...want);
+        else expect(h.onDrop, `${k} ${travel}`).not.toHaveBeenCalled();
+      }
     });
   }
 });

@@ -15,7 +15,9 @@
  * that centre would land, and the release drops exactly there. The home is
  * never read off the dragged row's own node once a shift may be on it — the
  * grant's measure is answered before any shift is drawn, and a later measure
- * places the home from a neighbour — because measureInWindow answers late
+ * places the home from a neighbour no shift of this drag has been drawn on
+ * (a dragDy screen shifts whichever row sits at `dragIdx`, which after the
+ * list changes can be a neighbour) — because measureInWindow answers late
  * (react-native-web from a setTimeout that a queued pointer move runs ahead
  * of; native over the bridge), and whether its answer includes a transform
  * already drawn differs by platform. A home that held the travel had it added
@@ -83,8 +85,9 @@ type Edge = { top: number; bot: number };
  * midpoint) sits in it. `home` is never read off the dragged row's own node
  * once the row may have been shifted: the grant's measure is taken before
  * any shift is drawn, and a later measure (after the row's index moved)
- * places the home from a neighbour that never moves. Null when no home could
- * be placed, which shows no drop line and cancels the drop.
+ * places the home from a row this drag has not drawn shifted (carryHome).
+ * Null when no home could be placed, which shows no drop line and cancels
+ * the drop.
  */
 type Epoch = {
   mids: Map<number, number>;
@@ -95,6 +98,8 @@ type Epoch = {
   /** The dragged entry's index in this measure's list. */
   idx: number;
   home: number | null;
+  /** Entries this measure may have seen with a shift of this drag drawn on them: never carried from. */
+  suspect: Set<number>;
 };
 
 /** One drag's own state: nothing here outlives the gesture, so nothing leaks into the next one. */
@@ -117,6 +122,9 @@ type Session = {
   travel: number;
   /** The node a live drag last shifted, so a reset clears the right one. */
   node: View | undefined;
+  /** Every node (live) or entry index (dragDy, the screen shifts the row at `dragIdx`) this drag has drawn shifted. */
+  shiftedNodes: Set<View>;
+  shiftedIdx: Set<number>;
   /** The current list's keys, cached per render of the hook (keyOf is read live). */
   curKeys: (string | null)[] | null;
   curVer: number;
@@ -170,24 +178,35 @@ function destFor(mids: Map<number, number>, i: number, home: number, dy: number)
 }
 
 /**
- * The dragged row's home in a new measure, from the last one: a neighbour
- * that was beside it then and is beside it now has moved exactly as far as
- * its home has (the row's own height and the gap between them are unchanged),
- * and a neighbour never carries the drag's shift. Its own node is not read:
- * whether a measure includes the transform already drawn on it differs by
- * platform and by timing.
+ * The dragged row's home in a new measure, from the last one: a row that
+ * kept its place relative to the dragged row (the same keys between them, so
+ * the same heights) has moved exactly as far as the home has. The nearest such
+ * row on either side is used, skipping any that either measure may have seen
+ * shifted by this drag: a dragDy screen draws the shift on whichever row sits
+ * at its last committed `dragIdx`, and after a row arrives or leaves above,
+ * that is a neighbour until the next commit — which a synchronous native
+ * measure (Fabric) or a late web render can run ahead of. The dragged row's
+ * own node is never read: whether a measure includes the transform already
+ * drawn on it differs by platform and by timing.
  */
-function carryHome(prev: Epoch, keys: (string | null)[], f: number, edges: Map<number, Edge>): number | null {
+function carryHome(prev: Epoch, keys: (string | null)[], f: number, edges: Map<number, Edge>, suspect: Set<number>): number | null {
   if (prev.home === null || !prev.keys || f < 0) return null;
-  const above = prev.keys[prev.idx - 1];
-  const was = prev.edges.get(prev.idx - 1);
-  const now = edges.get(f - 1);
-  if (above != null && f > 0 && keys[f - 1] === above && was && now) return prev.home + (now.bot - was.bot);
-  const below = prev.keys[prev.idx + 1];
-  const wasB = prev.edges.get(prev.idx + 1);
-  const nowB = edges.get(f + 1);
-  if (below != null && keys[f + 1] === below && wasB && nowB) return prev.home + (nowB.top - wasB.top);
-  return null;
+  const pkeys = prev.keys;
+  const home = prev.home;
+  const from = (dir: -1 | 1): number | null => {
+    for (let d = 1; ; d++) {
+      const k = f + dir * d;
+      const pk = prev.idx + dir * d;
+      const key = keys[k];
+      if (k < 0 || pk < 0 || key == null || pkeys[pk] !== key) return null;
+      if (suspect.has(k) || prev.suspect.has(pk)) continue;
+      const was = prev.edges.get(pk);
+      const now = edges.get(k);
+      if (!was || !now) return null;
+      return home + (dir < 0 ? now.bot - was.bot : now.top - was.top);
+    }
+  };
+  return from(-1) ?? from(1);
 }
 
 export function useRowDrag(count: number, onDrop: (from: number, to: number) => void, options?: RowDragOptions): RowDrag {
@@ -237,7 +256,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     return s.curKeys;
   };
 
-  const measure = async (): Promise<Map<number, Edge>> => {
+  const measure = async (): Promise<{ edges: Map<number, Edge>; refs: Map<number, View> }> => {
     const entries = [...rows.current.entries()];
     const measured = await Promise.all(
       entries.map(
@@ -247,7 +266,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
           ),
       ),
     );
-    return new Map(measured.map((m) => [m.i, m.e]));
+    return { edges: new Map(measured.map((m) => [m.i, m.e])), refs: new Map(entries) };
   };
 
   /** Ask for a measure of the list as it is now; the newest one asked for is the one that counts. */
@@ -255,10 +274,13 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     const keys = keysNow();
     const n = cfg.current.count;
     s.pending = true;
-    const p: Promise<void> = measure().then((edges) => {
+    const p: Promise<void> = measure().then(({ edges, refs }) => {
       if (s.ready !== p) return;
       const mids = new Map<number, number>();
       for (const [i, e] of edges) mids.set(i, (e.top + e.bot) / 2);
+      // Whatever this drag has shifted so far may be in this answer, committed or not.
+      const suspect = new Set<number>(live ? [] : s.shiftedIdx);
+      if (live) for (const [i, r] of refs) if (s.shiftedNodes.has(r)) suspect.add(i);
       const prev = s.epoch;
       let idx: number;
       let home: number | null;
@@ -269,9 +291,9 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
         home = mids.get(idx) ?? null;
       } else {
         idx = keys && s.dragKey !== null ? keys.indexOf(s.dragKey) : s.at;
-        home = keys ? carryHome(prev, keys, idx, edges) : null;
+        home = keys ? carryHome(prev, keys, idx, edges, suspect) : null;
       }
-      s.epoch = { mids, edges, keys, count: n, idx, home };
+      s.epoch = { mids, edges, keys, count: n, idx, home, suspect };
       s.pending = false;
       if (sess.current === s) draw(s, s.at);
     });
@@ -284,6 +306,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
       from, dragKey: keys ? keys[from] ?? null : null, keyed: keys !== null, at: from,
       epoch: null, ready: Promise.resolve(), pending: false,
       startY: y0 && y0 > 0 ? y0 : null, lastY: null, travel: 0, node: undefined,
+      shiftedNodes: new Set(), shiftedIdx: new Set(),
       curKeys: keys, curVer: cfg.current.ver, over: false,
     };
     remeasure(s);
@@ -301,13 +324,9 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
   const follow = (s: Session, i: number) => {
     if (i === s.at) return;
     s.at = i;
-    if (!s.keyed || s.over) return;
-    // The measure names other rows now: take the line down (it takes up room
-    // in the list, so it is down before the list is measured again) and
-    // show none until the new measure answers.
-    if (live) setLiveSlot(null);
-    else setUi((u) => ({ ...u, slot: null }));
-    remeasure(s);
+    // The measure names other rows now; place() shows no line until the new
+    // one answers, and the draw that follows takes the old line down.
+    if (s.keyed && !s.over) remeasure(s);
   };
 
   /**
@@ -345,17 +364,20 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
       if (s.node && s.node !== node) shiftNode(s.node, 0);
       s.node = node;
       shiftNode(node, p.shift);
+      if (node && p.shift !== 0) s.shiftedNodes.add(node);
       setLiveSlot(p.slot);
     } else {
+      if (p.shift !== 0) s.shiftedIdx.add(i);
       setUi({ dragIdx: i, dragDy: p.shift, slot: p.slot });
     }
   };
 
-  const reset = (s: Session | null, i: number) => {
+  const reset = (s: Session | null) => {
     sess.current = null;
     if (live) {
+      // Exactly the node this drag shifted: after a list change the row at
+      // index `i` can be another one.
       if (s?.node) shiftNode(s.node, 0);
-      shiftNode(rows.current.get(i), 0);
       setLiveSlot(null);
     }
     setUi({ dragIdx: null, dragDy: 0, slot: null });
@@ -392,7 +414,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
             // Compute from the RELEASE's own travel, not the last move — a
             // fast flick can land with barely any move events processed.
             const s = sess.current;
-            reset(s, i);
+            reset(s);
             if (!s) return;
             if (g?.moveY !== undefined && g.moveY > 0) s.lastY = g.moveY;
             s.travel = travelOf(s, g);
@@ -405,15 +427,12 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
             // measureInWindow is async, and a drag quick enough can be over
             // before it answers — which silently dropped the whole gesture.
             // Wait for THIS drag's own measure (never an earlier drag's
-            // midpoints), the newest one it asked for, and drop on its answer.
-            const settle = () => {
-              if (!s.pending) { drop(); return; }
-              const r = s.ready;
-              void r.then(() => { if (s.ready === r) drop(); else settle(); });
-            };
-            settle();
+            // midpoints), the newest one it asked for (none can be asked for
+            // after this: the drag is over), and drop on its answer.
+            if (!s.pending) drop();
+            else void s.ready.then(drop);
           },
-          onPanResponderTerminate: () => reset(sess.current, i),
+          onPanResponderTerminate: () => reset(sess.current),
         }),
       );
     }

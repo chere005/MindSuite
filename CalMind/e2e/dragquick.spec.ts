@@ -121,3 +121,51 @@ test('quick drags of 0.6 of a row move nothing: first on a fresh list, then down
   await quickDrag(page, 'd', -2.4);
   await expect.poll(() => order(page), { message: 'd passed c and b, not a' }).toEqual(['a', 'd', 'b', 'c', 'e']);
 });
+
+/**
+ * The same quick drags on a screen that draws the dragged row from dragDy
+ * state rather than a transform on its node: the folder manager re-renders
+ * on every move, so the move's render can be committed before the grant's
+ * measure answers.
+ */
+test('the folder manager (drawn from dragDy): quick drags of 2.4 and 0.6 rows, first and straight after, down and up', async ({ page }) => {
+  test.setTimeout(120_000);
+  await signup(page);
+  await page.getByTestId('tab-reminders').click();
+  await page.getByTestId('pick-reminders').click();
+  await page.getByText('Manage folders…').click();
+  for (const f of ['Fa', 'Fb', 'Fc']) {
+    await page.getByPlaceholder('New folder').fill(f);
+    await page.getByPlaceholder('New folder').press('Enter');
+  }
+  const rows = page.getByTestId('mgr-row');
+  const names = ['Reminders', 'Calendar', 'Fa', 'Fb', 'Fc'];
+  const folders = async () => (await rows.allTextContents()).map((t) => names.find((n) => t.includes(n)) ?? t);
+  await expect.poll(folders).toEqual(['Reminders', 'Calendar', 'Fa', 'Fb', 'Fc']);
+
+  const drag = async (name: string, n: number) => {
+    const a = (await rows.nth(0).boundingBox())!;
+    const b = (await rows.nth(1).boundingBox())!;
+    const p = b.y + b.height / 2 - (a.y + a.height / 2);
+    const gb = (await rows.filter({ hasText: name }).first().getByTestId('grip').boundingBox())!;
+    const x = gb.x + gb.width / 2;
+    const y = gb.y + gb.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + n * p);
+    await page.mouse.up();
+  };
+
+  await drag('Calendar', 2.4); // the manager's first drag
+  await expect.poll(folders, { message: 'Calendar passed Fa and Fb, not Fc' }).toEqual(['Reminders', 'Fa', 'Fb', 'Calendar', 'Fc']);
+  await drag('Reminders', 2.4); // the first row, straight after
+  await expect.poll(folders, { message: 'Reminders passed Fa and Fb, not Calendar' }).toEqual(['Fa', 'Fb', 'Reminders', 'Calendar', 'Fc']);
+  await drag('Fc', -2.4); // the last row, up
+  await expect.poll(folders, { message: 'Fc passed Calendar and Reminders, not Fb' }).toEqual(['Fa', 'Fb', 'Fc', 'Reminders', 'Calendar']);
+  await drag('Fb', 0.6);
+  await page.waitForTimeout(700);
+  expect(await folders(), 'Fb down 0.6 of a row').toEqual(['Fa', 'Fb', 'Fc', 'Reminders', 'Calendar']);
+  await drag('Calendar', -0.6);
+  await page.waitForTimeout(700);
+  expect(await folders(), 'Calendar (last) up 0.6').toEqual(['Fa', 'Fb', 'Fc', 'Reminders', 'Calendar']);
+});
