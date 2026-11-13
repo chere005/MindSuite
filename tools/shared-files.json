@@ -327,6 +327,13 @@
       "note": "Shared checked atomic writes and locks."
     },
     {
+      "id": "site-lib-mindsuite-app-signin-php",
+      "origin": "packages/mind-server/lib/mindsuite-app-signin.php",
+      "repo": "seancheren-site",
+      "path": "lib/mindsuite-app-signin.php",
+      "note": "App sign-in codes (native and desktop)."
+    },
+    {
       "id": "site-lib-mindsuite-auth-php",
       "origin": "packages/mind-server/lib/mindsuite-auth.php",
       "repo": "seancheren-site",
