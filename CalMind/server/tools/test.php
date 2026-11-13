@@ -1325,11 +1325,11 @@ t('a passkey that was not UNLOCKED on the device is refused', function () use ($
 });
 
 
-t('own-mode sign-in refuses a wrong rpIdHash, type, cross-origin, unknown id, and a counter that does not increase', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
+t('own-mode sign-in refuses a wrong rpIdHash, type, cross-origin, unknown id, and a counter that does not increase', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkTok, $b64u) {
     // Placed after the UNLOCKED spec (stored counter 8) and before the counter
     // spec; nothing here may succeed, so the stored counter stays 8.
-    $try = function (string $why, int $want, array $o = []) use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
-        $begin = api(['action' => 'passkey_login_begin']);
+    $try = function (string $why, int $want, array $o = []) use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkTok, $b64u) {
+        $begin = isset($o['regchal']) ? api(['action' => 'passkey_register_begin'], $pkTok) : api(['action' => 'passkey_login_begin']);
         $cdArr = ['type' => $o['type'] ?? 'webauthn.get', 'challenge' => $begin['body']['challenge'], 'origin' => $pkOrigin]
             + (isset($o['cross']) ? ['crossOrigin' => true] : []);
         $cd = json_encode($cdArr, JSON_UNESCAPED_SLASHES);
@@ -1347,10 +1347,11 @@ t('own-mode sign-in refuses a wrong rpIdHash, type, cross-origin, unknown id, an
     $try('a counter equal to the stored 8', 401, ['count' => 8]);
     $try('a counter of zero after a non-zero one', 401, ['count' => 0]);
     $try('a lower counter', 401, ['count' => 3]);
+    $try('a registration challenge used for sign-in', 400, ['regchal' => true, 'count' => 30]);
 });
 
 t('a counter that goes backwards is refused, and a removed passkey stops working', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkTok, $b64u) {
-    // The stored counter is at 4 after the last test; 2 is a clone's answer.
+    // The stored counter is at 8 after the last test; 2 is a clone's answer.
     $b1 = api(['action' => 'passkey_login_begin']);
     $cd = fake_client_data('webauthn.get', $b1['body']['challenge'], $pkOrigin);
     $ad = fake_authdata($pkRp, 0x05, 2);
