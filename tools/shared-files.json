@@ -177,6 +177,16 @@
       "copies": ["ChefMind/app/src/folds.ts"]
     },
     {
+      "id": "app-src-appsignin-ts",
+      "origin": "CalMind/apps/app/src/appsignin.ts",
+      "copies": ["ChefMind/app/src/appsignin.ts"]
+    },
+    {
+      "id": "app-src-appsignin-browser-ts",
+      "origin": "CalMind/apps/app/src/appsignin-browser.ts",
+      "copies": ["ChefMind/app/src/appsignin-browser.ts"]
+    },
+    {
       "id": "app-src-passkey-ts",
       "origin": "CalMind/apps/app/src/passkey.ts",
       "copies": ["ChefMind/app/src/passkey.ts"]
@@ -227,6 +237,11 @@
       "copies": ["ChefMind/app/src/useClock24.ts"]
     },
     {
+      "id": "app-test-appsignin-test-ts",
+      "origin": "CalMind/apps/app/test/appsignin.test.ts",
+      "copies": ["ChefMind/app/test/appsignin.test.ts"]
+    },
+    {
       "id": "app-test-rowslots-test-ts",
       "origin": "CalMind/apps/app/test/rowslots.test.ts",
       "copies": ["ChefMind/app/test/rowslots.test.ts"]
@@ -245,6 +260,16 @@
       "id": "desktop-src-tauri-build-rs",
       "origin": "CalMind/desktop/src-tauri/build.rs",
       "copies": ["ChefMind/desktop/src-tauri/build.rs", "AcctMind/desktop/src-tauri/build.rs", "PlanMind/native/src-tauri/build.rs", "TaskMind/native/src-tauri/build.rs"]
+    },
+    {
+      "id": "desktop-src-tauri-capabilities-default-json",
+      "origin": "CalMind/desktop/src-tauri/capabilities/default.json",
+      "copies": ["ChefMind/desktop/src-tauri/capabilities/default.json"]
+    },
+    {
+      "id": "desktop-src-tauri-src-signin-rs",
+      "origin": "CalMind/desktop/src-tauri/src/signin.rs",
+      "copies": ["ChefMind/desktop/src-tauri/src/signin.rs"]
     },
     {
       "id": "desktop-src-tauri-src-main-rs",
