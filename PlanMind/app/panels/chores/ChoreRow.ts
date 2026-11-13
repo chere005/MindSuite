@@ -1,6 +1,7 @@
 import '../../styles/chores.css';
 import { choreMark, choreTurns, type ChoreRow, type ChoreRowKind, type ChoreSection, type ChoreTap } from '../../../packages/core/src/planner';
 import { esc, type PanelContext } from '../../panelContext';
+import type { SendResult } from '../../state';
 
 /**
  * The one chore row of the Chores view (Day, Week and Month), and how a tap on it is written. A row is a turn (a rule on a date) as chores.ts
@@ -77,18 +78,20 @@ export function turnAt(ctx: PanelContext, rule: string, date: string) {
 export function mountRows(root: HTMLElement, ctx: PanelContext): () => void {
   const abort = new AbortController();
   const on = { signal: abort.signal };
-  const write = (rule: string, date: string, kind: ChoreRowKind | undefined, tap: ChoreTap) => {
+  const write = (rule: string, date: string, kind: ChoreRowKind | undefined, tap: ChoreTap): Promise<SendResult> | undefined => {
     const turn = turnAt(ctx, rule, date);
-    if (turn) { void ctx.send(choreMark({ ...turn, kind }, tap)); }
+    return turn ? ctx.send(choreMark({ ...turn, kind }, tap)) : undefined;
   };
   root.addEventListener('change', event => {
     const box = event.target as HTMLInputElement;
     const row = box.closest<HTMLElement>('.ch-row');
     if (!row || !box.matches('.ch-circle')) { return; }
     const { rule, date, kind } = row.dataset;
-    // The box shows what is stored until the reply redraws the row.
-    box.checked = turnAt(ctx, rule!, date!)?.state === 'done';
-    write(rule!, date!, kind as ChoreRowKind, 'check');
+    // The tick the browser just made stays on screen while the write is on its way (the reply redraws the row); a write that did not happen puts the box back to what is stored.
+    const stored = turnAt(ctx, rule!, date!)?.state === 'done';
+    const sent = write(rule!, date!, kind as ChoreRowKind, 'check');
+    if (!sent) { box.checked = stored; return; }
+    void sent.then(result => { if (!result.ok && box.isConnected) { box.checked = stored; } });
   }, on);
   root.addEventListener('click', event => {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-act]');

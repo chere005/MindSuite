@@ -131,8 +131,8 @@ export function mountTodos(root: HTMLElement, ctx: PanelContext, scope: TodoScop
     list.addEventListener('change', event => {
       const task = found(event), box = event.target as HTMLInputElement;
       if (!task || box.type !== 'checkbox') { return; }
-      box.checked = task.done;
-      void ctx.send({ action: 'complete', id: task.id, revision: task.revision, done: !task.done });
+      // The tick the browser just made stays on screen while the write is on its way (the reply redraws the row); a write that did not happen puts the box back to what is stored.
+      void ctx.send({ action: 'complete', id: task.id, revision: task.revision, done: !task.done }).then(result => { if (!result.ok && box.isConnected) { box.checked = task.done; } });
     });
     list.addEventListener('click', event => {
       const task = found(event);
