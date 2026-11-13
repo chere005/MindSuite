@@ -25,7 +25,7 @@ import { CircleBtn, ConfirmDelete, DayPickBtn, DeletePill, Field, FoldCaret, Pil
 import { useFolds } from '../folds';
 import { DayPick } from '../components/DayPick';
 import { Dropdown } from '../components/Dropdown';
-import { useRowDrag } from '../components/rowdrag';
+import { flatKey, useRowDrag } from '../components/rowdrag';
 import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSectionDrag, type SectionSlot } from '../components/sectiondrag';
 import { useSwipeLeft } from '../components/swiperow';
@@ -557,7 +557,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     const res = moveNote(recs, src.rec.id, target.sectionId, target.beforeId);
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
-  });
+  }, { keyOf: (i) => flatKey(flatRows[i]) });
   const flatIdx = useMemo(() => {
     const m = new Map<string, number>();
     flatRows.forEach((x, i) => { if (x.kind === 'row') m.set(x.rec.id, i); });
