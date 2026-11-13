@@ -108,7 +108,7 @@ describe('review: polls and the write line', () => {
     const log: string[] = [], pictures: string[][] = [];
     let pending = false;
     const render = () => { pending = false; pictures.push(done(r.state)); log.push('render'); };
-    // The shell's rules: a data event draws now only when nothing is queued, else waits; the line going quiet draws a macrotask later.
+    // A model of the 0.31.0 shell rule (a data event draws now only when nothing is queued): what matters here is that the refusal is drawn after the awaiting code, without the refused tick. Since #230 the shell draws earlier, from the display (e2e/checkoff-now.spec.ts); the refusal still waits on `settling`.
     r.state.subscribe(change => {
       if (change === 'data') { if (r.state.queued) { pending = true; } else { render(); } }
       else if (change === 'busy' && !r.state.queued) { setTimeout(() => { if (pending) { render(); } }, 0); }

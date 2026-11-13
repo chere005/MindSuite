@@ -6,22 +6,26 @@ import { OWNER } from './people';
 // #230: a check-off crosses the row out and moves it where done rows go in the frame of the tap, not when the last save returns. Every write is held at the
 // network until the test lets it go (an endless reply latency), so what shows before the first reply is what the person sees on a slow connection.
 // Shared by checkoff-now.spec.ts (desktop project) and checkoff-now-phone.spec.ts (phone project).
-let day = 3300 + Math.floor(Math.random() * 20000);
+let day = 3300 + Math.floor(Math.random() * 18000);
 
-type Held = { release(): void; replies(): number; posts(): string[]; refuse(code: number, body: object): void };
-/** Holds every POST to the API until `release()`; `refuse` answers the held ones with that status and body instead of sending them. */
+type Held = { release(): void; releaseNext(): void; replies(): number; posts(): string[]; refuse(code: number, body: object, upTo?: number): void };
+/** Holds every POST to the API until `release()` (all, now and later) or `releaseNext()` (the oldest still held); `refuse` answers the held ones with that status and body instead of sending them (only the first `upTo` posts when given). */
 async function hold(page: Page): Promise<Held> {
-  let open!: () => void, refusal: { code: number; body: object } | null = null, replies = 0;
-  const gate = new Promise<void>(resolve => { open = resolve; });
+  let refusal: { code: number; body: object; upTo?: number } | null = null, replies = 0, all = false;
+  const gates: Array<() => void> = [];
   const posts: string[] = [];
   await page.route('**/api.php', async route => {
     if (route.request().method() !== 'POST') { await route.continue(); return; }
-    posts.push(JSON.parse(route.request().postData() ?? '{}').action);
-    await gate;
-    if (refusal) { await route.fulfill({ status: refusal.code, contentType: 'application/json', body: JSON.stringify(refusal.body) }); } else { await route.continue(); }
+    const nth = posts.push(JSON.parse(route.request().postData() ?? '{}').action);
+    if (!all) { await new Promise<void>(resolve => { gates.push(resolve); }); }
+    if (refusal && (refusal.upTo === undefined || nth <= refusal.upTo)) { await route.fulfill({ status: refusal.code, contentType: 'application/json', body: JSON.stringify(refusal.body) }); } else { await route.continue(); }
     replies++;
   });
-  return { release: () => open(), replies: () => replies, posts: () => posts, refuse: (code, body) => { refusal = { code, body }; } };
+  return {
+    release: () => { all = true; gates.splice(0).forEach(open => open()); },
+    releaseNext: () => { gates.shift()?.(); },
+    replies: () => replies, posts: () => posts, refuse: (code, body, upTo) => { refusal = { code, body, upTo }; },
+  };
 }
 
 const THU = '2027-03-11';   // the 2nd Thursday of a Week A: Dishes is the first of the day's own chores (chores.spec.ts)
@@ -31,11 +35,17 @@ export function defineCheckoffNow(phone: boolean) {
   const sized = phone ? 'phone' : 'desktop';
   test.afterEach(async ({ baseURL }) => { await resetPrefs(baseURL!); });
 
-  async function seed(baseURL: string, scope: 'day' | 'week', n: number) {
+  async function seed(baseURL: string, scope: 'day' | 'week', n: number, doneRows = 0) {
     const api = await apiLogin(baseURL, OWNER);
     const date = scope === 'day' ? farDate(day++) : periodStart(farDate(day += 7), 'week');
     const tag = unique('Co').replace(/ /g, '-');
-    const titles = Array.from({ length: n }, (_, i) => `${tag}-${'ABCDEFGH'[i]}`);
+    const titles = Array.from({ length: n }, (_, i) => `${tag}-${'ABCDEFGHIJKLMNOPQRST'[i]}`);
+    // Rows already done (made first: the day holds 13 open ones), not among the titles: they make a long list that scrolls inside itself.
+    for (let i = 0; i < doneRows; i++) {
+      const body = todo({ scope, date, title: `${tag}-done${i}` });
+      expect((await api.post(body)).status()).toBe(200);
+      expect((await api.post({ action: 'complete', id: body.id, revision: 1, done: true })).status()).toBe(200);
+    }
     for (const title of titles) { expect((await api.post(todo({ scope, date, title }))).status()).toBe(200); }
     return { api, date, titles };
   }
@@ -100,12 +110,12 @@ export function defineCheckoffNow(phone: boolean) {
     await press(circle(page, 'day', a));
     await press(circle(page, 'day', b));
     await expect.poll(() => rows(page, 'day', titles), { timeout: 1500 }).toEqual([[c, false], [a, true], [b, true]]);
-    // The server refuses the first write: it is taken off again, alone (the second was not built on it), and the reason is on the banner.
-    held.refuse(400, { error: 'Refused for the test.', code: 'invalid' });
+    // The server refuses the first write only: it is taken off again, alone (the second stays), and the reason is on the banner.
+    held.refuse(400, { error: 'Refused for the test.', code: 'invalid' }, 1);
     held.release();
     await expect(page.locator('#error-message')).toHaveText('Refused for the test.');
-    await expect.poll(() => rows(page, 'day', titles)).toEqual([[a, false], [b, false], [c, false]]);
-    expect(await state(api, titles)).toEqual([[a, false], [b, false], [c, false]]);
+    await expect.poll(() => rows(page, 'day', titles)).toEqual([[a, false], [c, false], [b, true]]);
+    await expect.poll(async () => state(api, titles), { timeout: 8000 }).toEqual([[a, false], [b, true], [c, false]]);
     await api.dispose();
   });
 
@@ -149,6 +159,79 @@ export function defineCheckoffNow(phone: boolean) {
     await expect.poll(async () => state(api, titles), { timeout: 8000 }).toEqual([[a, true], [b, false], [c, false], [d, false]]);
     await api.dispose();
   });
+
+  test(`${sized} day: a key held on a circle while a reply lands still acts on that circle`, async ({ page, baseURL }) => {
+    const { api, date, titles } = await seed(baseURL!, 'day', 4);
+    const [a, b, c, d] = titles as [string, string, string, string];
+    await login(page); const held = await hold(page);
+    await openDay(page, date);
+    await press(circle(page, 'day', a));
+    await press(circle(page, 'day', c));
+    await expect.poll(() => rows(page, 'day', titles), { timeout: 1500 }).toEqual([[b, false], [d, false], [a, true], [c, true]]);
+    // Space goes down on B; the first reply comes while it is down (the second write is still on its way): the circle is not replaced, so the release ticks B.
+    await circle(page, 'day', b).focus();
+    await page.keyboard.down('Space');
+    held.releaseNext();
+    await expect.poll(() => held.replies()).toBe(1);
+    await page.waitForTimeout(200);
+    await page.keyboard.up('Space');
+    await expect.poll(() => rows(page, 'day', titles), { timeout: 1500 }).toEqual([[d, false], [a, true], [b, true], [c, true]]);
+    held.release();
+    await expect.poll(async () => state(api, titles), { timeout: 8000 }).toEqual([[a, true], [b, true], [c, true], [d, false]]);
+    await api.dispose();
+  });
+
+  if (phone) {
+    test(`${sized} day: a finger scrolling the list is not drawn under`, async ({ page, baseURL }) => {
+      const { api, date, titles } = await seed(baseURL!, 'day', 13, 7);
+      const [a, b] = titles as [string, string];
+      await login(page); const held = await hold(page);
+      await openDay(page, date);
+      await expect(circle(page, 'day', a)).toBeVisible();
+      await press(circle(page, 'day', a));
+      await press(circle(page, 'day', b));
+      await expect.poll(() => rows(page, 'day', titles).then(r => r.slice(-2)), { timeout: 1500 }).toEqual([[a, true], [b, true]]);
+      const cdp = await page.context().newCDPSession(page);
+      const list = page.locator('.day-tasks');
+      const box = (await list.boundingBox())!, [x, y] = [box.x + box.width / 2, box.y + box.height - 30];
+      // A finger drags the list: the browser takes it for a scroll and cancels the pointer; a reply comes meanwhile and the list is the same elements.
+      await page.evaluate(() => { document.querySelectorAll('.day-tasks > li').forEach((li, i) => { (li as HTMLElement & { mark?: number }).mark = i + 1; }); });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+      for (let i = 1; i <= 8; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - i * 12, id: 1 }] }); }
+      held.releaseNext();
+      await expect.poll(() => held.replies()).toBe(1);
+      for (let i = 9; i <= 14; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - i * 12, id: 1 }] }); }
+      await page.waitForTimeout(150);
+      expect(await page.evaluate(() => [...document.querySelectorAll('.day-tasks > li')].every((li, i) => (li as HTMLElement & { mark?: number }).mark === i + 1)), 'the list was drawn again under the scrolling finger').toBe(true);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      held.release();
+      await expect.poll(async () => state(api, titles).then((r: Array<[string, boolean]>) => r.filter(([, done]) => done).map(([t]) => t)), { timeout: 8000 }).toEqual([a, b]);
+      await api.dispose();
+    });
+
+    test(`${sized} day: a tap whose press began before a refusal acts on the row pressed`, async ({ page, baseURL }) => {
+      const { api, date, titles } = await seed(baseURL!, 'day', 5);
+      const [a, b, c, d, e] = titles as [string, string, string, string, string];
+      await login(page); const held = await hold(page);
+      await openDay(page, date);
+      await press(circle(page, 'day', a));
+      await press(circle(page, 'day', b));
+      await expect.poll(() => rows(page, 'day', titles), { timeout: 1500 }).toEqual([[c, false], [d, false], [e, false], [a, true], [b, true]]);
+      const at = (await circle(page, 'day', d).boundingBox())!, [x, y] = [at.x + at.width / 2, at.y + at.height / 2];
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+      // Both ticks are refused while the finger is down: A and B are taken off, which moves every row, but not under the finger.
+      held.refuse(400, { error: 'Refused for the test.', code: 'invalid' }, 2);
+      held.release();
+      await expect.poll(() => held.replies()).toBe(2);
+      await page.waitForTimeout(150);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      // The click belongs to D, the row pressed (by id), then the list is drawn again.
+      await expect.poll(() => rows(page, 'day', titles), { timeout: 3000 }).toEqual([[a, false], [b, false], [c, false], [e, false], [d, true]]);
+      await expect.poll(async () => state(api, titles), { timeout: 8000 }).toEqual([[a, false], [b, false], [c, false], [d, true], [e, false]]);
+      await api.dispose();
+    });
+  }
 
   test(`${sized} chores: a ticked chore is crossed out among the done rows before any reply, an untick comes back`, async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER);
