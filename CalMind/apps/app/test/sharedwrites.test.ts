@@ -245,7 +245,7 @@ describe('(d2) the trouble stands until something true clears it', () => {
     expect(t.recovered).toHaveLength(1);
   });
 
-  test('a pull that shows a different partner clears it', async () => {
+  test('a pull that shows a different partner (not null) clears it', async () => {
     const t = await fail1();
     const p = t.w.pull(); // pullCalls[1] is the re-read after the failure
     t.pullCalls[2].ok(); await p;
@@ -255,6 +255,14 @@ describe('(d2) the trouble stands until something true clears it', () => {
     t.pullCalls[3].ok(); await p2;
     expect(t.w.inTrouble()).toBe(false);
     expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a pull that shows no partner (sharing ended) does not clear it', async () => {
+    const t = await fail1();
+    t.who.partner = null as unknown as string;
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.recovered).toHaveLength(0);
   });
 
   test('no trouble reported: nothing to clear', async () => {

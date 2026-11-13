@@ -316,8 +316,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Every caller fires this and forgets it (`void sharedPut(...)`). The write
   // is drawn at once and sent in order; a refusal (sharing ending a moment
-  // earlier is a 403, a dead token a 401) takes back exactly that change and
-  // says 'offline', and the re-read that follows drops rows that are no longer
+  // earlier is a 403, a dead token a 401) takes back that change and every write
+  // still queued for the partner and says it was not saved, and the re-read that follows drops rows that are no longer
   // ours to touch. No retry and nothing stored: see sharedwrites.ts.
   const sharedPut = useCallback(async (rec: AnyRec) => {
     if (!sessionRef.current || !sharedPartner) return;

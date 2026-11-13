@@ -148,7 +148,10 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
       // The partner changed: writes into the old one are not this list's.
       this.dropWhere((w) => w.partner !== r.partner);
       this.partner = r.partner;
-      this.recover();
+      // A partner appearing is a fresh list. A partner going to null is how
+      // sharing ending looks to the re-read the failed write itself caused
+      // (a 403): that is the change being lost, not the trouble being over.
+      if (r.partner !== null) this.recover();
     }
     this.base = r.records;
     // A pull sent after an acknowledgement contains that write: it can go.
