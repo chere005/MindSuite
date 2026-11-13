@@ -1004,7 +1004,7 @@ made with strictly increasing stamps; a pull sent before a write and answered af
 applied, and a pull while the write is in flight never bring the old copy back; a pull sent after the acknowledgement
 shows the server's copy; a refused write takes back exactly its own change, every write still queued for that partner is
 taken back with it and never sent, earlier acknowledged writes stay, and the person is told the change was not saved (the
-telling clears on the next acknowledged write, a pull showing a partner, or sign-out; sharing ending does not clear it); an undo after the pull has landed
+telling clears on the next acknowledged write or sign-out; no pull clears it, so neither sharing ending nor a switch to another partner hides it); an undo after the pull has landed
 is drawn at once; a reply from before a sign-out is ignored. Each guard was broken on purpose and the file went red (stale
 pull, drop-on-ack, same-record cancel, stamp). `availday.test.ts` does the same for the editor's day read (no hours until
 that date's reply, replies for a date no longer selected ignored in any order, a failure for an old date silent).

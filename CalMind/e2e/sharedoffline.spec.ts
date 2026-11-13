@@ -1,20 +1,14 @@
 /**
  * Ticking a partner's row with no network must SAY so.
  *
- * `sharedPut` writes to the partner's store over the network — there is no
- * local engine for someone else's records — and then re-reads to correct the
- * screen. store.tsx guards the case where both halves fail:
+ * A partner's records are not held in a local engine: `sharedPut` draws the
+ * write at once and sends it later. When the network is down the write is
+ * taken back, and the person must be told the change to the partner's list was
+ * not saved (not the own-list "Offline" wording, which would promise a retry
+ * that never happens).
  *
- *     if (!wrote && !reconciled) setSyncState('offline');
- *
- * Its own comment says why: "the edit did not land AND the screen was not
- * corrected, so a partner's row sits there showing a change that does not
- * exist anywhere but this device."
- *
- * Nothing was checking it. Deleting that line left all 188 gesture tests
- * green, because reaching it needs two things at once — a live mutual share
- * AND no network — and no spec combined them. The sharing test is online
- * throughout; the offline tests have no partner.
+ * Reaching that needs two things at once: a live mutual share AND no network.
+ * The sharing test is online throughout; the offline tests have no partner.
  *
  * That combination is not a stunt. It is a phone on a train with a shared
  * list open, which is most of what sharing is for.

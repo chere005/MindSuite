@@ -22,14 +22,17 @@
  *  - A write the server refuses (or that never arrives) is taken back, and so
  *    is every write still QUEUED for that partner: a later write may be built
  *    on the failed one (a reminder added into a section that was never
- *    created), and the realistic causes (sharing ended = 403, dead token =
- *    401, network down) make every later write into that list fail too, so
- *    sending them would only land fragments. Writes already acknowledged stay,
- *    and writes made after the take-back go out normally. The person is told
- *    once (onTrouble) that the change to the partner's list was not saved; the
- *    telling stands until a later write to that partner is acknowledged, the
- *    partner changes, or reset() (onRecovered) — it is not the own-list
- *    offline state, and no timer clears it.
+ *    created), and the usual causes (sharing ended = 403, dead token = 401,
+ *    network down) make every later write into that list fail too; the few
+ *    record-specific refusals (outside what they share, structure is theirs,
+ *    too large) also lose the queued writes behind them, which the notice
+ *    tells. Sending them would only land fragments. Writes already
+ *    acknowledged stay, and writes made after the take-back go out normally.
+ *    The person is told once (onTrouble) that the change to the partner's
+ *    list was not saved; the telling stands until a later write is
+ *    acknowledged or reset() (onRecovered). A pull, even one showing another
+ *    partner, never clears it. It is not the own-list offline state, and no
+ *    timer clears it.
  *
  * Nothing here is stored: a write that has not reached the server when the app
  * closes is gone, exactly as it was when the POST was awaited. No outbox.
@@ -54,7 +57,7 @@ export type SharedHooks<R extends SharedRec, P> = {
   onPulled(meta: { partners: P[]; partner: string | null }): void;
   /** A write was refused or failed and has been taken back. */
   onTrouble(): void;
-  /** The trouble is over: a write was acknowledged, the partner changed, or reset. */
+  /** The trouble is over: a write was acknowledged, or reset. */
   onRecovered(): void;
 };
 
@@ -148,10 +151,12 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
       // The partner changed: writes into the old one are not this list's.
       this.dropWhere((w) => w.partner !== r.partner);
       this.partner = r.partner;
-      // A partner appearing is a fresh list. A partner going to null is how
+      // The trouble is NOT cleared here. A partner going to null is how
       // sharing ending looks to the re-read the failed write itself caused
-      // (a 403): that is the change being lost, not the trouble being over.
-      if (r.partner !== null) this.recover();
+      // (a 403), and with several mutual partners the server then shows the
+      // NEXT one: both are the change being lost, not the trouble being over,
+      // and a silent switch to another list must not hide it. Only an
+      // acknowledged write or reset() clears it.
     }
     this.base = r.records;
     // A pull sent after an acknowledgement contains that write: it can go.
