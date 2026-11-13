@@ -5,7 +5,7 @@
  * The engine, merge rules and normalization all live in @calmind/core; this file
  * only wires them to React, storage, the app lifecycle and the watch.
  */
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { watchForUpdate } from './update';
@@ -590,8 +590,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return watchForUpdate(() => engineRef.current.toSnapshot().dirty.length);
   }, []);
 
+  // One identity per actual change: a fresh object on every provider render
+  // re-rendered every screen that reads the store for state it did not use.
+  const value = useMemo<Store>(
+    () => ({ ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut }),
+    [ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut],
+  );
   return (
-    <Ctx.Provider value={{ ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut }}>
+    <Ctx.Provider value={value}>
       {children}
     </Ctx.Provider>
   );
