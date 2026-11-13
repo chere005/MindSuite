@@ -10,7 +10,8 @@
  *   SUITE_DATA_DIR        the site's data directory (scratch): the shared store lives under it
  *   SUITE_MINDSUITE_AUTH_TEST=1   the site's fixture switch: a disposable key, and this loopback origin as the relying party
  *
- * Only /account/index.php and its script are served from the site: never the operator pages beside them.
+ * Only /account/index.php, the app sign-in page (/account/app/) and the account script are served from the site: never the
+ * operator pages beside them.
  */
 
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
@@ -43,6 +44,11 @@ if (str_starts_with($uri, '/calmind')) {
 if ($uri === '/account' || $uri === '/account/' || $uri === '/account/index.php') {
     chdir($sitePublic . '/account');
     require $sitePublic . '/account/index.php';
+    return true;
+}
+if ($uri === '/account/app' || $uri === '/account/app/' || $uri === '/account/app/index.php') {
+    chdir($sitePublic . '/account/app');
+    require $sitePublic . '/account/app/index.php';
     return true;
 }
 if ($uri === '/account/account.js' && is_file($sitePublic . '/account/account.js')) {

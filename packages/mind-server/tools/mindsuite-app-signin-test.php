@@ -161,6 +161,13 @@ try {
     $code = $issue($alex)['code'];
     msa_revoke_all($cfg, $alex);
     check($redeem($code) === null, 'sign out everywhere between issue and redeem refuses the code');
+    // The generation alone (the confirming session is left alive): a code made before it is dead after it.
+    $alex = $browser('alex');
+    $code = $issue($alex)['code'];
+    $db = msa_store_read($cfg);
+    $db['accounts']['alex']['gen'] = msa_account_gen($db, 'alex') + 1;
+    msa_store_write($cfg, $db);
+    check(msa_session($cfg, [], ['MSSESS' => $alex['token']]) !== null && $redeem($code) === null, 'a raised revocation generation alone refuses the code while the browser session lives');
     $alex = $browser('alex');
     $code = $issue($alex)['code'];
     msa_revoke($cfg, $alex);

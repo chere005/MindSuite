@@ -991,6 +991,18 @@ form; a cookie that now belongs to somebody else never carries the page's write 
 and held, where CalMind keeps its form and a bearer token. The last case flips one line of the scratch site config
 between `on` and `held` on the same server, so the other cases cannot be vacuous. "Off" and "site lib missing" answer the
 legacy way and are what the whole gesture suite runs against (no site lib is set there), so this config does not repeat them.
+`e2e-shared/appsignin.spec.ts` is app sign-in in the same harness (`CALMIND_E2E_SHARED_PORT=8905 npx playwright test -c
+playwright.shared.config.ts e2e-shared/appsignin.spec.ts`; the router also serves the real `/account/app/`). The desktop shell
+is faked at ONE seam, `window.__TAURI__.core.invoke`: node answers `signin_listen` with a real loopback http server, runs
+`open_in_browser` in a SECOND browser context (the system browser's own cookie jar) and resolves `signin_wait` with the
+query the listener received. Cases: Sign in, no username or password field, the account page with its banner, sign in as
+alex, "Continue to CalMind as alex?", Continue, and the app is signed in (a 64-hex token, `suite: true`, scope `calmind` in
+the shared store, no request ever carried `login`); the scheme return (a 303 to `com.seancheren.calmind:/signin` with a
+64-hex code that redeems once and ends its session on replay); a wrong verifier; Cancel on the page (`access_denied` back to
+the listener, the Sign in card, no error) and the app's own Cancel pill; held, where the API is legacy and the old form is
+shown; and the screens by eye (the confirm page in midnight and sage at 420 and 1280 wide, the invalid-link page, the app's
+Sign in, waiting and offline cards). The desktop Rust listener is `sh desktop/test-signin.sh`. Not provable here: a real
+Tauri IPC call and an https-to-loopback hand-back inside a running shell (no app is launched).
 Not covered in a browser: ChefMind (its dev-host rule aims a page on 127.0.0.1 at port 8788, so its web build cannot be pointed at
 this server without a second export built for it); its `api.ts` and `Login.tsx` are covered by the unit file and the same
 `Login.tsx` bytes.
