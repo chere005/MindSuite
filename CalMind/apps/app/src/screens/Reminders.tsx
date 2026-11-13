@@ -30,7 +30,7 @@ import { useClock24 } from '../useClock24';
 import { themed, T } from '../theme';
 import { TopBar } from '../chrome';
 import { FolderPick, useFolderView } from '../components/FolderPick';
-import { useRowDrag } from '../components/rowdrag';
+import { DropLine, useRowDrag, type RowDrag } from '../components/rowdrag';
 import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSwipeLeft } from '../components/swiperow';
 import { useSharedTick, useTickGrace } from '../components/tickgrace';
@@ -70,6 +70,7 @@ export function Reminders() {
   const [editing, setEditing] = useState<string | null>(null); // reminder id in inline edit
   const [editText, setEditText] = useState('');
   const holdCluster = React.useRef(false);
+  const rowApi = React.useRef<RowApi>(null as unknown as RowApi);
   const swipe = useSwipeLeft();
   const grace = useTickGrace();
   // The All view draws a partner's rows too, and they tick through their own
@@ -281,10 +282,23 @@ export function Reminders() {
     const res = moveReminderBlock(recs, src.rec.id, target.sectionId, target.beforeId);
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
-  });
-  const flatIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'row' && x.rec.id === id);
-  const emptyIdxOf = (sectionId: string) => flatRows.findIndex((x) => x.kind === 'empty' && x.sectionId === sectionId);
-  const headIdxOf = (sectionId: string) => flatRows.findIndex((x) => x.kind === 'head' && x.sectionId === sectionId);
+  }, { live: true });
+  // id -> flat index, built once per flat list: these were findIndex scans
+  // called several times per drawn row, O(rows^2) on every render.
+  const flatIdx = useMemo(() => {
+    const row = new Map<string, number>();
+    const empty = new Map<string, number>();
+    const head = new Map<string, number>();
+    flatRows.forEach((x, i) => {
+      if (x.kind === 'row') { if (!row.has(x.rec.id)) row.set(x.rec.id, i); }
+      else if (x.kind === 'empty') { if (!empty.has(x.sectionId)) empty.set(x.sectionId, i); }
+      else if (!head.has(x.sectionId)) head.set(x.sectionId, i);
+    });
+    return { row, empty, head };
+  }, [flatRows]);
+  const flatIdxOf = (id: string) => flatIdx.row.get(id) ?? -1;
+  const emptyIdxOf = (sectionId: string) => flatIdx.empty.get(sectionId) ?? -1;
+  const headIdxOf = (sectionId: string) => flatIdx.head.get(sectionId) ?? -1;
   /**
    * A CLOSED folder's own entry, or -1 when the folder is open.
    *
@@ -500,24 +514,19 @@ export function Reminders() {
     return md;
   };
 
-  const dueChip = (r: ReminderRec) => {
-    const { due, time, repeat, done } = r.payload;
-    if (!due && !time && !repeat) return null;
-    const overdue = !done && due !== null && due < todayStr();
-    const bits = [
-      due ? new Date(`${due}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '',
-      timeLabel(time, clock24),
-      repeatLabel(repeat),
-    ].filter(Boolean);
-    return <Text style={[s.chip, overdue && s.chipOverdue, rolledId === r.id && s.chipRolled]}>{bits.join(' · ')}</Text>;
-  };
-
   // NO repeatEditor. The frequency pills — Once / day / week / month / year and
   // the ± count — used to unfold under whichever row was being edited, and the owner
   // asked for them out of edit mode (2026-08-12). A repeat is set in the item
   // window, which is the only place it can sit beside the date it interacts
   // with. This was also the third copy of core's REPEAT_UNITS on screen; two
   // remain, and testids.spec.ts is what stops a fourth.
+
+  // Re-pointed every render, so a memoised row's handlers see current state.
+  rowApi.current = {
+    registerRow: drag.registerRow, handleFor: drag.handleFor, swipe, tick, saveEdit,
+    setEditing, setEditText, enterEdit, setModalRec, addSubtask, outdent, mutate, toast, holdCluster,
+  };
+  const today = todayStr();
 
   if (sharedView && sharedPartner) {
     return <SharedReminders viewKey={sharedView} partner={sharedPartner} />;
@@ -564,7 +573,7 @@ export function Reminders() {
                 measurement — it is a drop target only while it is shut, and
                 registering it when it is open would give rowdrag a midpoint
                 for an index the flat list does not have. */}
-            {folderHeadIdx(f.id) >= 0 && drag.slot === folderHeadIdx(f.id) && <View style={s.dropLine} />}
+            {folderHeadIdx(f.id) >= 0 && <DropLine slot={drag.liveSlot} at={folderHeadIdx(f.id)} style={s.dropLine} />}
             <View
               testID={`head-fold-${f.payload.name}`}
               style={s.folderHead}
@@ -602,7 +611,7 @@ export function Reminders() {
                   {secDrag.lineKey === `before:${sec.id}` && <View style={s.dropLine} />}
                   {/* The ROW drag's own line, above the header: this boundary
                       is the END of the section before it. */}
-                  {drag.slot !== null && headIdxOf(sec.id) === drag.slot && <View style={s.dropLine} />}
+                  <DropLine slot={drag.liveSlot} at={headIdxOf(sec.id)} style={s.dropLine} />
                   <View
                     testID={`head-sec-${sec.payload.name}`}
                     ref={(r) => { secDrag.registerHeader(sec.id, f.id)(r); drag.registerRow(headIdxOf(sec.id))(r); }}
@@ -683,173 +692,30 @@ export function Reminders() {
                   )}
                   {!isFolded && rows.length === 0 && (
                     <View>
-                      {drag.slot !== null && emptyIdxOf(sec.id) === drag.slot && <View style={s.dropLine} />}
+                      <DropLine slot={drag.liveSlot} at={emptyIdxOf(sec.id)} style={s.dropLine} />
                       <View testID={`secempty-${sec.payload.name}`} ref={drag.registerRow(emptyIdxOf(sec.id))} style={s.emptySlot}>
                       </View>
                     </View>
                   )}
                   {!isFolded &&
                     rows.map((r, ri) => (
-                      <View key={r.id}>
-                        {drag.slot !== null && flatIdxOf(r.id) === drag.slot && <View style={s.dropLine} />}
-                        <View
-                          testID="rem-row"
-                          ref={drag.registerRow(flatIdxOf(r.id))}
-                          {...(pageEdit ? stayInEdit : swipe.handlersFor(r.id))}
-                          style={[
-                            s.row,
-                            rolledId === r.id && s.rowRolled,
-                            ri === rows.length - 1 && s.rowLast,
-                            s.rowNoSelect,
-                            r.payload.indent > 0 && s.rowIndented,
-                            drag.dragIdx !== null && flatIdxOf(r.id) === drag.dragIdx && { opacity: 0.55, transform: [{ translateY: drag.dragDy }] },
-                          ]}
-                        >
-                          <View
-                            testID="row-grip"
-                            {...(pageEdit ? drag.handleFor(flatIdxOf(r.id)) : {})}
-                            style={[s.rowGrip, !pageEdit && s.gripHidden]}
-                            pointerEvents={pageEdit ? 'auto' : 'none'}
-                            hitSlop={6}
-                          >
-                            <WebHitSlop slop={6} />
-                            <Text style={s.rowGripText}>≡</Text>
-                          </View>
-                          <Pressable testID="tick" onPress={() => tick(r)} hitSlop={8} style={[s.tick, r.payload.done && s.tickDone]}>
-                            <WebHitSlop />
-                            {r.payload.done && <Text style={s.tickMark}>✓</Text>}
-                          </Pressable>
-                          {editing === r.id ? (
-                            <Field
-                              testID="rem-edit"
-                              value={editText}
-                              onChangeText={setEditText}
-                              autoFocus
-                              style={s.editField}
-                              onBlur={() => {
-                                saveEdit(r);
-                                // A pointer already down on a cluster button: keep the
-                                // cluster mounted so its press can land (blur fires between
-                                // pointerdown and click, and unmounting kills the tap).
-                                if (holdCluster.current) { holdCluster.current = false; return; }
-                                setEditing(null);
-                              }}
-                              onSubmitEditing={() => { saveEdit(r); setEditing(null); }}
-                            />
-                          ) : (
-                          <Pressable
-                            testID="rem-body"
-                            style={s.rowBody}
-                            onPress={() => {
-                              if (swipe.justSwiped()) return;
-                              if (swipe.swiped) { swipe.clear(); return; }
-                              // A tap OUTSIDE edit mode opens the row for
-                              // retyping (the owner, 2026-08-20: "tap to edit in
-                              // reminders should work when not in edit mode..
-                              // in edit mode one would still hit the pencil").
-                              // So edit mode is for ARRANGING — drag,
-                              // duplicate, subtask, delete, and the pencil for
-                              // the full sheet — and a plain tap is for the
-                              // words. The long-press still arms edit mode.
-                              if (!pageEdit) { setEditing(r.id); setEditText(r.payload.text); }
-                            }}
-                            onLongPress={enterEdit}
-                            delayLongPress={350}
-                          >
-                            {/* Done keeps the folder's hue, faded — the owner's
-                                word over the suite's grey, 2026-08-18.
-
-                                ONE LINE, elided (the owner, 2026-08-20: "elide
-                                long reminders, don't wrap"). A wrapped row
-                                grew to whatever its text needed — a pasted
-                                URL made a row six lines tall — so the list
-                                stopped being a list of rows and the tick,
-                                the chip and the cluster all floated in the
-                                middle of a paragraph. */}
-                            <Text numberOfLines={1} style={[s.rowText, r.payload.done && s.rowTextDone, r.payload.done && { color: f.payload.color + '77' }]}>{r.payload.text || '…'}</Text>
-                          </Pressable>
-                          )}
-                          {editing !== r.id && dueChip(r)}
-                          {/* The edit cluster FLOATS over the row's right edge
-                              rather than taking layout space in it.
-
-                              As an ordinary flex child it squeezed the text
-                              from 298pt to 160pt, which made a long reminder
-                              re-wrap; the row grew, and the row below it moved
-                              down 86pt. Measured, not guessed. The owner asked for
-                              the buttons to "just appear" and said the text may
-                              be elided, which is exactly what an absolutely
-                              positioned cluster with an opaque background does:
-                              nothing reflows, and the text it covers is simply
-                              not shown. */}
-                          {/* onPressIn on every cluster button: each carries
-                              `holdCluster.current = true` so its press can
-                              outlive the inline field's blur, and each saves
-                              the in-flight text before acting on it — the
-                              machinery that returned with the editor. */}
-                          {pageEdit && (
-                            <View style={s.editCluster}>
-                              <CircleBtn testID="rem-pencil" glyph="✎" label="Edit" size={24} onPressIn={() => { holdCluster.current = true; }} onPress={() => { const saved = editing === r.id ? saveEdit(r) : r; setEditing(null); setModalRec(saved); }} />
-                              {/* Copy (the owner, 2026-08-20). The clipboard gets
-                                  core's reminderLine — the words plus the
-                                  date and time as the TOKENS that made them,
-                                  so "vet visit 9/3 2pm" both reads as a
-                                  sentence in a message and pastes back into
-                                  the add field as the same reminder. Copying
-                                  the bare text would drop the half that is
-                                  hardest to retype.
-
-                                  It saves an in-flight inline edit FIRST, and
-                                  copies what was saved: every other button in
-                                  this cluster learned that lesson the hard
-                                  way (a duplicate made from the pre-edit
-                                  payload), and a copy of the text you had
-                                  just replaced is the same bug, quieter.
-
-                                  The glyph is DRAWN (ui's DrawnGlyph), not
-                                  typed: it shipped as 📋 and the owner asked for
-                                  "monochrome simple clipboard" the same day,
-                                  which no text glyph provides — the nearest
-                                  ones are all two overlapping squares, i.e.
-                                  the ⧉ two buttons along. */}
-                              <CircleBtn testID="rem-copy" glyph="clipboard" label="Copy" size={24} onPressIn={() => { holdCluster.current = true; }} onPress={() => {
-                                const saved = editing === r.id ? saveEdit(r) : r;
-                                setEditing(null);
-                                Clipboard.setStringAsync(reminderLine(saved.payload, todayStr()))
-                                  .then(() => toast('Copied'))
-                                  .catch(() => toast('Could not copy'));
-                              }} />
-                              {r.payload.indent === 0 && (
-                                <CircleBtn testID="rem-dup" glyph="⧉" label="Duplicate" size={24} onPressIn={() => { holdCluster.current = true; }} onPress={() => {
-                                  if (editing === r.id) saveEdit(r);
-                                  setEditing(null);
-                                  // e.all(), not recs: the save above has already
-                                  // landed in the engine and not yet in this render.
-                                  mutate((e) => {
-                                    const res = duplicateItem(e.all(), r.id, newId);
-                                    if (!('error' in res)) res.put.forEach((p) => e.put(p));
-                                  });
-                                }} />
-                              )}
-                              {r.payload.indent === 0 ? (
-                                <CircleBtn glyph="+" label="Add" size={24} onPressIn={() => { holdCluster.current = true; }} onPress={() => { if (editing === r.id) saveEdit(r); setEditing(null); addSubtask(r); }} />
-                              ) : (
-                                <CircleBtn glyph="‹" label="Previous" size={24} onPressIn={() => { holdCluster.current = true; }} onPress={() => { const saved = editing === r.id ? saveEdit(r) : r; setEditing(null); outdent(saved); }} />
-                              )}
-                              <ConfirmDelete onPressIn={() => { holdCluster.current = true; }} onDelete={() => { setEditing(null); mutate((e) => e.del(r.id)); }} />
-                            </View>
-                          )}
-                          {swipe.swiped === r.id && !pageEdit && (
-                            <View style={s.swipePark}>
-                              <ConfirmDelete
-                                testID="swipe-del"
-                                forceArmed
-                                onDelete={() => { swipe.clear(); mutate((e) => e.del(r.id)); }}
-                              />
-                            </View>
-                          )}
-                        </View>
-                      </View>
+                      <RemRow
+                        key={r.id}
+                        r={r}
+                        idx={flatIdxOf(r.id)}
+                        color={f.payload.color}
+                        last={ri === rows.length - 1}
+                        rolled={rolledId === r.id}
+                        dim={drag.dragIdx !== null && flatIdxOf(r.id) === drag.dragIdx}
+                        pageEdit={pageEdit}
+                        editingThis={editing === r.id}
+                        editText={editing === r.id ? editText : ''}
+                        swipedThis={swipe.swiped === r.id}
+                        today={today}
+                        clock24={clock24}
+                        slot={drag.liveSlot}
+                        api={rowApi}
+                      />
                     ))}
                 </View>
               );
@@ -971,6 +837,229 @@ export function Reminders() {
     </View>
   );
 }
+
+/**
+ * What a row's handlers reach through, one stable ref. RemRow is memoised, so
+ * a closure it was drawn with can be a render old; every handler therefore
+ * goes through `api.current`, which the screen re-assigns on every render, and
+ * reads the CURRENT editText / recs / swipe state at the moment of the press.
+ */
+type RowApi = {
+  registerRow: (i: number) => (ref: import('react-native').View | null) => void;
+  handleFor: (i: number) => object;
+  swipe: ReturnType<typeof useSwipeLeft>;
+  tick: (r: ReminderRec) => void;
+  saveEdit: (r: ReminderRec) => ReminderRec;
+  setEditing: (id: string | null) => void;
+  setEditText: (t: string) => void;
+  enterEdit: () => void;
+  setModalRec: (r: ReminderRec | null) => void;
+  addSubtask: (r: ReminderRec) => void;
+  outdent: (r: ReminderRec) => void;
+  mutate: ReturnType<typeof useStore>['mutate'];
+  toast: (m: string) => void;
+  holdCluster: { current: boolean };
+};
+
+type RemRowProps = {
+  r: ReminderRec;
+  idx: number;
+  color: string;
+  last: boolean;
+  rolled: boolean;
+  dim: boolean;
+  pageEdit: boolean;
+  editingThis: boolean;
+  editText: string;
+  swipedThis: boolean;
+  today: string;
+  clock24: boolean;
+  slot: RowDrag['liveSlot'];
+  api: { current: RowApi };
+};
+
+/**
+ * One reminder row. It was inline in the screen's render, so ticking ONE
+ * reminder re-rendered every row of a 240-row list (~140 ms at 4x CPU); as a
+ * memo it re-renders only the row whose record or flags changed. Props are
+ * plain values (the rec object is stable until it is edited), the handlers are
+ * reached through `api` — see RowApi.
+ */
+const RemRow = React.memo(function RemRow({ r, idx, color, last, rolled, dim, pageEdit, editingThis, editText, swipedThis, today, clock24, slot, api }: RemRowProps) {
+  const chip = (() => {
+    const { due, time, repeat, done } = r.payload;
+    if (!due && !time && !repeat) return null;
+    const overdue = !done && due !== null && due < today;
+    const bits = [
+      due ? new Date(`${due}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '',
+      timeLabel(time, clock24),
+      repeatLabel(repeat),
+    ].filter(Boolean);
+    return <Text style={[s.chip, overdue && s.chipOverdue, rolled && s.chipRolled]}>{bits.join(' · ')}</Text>;
+  })();
+  return (
+        <View>
+          <DropLine slot={slot} at={idx} style={s.dropLine} />
+          <View
+            testID="rem-row"
+            ref={api.current.registerRow(idx)}
+            {...(pageEdit ? stayInEdit : api.current.swipe.handlersFor(r.id))}
+            style={[
+              s.row,
+              rolled && s.rowRolled,
+              last && s.rowLast,
+              s.rowNoSelect,
+              r.payload.indent > 0 && s.rowIndented,
+              dim && { opacity: 0.55 },
+            ]}
+          >
+            <View
+              testID="row-grip"
+              {...(pageEdit ? api.current.handleFor(idx) : {})}
+              style={[s.rowGrip, !pageEdit && s.gripHidden]}
+              pointerEvents={pageEdit ? 'auto' : 'none'}
+              hitSlop={6}
+            >
+              <WebHitSlop slop={6} />
+              <Text style={s.rowGripText}>≡</Text>
+            </View>
+            <Pressable testID="tick" onPress={() => api.current.tick(r)} hitSlop={8} style={[s.tick, r.payload.done && s.tickDone]}>
+              <WebHitSlop />
+              {r.payload.done && <Text style={s.tickMark}>✓</Text>}
+            </Pressable>
+            {editingThis ? (
+              <Field
+                testID="rem-edit"
+                value={editText}
+                onChangeText={(t) => api.current.setEditText(t)}
+                autoFocus
+                style={s.editField}
+                onBlur={() => {
+                  api.current.saveEdit(r);
+                  // A pointer already down on a cluster button: keep the
+                  // cluster mounted so its press can land (blur fires between
+                  // pointerdown and click, and unmounting kills the tap).
+                  if (api.current.holdCluster.current) { api.current.holdCluster.current = false; return; }
+                  api.current.setEditing(null);
+                }}
+                onSubmitEditing={() => { api.current.saveEdit(r); api.current.setEditing(null); }}
+              />
+            ) : (
+            <Pressable
+              testID="rem-body"
+              style={s.rowBody}
+              onPress={() => {
+                if (api.current.swipe.justSwiped()) return;
+                if (api.current.swipe.swiped) { api.current.swipe.clear(); return; }
+                // A tap OUTSIDE edit mode opens the row for
+                // retyping (the owner, 2026-08-20: "tap to edit in
+                // reminders should work when not in edit mode..
+                // in edit mode one would still hit the pencil").
+                // So edit mode is for ARRANGING — drag,
+                // duplicate, subtask, delete, and the pencil for
+                // the full sheet — and a plain tap is for the
+                // words. The long-press still arms edit mode.
+                if (!pageEdit) { api.current.setEditing(r.id); api.current.setEditText(r.payload.text); }
+              }}
+              onLongPress={() => api.current.enterEdit()}
+              delayLongPress={350}
+            >
+              {/* Done keeps the folder's hue, faded — the owner's
+                  word over the suite's grey, 2026-08-18.
+
+                  ONE LINE, elided (the owner, 2026-08-20: "elide
+                  long reminders, don't wrap"). A wrapped row
+                  grew to whatever its text needed — a pasted
+                  URL made a row six lines tall — so the list
+                  stopped being a list of rows and the tick,
+                  the chip and the cluster all floated in the
+                  middle of a paragraph. */}
+              <Text numberOfLines={1} style={[s.rowText, r.payload.done && s.rowTextDone, r.payload.done && { color: color + '77' }]}>{r.payload.text || '…'}</Text>
+            </Pressable>
+            )}
+            {!editingThis && chip}
+            {/* The edit cluster FLOATS over the row's right edge
+                rather than taking layout space in it.
+
+                As an ordinary flex child it squeezed the text
+                from 298pt to 160pt, which made a long reminder
+                re-wrap; the row grew, and the row below it moved
+                down 86pt. Measured, not guessed. The owner asked for
+                the buttons to "just appear" and said the text may
+                be elided, which is exactly what an absolutely
+                positioned cluster with an opaque background does:
+                nothing reflows, and the text it covers is simply
+                not shown. */}
+            {/* onPressIn on every cluster button: each carries
+                `holdCluster.current = true` so its press can
+                outlive the inline field's blur, and each saves
+                the in-flight text before acting on it — the
+                machinery that returned with the editor. */}
+            {pageEdit && (
+              <View style={s.editCluster}>
+                <CircleBtn testID="rem-pencil" glyph="✎" label="Edit" size={24} onPressIn={() => { api.current.holdCluster.current = true; }} onPress={() => { const saved = editingThis ? api.current.saveEdit(r) : r; api.current.setEditing(null); api.current.setModalRec(saved); }} />
+                {/* Copy (the owner, 2026-08-20). The clipboard gets
+                    core's reminderLine — the words plus the
+                    date and time as the TOKENS that made them,
+                    so "vet visit 9/3 2pm" both reads as a
+                    sentence in a message and pastes back into
+                    the add field as the same reminder. Copying
+                    the bare text would drop the half that is
+                    hardest to retype.
+
+                    It saves an in-flight inline edit FIRST, and
+                    copies what was saved: every other button in
+                    this cluster learned that lesson the hard
+                    way (a duplicate made from the pre-edit
+                    payload), and a copy of the text you had
+                    just replaced is the same bug, quieter.
+
+                    The glyph is DRAWN (ui's DrawnGlyph), not
+                    typed: it shipped as 📋 and the owner asked for
+                    "monochrome simple clipboard" the same day,
+                    which no text glyph provides — the nearest
+                    ones are all two overlapping squares, i.e.
+                    the ⧉ two buttons along. */}
+                <CircleBtn testID="rem-copy" glyph="clipboard" label="Copy" size={24} onPressIn={() => { api.current.holdCluster.current = true; }} onPress={() => {
+                  const saved = editingThis ? api.current.saveEdit(r) : r;
+                  api.current.setEditing(null);
+                  Clipboard.setStringAsync(reminderLine(saved.payload, todayStr()))
+                    .then(() => api.current.toast('Copied'))
+                    .catch(() => api.current.toast('Could not copy'));
+                }} />
+                {r.payload.indent === 0 && (
+                  <CircleBtn testID="rem-dup" glyph="⧉" label="Duplicate" size={24} onPressIn={() => { api.current.holdCluster.current = true; }} onPress={() => {
+                    if (editingThis) api.current.saveEdit(r);
+                    api.current.setEditing(null);
+                    // e.all(), not recs: the save above has already
+                    // landed in the engine and not yet in this render.
+                    api.current.mutate((e) => {
+                      const res = duplicateItem(e.all(), r.id, newId);
+                      if (!('error' in res)) res.put.forEach((p) => e.put(p));
+                    });
+                  }} />
+                )}
+                {r.payload.indent === 0 ? (
+                  <CircleBtn glyph="+" label="Add" size={24} onPressIn={() => { api.current.holdCluster.current = true; }} onPress={() => { if (editingThis) api.current.saveEdit(r); api.current.setEditing(null); api.current.addSubtask(r); }} />
+                ) : (
+                  <CircleBtn glyph="‹" label="Previous" size={24} onPressIn={() => { api.current.holdCluster.current = true; }} onPress={() => { const saved = editingThis ? api.current.saveEdit(r) : r; api.current.setEditing(null); api.current.outdent(saved); }} />
+                )}
+                <ConfirmDelete onPressIn={() => { api.current.holdCluster.current = true; }} onDelete={() => { api.current.setEditing(null); api.current.mutate((e) => e.del(r.id)); }} />
+              </View>
+            )}
+            {swipedThis && !pageEdit && (
+              <View style={s.swipePark}>
+                <ConfirmDelete
+                  testID="swipe-del"
+                  forceArmed
+                  onDelete={() => { api.current.swipe.clear(); api.current.mutate((e) => e.del(r.id)); }}
+                />
+              </View>
+            )}
+          </View>
+        </View>
+  );
+});
 
 /**
  * A partner's shared folder: their sections and rows, MY tick — the one view

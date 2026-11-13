@@ -1,4 +1,5 @@
 # Local deploy and device state must stay outside source history.
+/CalMind/perf-results/
 /CalMind/server/data/
 /CalMind/server/deploy.conf
 /CalMind/tools/.server-config/
