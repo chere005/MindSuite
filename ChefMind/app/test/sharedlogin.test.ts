@@ -351,7 +351,7 @@ describe('the bearer login is unchanged', () => {
   });
 
   test('app sign-in names the chef space too: signin_info and signin_redeem follow the chefmind hold, and the redeem is this app\'s', async () => {
-    const { api, calls } = await load([{ body: { ok: true, shared: true, app_signin: true } }, { body: { ok: true, token: tok64(), username: 'alex' } }]);
+    const { calls } = await load([{ body: { ok: true, shared: true, app_signin: true } }, { body: { ok: true, token: tok64(), username: 'alex' } }]);
     const flow = await import('../src/appsignin');
     expect((await flow.signInFacts(API)).kind).toBe('answer');
     const code = 'ab'.repeat(32);
