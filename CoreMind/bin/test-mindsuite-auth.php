@@ -693,6 +693,112 @@ try {
     check($finished && $answer === 'sample', 'an authenticated read is not blocked by another reader holding the lock');
 
 
+    // ---- Account deletion (ticket #223): msa_account_delete(cfg, session, password, typed name, client)
+    $params = (new ReflectionFunction('msa_account_delete'))->getParameters();
+    check(count($params) === 5 && !$params[4]->isOptional(), 'msa_account_delete requires the caller\'s address, like msa_login');
+    $auditFile = $dir . '/audit.log';
+    $auditWas = ini_set('error_log', $auditFile);
+    $delSetup = static function () use ($fresh, $acct): array {
+        $cfg = $fresh(['sample' => $acct('password'), 'other' => $acct('otherpass'), 'probe-acct' => $acct('probepass')]);
+        $mine = lg($cfg, 'sample', 'password', 'Browser');
+        $mine2 = lg($cfg, 'sample', 'password', 'Phone');
+        $scopedMine = lg($cfg, 'sample', 'password', 'CalMind', '', 'calmind');
+        $theirs = lg($cfg, 'other', 'otherpass', 'Browser');
+        $probe = lg($cfg, 'probe-acct', 'probepass', 'Probe');
+        $db = msa_store_read($cfg);
+        $db['passkeys']['pk-sample-1'] = ['user' => 'sample', 'pem' => 'x', 'signCount' => 0, 'label' => 'one', 'created' => 1];
+        $db['passkeys']['pk-sample-2'] = ['user' => 'sample', 'pem' => 'x', 'signCount' => 0, 'label' => 'two', 'created' => 1];
+        $db['passkeys']['pk-other-1'] = ['user' => 'other', 'pem' => 'x', 'signCount' => 0, 'label' => 'theirs', 'created' => 1];
+        $db['challenges']['ch-sample'] = ['type' => 'webauthn.create', 'session' => hash('sha256', $mine['token']), 'created' => time()];
+        $db['challenges']['ch-other'] = ['type' => 'webauthn.create', 'session' => hash('sha256', $theirs['token']), 'created' => time()];
+        $db['import'] = ['tokens_marks' => ['sample' => 5], 'passkeys_seen' => ['pk-sample-1' => 5]];
+        msa_store_write($cfg, $db);
+        $cookie = static fn(string $token): ?array => msa_session($cfg, [], ['MSSESS_DEV' => $token]);
+        return [$cfg, compact('mine', 'mine2', 'scopedMine', 'theirs', 'probe'), $cookie];
+    };
+    [$cfg, $tk, $cookie] = $delSetup();
+    $me = $cookie($tk['mine']['token']);
+    $before = msa_store_read($cfg);
+    // a wrong password: refused, counted like a failed sign-in, nothing deleted
+    check(!msa_account_delete($cfg, $me, 'wrong-guess', 'sample', '192.0.2.10'), 'a wrong password does not delete the account');
+    $after = msa_store_read($cfg);
+    check(isset($after['accounts']['sample']) && $after['sessions'] === $before['sessions'] && $after['passkeys'] === $before['passkeys'], 'a refused deletion leaves the sessions and passkeys alone');
+    check(($after['accounts']['sample']['wide']['tries'] ?? 0) === 1 && msa_bucket($after['accounts']['sample'], '192.0.2.10')['tries'] === 1,
+        'a wrong password counts as a failed sign-in: one account-wide try and one in the address bucket');
+    for ($i = 0; $i < 4; $i++) { msa_account_delete($cfg, $me, 'wrong-guess', 'sample', '192.0.2.10'); }
+    check(msa_lockout_until($cfg, 'sample', '192.0.2.10') > time(), 'five wrong passwords from one address lock that address, as for sign-in');
+    check(!msa_account_delete($cfg, $me, 'password', 'sample', '192.0.2.10') && isset(msa_store_read($cfg)['accounts']['sample']), 'a locked account refuses the right password and is not deleted');
+    // the typed name is not a guess: a mismatch is refused before any check and counts nothing
+    [$cfg, $tk, $cookie] = $delSetup();
+    $me = $cookie($tk['mine']['token']);
+    check(!msa_account_delete($cfg, $me, 'password', 'other', '') && !msa_account_delete($cfg, $me, 'password', '', '') && !msa_account_delete($cfg, $me, 'password', 'sample ', ''),
+        'another name, no name and a name with a stray space each refuse');
+    check(isset(msa_store_read($cfg)['accounts']['sample']) && !isset(msa_store_read($cfg)['accounts']['sample']['wide']), 'a wrong confirmation name deletes nothing and counts nothing');
+    check(!msa_account_delete($cfg, $cookie($tk['theirs']['token']), 'password', 'sample', '') && isset(msa_store_read($cfg)['accounts']['sample'], msa_store_read($cfg)['accounts']['other']),
+        'a session can delete only its own account: another account\'s session with this one\'s name and password refuses');
+    $scopedSession = msa_session($cfg, bearer($tk['scopedMine']['token']), []);
+    check(!msa_account_delete($cfg, $scopedSession, 'password', 'sample', '') && isset(msa_store_read($cfg)['accounts']['sample']), 'a scoped (app token) session cannot delete the account');
+    check(!msa_account_delete($cfg, ['user' => 'sample', 'id' => str_repeat('0', 64), 'carrier' => 'cookie', 'csrf' => 'x', 'scope' => ''], 'password', 'sample', '') && isset(msa_store_read($cfg)['accounts']['sample']),
+        'a session that is not in the store (signed out meanwhile) cannot delete');
+    // the deletion
+    $others = msa_store_read($cfg);
+    $keepOther = [$others['accounts']['other'], $others['sessions'][hash('sha256', $tk['theirs']['token'])], $others['passkeys']['pk-other-1'], $others['challenges']['ch-other'],
+        $others['accounts']['probe-acct'], $others['sessions'][hash('sha256', $tk['probe']['token'])]];
+    @unlink($auditFile);
+    check(msa_account_delete($cfg, $me, 'password', 'sample', '192.0.2.11') === true, 'the right password and the typed name delete the account');
+    $gone = msa_store_read($cfg);
+    check(!isset($gone['accounts']['sample']), 'the account is gone');
+    check(array_filter($gone['sessions'], static fn($r) => ($r['user'] ?? null) === 'sample') === [], 'every session of the account is gone, scoped app tokens included');
+    check(array_filter($gone['passkeys'], static fn($r) => ($r['user'] ?? null) === 'sample') === [] && !isset($gone['challenges']['ch-sample']), 'its passkeys and its pending passkey challenge are gone');
+    check([$gone['accounts']['other'], $gone['sessions'][hash('sha256', $tk['theirs']['token'])], $gone['passkeys']['pk-other-1'], $gone['challenges']['ch-other'],
+        $gone['accounts']['probe-acct'], $gone['sessions'][hash('sha256', $tk['probe']['token'])]] === $keepOther,
+        'another account, its session, passkey and challenge, and the status probe account and its session are byte for byte unchanged');
+    check(array_keys($gone['accounts']) === ['other', 'probe-acct'] && count($gone['sessions']) === 2 && array_keys($gone['passkeys']) === ['pk-other-1'] && $gone['version'] === 1,
+        'exactly one account, three sessions and two passkeys went');
+    check(($gone['import'] ?? null) === $others['import'], 'the importer\'s records are kept, so a deleted account\'s legacy tokens and passkeys are not brought back by a later token scan');
+    check(lg($cfg, 'sample', 'password', 'Browser') === null && lg($cfg, 'SAMPLE', 'password', 'Browser') === null, 'signing in afterwards fails');
+    check($cookie($tk['mine']['token']) === null && $cookie($tk['mine2']['token']) === null && msa_session($cfg, bearer($tk['scopedMine']['token']), []) === null,
+        'every old cookie and app token reads signed out');
+    check($cookie($tk['theirs']['token'])['user'] === 'other' && lg($cfg, 'other', 'otherpass', 'x') !== null && lg($cfg, 'probe-acct', 'probepass', 'x') !== null, 'the other accounts keep working');
+    check(msa_account_exists($cfg, 'sample') === false && !msa_account_delete($cfg, $me, 'password', 'sample', ''), 'a second delete of the same account does nothing');
+    $audit = (string) @file_get_contents($auditFile);
+    check(str_contains($audit, 'mindsuite account deleted: sample') && substr_count($audit, "\n") === 1, 'one audit line names the account');
+    foreach ([$tk['mine']['token'], $tk['scopedMine']['token'], 'password', $before['accounts']['sample']['hash'], $tk['mine']['csrf']] as $secret) {
+        check(!str_contains($audit, $secret), 'the audit line holds no password, hash, token or CSRF secret');
+    }
+    // a lockout does not stop a deletion by a person who is not locked: the transition password of a merged account is a password too
+    [$cfg, $tk, $cookie] = $delSetup();
+    $db = msa_store_read($cfg);
+    $db['accounts']['sample']['transition_hashes'] = [password_hash('legacy-pass', PASSWORD_BCRYPT, ['cost' => 4])];
+    $db['accounts']['sample']['transition_until'] = time() + 3600;
+    msa_store_write($cfg, $db);
+    check(msa_account_delete($cfg, $cookie($tk['mine']['token']), 'legacy-pass', 'sample', '') && !isset(msa_store_read($cfg)['accounts']['sample']), 'a password still in its transition window re-authenticates, as for a password change');
+    // store failures: nothing half-deleted
+    [$cfg, $tk, $cookie] = $delSetup();
+    $me = $cookie($tk['mine']['token']);
+    $file = $cfg['data_dir'] . '/auth.json';
+    $bytes = file_get_contents($file);
+    if (function_exists('posix_geteuid') && posix_geteuid() !== 0 && PHP_OS_FAMILY !== 'Windows') {
+        chmod($cfg['data_dir'], 0500);
+        $threw = false;
+        try { msa_account_delete($cfg, $me, 'password', 'sample', ''); } catch (RuntimeException) { $threw = true; }
+        chmod($cfg['data_dir'], 0700);
+        check($threw && file_get_contents($file) === $bytes && !glob($cfg['data_dir'] . '/*.tmp'), 'a store that cannot be written refuses the deletion and leaves the old store and no stray file');
+    }
+    file_put_contents($file, 'MSA1:damaged');
+    $threw = false;
+    try { msa_account_delete($cfg, $me, 'password', 'sample', ''); } catch (RuntimeException) { $threw = true; }
+    check($threw && file_get_contents($file) === 'MSA1:damaged', 'a store that cannot be read refuses the deletion and is preserved');
+    // the deletion runs under the store's write lock: while another process holds it, the delete waits and then sees the newer store
+    [$cfg, $tk, $cookie] = $delSetup();
+    $src = file_get_contents(__DIR__ . '/../../packages/mind-server/lib/mindsuite-auth.php');
+    preg_match('/function msa_account_delete\(.*?\n}\n/s', $src, $fm);
+    check(isset($fm[0]) && str_contains($fm[0], 'msa_lock($cfg') && str_contains($fm[0], 'msa_store_write($cfg') && substr_count($fm[0], 'msa_store_write(') === 2,
+        'the deletion writes through msa_lock and msa_store_write only (the counted failure and the delete, nothing else)');
+    // legacy mode: an instance that is not switched on has no config, so nothing here can run
+    check(msa_app_config('dev', [], 'site') === null && msa_app_config('dev', ['mindsuite_auth_instances' => ['test']], 'site') === null, 'an instance that is not switched on has no shared store to delete from');
+    ini_set('error_log', $auditWas === false ? '' : $auditWas);
+
     // ---- Review fixes
     // msa_login: the device and the address are required, scope is not
     $params = (new ReflectionFunction('msa_login'))->getParameters();

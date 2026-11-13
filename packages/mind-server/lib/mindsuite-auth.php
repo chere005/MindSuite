@@ -316,6 +316,30 @@ function msa_stamp_first_login(array &$db, string $user, int $now): void
 }
 
 /**
+ * Count one failed password against an account (the caller holds the store lock and writes): the address's bucket climbs the
+ * ladder (5 wrong guesses, then 5, 10, 60, 120, 180 minutes) and the account-wide count towards MSA_WIDE_TRIES. The one place
+ * a failed guess is counted, so a sign-in and a re-authentication (msa_account_delete) cost the same.
+ */
+function msa_note_failure(array &$account, string $client, int $now): void
+{
+    $bucket = msa_bucket($account, $client);
+    if (++$bucket['tries'] >= 5) {
+        $round = ++$bucket['rounds'];
+        $minutes = [5, 10, 60, 120, 180][$round - 1] ?? 180 + 60 * ($round - 5);
+        $bucket['tries'] = 0;
+        $bucket['until'] = $now + 60 * $minutes;
+    }
+    msa_bucket_put($account, $client, $bucket, $now);
+    $wide = is_array($account['wide'] ?? null) ? $account['wide'] + msa_bucket_blank() : msa_bucket_blank();
+    if (++$wide['tries'] >= MSA_WIDE_TRIES) {
+        $round = ++$wide['rounds'];
+        $wide['tries'] = 0;
+        $wide['until'] = $now + 60 * ([15, 60, 180][$round - 1] ?? 720);
+    }
+    $account['wide'] = $wide;
+}
+
+/**
  * Verify a password and issue a session. Two locks: CalMind's escalating ladder per account and client address (5 wrong
  * guesses, then 5, 10, 60, 120, 180 minutes), a speed bump only since the address can be forged; and the account-wide lock:
  * MSA_WIDE_TRIES failures from any addresses lock the account for every client, the right password included (15, 60, 180,
@@ -354,7 +378,6 @@ function msa_login(array $cfg, string $username, string $password, string $devic
         $now = time();
         if ($account === null || msa_password_hashes($account, $now) !== $hashes) { return null; }
         if (msa_account_locked_until($account, $client, $now) > 0) { return null; }
-        $bucket = msa_bucket($account, $client);
         if ($matched !== null) {
             $account['hash'] = $matched;
             msa_bucket_clear($account, $client);
@@ -366,20 +389,7 @@ function msa_login(array $cfg, string $username, string $password, string $devic
             msa_store_write($cfg, $db);
             return $session;
         }
-        if (++$bucket['tries'] >= 5) {
-            $round = ++$bucket['rounds'];
-            $minutes = [5, 10, 60, 120, 180][$round - 1] ?? 180 + 60 * ($round - 5);
-            $bucket['tries'] = 0;
-            $bucket['until'] = $now + 60 * $minutes;
-        }
-        msa_bucket_put($account, $client, $bucket, $now);
-        $wide = is_array($account['wide'] ?? null) ? $account['wide'] + msa_bucket_blank() : msa_bucket_blank();
-        if (++$wide['tries'] >= MSA_WIDE_TRIES) {
-            $round = ++$wide['rounds'];
-            $wide['tries'] = 0;
-            $wide['until'] = $now + 60 * ([15, 60, 180][$round - 1] ?? 720);
-        }
-        $account['wide'] = $wide;
+        msa_note_failure($account, $client, $now);
         $db['accounts'][$user] = $account;
         msa_store_write($cfg, $db);
         return null;
@@ -683,6 +693,66 @@ function msa_reset_password(array $cfg, string $username, string $newPassword): 
         $account['gen'] = (int) ($account['gen'] ?? 0) + 1;
         unset($account);
         msa_store_write($cfg, $db);
+        return true;
+    });
+}
+
+/**
+ * Delete the signed-in person's own account: the account, its passkeys, every session of it (scoped app tokens included) and
+ * the passkey challenges pending for those sessions, in ONE write of the store under the store lock; nothing else is touched
+ * (another account, the status probes, the importer's records in `import`, which also keep a deleted account's legacy tokens
+ * and passkeys from coming back in a later token scan). Needs a full credential (a cookie or unscoped session, never an app
+ * token), the account's own name typed exactly (`$confirmName`; judged first and counted as nothing) and the current password
+ * (a password still in its transition window counts, as for msa_change_password). A wrong or locked password is refused with
+ * the same false as a failed sign-in and counted the same way (msa_note_failure; a locked account pays the dummy bcrypt and
+ * is not counted again), so this is no way round the lockout. `$client` is the caller's address, required like msa_login's.
+ * False for every refusal; a store that cannot be read or written throws and leaves the old store as it was. One audit line
+ * goes to the error log: the account name and counts, no password, hash, token or address.
+ */
+function msa_account_delete(array $cfg, array $session, string $password, string $confirmName, string $client): bool
+{
+    $user = $session['user'] ?? null;
+    if (!is_string($user) || msa_normalize_username($confirmName) !== $user || $password === '' || strlen($password) > 1024 ||
+        str_contains($password, "\0")) {
+        return false;
+    }
+    $db = msa_store_read($cfg);
+    $account = $db['accounts'][$user] ?? null;
+    if (!msa_session_full($db, $session) || $account === null) { return false; }
+    if (msa_account_locked_until($account, $client, time()) > 0) {
+        msa_dummy_verify($password);
+        return false;
+    }
+    $hashes = msa_password_hashes($account, time());
+    $matched = null;
+    foreach ($hashes as $hash) {
+        if (msa_verify_password($password, $hash)) { $matched = $hash; break; }
+    }
+    // Bcrypt stays outside the lock; the credentials, the session and the lock are checked again inside it.
+    return msa_lock($cfg, function () use ($cfg, $session, $user, $hashes, $matched, $client): bool {
+        $db = msa_store_read($cfg);
+        $now = time();
+        $account = $db['accounts'][$user] ?? null;
+        if ($account === null || !msa_session_full($db, $session) || msa_password_hashes($account, $now) !== $hashes ||
+            msa_account_locked_until($account, $client, $now) > 0) {
+            return false;
+        }
+        if ($matched === null) {
+            msa_note_failure($account, $client, $now);
+            $db['accounts'][$user] = $account;
+            msa_store_write($cfg, $db);
+            return false;
+        }
+        $mine = array_keys(array_filter($db['sessions'], static fn($row) => ($row['user'] ?? null) === $user));
+        $keys = array_keys(array_filter($db['passkeys'], static fn($row) => ($row['user'] ?? null) === $user));
+        $db['challenges'] = array_diff_key($db['challenges'], array_flip(array_keys(array_filter(
+            $db['challenges'], static fn($row) => is_array($row) && in_array($row['session'] ?? null, $mine, true)
+        ))));
+        $db['sessions'] = array_diff_key($db['sessions'], array_flip($mine));
+        $db['passkeys'] = array_diff_key($db['passkeys'], array_flip($keys));
+        unset($db['accounts'][$user]);
+        msa_store_write($cfg, $db);
+        error_log('mindsuite account deleted: ' . $user . ' (' . count($mine) . ' sessions, ' . count($keys) . ' passkeys)');
         return true;
     });
 }
