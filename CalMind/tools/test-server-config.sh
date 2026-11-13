@@ -225,6 +225,149 @@ ls "$(dirname "$PROD")" | grep -q '\.new$\|\.prev$' && bad "left a .new/.prev" |
 reset_live; printf '<html>not json</html>' > "$R/health.json"
 LABEL="the instance answers garbage"; refused $SC set-str smtp_host h.example.test prod
 
+echo "shared layout: a file that requires the site config (never evaluated here)"
+CANARY="$R/canary.php"; MARK="$R/evaluated"
+printf '<?php\nfile_put_contents(%s, "x");\nreturn ["smtp_host" => "SHARED-HOST-1", "smtp_pass" => "SHARED-SECRET-1", "mail_from" => "no-reply@example.test"];\n' "'$MARK'" > "$CANARY"
+reset_shared() {
+    cat > "$PROD" <<PHP
+<?php
+\$shared = require '$CANARY';
+\$keys = ['smtp_host', 'smtp_pass', 'mail_from'];
+\$config = array_intersect_key(\$shared, array_flip(\$keys));
+\$config['mail_enabled'] = true;
+\$config['meetreq_user'] = 'owner1';
+return \$config;
+PHP
+    chmod 640 "$PROD"
+    rm -f "$R/reads" "$R/race" "$R/fail-lint" "$MARK"
+    printf '{"ok":true,"mailWorker":"ok"}' > "$R/health.json"
+}
+has() { grep -qF -- "$1" "$PROD"; }
+reset_shared
+run $SC show-keys prod
+[ "$RC" = 0 ] && ok "show-keys exits 0" || bad "show-keys exit $RC: $OUT"
+case "$OUT" in *"mail_enabled: bool"*"meetreq_user: string[6]"*) ok "own keys: names and shapes" ;; *) bad "own keys missing: $OUT" ;; esac
+case "$OUT" in *"from the shared config: smtp_host, smtp_pass, mail_from"*) ok "names the shared keys" ;; *) bad "shared names missing: $OUT" ;; esac
+case "$OUT" in *"not set:"*php_bin*) ok "php_bin listed as not set" ;; *) bad "unset list: $OUT" ;; esac
+case "$OUT" in *"not set:"*smtp_host*) bad "a shared key is listed as not set" ;; *) ok "shared keys are not 'not set'" ;; esac
+case "$OUT" in *SHARED-*|*owner1*|*example.test*) bad "show-keys printed a value" ;; *) ok "no value printed" ;; esac
+[ ! -e "$MARK" ] && ok "the require was not evaluated locally" || bad "the require ran on this machine"
+
+reset_shared; before=$(cat "$PROD")
+run $SC set-str php_bin /usr/local/bin/php prod
+[ "$RC" = 0 ] && ok "set (new key): exit 0" || bad "set: $RC $OUT"
+has "\$config['php_bin'] = '/usr/local/bin/php';" && ok "assignment line written" || bad "no php_bin line"
+[ "$(grep -n "php_bin" "$PROD" | cut -d: -f1)" -lt "$(grep -n 'return \$config;' "$PROD" | cut -d: -f1)" ] && ok "inserted before return \$config;" || bad "wrong position"
+[ "$(grep -v php_bin "$PROD" | shasum)" = "$(printf '%s\n' "$before" | shasum)" ] && ok "every other line kept byte for byte" || bad "other lines changed"
+php -l "$PROD" >/dev/null && ok "result lints" || bad "result does not lint"
+[ ! -e "$MARK" ] && ok "the require was not evaluated locally (set)" || bad "the require ran on this machine"
+run $SC set-str php_bin /usr/local/bin/php prod
+[ "$(grep -c "config\['php_bin'\]" "$PROD")" = 1 ] && ok "set again does not duplicate" || bad "duplicated line"
+run $SC set-str meetreq_user owner2 prod
+has "\$config['meetreq_user'] = 'owner2';" && ! has "owner1" && [ "$(grep -c "meetreq_user" "$PROD")" = 1 ] && ok "replace in place" || bad "replace: $RC $OUT"
+run $SC set-flag mail_enabled off prod
+has "\$config['mail_enabled'] = false;" && ok "set-flag writes a bare boolean" || bad "flag: $RC $OUT"
+run $SC set-str smtp_port 465 prod
+has "\$config['smtp_port'] = 465;" && ok "smtp_port written as an integer" || bad "port: $RC $OUT"
+run $SC set-str mail_from_name "O'Brien \\ Co" prod
+[ "$RC" = 0 ] && has "\$config['mail_from_name'] = 'O\\'Brien \\\\ Co';" && ok "quote and backslash escaped" || bad "escape: $RC $OUT"
+run $SC show-keys prod
+case "$OUT" in *"mail_from_name: string[12]"*) ok "escaped value round-trips (length 12)" ;; *) bad "round trip: $OUT" ;; esac
+run $SC unset smtp_port prod
+[ "$RC" = 0 ] && ! has smtp_port && has "return \$config;" && ok "unset removes only that line" || bad "unset: $RC $OUT"
+run $SC unset smtp_host prod
+[ "$RC" = 0 ] && has "'smtp_host', 'smtp_pass'" && ok "unset of a shared-only key leaves the file alone" || bad "unset shared: $RC $OUT"
+case "$OUT" in *"comes from the shared config"*) ok "says the key is shared" ;; *) bad "no shared note: $OUT" ;; esac
+OUT=$(printf 'SECRETPASS-xyz\n' | $SC set-str smtp_pass - prod 2>&1); RC=$?; printf '%s\n' "$OUT" >> "$R/all.out"
+[ "$RC" = 0 ] && has "\$config['smtp_pass'] = 'SECRETPASS-xyz';" && ok "smtp_pass from stdin" || bad "stdin: $RC $OUT"
+[ ! -e "$MARK" ] && ok "the require never ran locally across all edits" || bad "the require ran on this machine"
+
+echo "shared layout: refusals (the live file stays byte for byte the same)"
+reset_shared
+LABEL="shared: php_bin relative";       refused $SC set-str php_bin php prod
+LABEL="shared: php_bin not on server";  refused $SC set-str php_bin /usr/local/bin/nope prod
+LABEL="shared: php_bin not executable"; refused $SC set-str php_bin /usr/local/bin/plain prod
+LABEL="shared: unknown key";            refused $SC set-str not_a_key x prod
+LABEL="shared: set data_key";           refused $SC set-str data_key abc prod
+LABEL="shared: unset data_key";         refused $SC unset data_key prod
+LABEL="shared: debug_log_codes";        refused $SC set-flag debug_log_codes on prod
+LABEL="shared: smtp_pass as argument";  refused $SC set-str smtp_pass hunter2-secret prod
+LABEL="shared: bad smtp_port";          refused $SC set-str smtp_port 70000 prod
+LABEL="shared: bad mail_from";          refused $SC set-str mail_from nope prod
+LABEL="shared: set-flag on a string";   refused $SC set-flag smtp_host on prod
+reset_shared
+sed -i.bak "s/^return \\\$config;/\$config['php_bin'] = trim(' \/usr\/local\/bin\/php ');\nreturn \$config;/" "$PROD"; rm -f "$PROD.bak"
+run $SC show-keys prod
+case "$OUT" in *"php_bin: expression"*) ok "an expression line is listed as an expression, no value" ;; *) bad "expression shape: $OUT" ;; esac
+run $SC set-flag mail_enabled off prod
+[ "$RC" = 0 ] && has "\$config['php_bin'] = trim(" && ok "an existing expression line is left alone by an edit of another key" || bad "expression line: $RC $OUT"
+run $SC set-str php_bin /usr/local/bin/php prod
+[ "$RC" = 0 ] && has "\$config['php_bin'] = '/usr/local/bin/php';" && ! has trim && ok "setting that key replaces the expression with a literal" || bad "replace expression: $RC $OUT"
+reset_shared
+sed -i.bak '/^return/d' "$PROD"; rm -f "$PROD.bak"
+LABEL="shared: no return \$config; (unknown layout)"; refused $SC set-flag mail_enabled off prod
+reset_shared
+sed -i.bak "s#^\\\$config\\['meetreq_user'\\].*#\$config['meetreq_user'] = '/Users/you/x';#" "$PROD"; rm -f "$PROD.bak"
+LABEL="shared: a Mac path in an own line"; refused $SC set-flag mail_enabled off prod
+[ ! -e "$MARK" ] && ok "the require never ran locally across the refusals" || bad "the require ran on this machine"
+
+echo "shared layout: hand-edited copy (pull, edit, push)"
+spull() { reset_shared; rm -rf "$R/state"; run $SC pull prod; }
+spull
+[ "$RC" = 0 ] && [ -f "$R/state/prod.php" ] && ok "pull works on the shared layout" || bad "pull: $RC $OUT"
+spull
+php -r '$f=$argv[1]; $t=file_get_contents($f); $t=str_replace("return \$config;","\$config[\x27php_bin\x27] = \x27/usr/local/bin/php\x27;\n\$config[\x27smtp_port\x27] = 587;\nreturn \$config;",$t); file_put_contents($f,$t);' "$R/state/prod.php"
+run $SC push prod
+[ "$RC" = 0 ] && has "\$config['php_bin'] = '/usr/local/bin/php';" && has "\$config['smtp_port'] = 587;" && ok "valid own-key additions push" || bad "push: $RC $OUT"
+[ "$RC" = 0 ] && [ ! -e "$R/state/prod.php" ] && ok "copy deleted after the push" || bad "copy left behind"
+hand() {   # label, php code on the text ($t)
+    spull
+    php -r '$f=$argv[1]; $t=file_get_contents($f); '"$2"' file_put_contents($f,$t);' "$R/state/prod.php"
+    before=$(live_sum); run $SC push prod
+    if [ "$RC" -ne 0 ] && [ "$before" = "$(live_sum)" ]; then ok "refused, nothing changed: $1"; else bad "NOT refused: $1 ($RC) $OUT"; fi
+}
+hand "push adds a code line"            '$t=str_replace("return \$config;","system(\"id\");\nreturn \$config;",$t);'
+hand "push edits the \$keys list"       '$t=str_replace("\x27mail_from\x27]","\x27mail_from\x27, \x27data_key\x27]",$t);'
+hand "push adds data_key"               '$t=str_replace("return \$config;","\$config[\x27data_key\x27] = \x27K\x27;\nreturn \$config;",$t);'
+hand "push adds debug_log_codes"        '$t=str_replace("return \$config;","\$config[\x27debug_log_codes\x27] = true;\nreturn \$config;",$t);'
+hand "push adds an undocumented key"    '$t=str_replace("return \$config;","\$config[\x27surprise\x27] = \x27x\x27;\nreturn \$config;",$t);'
+hand "push a relative php_bin"          '$t=str_replace("return \$config;","\$config[\x27php_bin\x27] = \x27php\x27;\nreturn \$config;",$t);'
+hand "push a php_bin not on the server" '$t=str_replace("return \$config;","\$config[\x27php_bin\x27] = \x27/usr/local/bin/nope\x27;\nreturn \$config;",$t);'
+hand "push a non-boolean mail_enabled"  '$t=str_replace("\x27mail_enabled\x27] = true;","\x27mail_enabled\x27] = \x27yes\x27;",$t);'
+hand "push a leading-zero integer (PHP octal)" '$t=str_replace("return \$config;","\$config[\x27smtp_port\x27] = 0465;\nreturn \$config;",$t);'
+reset_shared
+sed -i.bak "s/^return .config;/\$config['data_key'] = 'DK';\\
+return \$config;/" "$PROD"; rm -f "$PROD.bak"
+rm -rf "$R/state"; run $SC pull prod
+php -r '$f=$argv[1]; $t=file_get_contents($f); $t=str_replace("\$config[\x27data_key\x27] = \x27DK\x27;\n","",$t); $t=str_replace("\$shared = require","\$config[\x27data_key\x27] = \x27DK\x27;\n\$shared = require",$t); file_put_contents($f,$t);' "$R/state/prod.php"
+before=$(live_sum); run $SC push prod
+[ "$RC" -ne 0 ] && [ "$before" = "$(live_sum)" ] && ok "refused, nothing changed: own data_key moved above the intersect" || bad "NOT refused: data_key moved ($RC) $OUT"
+rm -rf "$R/state"
+hand "push deletes the \$keys line"    '$t=preg_replace("/^\\\$keys.*\\n/m","",$t);'
+hand "push moves return above the intersect" '$t=str_replace("return \$config;\n","",$t); $t=str_replace("\$config = array_intersect_key","return \$config;\n\$config = array_intersect_key",$t);'
+hand "push an expression value"         '$t=str_replace("return \$config;","\$config[\"php_bin\"] = strtolower(\"/USR\");\nreturn \$config;",$t);'
+spull; rm -f "$R/state/prod.orig"
+LABEL="shared: push with the as-pulled record missing"; before=$(live_sum); run $SC push prod
+[ "$RC" -ne 0 ] && [ "$before" = "$(live_sum)" ] && ok "refused, nothing changed: $LABEL" || bad "NOT refused: $LABEL"
+spull; printf '// changed by someone else\n' >> "$PROD"
+LABEL="shared: live file changed since the pull"; refused $SC push prod
+rm -rf "$R/state"
+reset_shared; : > "$R/race"
+run $SC set-flag mail_enabled off prod
+if [ "$RC" -ne 0 ] && has "\$config['mail_enabled'] = true;" && grep -q raced "$PROD"; then ok "shared: refused when the file changed between pull and upload"; else bad "shared race not caught ($RC): $OUT"; fi
+rm -f "$R/race"
+reset_shared; printf '{"ok":true,"mailWorker":"missing"}' > "$R/health.json"
+run $SC set-str smtp_port 465 prod
+[ "$RC" = 3 ] && has "\$config['smtp_port'] = 465;" && ok "shared: exit 3 when applied but mailWorker is missing" || bad "exit 3: $RC $OUT"
+reset_shared; rm -f "$R/health.json"
+LABEL="shared: the instance does not answer health"; refused $SC set-str smtp_port 465 prod
+case "$OUT" in *"SERVED RESULT BROKEN"*"put back"*) ok "shared: restored the previous file" ;; *) bad "no restore message: $OUT" ;; esac
+ls "$(dirname "$PROD")" | grep -q '\.new$\|\.prev$' && bad "left a .new/.prev" || ok "nothing left beside the target"
+reset_shared; : > "$R/fail-lint"
+LABEL="shared: server lint fails"; refused $SC set-str smtp_port 465 prod
+[ ! -e "$MARK" ] && ok "the require never ran locally (whole shared section)" || bad "the require ran on this machine"
+reset_live
+
 echo "no secret reached any output or argument list"
 if grep -q 'LIVE-SECRET-1\|LIVE-KEY-1\|SECRETPASS-xyz\|hunter2-secret' "$R/all.out"; then bad "a secret appeared in output"; else ok "none in stdout/stderr of any command"; fi
 if grep -q 'LIVE-SECRET-1\|LIVE-KEY-1\|SECRETPASS-xyz' "$R/calls.log"; then bad "a secret appeared in an ssh/scp/curl argument"; else ok "none in any ssh/scp/curl argument"; fi

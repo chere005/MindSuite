@@ -11,6 +11,9 @@
 #   tools/server-config.sh unset KEY INST             remove a key
 #   tools/server-config.sh where INST                 the lib path and URL this instance maps to
 #
+# A real instance file requires the site config and sets only its own keys as '$config[KEY] = literal;' lines (shared layout); that layout is edited as TEXT and
+# the require is never evaluated here. A self-contained `return [...]` file (plain layout) is still supported.
+#
 # INST = prod | test | dev. Keys are limited to the ones config.sample.php documents; data_key is refused (changing it
 # makes the store unreadable). php_bin must be an absolute path and, on the server, an executable that runs.
 # Every change starts from the LIVE file (never a copy left here), validates locally, uploads beside the target as
@@ -31,7 +34,7 @@ STATE="${CALMIND_SERVER_CONFIG_STATE:-tools/.server-config}"   # the test points
 NOTE='// Hand-kept on the server; never deployed. Change it ONLY with tools/server-config.sh.'
 
 die() { echo "$*" >&2; exit 1; }
-usage() { sed -n '2,24p' "$0"; exit 1; }
+usage() { sed -n '2,26p' "$0"; exit 1; }
 
 # The TABLE: constants, one row per instance, matching server/deploy.sh (tools/test-server-config.sh proves they agree).
 # Nothing here is built from an argument.
@@ -82,6 +85,39 @@ write_editor() {
 // argv: file sample mode [pulled-copy].  env: KEY, VAL.  Prints names/shapes only, never a value.
 [$self, $f, $sample, $mode] = $argv;
 $die = function (string $m): void { fwrite(STDERR, $m . "\n"); exit(1); };
+// Two layouts. Plain: the file is one `return [...]` array and is evaluated here. Shared: the file requires the site's
+// config and then sets its own keys as `$config['KEY'] = <literal>;` lines before `return $config;`. A shared file is
+// text to this tool and is NEVER evaluated here (the require would run on this machine, and pull in secrets).
+$txt = (string) file_get_contents($f);
+$isText = static function (string $t): bool { return (bool) preg_match('/^\s*(?:\$\w+\s*=\s*)?(?:require|include)(?:_once)?[\s(]|^\s*return\s+\$config\s*;/m', $t); };
+$asg = '/^\s*\$config\[\s*\'([A-Za-z0-9_]+)\'\s*\]\s*=\s*(.*?)\s*;\s*$/D';
+$retRe = '/^\s*return\s+\$config\s*;\s*$/D';
+$literal = static function (string $s, &$out): bool {
+    if (preg_match('/^(true|false)$/Di', $s)) { $out = strtolower($s) === 'true'; return true; }
+    if (preg_match('/^(?:0|-?[1-9][0-9]{0,17})$/D', $s)) { $out = (int) $s; return true; }   // no leading zero: PHP reads 0465 as octal
+    if (preg_match("/^'((?:[^'\\\\]|\\\\.)*)'$/Ds", $s, $m)) { $out = preg_replace("/\\\\([\\\\'])/", '$1', $m[1]); return true; }
+    return false;
+};
+// text -> [own keys => value, keys whose line is not a plain literal => true, shared key names from $keys]
+$parseOwn = function (string $t) use ($asg, $literal): array {
+    $own = []; $expr = [];
+    foreach (explode("\n", $t) as $l) {
+        if (!preg_match($asg, $l, $mm)) { continue; }
+        if ($literal($mm[2], $v)) { $own[$mm[1]] = $v; unset($expr[$mm[1]]); } else { $expr[$mm[1]] = true; unset($own[$mm[1]]); }
+    }
+    $shared = [];
+    if (preg_match('/\$keys\s*=\s*\[(.*?)\]\s*;/s', $t, $mk)) { preg_match_all("/'([A-Za-z0-9_]+)'/", $mk[1], $nm); $shared = array_values(array_unique($nm[1])); }
+    return [$own, $expr, $shared];
+};
+$text = $isText($txt);
+$expr = []; $sharedNames = [];
+if ($text) {
+    if (!array_filter(explode("\n", $txt), function ($l) use ($retRe) { return preg_match($retRe, $l); }) || !preg_match('/\$config\s*=/', $txt)) { $die('refusing: a config that requires the shared one must end with return $config; (unknown layout)'); }
+    [$c, $expr, $sharedNames] = $parseOwn($txt);
+    array_walk($c, function ($v, $k) use ($die) {
+        if (is_string($v) && strpos($v, '/Users/') === 0) { $die("refusing: the value of '$k' is a path on a Mac"); }
+    });
+} else {
 $c = require $f;
 if (!is_array($c)) { $die('refusing: the config does not return an array'); }
 // The file is evaluated HERE: a __DIR__ in it would turn into this machine's path and ship (the site's 2026-10-18 bug).
@@ -91,6 +127,7 @@ array_walk_recursive($c, function ($v, $k) use ($die, $here, $real) {
         $die("refusing: the value of '$k' is a path on this machine (the file computes it, e.g. __DIR__); edit that file by hand on the server");
     }
 });
+}
 preg_match_all("/'([a-z][a-z0-9_]*)'\\s*=>/", (string) file_get_contents($sample), $m);
 // debug_log_codes is documented only as a warning ("do not set on a host"): never settable or listed here.
 $allowed = array_values(array_diff(array_unique($m[1]), ['debug_log_codes']));
@@ -103,9 +140,11 @@ $shape = function ($v): string {
     return gettype($v);
 };
 if ($mode === 'show') {
+    foreach (array_keys($expr) as $k) { $c[$k] = new stdClass(); }   // shown as an expression, never evaluated
     ksort($c);
-    foreach ($c as $k => $v) { echo $k, ': ', $shape($v), in_array($k, $allowed, true) ? '' : ' (not a documented key)', "\n"; }
-    $unset = array_values(array_diff($allowed, array_keys($c)));
+    foreach ($c as $k => $v) { echo $k, ': ', $v instanceof stdClass ? 'expression' : $shape($v), in_array($k, $allowed, true) ? '' : ' (not a documented key)', "\n"; }
+    if ($text) { echo 'from the shared config: ', $sharedNames ? implode(', ', $sharedNames) : '(none)', "\n"; }
+    $unset = array_values(array_diff($allowed, array_keys($c), $sharedNames));
     echo 'not set: ', $unset ? implode(', ', $unset) : '(none)', "\n";
     exit(0);
 }
@@ -137,8 +176,32 @@ $validate = function (string $key, $v) use ($flags, $ints, $paths, $ctl): ?strin
 };
 if ($mode === 'check' || $mode === 'phpbin') {
     // Given the copy as pulled (argv[4]): every key that differs from it must pass the same rules as a set-*.
-    $o = isset($argv[4]) ? require $argv[4] : null;
-    if ($o !== null) {
+    $o = null; $oTxt = isset($argv[4]) ? (string) file_get_contents($argv[4]) : null;
+    if ($oTxt !== null) {
+        if ($isText($oTxt) !== $text) { $die('refusing: the copy changed layout since the pull'); }
+        if ($text) {
+            [$o] = $parseOwn($oTxt);
+            // Everything except own-key assignment lines must equal the pulled copy, in the same order (a deleted or moved
+            // $keys / $config = / return line is refused); own-key lines must sit between `$config = ...` and `return $config;`.
+            $nonAsg = function (string $t) use ($asg): array {
+                return array_values(array_filter(array_map('rtrim', explode("\n", $t)), function ($l) use ($asg) { return $l !== '' && !preg_match($asg, $l); }));
+            };
+            if ($nonAsg($txt) !== $nonAsg($oTxt)) { $die('refusing: a line other than an own-key assignment was added, changed, removed or moved'); }
+            $nl = explode("\n", $txt); $from = null; $to = null;
+            foreach ($nl as $i => $l) {
+                if ($from === null && preg_match('/^\s*\$config\s*=/', $l)) { $from = $i; }
+                if (preg_match($retRe, $l)) { $to = $i; }
+            }
+            if ($from === null || $to === null || $from > $to) { $die('refusing: unknown layout ($config = ... must come before return $config;)'); }
+            $have = array_count_values(array_map('rtrim', explode("\n", $oTxt)));
+            foreach ($nl as $i => $l) {
+                if (!preg_match($asg, $l, $mm)) { continue; }
+                if ($i < $from || $i > $to) { $die("refusing: the line for '" . $safeName($mm[1]) . "' is outside the block between \$config = ... and return \$config;"); }
+                $l = rtrim($l);
+                if (!empty($have[$l])) { $have[$l]--; continue; }
+                if (isset($expr[$mm[1]])) { $die("refusing: '" . $safeName($mm[1]) . "' must be a plain true/false, integer or quoted string"); }
+            }
+        } else { $o = require $argv[4]; }
         if (!is_array($o)) { $die('refusing: the pulled copy does not return an array'); }
         foreach ($c as $k => $v) {
             if (array_key_exists($k, $o) && $o[$k] === $v) { continue; }
@@ -172,6 +235,26 @@ if ($mode === 'unset') {
     if ($e !== null) { $die('refusing: ' . $e); }
     $c[$key] = $t;
 } else { $die('bad mode'); }
+if ($text) {
+    $out = []; $done = false; $lines = explode("\n", $txt);
+    $lit = null;
+    if ($mode !== 'unset') {
+        $v = $c[$key];
+        $lit = is_bool($v) ? ($v ? 'true' : 'false') : (is_int($v) ? (string) $v : "'" . strtr($v, ['\\' => '\\\\', "'" => "\\'"]) . "'");
+        $lit = '$config[\'' . $key . '\'] = ' . $lit . ';';
+    }
+    foreach ($lines as $l) {
+        if (preg_match($asg, $l, $mm) && $mm[1] === $key) { if ($lit !== null) { $out[] = $lit; $done = true; } continue; }
+        $out[] = $l;
+    }
+    if ($lit !== null && !$done) {
+        $at = null; foreach ($out as $i => $l) { if (preg_match($retRe, $l)) { $at = $i; } }
+        array_splice($out, (int) $at, 0, [$lit]);
+    }
+    if ($mode === 'unset' && in_array($key, $sharedNames, true)) { fwrite(STDERR, "note: '$key' also comes from the shared config; only this instance's own line was removed\n"); }
+    file_put_contents($f, implode("\n", $out));
+    exit(0);
+}
 file_put_contents($f, "<?php\n" . getenv('NOTE') . "\nreturn " . var_export($c, true) . ";\n");
 PHP
 }

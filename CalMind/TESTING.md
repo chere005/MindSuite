@@ -406,6 +406,17 @@ The family resemblance to the stale simulator earlier the same day is the
 point: an artefact that is consistent with ITSELF says nothing about whether it
 is the artefact you meant to test.
 
+### Interaction latency (`e2e/perf.spec.ts`), 2026-11-12
+
+Skipped unless `CALMIND_PERF=1`, so the normal suite never runs it. After `npm run export:web`:
+`CALMIND_PERF=1 CALMIND_PERF_LABEL=<name> CALMIND_E2E_PORT=<free port> npx playwright test e2e/perf.spec.ts`.
+It seeds a busy store (240 reminders, 300 events, 12 habits x 90 days, 80 notes) through the real API and, at
+desktop and phone width with the CPU throttled 4x, reports median and p95 input-to-next-frame latency plus long
+tasks for ticking a reminder and a habit, dragging a reminder, habit and note row (20 moves) and swiping the
+calendar. Results land in `perf-results/<label>.json` (ignored). `CALMIND_PERF_PROFILE=1` prints a CPU profile
+per gesture and `CALMIND_PERF_TRACE=1` a timeline summary; `CALMIND_PERF_VIEWPORT=desktop|phone` and
+`CALMIND_PERF_RUNS=n` narrow a run.
+
 ### Never two Playwright runs on one port, 2026-08-12
 
 Both configs bind their own port — 8790 for the gestures, 8791 for WebKit — and
