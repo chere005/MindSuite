@@ -1,8 +1,8 @@
 # MindSuite continuation
 
-PlanMind 0.27.0 is released with the phone Day menu, per-person Both colors and the CalMind all-day strip. Keep shared login disabled while the token revocation and proxy trust work remains unfinished.
+Shared login #163 and address-independent lockout #213 are active on production and test for the site and every suite web app. Both app hold lists are empty; dev stays legacy, sign-up stays closed, mail stays enabled and trusted proxies stay empty. The backed-up account import, token scan, dry restore and dedicated-probe session/gate/revocation checks passed; the site records the rollout in commit 661f03c. CalMind 1.64.0's 32 MB calendar cap is deployed on production and test.
 
-This repository began as a fresh start from the monorepo consolidation. The CalMind title-input fix (`wip/calmind-167-title-field`) and the shared-login library (`feat/shared-login-library-finish`) continue as branches on top of the first commit; shared login stays disabled.
+This repository began as a fresh start from the monorepo consolidation. The CalMind title-input fix (`wip/calmind-167-title-field`) remains a separate branch. The shared-login library and app entry points have landed.
 
 The SMTP transport and CalMind mail callers are deployed with sending enabled on the site and CalMind production and test instances; mail remains off by default in sample configuration.
 

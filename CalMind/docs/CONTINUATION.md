@@ -1,5 +1,20 @@
 # Continuation
 
+## Large calendars and shared sign-in — 1.64.0
+
+Production and test now accept calendar downloads through 32 MB, including
+CalDAV XML and the assembled ICS. CalDAV size messages follow the configured
+cap. Offline regressions preserve every event in a calendar over 8 MB and
+exercise the exact download boundary and oversized refusals. Development
+checks, suite counts, the root preflight and served-page deploy smoke passed.
+Windows text checkouts are pinned to LF to preserve the shared-core facade
+contract.
+
+Shared sign-in #163 and strict account-wide lockout #213 are enabled on
+production and test for all web apps. The site records activation, import
+backups and token preservation, gates, session reuse and revocation in 661f03c.
+Dev remains legacy; trusted proxies remain empty.
+
 ## #167 new-note title loses letters typed fast — unreleased
 
 Native only: on a freshly launched iOS app a title typed fast came back
