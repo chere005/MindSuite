@@ -164,3 +164,40 @@ test('nobody else gets an editor for a page that is not theirs', async ({ page }
   await page.waitForTimeout(1_500);
   await expect(page.getByTestId('avail')).toHaveCount(0);
 });
+
+test('a day change draws no hours until that day answers, and a slot tap cannot cross days', async ({ page }) => {
+  test.setTimeout(120_000);
+  const day = nextMonday();
+  const nextDay = iso(new Date(new Date(`${day}T12:00:00`).getTime() + 86_400_000)); // a Tuesday: same window
+  // The editor account from the first case, signed back in.
+  await page.goto('.');
+  await page.getByPlaceholder('Username').fill('alex');
+  await page.getByPlaceholder('Password', { exact: true }).fill('e2epassword');
+  await page.getByText('Sign in', { exact: true }).click();
+  await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
+  await openAvailability(page, day);
+
+  // HOLD the next day's reply open: a loopback server answers before a tap can
+  // land in the window this case is about.
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => { release = r; });
+  await page.route('**/api/index.php*', async (route) => {
+    const body = route.request().postData() ?? '';
+    if (body.includes('"meetreq_day"') && body.includes(nextDay)) await held;
+    await route.continue();
+  });
+  const calls: string[] = [];
+  page.on('request', (r) => { if ((r.postData() ?? '').includes('"meetreq_day"')) calls.push(r.postData()!); });
+
+  await page.getByTestId('av-cell').and(page.getByLabel(nextDay, { exact: true })).click();
+  await expect(page.getByTestId('av-dayhead')).toContainText(/Tuesday/);
+  // The previous day's hours are not drawn under the new date.
+  await expect(page.getByTestId('av-slot'), 'no hours until that day has answered').toHaveCount(0);
+  await expect(page.getByTestId('av-all')).toHaveCount(0);
+
+  release();
+  await expect(page.getByTestId('av-slot').first()).toBeVisible({ timeout: 10_000 });
+  // Every slot now belongs to the selected day.
+  await expect(page.getByLabel(new RegExp(`^${nextDay} \\d\\d:\\d\\d (open|closed)$`)).first()).toBeVisible();
+  await expect(page.getByLabel(new RegExp(`^${day} `))).toHaveCount(0);
+});

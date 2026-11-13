@@ -21,6 +21,7 @@ import {
   todayStr, type MeetAvail, type Rec,
 } from '@calmind/core';
 import { apiPost } from '../api';
+import { DayReader, slotsFor, type AvDay, type AvDayReply } from '../availday';
 import { useStore } from '../store';
 import { DayPick } from '../components/DayPick';
 import { CircleBtn, Field, Pill, Scroll } from '../ui';
@@ -56,23 +57,27 @@ export function Requests({ onClose }: { onClose: () => void }) {
   const [avOwner, setAvOwner] = useState<boolean | null>(null);
   const [avDate, setAvDate] = useState(todayStr());
   const [avYm, setAvYm] = useState(todayStr().slice(0, 7));
-  const [avSlots, setAvSlots] = useState<{ time: string; busy: boolean }[]>([]);
+  const [avDay, setAvDay] = useState<AvDay>({ date: avDate, slots: null, failed: false });
   const [avNote, setAvNote] = useState('');
   const av = meetAvailOf(recs, avDate);
+  // The hours of the SELECTED date only: until its reply arrives there are
+  // none to draw or tap (see availday.ts).
+  const avSlots = slotsFor(avDay, avDate);
 
   useEffect(() => {
     if (!session) return;
-    setAvNote('');
-    void apiPost<{ owner: boolean; slots: { time: string; busy: boolean }[] }>(
-      session.serverUrl, { action: 'meetreq_day', date: avDate }, session.token,
-    )
-      .then((r) => {
-        setAvOwner(r.owner);
-        setAvSlots(Array.isArray(r.slots) ? r.slots : []);
-      })
-      // The section is left as it was rather than torn down: a dropped
-      // connection is not evidence that the request page stopped being his.
-      .catch(() => setAvNote('Could not read that day — the hours below may be out of date.'));
+    const reader = new DayReader(
+      (date) => apiPost<AvDayReply>(session.serverUrl, { action: 'meetreq_day', date }, session.token),
+      (day) => {
+        setAvDay(day);
+        // The section is left as it was rather than torn down: a dropped
+        // connection is not evidence that the request page stopped being his.
+        setAvNote(day.failed ? 'Could not read the hours for that day.' : '');
+      },
+      setAvOwner,
+    );
+    reader.select(avDate);
+    return () => reader.dispose();
   }, [avDate, session]);
 
   const putAv = (next: MeetAvail) =>
@@ -234,7 +239,7 @@ export function Requests({ onClose }: { onClose: () => void }) {
               <View style={s.slotWrap}>
                 {/* All sits LEFT of the hours, on his word, and reads the same
                     way they do: blue while any hour is still on offer. */}
-                {avSlots.length > 0 && (
+                {avSlots !== null && avSlots.length > 0 && (
                   <Pressable
                     testID="av-all"
                     accessibilityLabel={`All ${avDate}`}
@@ -244,7 +249,7 @@ export function Requests({ onClose }: { onClose: () => void }) {
                     <Text style={s.slotText}>All</Text>
                   </Pressable>
                 )}
-                {avSlots.map((sl) => {
+                {(avSlots ?? []).map((sl) => {
                   const open = slotOpen(av, sl.time, sl.busy);
                   return (
                     <Pressable
@@ -259,7 +264,7 @@ export function Requests({ onClose }: { onClose: () => void }) {
                     </Pressable>
                   );
                 })}
-                {avSlots.length === 0 && (
+                {avSlots !== null && avSlots.length === 0 && (
                   <Text style={s.avEmpty}>Nothing can be requested that day.</Text>
                 )}
               </View>

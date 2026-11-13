@@ -13,6 +13,7 @@ import { SyncEngine, lastDeleted, normalize, prefsOf, folderApp, recLabel, share
 import { apiPost, SYNC_SPACE, type Session, syncTransport, ApiError } from './api';
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
+import { SharedWrites } from './sharedwrites';
 
 /**
  * Storage is per-INSTANCE, because on the web it is per-ORIGIN and prod, test
@@ -173,32 +174,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .catch(() => setPersistFailed(true));
   }, []);
 
-  const pullShared = useCallback(async () => {
-    const s = sessionRef.current;
-    if (!s) return;
-    try {
-      // THE SPACE, on the sharing calls as well as on sync. Without it this
-      // read the partner's CALMIND store and drew their CalMind folders inside
-      // ChefMind — seen on the first sign-in after the deploy (the owner,
-      // 2026-08-21). Sharing itself is unchanged: same UX, same partners
-      // screen, same mutual rule. It is simply about THIS app's store, so a
-      // ChefMind partnership is declared in ChefMind by both people and every
-      // account starts blank.
-      const r = await apiPost<{ partners: PartnerBadge[]; partner: string | null; records: AnyRec[] }>(
-        s.serverUrl, { action: 'shared_pull', space: SYNC_SPACE }, s.token,
-      );
-      setPartners(r.partners);
-      setSharedPartner(r.partner);
-      setSharedRaw(r.records);
-      return true;
-    } catch {
-      // Offline: the last pulled copy stands, like any local-first read.
-      // Reporting it matters only to a caller that NEEDED the reconcile —
-      // see sharedPut, where a failed write plus a failed re-read means the
-      // screen is knowingly showing something that is not true.
-      return false;
-    }
-  }, []);
+  // The partner's lists: the pulled copy with my unsettled writes laid over it
+  // (see sharedwrites.ts). THE SPACE rides on the sharing calls as well as on
+  // sync: without it a read drew the partner's CALMIND folders inside ChefMind
+  // (the owner, 2026-08-21). The transport reads the session at call time.
+  const sharedWrites = useRef<SharedWrites<AnyRec, PartnerBadge> | null>(null);
+  if (!sharedWrites.current) {
+    sharedWrites.current = new SharedWrites<AnyRec, PartnerBadge>(
+      {
+        put: async (partner, record) => {
+          const s = sessionRef.current;
+          if (!s) throw new Error('signed out');
+          await apiPost(s.serverUrl, { action: 'shared_put', space: SYNC_SPACE, partner, record }, s.token);
+        },
+        pull: async () => {
+          const s = sessionRef.current;
+          if (!s) throw new Error('signed out');
+          return apiPost<{ partners: PartnerBadge[]; partner: string | null; records: AnyRec[] }>(
+            s.serverUrl, { action: 'shared_pull', space: SYNC_SPACE }, s.token,
+          );
+        },
+      },
+      {
+        onView: setSharedRaw,
+        onPulled: ({ partners: p, partner }) => {
+          setPartners(p);
+          setSharedPartner(partner);
+        },
+        // A refused or failed write has been taken back; 'offline' is the
+        // word this app already uses for sync trouble, and the top bar shows it.
+        onTrouble: () => setSyncState('offline'),
+      },
+    );
+  }
+
+  const pullShared = useCallback(() => sharedWrites.current!.pull(), []);
 
   /**
    * Everything that has to let go when there is no longer a session — whether
@@ -215,7 +225,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setRecs([]);
     setPartners([]);
     setSharedPartner(null);
-    setSharedRaw([]);
+    sharedWrites.current?.reset();
     applyTheme('midnight'); // the login page always renders midnight
   }, []);
 
@@ -297,35 +307,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refresh, persistNow, pullShared]);
 
-  // Every caller fires this and forgets it (`void sharedPut(...)`), so a
-  // rejection here had nowhere to go but an unhandled promise: tapping a
-  // partner's tick did nothing, said nothing, and logged somewhere the user
-  // will never look. It rejects for an ordinary reason, too — sharing ending
-  // a moment earlier makes this a 403, and a dead token a 401.
-  //
-  // Reconciling either way is the honest answer: pullShared re-reads what the
-  // partner still shares, so rows that are no longer ours to touch leave the
-  // screen instead of sitting there swallowing taps.
+  // Every caller fires this and forgets it (`void sharedPut(...)`). The write
+  // is drawn at once and sent in order; a refusal (sharing ending a moment
+  // earlier is a 403, a dead token a 401) takes back exactly that change and
+  // says 'offline', and the re-read that follows drops rows that are no longer
+  // ours to touch. No retry and nothing stored: see sharedwrites.ts.
   const sharedPut = useCallback(async (rec: AnyRec) => {
-    const s = sessionRef.current;
-    if (!s || !sharedPartner) return;
-    let wrote = true;
-    try {
-      await apiPost(s.serverUrl, { action: 'shared_put', space: SYNC_SPACE, partner: sharedPartner, record: { ...rec, updated: Date.now() } }, s.token);
-    } catch {
-      // fall through to the reconcile — the screen is what's wrong now
-      wrote = false;
-    }
-    const reconciled = await pullShared();
-    // The outer .catch(() => {}) that used to sit here caught nothing —
-    // pullShared handles its own failure — so it only hid where the real
-    // swallow was. The case that actually matters is BOTH failing: the edit
-    // did not land AND the screen was not corrected, so a partner's row sits
-    // there showing a change that does not exist anywhere but this device.
-    // 'offline' is already the word this app uses for that, and the top bar
-    // already shows it.
-    if (!wrote && !reconciled) setSyncState('offline');
-  }, [sharedPartner, pullShared]);
+    if (!sessionRef.current || !sharedPartner) return;
+    await sharedWrites.current!.put(sharedPartner, rec);
+  }, [sharedPartner]);
 
   const syncSoon = useCallback(() => {
     clearTimeout(timers.current.sync);

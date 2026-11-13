@@ -995,6 +995,23 @@ Not covered in a browser: ChefMind (its dev-host rule aims a page on 127.0.0.1 a
 this server without a second export built for it); its `api.ts` and `Login.tsx` are covered by the unit file and the same
 `Login.tsx` bytes.
 
+## apps/app — a partner's lists and the availability day (`apps/app/test/sharedwrites.test.ts`, `availday.test.ts`; `e2e/sharedoverlay.spec.ts`, `e2e/meetavail.spec.ts`)
+
+`sharedwrites.ts` keeps the pulled copy of a partner's lists apart from my unsettled writes and draws the copy with the
+writes laid over it. The unit file drives it with a fake API whose every reply is held until the test releases it, in any
+order: a write is drawn before any request is answered (changed, new, deleted); writes go out one at a time in the order
+made with strictly increasing stamps; a pull sent before a write and answered after it, a pull older than one already
+applied, and a pull while the write is in flight never bring the old copy back; a pull sent after the acknowledgement
+shows the server's copy; a refused write takes back exactly its own change, later queued writes on the SAME record are
+taken back with it and never sent, other records and earlier acknowledged writes stay; an undo after the pull has landed
+is drawn at once; a reply from before a sign-out is ignored. Each guard was broken on purpose and the file went red (stale
+pull, drop-on-ack, same-record cancel, stamp). `availday.test.ts` does the same for the editor's day read (no hours until
+that date's reply, replies for a date no longer selected ignored in any order, a failure for an old date silent).
+`e2e/sharedoverlay.spec.ts` is the same in a browser with two linked accounts and 300 ms to 1.5 s injected on
+`shared_put`/`shared_pull`: the undo after the pull has landed never makes the row vanish, an edit, a quick add and a delete
+are drawn inside the delay and reach the owner, a forced 403 is taken back and the dot says offline. The last case of
+`e2e/meetavail.spec.ts` holds the next day's `meetreq_day` reply open and asserts no hours are drawn meanwhile.
+
 ## server/ — the API contract (PHP over real HTTP)
 
 `server/tools/caldav-tests.php` also runs offline: a calendar larger than 8 MB

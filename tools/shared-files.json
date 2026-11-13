@@ -182,6 +182,11 @@
       "copies": ["ChefMind/app/src/passkey.ts"]
     },
     {
+      "id": "app-src-sharedwrites-ts",
+      "origin": "CalMind/apps/app/src/sharedwrites.ts",
+      "copies": ["ChefMind/app/src/sharedwrites.ts"]
+    },
+    {
       "id": "app-src-savefile-ts",
       "origin": "CalMind/apps/app/src/savefile.ts",
       "copies": ["ChefMind/app/src/savefile.ts"]
@@ -225,6 +230,11 @@
       "id": "app-test-rowslots-test-ts",
       "origin": "CalMind/apps/app/test/rowslots.test.ts",
       "copies": ["ChefMind/app/test/rowslots.test.ts"]
+    },
+    {
+      "id": "app-test-sharedwrites-test-ts",
+      "origin": "CalMind/apps/app/test/sharedwrites.test.ts",
+      "copies": ["ChefMind/app/test/sharedwrites.test.ts"]
     },
     {
       "id": "app-tsconfig-json",
