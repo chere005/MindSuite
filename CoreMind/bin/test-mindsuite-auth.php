@@ -1028,6 +1028,40 @@ try {
     msa_revoke_all($cfg, $me);
     check(!isset(msa_store_read($cfg)['accounts']['sample']) && !isset(msa_store_read($cfg)['accounts']['sample']['gen']), 'sign out everywhere with the old session recreates nothing');
 
+    // the window the take does not close: the challenge is already taken when the deletion lands, so only the guard under the lock can refuse
+    $attest = static function (array $cfg, array $options): array {
+        $private = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $point = openssl_pkey_get_details($private)['ec'];
+        $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($point['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($point['y'], 32, "\0", STR_PAD_LEFT);
+        $credId = random_bytes(32);
+        $authData = hash('sha256', $cfg['rp_id'], true) . "\x45" . pack('N', 0) . str_repeat("\0", 16) . pack('n', strlen($credId)) . $credId . $cose;
+        return ['clientDataJSON' => b64u_encode(client_data('webauthn.create', $options['challenge'], $cfg['origin'])),
+            'attestationObject' => b64u_encode("\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData\x58" . chr(strlen($authData)) . $authData), 'label' => 'window'];
+    };
+    [$cfg, $tk, $cookie] = $delSetup();
+    $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
+    $me = $cookie($tk['mine']['token']);
+    $options = msa_passkey_register_begin($cfg, $me);
+    $db = msa_store_read($cfg);
+    $db['sessions'] = array_filter($db['sessions'], static fn($r) => $r['user'] !== 'sample');
+    unset($db['accounts']['sample']);
+    msa_store_write($cfg, $db);
+    check($options !== null && isset(msa_store_read($cfg)['challenges'][$options['challenge']]), 'the challenge is still pending although the account and its sessions are gone (the take will succeed)');
+    $passkeysBefore = array_keys(msa_store_read($cfg)['passkeys']);
+    check(msa_passkey_register_finish($cfg, $me, $attest($cfg, $options)) === null && array_keys(msa_store_read($cfg)['passkeys']) === $passkeysBefore,
+        'a registration whose challenge was taken but whose account is gone adds no passkey');
+    [$cfg, $tk, $cookie] = $delSetup();
+    $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
+    $me = $cookie($tk['mine']['token']);
+    $options = msa_passkey_register_begin($cfg, $me);
+    check(msa_passkey_register_finish($cfg, $me, $attest($cfg, $options)) !== null, 'control: with the account present the same registration adds its passkey (so only the guard refused it)');
+    // the typed name is case-insensitive (the page trims it first), as the page says
+    [$cfg, $tk, $cookie] = $delSetup();
+    check(!msa_account_delete($cfg, $cookie($tk['mine']['token']), 'password', ' sample', '') && isset(msa_store_read($cfg)['accounts']['sample']), 'the library does not trim: the page does, before it calls (a stray space is refused here)');
+    check(msa_account_delete($cfg, $cookie($tk['mine']['token']), 'password', 'SaMpLe', '') && !isset(msa_store_read($cfg)['accounts']['sample']), 'the typed name in other capitals deletes the account');
+    [$cfg, $tk, $cookie] = $delSetup();
+    check(!msa_account_delete($cfg, $cookie($tk['mine']['token']), 'password', 'sampl', '') && isset(msa_store_read($cfg)['accounts']['sample']), 'a different name still deletes nothing');
+
     // the deletion re-reads the store under the lock: another writer that held the lock first is not overwritten or ignored
     $raceChild = static function (array $session, string $client) use ($key, $dir): string {
         return 'require ' . var_export(__DIR__ . '/../../packages/mind-server/lib/mindsuite-auth.php', true) . ';' .
