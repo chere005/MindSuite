@@ -30,7 +30,7 @@ import { useClock24 } from '../useClock24';
 import { themed, T } from '../theme';
 import { TopBar } from '../chrome';
 import { FolderPick, useFolderView } from '../components/FolderPick';
-import { DropLine, useRowDrag, type RowDrag } from '../components/rowdrag';
+import { DropLine, flatKey, useRowDrag, type RowDrag } from '../components/rowdrag';
 import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSwipeLeft } from '../components/swiperow';
 import { useSharedTick, useTickGrace } from '../components/tickgrace';
@@ -282,7 +282,7 @@ export function Reminders() {
     const res = moveReminderBlock(recs, src.rec.id, target.sectionId, target.beforeId);
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
-  }, { live: true });
+  }, { live: true, keyOf: (i) => flatKey(flatRows[i]) });
   // id -> flat index, built once per flat list: these were findIndex scans
   // called several times per drawn row, O(rows^2) on every render.
   const flatIdx = useMemo(() => {
