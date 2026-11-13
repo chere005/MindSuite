@@ -34,6 +34,18 @@ refuses(fn() => $read('otto'), 403);
 refuses(fn() => $add('val', 'project.add', ['name' => 'Rejected']), 403);
 refuses(fn() => $add('sam', 'member.add', ['id' => 'otto', 'role' => 'owner']), 403);
 refuses(fn() => $add('sam', 'member.add', ['id' => 'ghost']), 400);
+// Accounts may be a lookup (the shared sign-in's store): asked only when a member is added, and a lookup that cannot answer refuses, never adds.
+$lookups = 0;
+$sharedAccounts = function () use (&$lookups) { ++$lookups; return ['otto' => 'shared-hash', 'sam' => 'shared-hash']; };
+$viaLookup = fn(string $id, callable $lookup) => change_workspace($store, $seedConfig, \Closure::fromCallable($lookup), 'sam', $addRequest('member.add', ['id' => $id], 'lookup-' . ++$seq), 1700000000);
+$beforeLookup = file_get_contents($dir . '/workspace.enc');
+refuses(fn() => $viaLookup('val', $sharedAccounts), 400);
+check($lookups === 1 && file_get_contents($dir . '/workspace.enc') === $beforeLookup, 'a lookup answers for the account (a legacy-only name is refused) and the refusal writes nothing');
+refuses(fn() => $viaLookup('ghost', fn() => throw new RequestError('Accounts cannot be checked right now. Try again in a moment.', 503)), 503);
+check(file_get_contents($dir . '/workspace.enc') === $beforeLookup, 'a lookup that cannot answer refuses (503) and writes nothing');
+$unrelatedLookups = 0;
+change_workspace($store, $seedConfig, function () use (&$unrelatedLookups) { ++$unrelatedLookups; return []; }, 'sam', $addRequest('project.add', ['name' => 'No lookup needed'], 'lookup-unrelated'), 1700000000);
+check($unrelatedLookups === 0, 'a request that does not add a member never asks the lookup');
 refuses(fn() => $edit('sam', 'member.role', ['id' => 'alex', 'role' => 'member', 'rv' => 1]), 403);
 refuses(fn() => $edit('alex', 'member.remove', ['id' => 'alex', 'rv' => 1, 'confirm' => true]), 400);
 

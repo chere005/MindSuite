@@ -109,7 +109,7 @@ $copy($lib); $copy($old, 'older'); $copy($odd, 'odd');
 $legacyHash = password_hash('legacy-secret', PASSWORD_BCRYPT, ['cost' => 4]);
 $configure = function (array $extra = []) use ($lib, $old, $odd, $accounts, $legacyHash): void {
     // The scratch server drops taskmind_owners and the keys (a fixture run does, see auth.php): the team is made by this case, in the workspace itself.
-    $config = ['users' => ['alex' => $legacyHash, 'sam' => $legacyHash, 'max' => $legacyHash, 'outsider' => $legacyHash], 'data_dir' => $accounts, 'data_key' => 'disposable-fixture-key',
+    $config = ['users' => ['alex' => $legacyHash, 'sam' => $legacyHash, 'max' => $legacyHash, 'outsider' => $legacyHash, 'legacyonly' => $legacyHash], 'data_dir' => $accounts, 'data_key' => 'disposable-fixture-key',
         'timezone' => 'America/Chicago', 'base' => '', 'taskmind_owners' => ['alex'], 'taskmind_seed_admin' => 'sam'] + $extra;
     foreach ([$lib, $old, $odd] as $to) { file_put_contents($to . '/config.php', '<?php return ' . var_export($config, true) . ';'); }
 };
@@ -124,6 +124,7 @@ foreach (['index', 'api'] as $page) {
 file_put_contents($docroot . '/TaskMind/direct.php', '<?php ' . $preamble
     . 'require getenv("TASKMIND_LIB_DIR") . "/bootstrap.php"; header("Content-Type: text/plain"); $_POST = ["username" => "alex", "password" => "legacy-secret"]; '
     . 'if (isset($_GET["session"])) { tm_gate(); echo json_encode([session_status() === PHP_SESSION_ACTIVE, $_SESSION]); exit; } '
+    . 'if (isset($_GET["accounts"])) { try { $names = array_keys(tm_shared_accounts()); sort($names); echo "accounts " . implode(",", $names); } catch (\\TaskMind\\RequestError $e) { echo "refused " . $e->status . " " . $e->errorCode . " " . $e->getMessage(); } exit; } '
     . 'try { echo tm_login($store) ? "signed in" : "declined"; } catch (\\TaskMind\\RequestError $e) { echo "refused " . $e->status . " " . $e->errorCode; }');
 // The shared store: four accounts (the team's, a member to remove and a stranger's) and what each can present, made by the library itself in a process of its own.
 file_put_contents($sb . '/seed.php', <<<'PHP'
@@ -135,7 +136,7 @@ $cfg['invite_code'] = '5678';
 @mkdir($cfg['data_dir'], 0700, true);
 msa_store_write($cfg, ['version' => 1, 'accounts' => [], 'sessions' => [], 'passkeys' => [], 'challenges' => []]);
 $out = [];
-foreach (['alex', 'sam', 'max', 'outsider'] as $name) {
+foreach (['alex', 'sam', 'max', 'outsider', 'guest'] as $name) {
     if (!msa_signup($cfg, $name, $name . '@example.invalid', $name . '-password-1', '5678')) { fwrite(STDERR, "signup $name failed\n"); exit(1); }
     $out[$name] = msa_login($cfg, $name, $name . '-password-1', 'Firefox', '203.0.113.1');
 }
@@ -197,6 +198,9 @@ try {
         $data = sl_http($port, 'GET', '/TaskMind/api.php', sl_cookie($cookie));
         $token = sl_json($data)['csrf'] ?? '';
         check($data['status'] === 200 && (sl_json($data)['me'] ?? '') === 'alex' && (sl_json($data)['role'] ?? '') === 'owner' && preg_match('/^[a-f0-9]{64}$/', $token) === 1, "$why: the API answers for alex, the owner");
+        // Legacy mode checks the legacy account list: an account only the shared store holds is unknown here (and never added).
+        $addGuest = sl_http($port, 'POST', '/TaskMind/api.php', [...SL_JSON, ...sl_cookie($cookie), 'X-CSRF-Token: ' . $token], json_encode(['op' => 'member.add', 'data' => ['id' => 'guest'], 'requestId' => 'legacy-guest', 'base' => 1]));
+        check($addGuest['status'] === 400 && (sl_json($addGuest)['error'] ?? '') === 'Choose an existing site account.', "$why: adding an account only the shared store has is refused by the legacy list (got {$addGuest['status']}: " . substr($addGuest['body'], 0, 120) . ')');
         $noToken = sl_http($port, 'POST', '/TaskMind/api.php', [...SL_JSON, ...sl_cookie($cookie)], json_encode(['op' => 'project.add', 'data' => ['name' => 'X']]));
         check($noToken['status'] === 403 && (sl_json($noToken)['code'] ?? '') === 'csrf', "$why: a write without the token is refused in the app's own shape (403 csrf)");
         $bye = sl_http($port, 'POST', '/TaskMind/', ['Content-Type: application/x-www-form-urlencoded', ...sl_cookie($cookie)], http_build_query(['csrf' => $token, 'action' => 'logout']));
@@ -299,6 +303,30 @@ try {
     $seen = sl_json(sl_http($scratch, 'GET', '/TaskMind/api.php?view=workspace', sl_cookie($web('sam'))));
     check(count($seen['state']['projects'] ?? []) === 1 && ($seen['state']['projects'][0]['name'] ?? '') === 'Written through the shared sign-in', 'and the other member sees it (one shared store)');
     check(!isset($ok['headers']['set-cookie']) && !is_file($data . '/attempts.enc') && !is_file($accounts . '/prefs-default.json'), 'no PHP session cookie and no sign-in ledger entry came of any of it');
+
+    // ==== 4b. On, adding a member judges the SHARED store's accounts, never the legacy list ====
+    $addAs = fn(string $id, string $reqId) => sl_http($scratch, 'POST', '/TaskMind/api.php', [...SL_JSON, ...sl_cookie($alex), 'X-CSRF-Token: ' . $session['alex']['csrf'], 'Origin: ' . $origin],
+        json_encode(['op' => 'member.add', 'data' => ['id' => $id], 'requestId' => $reqId, 'base' => sl_json(sl_http($scratch, 'GET', '/TaskMind/api.php?view=workspace', sl_cookie($alex)))['state']['rev']]));
+    $before = $workspaceBytes();
+    foreach (['legacyonly' => 'a legacy-list account the shared store does not hold', 'ghost' => 'an account nobody holds'] as $id => $why) {
+        $r = $addAs($id, "sl-add-$id");
+        check($r['status'] === 400 && (sl_json($r)['error'] ?? '') === 'Choose an existing site account.' && !preg_match('/sign.?up|create an account|register/i', $r['body']), "$why is refused in shared mode, without a sign-up hint (got {$r['status']}: " . substr($r['body'], 0, 120) . ')');
+    }
+    check($workspaceBytes() === $before, 'and neither wrote anything');
+    $r = $addAs('guest', 'sl-add-guest');
+    check($r['status'] === 200 && (sl_json($r)['ok'] ?? null) === true, 'an account only the shared store holds is added (got ' . $r['status'] . ': ' . substr($r['body'], 0, 160) . ')');
+    $members = array_column(sl_json(sl_http($scratch, 'GET', '/TaskMind/api.php?view=workspace', sl_cookie($alex)))['state']['members'] ?? [], 'role', 'id');
+    check(($members['guest'] ?? null) === 'member', 'and is a member afterwards');
+    check(sl_http($scratch, 'GET', '/TaskMind/api.php', sl_cookie($web('guest')))['status'] === 200, 'whose shared session opens the app');
+    // The lookup itself: it reads the shared store, and a store it cannot read is a refusal, never an empty or a legacy list.
+    $probe = sl_http($scratch, 'GET', '/TaskMind/direct.php?accounts=1')['body'];
+    check($probe === 'accounts alex,guest,max,outsider,sam', 'the lookup lists what the shared store holds (a probe of the function, not an endpoint): ' . $probe);
+    $storeFile = $accounts . '/protected/mindsuite-auth/auth.json';
+    $kept = (string)file_get_contents($storeFile);
+    file_put_contents($storeFile, 'not a store');
+    $probe = sl_http($scratch, 'GET', '/TaskMind/direct.php?accounts=1')['body'];
+    check(str_starts_with($probe, 'refused 503 unavailable ') && !str_contains($probe, 'alex') && !str_contains($probe, 'legacyonly'), 'an unreadable shared store is a 503 refusal with a plain message: ' . $probe);
+    file_put_contents($storeFile, $kept);
 
     // ==== 5. On, the team gate is read on every request ====
     $max = $web('max');
