@@ -41,6 +41,7 @@ node --test tools/test-check-shared.mjs
   { echo "packages/mind-core needs CoreMind's tools: run npm ci in CoreMind." >&2; exit 1; }
 (cd packages/mind-core && npm run --silent check)
 bash tools/ci/test-macos-signing.sh
+bash tools/ci/test-release-notes.sh
 sh CoreMind/bin/check-plan.sh
 sh CoreMind/bin/check-personal-data.sh --self-test
 sh CoreMind/bin/check-personal-data.sh

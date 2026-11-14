@@ -2,8 +2,8 @@
 # naming an existing tag runs four jobs:
 #
 #   prepare  (ubuntu)    the tag must be the version in EVERY file that carries it (the six tools/check-version.mjs holds
-#                        together); a published release for the tag stops the run; the notes are the tag's annotation (or
-#                        its commit's message) plus an "Installing" block; a DRAFT release "AcctMind <version>" is made
+#                        together); a published release for the tag stops the run; notes use docs/releases/<version>.md
+#                        (or a plain app/version) plus an Installing block; a DRAFT release "AcctMind <version>" is made
 #                        (a draft left by an earlier run is reused).
 #   windows  (windows)   typecheck, core suite, web export, tauri build: the .msi and the NSIS .exe (x64), smoke-tested by
 #                        installing the .msi on the runner; both go into the draft.
@@ -176,22 +176,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Releasing AcctMind $want (tag $want)"
 
-      - name: Release notes from the tag's annotation (or its commit's message)
+      - name: Release notes for the app version
         if: ${{ inputs.preflight != true }}
         working-directory: AcctMind
         run: |
           set -euo pipefail
-          # actions/checkout can leave an annotated tag as a lightweight one: fetch the tag object itself.
-          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
-          # The annotation when it says more than a title line; else the tagged commit's whole message.
-          body=$(git for-each-ref "refs/tags/$TAG" --format='%(contents:body)')
-          if [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
-            notes=$(git for-each-ref "refs/tags/$TAG" --format='%(contents:subject)%0a%0a%(contents:body)')
+          notes_file="docs/releases/${VERSION}.md"
+          if [ -f "$notes_file" ] && grep -q '[^[:space:]]' "$notes_file"; then
+            notes=$(cat "$notes_file")
           else
-            notes=$(git log -1 --format=%B "${TAG}^{commit}")
+            notes="AcctMind ${VERSION}"
           fi
-          notes=$(printf '%s\n' "$notes" | grep -vE '^(Co-Authored-By|Signed-off-by):' || true)
-          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then notes="AcctMind ${VERSION}"; fi
           {
             printf '%s\n' "$notes"
             cat <<'EOF'

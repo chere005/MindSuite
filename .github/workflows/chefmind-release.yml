@@ -2,8 +2,8 @@
 # naming an existing tag - runs four jobs:
 #
 #   prepare  (ubuntu)   the tag must be the app's version in EVERY file that carries it (tools/release-versions.mjs); a tag that
-#                       is already a PUBLISHED release stops the run; the notes are the tag's annotation (else its commit's
-#                       message); a DRAFT release "ChefMind <version>" is made (an earlier run's draft is reused).
+#                       is already a PUBLISHED release stops the run; notes use docs/releases/<version>.md (or a plain
+#                       app/version) plus Installing guidance; a DRAFT release "ChefMind <version>" is made (an earlier run's draft is reused).
 #   windows  (windows)  typecheck, export the web app, tauri build -> the .msi and the NSIS .exe (x64), the MSI installed and
 #                       launched on the runner as a smoke test, then both uploaded into the draft.
 #   mac      (macos-15) Apple silicon (the runner is an arm64 Mac): typecheck, tests, export the web app, tauri build with
@@ -184,21 +184,17 @@ jobs:
           fi
           echo "drafts=$drafts" >> "$GITHUB_OUTPUT"
 
-      - name: Release notes from the tag's annotation (or its commit's message)
+      - name: Release notes for the app version
         if: env.PREFLIGHT != 'true'
         working-directory: ChefMind
         run: |
-          # actions/checkout can leave an annotated tag as a lightweight one: fetch the tag object itself.
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          # The annotation when it says more than a title line; else the tagged commit's whole message.
-          body=$(git for-each-ref "refs/tags/$TAG" --format='%(contents:body)')
-          if [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
-            notes=$(git for-each-ref "refs/tags/$TAG" --format='%(contents:subject)%0a%0a%(contents:body)')
+          set -euo pipefail
+          notes_file="docs/releases/${VERSION}.md"
+          if [ -f "$notes_file" ] && grep -q '[^[:space:]]' "$notes_file"; then
+            notes=$(cat "$notes_file")
           else
-            notes=$(git log -1 --format=%B "$TAG^{commit}")
+            notes="ChefMind ${VERSION}"
           fi
-          notes=$(printf '%s\n' "$notes" | grep -viE '^(Co-Authored-By|Signed-off-by):' || true)
-          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then notes="ChefMind $VERSION"; fi
           {
             printf '%s\n\n' "$notes"
             cat <<EOF

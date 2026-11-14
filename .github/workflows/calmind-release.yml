@@ -2,8 +2,8 @@
 # naming an existing tag runs these jobs:
 #
 #   prepare  (ubuntu)   the tag must equal the version in all FOUR files that carry it; a tag that is already a published
-#                       release stops the run; notes = the tag's annotation (or its commit's message) plus an install
-#                       block; a DRAFT release "CalMind <version>" is created (an earlier run's draft is reused).
+#                       release stops the run; notes use docs/releases/<version>.md (or a plain app/version) plus an
+#                       Installing block; a DRAFT release "CalMind <version>" is created (an earlier run's draft is reused).
 #   windows  (windows)  typecheck, core tests, web export, Tauri build (msi + nsis exe, x64), asset check, a real install
 #                       and launch of the MSI; the two installers are uploaded into the draft.
 #   macos    (macos-15) the same gates, then a signed, notarized Apple-silicon dmg verified before upload.
@@ -169,7 +169,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Releasing CalMind $version from $tag (preflight: $PREFLIGHT)"
 
-      - name: Release notes from the tag's annotation (or its commit's message)
+      - name: Release notes for the app version
         if: env.PREFLIGHT != 'true'
         shell: bash
         env:
@@ -178,19 +178,15 @@ jobs:
         working-directory: CalMind
         run: |
           set -euo pipefail
-          # actions/checkout can leave an annotated tag as a lightweight one: fetch the tag object itself.
-          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
-          body=$(git for-each-ref "refs/tags/${TAG}" --format='%(contents:body)')
-          if [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
-            notes=$(git for-each-ref "refs/tags/${TAG}" --format='%(contents)')
+          notes_file="docs/releases/${VERSION}.md"
+          if [ -f "$notes_file" ] && grep -q '[^[:space:]]' "$notes_file"; then
+            notes=$(cat "$notes_file")
           else
-            notes=$(git log -1 --format=%B "${TAG}^{commit}")
+            notes="CalMind ${VERSION}"
           fi
-          notes=$(printf '%s\n' "$notes" | grep -viE '^(Co-Authored-By|Signed-off-by):' || true)
-          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then notes="CalMind ${VERSION}"; fi
           file="$RUNNER_TEMP/release-notes.md"
           printf '%s\n' "$notes" > "$file"
-          cat >> "$file" <<'EOF'
+          sed "s/@V@/${VERSION}/g" >> "$file" <<'EOF'
 
           ### Installing
 
@@ -200,7 +196,6 @@ jobs:
 
           `SHA256SUMS.txt` has the checksum of every file.
           EOF
-          sed -i.bak "s/@V@/${VERSION}/g" "$file" && rm -f "$file.bak"
           cat "$file"
 
       - name: The draft release for the tag
