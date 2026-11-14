@@ -61,7 +61,7 @@ export type SharedHooks<R extends SharedRec, P> = {
   onView(records: R[]): void;
   /** The partner list of an applied pull. */
   onPulled(meta: { partners: P[]; partner: string | null }): void;
-  /** A write was refused or failed and has been taken back. */
+  /** A write was refused, or a fresh pull showed that the unconfirmed write is absent, and it was taken back. */
   onTrouble(): void;
   /** The trouble is over: a write was acknowledged, or reset. */
   onRecovered(): void;
@@ -133,7 +133,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
 
   /**
    * Make a write: it is drawn before this returns. The promise settles when the
-   * server has answered (or the write was taken back); callers fire and forget.
+   * server has answered, a lost reply has been reconciled, or the write was taken back; callers fire and forget.
    */
   put(partner: string, rec: R): Promise<void> {
     // Strictly increasing, so two taps in one millisecond still go out as an

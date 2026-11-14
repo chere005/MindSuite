@@ -281,6 +281,18 @@ describe('a lost reply is reconciled before claiming that the write was not save
     expect(t.unconfirmed).toHaveLength(1);
     expect(t.putCalls).toHaveLength(1);
   });
+
+  test('reset prevents an old reconciliation from changing the next account', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    t.putCalls[0].lose!(true); await settle();
+    t.w.reset();
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.view()).toEqual([]);
+    expect(t.troubles).toHaveLength(0);
+    expect(t.recovered).toHaveLength(1);
+  });
 });
 
 describe('(d2) the trouble stands until something true clears it', () => {
