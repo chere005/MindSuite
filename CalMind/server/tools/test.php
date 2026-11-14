@@ -1250,6 +1250,25 @@ t('a passkey signs in without a username, and the token works', function () use 
     eq($pkUser, $who['body']['username'] ?? '', 'and the token it issued is a real one');
 });
 
+t('synced zero-counter passkeys sign in repeatedly, while wrong user handles and attested assertions are refused', function () use ($pkKey, $pkCose, $pkOrigin, $pkRp, $pkTok, $pkUser, $b64u) {
+    $begin = api(['action' => 'passkey_register_begin'], $pkTok);
+    $cred = random_bytes(32); $id = $b64u($cred);
+    $cd = fake_client_data('webauthn.create', $begin['body']['challenge'], $pkOrigin);
+    $att = cbor_map_e([[cbor_text_e('fmt'), cbor_text_e('none')], [cbor_text_e('attStmt'), cbor_map_e([])],
+        [cbor_text_e('authData'), cbor_bytes_e(fake_authdata($pkRp, 0x4d, 0, $cred, $pkCose))]]);
+    eq(200, api(['action' => 'passkey_register_finish', 'clientDataJSON' => $b64u($cd), 'attestationObject' => $b64u($att)], $pkTok)['status'], 'synced registration');
+    foreach ([[null, 0x0d, 200], [$b64u($pkUser), 0x0d, 200], [$b64u('another-user'), 0x0d, 401], [null, 0x4d, 400]] as [$handle, $flags, $want]) {
+        $begin = api(['action' => 'passkey_login_begin']);
+        $cd = fake_client_data('webauthn.get', $begin['body']['challenge'], $pkOrigin);
+        $ad = fake_authdata($pkRp, $flags, 0, ($flags & 0x40) ? $cred : '', ($flags & 0x40) ? $pkCose : '');
+        openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+        $r = api(['action' => 'passkey_login_finish', 'id' => $id, 'userHandle' => $handle,
+            'clientDataJSON' => $b64u($cd), 'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig)]);
+        eq($want, $r['status'], 'assertion flags/handle: ' . json_encode($r['body']));
+    }
+    api(['action' => 'passkey_remove', 'id' => $id], $pkTok);
+});
+
 t('a tampered signature, a foreign origin and a stale challenge are all refused', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $b64u) {
     // Tampered signature.
     $b1 = api(['action' => 'passkey_login_begin']);
@@ -1348,6 +1367,30 @@ t('own-mode sign-in refuses a wrong rpIdHash, type, cross-origin, unknown id, an
     $try('a counter of zero after a non-zero one', 401, ['count' => 0]);
     $try('a lower counter', 401, ['count' => 3]);
     $try('a registration challenge used for sign-in', 400, ['regchal' => true, 'count' => 30]);
+});
+
+t('a credential left during account deletion cannot issue a token or mutate the credential', function () use ($pkKey, $pkOrigin, $pkRp, $b64u, $scratch) {
+    $user = 'guest';
+    eq(200, api(['action' => 'signup', 'username' => $user, 'email' => $user . '@example.com', 'password' => 'test-password'])['status'], 'fixture signup');
+    $cfg = ['data_dir' => $scratch];
+    $id = $b64u(random_bytes(32));
+    $keys = store_read($cfg, $scratch . '/passkeys.json');
+    $keys[$id] = ['user' => $user, 'pem' => openssl_pkey_get_details($pkKey)['key'], 'signCount' => 0];
+    store_write($cfg, $scratch . '/passkeys.json', $keys);
+    // This is the real deletion order's intermediate state: account gone, token revocation/credential cleanup still to run.
+    $accounts = store_read($cfg, $scratch . '/accounts.json'); unset($accounts[$user]);
+    store_write($cfg, $scratch . '/accounts.json', $accounts);
+    $before = file_get_contents($scratch . '/tokens.json');
+    $begin = api(['action' => 'passkey_login_begin']);
+    $cd = fake_client_data('webauthn.get', $begin['body']['challenge'], $pkOrigin);
+    $ad = fake_authdata($pkRp, 0x05, 1);
+    openssl_sign($ad . hash('sha256', $cd, true), $sig, $pkKey, OPENSSL_ALGO_SHA256);
+    $r = api(['action' => 'passkey_login_finish', 'id' => $id,
+        'clientDataJSON' => $b64u($cd), 'authenticatorData' => $b64u($ad), 'signature' => $b64u($sig)]);
+    eq(401, $r['status'], 'a deleted account: ' . json_encode($r['body']));
+    eq($before, file_get_contents($scratch . '/tokens.json'), 'no token resurrected');
+    eq(0, store_read($cfg, $scratch . '/passkeys.json')[$id]['signCount'], 'no counter changed');
+    unset($keys[$id]); store_write($cfg, $scratch . '/passkeys.json', $keys);
 });
 
 t('a counter that goes backwards is refused, and a removed passkey stops working', function () use ($pkKey, $pkOrigin, $pkRp, $pkId, $pkTok, $b64u) {

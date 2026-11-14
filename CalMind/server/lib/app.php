@@ -1751,6 +1751,12 @@ function handle_passkey_login_finish(array $cfg, array $in): never
         fail(401, 'passkey: not verified on the device');
     }
 
+    if (($auth['flags'] & 0x40) !== 0) { fail(400, 'passkey: attested data on assertion'); }
+    $handle = $in['userHandle'] ?? null;
+    if ($handle !== null && $handle !== '' && (!is_string($handle) || !hash_equals((string) $key['user'], b64u_decode($handle)))) {
+        fail(401, 'passkey: wrong user handle');
+    }
+
     $signed = $authRaw . hash('sha256', $clientJson, true);
     $ok = openssl_verify($signed, b64u_decode((string) ($in['signature'] ?? '')), $key['pem'], OPENSSL_ALGO_SHA256);
     if ($ok !== 1) {
@@ -1758,30 +1764,30 @@ function handle_passkey_login_finish(array $cfg, array $in): never
         fail(401, 'passkey: signature did not verify');
     }
 
-    // A counter that goes backwards means two authenticators are answering for
-    // one credential. Plenty of passkeys report 0 forever, and 0 vs 0 is not
-    // evidence of anything. But once a credential has reported a counter, a
-    // zero or a repeat is a replay or a clone, as in the shared library.
-    // Checked again under the lock, so two concurrent answers cannot both pass
-    // one floor and let the lower counter overwrite the higher.
-    $clone = with_lock($cfg, 'passkeys', function () use ($cfg, $id, $auth): bool {
-        $all = store_read($cfg, passkeys_file($cfg));
-        if (!isset($all[$id])) { return false; }
-        $stored = (int) ($all[$id]['signCount'] ?? 0);
-        if ($stored > 0 && $auth['signCount'] <= $stored) { return true; }
-        $all[$id]['signCount'] = $auth['signCount'];
-        $all[$id]['used']      = time();
-        store_write($cfg, passkeys_file($cfg), $all);
-        return false;
-    });
-    if ($clone) {
-        usage_log($cfg, 'passkey_clone', (string) $key['user']);
-        fail(401, 'passkey: refused, counter went backwards');
-    }
-
+    // Keep account existence, the current credential and token issuance in one account-lock interval.
+    // Deletion removes the account under that same lock before revoking tokens and removing credentials.
     $user = (string) $key['user'];
+    $token = with_lock($cfg, 'accounts', function () use ($cfg, $id, $auth, $key, $user): string {
+        if (!account_exists($cfg, $user)) { fail(401, 'account no longer exists'); }
+        return with_lock($cfg, 'passkeys', function () use ($cfg, $id, $auth, $key, $user): string {
+            $all = store_read($cfg, passkeys_file($cfg));
+            if (!isset($all[$id]) || ($all[$id]['user'] ?? '') !== $user || ($all[$id]['pem'] ?? '') !== $key['pem']) {
+                fail(401, 'passkey: no longer registered');
+            }
+            $stored = (int) ($all[$id]['signCount'] ?? 0);
+            // Synced credentials may stay at zero forever. An established nonzero counter must still increase.
+            if ($stored > 0 && $auth['signCount'] <= $stored) {
+                usage_log($cfg, 'passkey_clone', $user);
+                fail(401, 'passkey: refused, counter went backwards');
+            }
+            $all[$id]['signCount'] = $auth['signCount'];
+            $all[$id]['used'] = time();
+            store_write($cfg, passkeys_file($cfg), $all);
+            return token_issue($cfg, $user);
+        });
+    });
     usage_log($cfg, 'passkey_login', $user);
-    reply(200, ['ok' => true, 'token' => token_issue($cfg, $user), 'username' => $user]);
+    reply(200, ['ok' => true, 'token' => $token, 'username' => $user]);
 }
 
 function handle_passkey_list(array $cfg): never

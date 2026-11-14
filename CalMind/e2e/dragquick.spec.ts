@@ -156,6 +156,10 @@ test('the folder manager (drawn from dragDy): quick drags of 2.4 and 0.6 rows, f
     await page.mouse.up();
   };
 
+  // Reopen and start the drag on the first visible frame. The backdrop must never own this grip's press.
+  await page.getByText('Done', { exact: true }).click();
+  await page.getByTestId('pick-reminders').click();
+  await page.getByText('Manage folders…').click();
   await drag('Calendar', 2.4); // the manager's first drag
   await expect.poll(folders, { message: 'Calendar passed Fa and Fb, not Fc' }).toEqual(['Reminders', 'Fa', 'Fb', 'Calendar', 'Fc']);
   await drag('Reminders', 2.4); // the first row, straight after
@@ -168,4 +172,11 @@ test('the folder manager (drawn from dragDy): quick drags of 2.4 and 0.6 rows, f
   await drag('Calendar', -0.6);
   await page.waitForTimeout(700);
   expect(await folders(), 'Calendar (last) up 0.6').toEqual(['Fa', 'Fb', 'Fc', 'Reminders', 'Calendar']);
+  const gb = (await rows.first().getByTestId('grip').boundingBox())!;
+  await page.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(gb.x + gb.width / 2, 890, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByPlaceholder('New folder'), 'releasing a grip outside the card keeps the manager open').toBeVisible();
+
 });

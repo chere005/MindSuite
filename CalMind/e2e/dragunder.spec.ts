@@ -21,7 +21,7 @@
  * one row down produced a list equally consistent with "the right row moved"
  * and "the row below it moved" — an assertion that passes either way is no
  * assertion, the same trap as an offset measured from an element's own edge.
- * Six rows and a three-row drop separate the two: the right answer is
+ * Six rows and a drop between the two measured final rows separate the two: the right answer is
  * b,d,e,c,f and the wrong one is not.
  */
 import { test, expect, type Page } from '@playwright/test';
@@ -64,7 +64,7 @@ test('a ticked row leaving mid-drag does not redirect the drag', async ({ page }
 
   const rows = page.getByTestId('rem-row');
   await rows.first().getByTestId('tick').click();            // 'a' — above 'c'
-  const rowH = (await rows.nth(1).boundingBox())!.height;
+
 
   const grip = rows.filter({ hasText: 'c' }).first().getByTestId('row-grip');
   const gb = (await grip.boundingBox())!;
@@ -76,11 +76,19 @@ test('a ticked row leaving mid-drag does not redirect the drag', async ({ page }
   // The grace is two seconds from the tick; hold well past it so 'a' leaves
   // while this gesture is already measured and in flight.
   await page.waitForTimeout(2600);
-  for (let i = 1; i <= 6; i++) await page.mouse.move(x, y + (i * rowH * 3) / 6);
+  await expect.poll(order).toEqual(['b', 'c', 'd', 'e', 'f']);
+  await expect.poll(async () => {
+    const held = (await rows.filter({ hasText: 'c' }).first().getByTestId('row-grip').boundingBox())!;
+    return Math.abs(held.y + held.height / 2 - (y + 8));
+  }, { message: 'removing a row above cannot move a stationary grip away from the hand' }).toBeLessThan(4);
+  const e = (await rows.filter({ hasText: 'e' }).first().boundingBox())!;
+  const f = (await rows.filter({ hasText: 'f' }).first().boundingBox())!;
+  const targetY = (e.y + e.height / 2 + f.y + f.height / 2) / 2;
+  for (let i = 1; i <= 6; i++) await page.mouse.move(x, y + ((targetY - y) * i) / 6);
   await page.waitForTimeout(150);
   await page.mouse.up();
 
   await expect
-    .poll(order, { message: 'c moved three down; the vanished row did not redirect it', timeout: 10_000 })
+    .poll(order, { message: 'c landed between e and f; the vanished row did not redirect it', timeout: 10_000 })
     .toEqual(['b', 'd', 'e', 'c', 'f']);
 });

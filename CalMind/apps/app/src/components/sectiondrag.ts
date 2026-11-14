@@ -17,7 +17,7 @@ type Run = { slots: Boundary[]; measured: boolean; ready: Promise<void>; live: S
 
 /** The last boundary at or above `y`; landing on your own boundary is a no-op, not a hint. */
 function hitAt(slots: Boundary[], y: number, sectionId: string): Boundary | null {
-  let hit: Boundary | null = null;
+  let hit: Boundary | null = slots[0] ?? null;
   for (const s of slots) {
     if (s.y <= y) hit = s;
   }

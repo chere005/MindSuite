@@ -62,9 +62,15 @@ test('a row arriving above mid-drag does not shorten or lose the drop', async ({
   await expect.poll(order, { timeout: 15_000 }).toEqual(['x', 'a', 'b', 'c', 'd']);
   await other.close();
   await page.bringToFront();
+  await expect.poll(async () => {
+    const held = (await page.getByTestId('rem-row').filter({ hasText: 'b' }).first().getByTestId('row-grip').boundingBox())!;
+    return Math.abs(held.y + held.height / 2 - (y + 8));
+  }, { message: 'a synced insertion cannot move the held row, even without another pointer event' }).toBeLessThan(4);
 
-  for (let i = 1; i <= 6; i++) await page.mouse.move(x, y + (i * rowH * 2.5) / 6);
+  for (let i = 1; i <= 6; i++) await page.mouse.move(x, y + (i * rowH * 3.5) / 6);
   await page.waitForTimeout(150);
+  const drawn = (await page.getByTestId('rem-row').filter({ hasText: 'b' }).first().getByTestId('row-grip').boundingBox())!;
+  expect(Math.abs(drawn.y + drawn.height / 2 - (y + rowH * 3.5)), 'the grip stays under the pointer when a row arrives above').toBeLessThan(4);
   await page.mouse.up();
   await expect
     .poll(order, { message: 'b moved past two rows', timeout: 10_000 })

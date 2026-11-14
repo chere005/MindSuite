@@ -106,8 +106,9 @@ export function FolderManager({ app, onClose }: { app: 'reminders' | 'notes'; on
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={s.backdrop} onPress={onClose}>
-        <Pressable style={s.card} onPress={() => {}}>
+      <View style={s.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close folders" />
+        <View style={s.card}>
           <Scroll contentContainerStyle={s.scroll}>
             <Text style={s.h2}>Folders</Text>
             <View style={s.addRow}>
@@ -178,8 +179,8 @@ export function FolderManager({ app, onClose }: { app: 'reminders' | 'notes'; on
               <Pill label="Done" primary onPress={onClose} />
             </View>
           </Scroll>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

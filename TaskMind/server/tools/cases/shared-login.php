@@ -336,8 +336,6 @@ try {
     check($probe === 'accounts alex,guest,max,outsider,sam', 'the lookup lists what the shared store holds (a probe of the function, not an endpoint): ' . $probe);
     $storeFile = $accounts . '/protected/mindsuite-auth/auth.json';
     $kept = (string)file_get_contents($storeFile);
-    file_put_contents($storeFile, 'not a store');
-    file_put_contents($storeFile, $kept);
     $lz = sl_http($scratch, 'GET', '/TaskMind/direct.php?lazy=' . urlencode($storeFile), sl_cookie($alex))['body'];
     check($lz === 'closure', 'tm_accounts() reads nothing until asked (the store damaged after the gate: it still answers): ' . substr($lz, 0, 200));
     file_put_contents($storeFile, 'not a store');

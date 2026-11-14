@@ -70,6 +70,17 @@ test('a habit section drags below its neighbour, and stays there', async ({ page
   await page.reload();
   await page.getByTestId('tab-habits').click();
   expect(await order(), 'the stored ord is the display order').toEqual(['Habits', 'Morning', 'Evening']);
+  await longPress(page, page.getByTestId('hsec-name-Evening'));
+  const tail = (await page.getByTestId('hsec-grip-Evening').boundingBox())!;
+  const head = (await page.getByTestId('hsec-name-Habits').boundingBox())!;
+  await page.mouse.move(tail.x + tail.width / 2, tail.y + tail.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(tail.x + tail.width / 2, head.y - 5, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(order).toEqual(['Evening', 'Habits', 'Morning']);
+  await page.reload();
+  await page.getByTestId('tab-habits').click();
+  expect(await order()).toEqual(['Evening', 'Habits', 'Morning']);
 });
 
 test('a habit section swatch opens the TRAY, and a pick recolours it', async ({ page }) => {

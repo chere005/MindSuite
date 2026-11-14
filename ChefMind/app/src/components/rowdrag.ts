@@ -11,7 +11,7 @@
  * the old uniform-height model did.
  *
  * ONE RULE for the picture and the result (`place`): the row is drawn at its
- * home plus the pointer's whole travel since the grant, the line sits where
+ * original home plus the pointer's whole travel since the grant, the line sits where
  * that centre would land, and the release drops exactly there. No midpoint
  * is read off a node once a shift of this drag may be on it — the grant's
  * measure is answered before any shift is drawn, a dragDy screen's `dragIdx`
@@ -28,7 +28,7 @@
  * a ref — a responder rebuilt mid-gesture drops the gesture on the floor,
  * which showed up as text selection instead of a drag.
  */
-import { createElement, useRef, useState, useSyncExternalStore } from 'react';
+import { createElement, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { PanResponder, View as RNView, type PanResponderInstance, type View } from 'react-native';
 import { ordBetween, ordGap } from '@calmind/core';
 
@@ -122,6 +122,8 @@ type Session = {
   lastY: number | null;
   /** The dragged row's travel since the grant, as last computed. */
   travel: number;
+  /** The original untouched midpoint: the dragged picture stays at this point plus pointer travel when rows arrive above. */
+  anchor: number | null;
   /** The node a live drag last shifted, so a reset clears the right one. */
   node: View | undefined;
   /**
@@ -331,6 +333,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
         idx = keys && s.dragKey !== null ? keys.indexOf(s.dragKey) : s.at;
         home = keys ? carryEpoch(prev, keys, idx, edges, mids, suspect) : null;
       }
+      if (s.anchor === null) s.anchor = home;
       s.epoch = { mids, edges, keys, count: n, idx, home, suspect };
       s.pending = false;
       if (sess.current === s) draw(s, s.at);
@@ -343,7 +346,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     const s: Session = {
       from, dragKey: keys ? keys[from] ?? null : null, keyed: keys !== null, at: from,
       epoch: null, ready: Promise.resolve(), pending: false,
-      startY: y0 && y0 > 0 ? y0 : null, lastY: null, travel: 0, node: undefined,
+      startY: y0 && y0 > 0 ? y0 : null, lastY: null, travel: 0, anchor: null, node: undefined,
       shiftedNodes: new Set(),
       curKeys: keys, curVer: cfg.current.ver, over: false,
     };
@@ -376,7 +379,7 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
   const place = (s: Session): { shift: number; drop: { from: number; to: number } | null; slot: number | null } => {
     const e = s.epoch;
     if (!e) return { shift: 0, drop: null, slot: null };
-    const shift = s.travel;
+    const shift = s.travel + (s.keyed && s.anchor !== null && e.home !== null ? s.anchor - e.home : 0);
     // Without keys the responder follows its row by index: the grip is handed
     // to the responder of the NEW index, and `at` is the row's live one
     // (dragunder.spec), read against the grant's midpoints as before.
@@ -489,6 +492,13 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
   if (cur && cur.keyed && cur.dragKey !== null && dragIdx !== null && options?.keyOf?.(dragIdx) !== cur.dragKey) {
     for (let k = 0; k < count; k++) if (options?.keyOf?.(k) === cur.dragKey) { dragIdx = k; break; }
   }
+  // A pull can move the row while the hand is still. Re-measure after refs have committed, without waiting for another pointer event.
+  useLayoutEffect(() => {
+    const s = sess.current;
+    if (!s || !s.keyed || s.dragKey === null || s.over) return;
+    const idx = keysNow()?.indexOf(s.dragKey) ?? -1;
+    if (idx >= 0 && idx !== s.at) { follow(s, idx); draw(s, idx); }
+  });
   return { ...ui, dragIdx, registerRow, handleFor, liveSlot: slotStore.current.api };
 }
 
