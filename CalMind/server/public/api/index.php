@@ -72,6 +72,9 @@ match ((string) ($in['action'] ?? '')) {
     'recover'         => handle_recover($cfg, $in),
     'reset'           => handle_reset($cfg, $in),
     'whoami'          => handle_whoami($cfg),
+    // Both public: signin_info only reads the mode, and signin_redeem needs a one-time code from /account/app/ plus its PKCE verifier.
+    'signin_info'     => handle_signin_info($cfg),
+    'signin_redeem'   => handle_signin_redeem($cfg, $in),
     'shared_pull'     => handle_shared_pull($cfg, $in),
     'shared_put'      => handle_shared_put($cfg, $in),
     'sync'            => handle_sync($cfg, $in),

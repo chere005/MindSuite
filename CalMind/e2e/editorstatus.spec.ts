@@ -64,4 +64,12 @@ test('it goes red and says so when a note is refused', async ({ page }) => {
     page.getByTestId('editor-sync').getByText('Not saved'),
     'the editor says the note is not saved, in the editor',
   ).toBeVisible({ timeout: 25_000 });
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const status = (await page.getByTestId('editor-sync').boundingBox())!;
+    const section = (await page.getByRole('button', { name: /General/ }).first().boundingBox())!;
+    const overlaps = status.x < section.x + section.width && section.x < status.x + status.width
+      && status.y < section.y + section.height && section.y < status.y + status.height;
+    expect(overlaps, `the status and section chip have separate room at ${width}px`).toBe(false);
+  }
 });

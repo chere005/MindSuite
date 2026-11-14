@@ -177,6 +177,16 @@
       "copies": ["ChefMind/app/src/folds.ts"]
     },
     {
+      "id": "app-src-appsignin-ts",
+      "origin": "CalMind/apps/app/src/appsignin.ts",
+      "copies": ["ChefMind/app/src/appsignin.ts"]
+    },
+    {
+      "id": "app-src-appsignin-browser-ts",
+      "origin": "CalMind/apps/app/src/appsignin-browser.ts",
+      "copies": ["ChefMind/app/src/appsignin-browser.ts"]
+    },
+    {
       "id": "app-src-passkey-ts",
       "origin": "CalMind/apps/app/src/passkey.ts",
       "copies": ["ChefMind/app/src/passkey.ts"]
@@ -227,6 +237,11 @@
       "copies": ["ChefMind/app/src/useClock24.ts"]
     },
     {
+      "id": "app-test-appsignin-test-ts",
+      "origin": "CalMind/apps/app/test/appsignin.test.ts",
+      "copies": ["ChefMind/app/test/appsignin.test.ts"]
+    },
+    {
       "id": "app-test-rowslots-test-ts",
       "origin": "CalMind/apps/app/test/rowslots.test.ts",
       "copies": ["ChefMind/app/test/rowslots.test.ts"]
@@ -237,6 +252,11 @@
       "copies": ["ChefMind/app/test/sharedwrites.test.ts"]
     },
     {
+      "id": "app-test-synclook-test-ts",
+      "origin": "CalMind/apps/app/test/synclook.test.ts",
+      "copies": ["ChefMind/app/test/synclook.test.ts"]
+    },
+    {
       "id": "app-tsconfig-json",
       "origin": "CalMind/apps/app/tsconfig.json",
       "copies": ["ChefMind/app/tsconfig.json"]
@@ -245,6 +265,16 @@
       "id": "desktop-src-tauri-build-rs",
       "origin": "CalMind/desktop/src-tauri/build.rs",
       "copies": ["ChefMind/desktop/src-tauri/build.rs", "AcctMind/desktop/src-tauri/build.rs", "PlanMind/native/src-tauri/build.rs", "TaskMind/native/src-tauri/build.rs"]
+    },
+    {
+      "id": "desktop-src-tauri-capabilities-default-json",
+      "origin": "CalMind/desktop/src-tauri/capabilities/default.json",
+      "copies": ["ChefMind/desktop/src-tauri/capabilities/default.json"]
+    },
+    {
+      "id": "desktop-src-tauri-src-signin-rs",
+      "origin": "CalMind/desktop/src-tauri/src/signin.rs",
+      "copies": ["ChefMind/desktop/src-tauri/src/signin.rs"]
     },
     {
       "id": "desktop-src-tauri-src-main-rs",
@@ -325,6 +355,13 @@
       "repo": "seancheren-site",
       "path": "lib/atomic.php",
       "note": "Shared checked atomic writes and locks."
+    },
+    {
+      "id": "site-lib-mindsuite-app-signin-php",
+      "origin": "packages/mind-server/lib/mindsuite-app-signin.php",
+      "repo": "seancheren-site",
+      "path": "lib/mindsuite-app-signin.php",
+      "note": "App sign-in codes (native and desktop)."
     },
     {
       "id": "site-lib-mindsuite-auth-php",

@@ -33,6 +33,8 @@
 .wm-todo,.wm-free{position:relative;display:flex;align-items:center;gap:10px;min-height:36px;padding:0 4px;border-bottom:1px solid var(--line)}
 .wm-free{cursor:text}
 .wm-ghost{flex:none;width:18px;height:18px;margin:0 2px;border:1.5px solid var(--line);border-radius:50%;opacity:.8}
+/* The add line the keyboard was carried to after Enter is for the people of the to-do just entered: its circle wears their color. */
+.wm-free-add[data-c] .wm-ghost{border-color:var(--tone-line);opacity:1}
 .wm-add{flex:1;min-width:0;align-self:stretch;display:flex;align-items:center;gap:8px;margin:0}
 .wm-add .wm-add-title{flex:1;min-width:0;min-height:0;height:100%;padding:0;border:0;border-radius:0;background:transparent;font-size:14px;outline:none}
 .wm-add .wm-add-title::placeholder{color:var(--dim);opacity:1}

@@ -12,6 +12,7 @@ import * as month from '../panels/MonthPanel';
 import * as week from '../panels/WeekPanel';
 import * as listPicker from '../picker/ListPicker';
 import { orphanDrafts, unsavedDrafts } from '../panels/week/noteDraft';
+import { mayRedraw } from './redraw';
 import { createDrawer, mountSidebar, sidebarHtml } from './Sidebar';
 import { mountTopBar, topBarHtml } from './TopBar';
 
@@ -35,10 +36,15 @@ export function renderUnavailable(root: HTMLElement) {
   root.innerHTML = '<main class="login"><h1>Unable to open your day</h1><p class="dim">Your saved list is preserved. Reconnect and try again.</p><a class="primary" href="./">Try again</a></main>';
 }
 
+/** How far (px) a finger may move between going down and lifting and still be a tap, whose click follows. */
+const TAP_SLOP = 10;
+
 /** Builds the page and keeps it in step with the state. `tab` is the phone tab a page that reloaded itself puts the person back on. Returns what takes it down again. */
 export function mountShell(root: HTMLElement, state: AppState, tab?: string | null): () => void {
-  let unmount: Unmount | undefined, pending = false, panelAsked = false, pointerDown = false, touching = false;
-  const ctx = makeContext(state, () => { pending = true; panelAsked = true; later(); }, message => {
+  let unmount: Unmount | undefined, pending = false, pointerDown = false, touching = false, keyDown = false, awaitClick = false;
+  const heldKeys = new Set<string>();
+  let clickTimer: ReturnType<typeof setTimeout> | undefined;
+  const ctx = makeContext(state, () => { pending = true; later(); }, message => {
     // Emptied first, so the same words said twice are read twice.
     const live = root.querySelector<HTMLElement>('#live')!;
     live.textContent = '';
@@ -86,9 +92,12 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   /** Whether the page shown is the phone's Chores view: the flag is on and the window is a phone (on the Week and the Month only when the phone's own tab turned it on, never the Day's switch). Widening the window with it on lands on the planner, the Day with its switch on. */
   const choresPage = () => ctx.choresPage;
   // The panel is rendered from scratch whenever the data changes, but not while that would cost the person something:
-  // a write is in flight, a text field has focus or a pointer is down. It waits, then renders.
-  // A redraw the panel itself asked for (a tab, an edit opened) does not wait for the writes the screen already answers (they are laid over the snapshot), only for one it cannot show.
-  const quiet = () => !(panelAsked ? state.busy || state.settling : state.queued) && !pointerDown && !host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null);
+  // a write the screen cannot answer is in flight, a text field has focus or a pointer is down. It waits, then renders.
+  // The writes the screen already answers (a tick, a chore mark, an entry moved: laid over the snapshot, core optimistic.ts) do not hold a redraw back, so a checked row is drawn crossed out in its new place at once (redraw.ts).
+  const quiet = () => mayRedraw({
+    busy: state.busy, settling: state.settling, pointerDown: pointerDown || touching || awaitClick, keyDown,
+    textFocused: host.contains(document.activeElement?.matches(TEXT_FIELD) ? document.activeElement : null),
+  });
   const syncBusy = () => host.querySelectorAll<HTMLButtonElement | HTMLInputElement>('[data-writes]').forEach(control => { control.disabled = state.busy; });
   /**
    * Remembers which control of the panel has the focus and returns what puts the focus on its twin in the new markup, so a
@@ -147,7 +156,7 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   }
   function render(force: boolean) {
     if (!force && !quiet()) { pending = true; return; }
-    pending = false; panelAsked = false;
+    pending = false;
     const restoreFocus = rememberFocus(), restoreScroll = rememberScroll();
     unmount?.();
     // Chores replaces the page of the open period on a phone, and the planner's panels know nothing of it.
@@ -230,20 +239,35 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   host.addEventListener('focusout', later, on);
   // The page (the Chores view or the planner's) is chosen by the window's width, so crossing the phone breakpoint draws it again.
   window.matchMedia('(max-width: 760px)').addEventListener('change', () => { drawHeader(); topBar.draw(); ctx.rerender(); }, on);
-  document.addEventListener('pointerdown', () => { pointerDown = true; }, { capture: true, signal: abort.signal });
-  for (const type of ['pointerup', 'pointercancel']) { document.addEventListener(type, () => { pointerDown = false; later(); }, { capture: true, signal: abort.signal }); }
+  let downAt = { x: 0, y: 0 };
+  document.addEventListener('pointerdown', event => { pointerDown = true; downAt = { x: event.clientX, y: event.clientY }; }, { capture: true, signal: abort.signal });
+  // A touch's click comes after its pointerup and touchend, in a later task: a redraw before it would put another row under the finger. So a finger lifted where it went down (a tap) holds the redraw until the click has been delivered (or, for a press that makes none, a moment has passed); a finger lifted elsewhere (a drag) makes no click and draws at once.
+  const clickDone = () => { awaitClick = false; clearTimeout(clickTimer); later(); };
+  const heldForClick = () => { awaitClick = true; clearTimeout(clickTimer); clickTimer = setTimeout(clickDone, 400); };
+  for (const type of ['pointerup', 'pointercancel']) {
+    document.addEventListener(type, event => {
+      pointerDown = false;
+      const up = event as PointerEvent;
+      if (type === 'pointerup' && (up.pointerType === 'touch' || up.pointerType === 'pen') && Math.hypot(up.clientX - downAt.x, up.clientY - downAt.y) <= TAP_SLOP) { heldForClick(); } else { later(); }
+    }, { capture: true, signal: abort.signal });
+  }
+  document.addEventListener('click', () => { if (awaitClick) { clickDone(); } }, { capture: true, signal: abort.signal });
   // A finger on the screen is a pointer that is down even once the browser has taken its gesture for a scroll (it then cancels the pointer and the touch goes on).
-  const touch = (event: TouchEvent) => { touching = event.touches.length > 0; if (!touching) { later(); } };
+  const touch = (event: TouchEvent) => { touching = event.touches.length > 0; if (!touching && !awaitClick) { later(); } };
   for (const type of ['touchstart', 'touchend', 'touchcancel']) { document.addEventListener(type, touch as EventListener, { capture: true, passive: true, signal: abort.signal }); }
+  // A key held on a control of the panel (Space on a circle acts on its release) keeps the control the same element until it is let go.
+  const holdsKey = (event: KeyboardEvent) => (event.key === ' ' || event.key === 'Enter') && event.target instanceof Node && host.contains(event.target);
+  document.addEventListener('keydown', event => { if (holdsKey(event)) { heldKeys.add(event.key); keyDown = true; } }, { capture: true, signal: abort.signal });
+  document.addEventListener('keyup', event => { if (heldKeys.delete(event.key)) { keyDown = heldKeys.size > 0; later(); } }, { capture: true, signal: abort.signal });
   // A dialog (the list manager, the rhythm) closing is a quiet moment too.
   document.addEventListener('close', later, { capture: true, signal: abort.signal });
-  window.addEventListener('blur', () => { pointerDown = false; touching = false; }, on);
+  window.addEventListener('blur', () => { pointerDown = false; touching = false; heldKeys.clear(); keyDown = false; awaitClick = false; }, on);
   // Leaving warns only for a draft that still holds something to lose: its list exists and its text differs from the saved note.
   window.addEventListener('beforeunload', event => { if (unsavedDrafts(state.drafts, state.session.notes, listIds()).length) { event.preventDefault(); event.returnValue = ''; } }, on);
   window.addEventListener('pageshow', event => { if (event.persisted) { location.reload(); } }, on);
 
   function dispose() {
-    abort.abort();
+    abort.abort(); clearTimeout(clickTimer);
     unsubscribe();
     unmount?.(); unmount = undefined;
     topBar.dispose(); sidebar.dispose();
@@ -253,9 +277,11 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
     else if (change === 'nav' || change === 'chores') { drawHeader(); topBar.draw(); seatBanner(); sidebar.draw(); render(true); }
     else if (change === 'data' || change === 'selection') {
       for (const key of orphanDrafts(state.drafts.keys(), listIds())) { state.drafts.delete(key); }
-      drawHeader(); topBar.draw(); sidebar.draw(); render(false);
+      drawHeader(); topBar.draw(); sidebar.draw();
+      // With writes in flight the redraw is a macrotask later, so the code that made the write (the tap's own handler) has run first; it shows the display, the snapshot with those writes laid over it.
+      if (state.queued) { pending = true; later(); } else { render(false); }
     }
-    else if (change === 'busy') { syncBusy(); if (!state.queued || (panelAsked && !state.busy)) { later(); } }
+    else if (change === 'busy') { syncBusy(); later(); }
     else if (change === 'sidebar') { drawSidebar(); }
     else if (change === 'theme') { setTheme(state.theme); }
     else { drawStatus(); reloadForRelease(); }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CalMind",
-  "version": "1.67.0",
+  "version": "1.68.0",
   "identifier": "com.seancheren.calmind.desktop",
   "build": {
     "frontendDist": "../dist-desktop",
@@ -9,6 +9,7 @@
     "beforeDevCommand": "sh stage-dist.sh"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "CalMind",

@@ -853,7 +853,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
             second line, which is not the top right of anything. Measured at
             390pt, where it sat 44pt below the back button. */}
         <View style={s.edStatus} pointerEvents="none">
-          <SyncDot testID="editor-sync" withText />
+          <SyncDot testID="editor-sync" withText showPartner={false} />
         </View>
         <Scroll contentContainerStyle={s.editor}>
           <View style={s.titleRow}>
@@ -2029,7 +2029,7 @@ const s = themed(() => StyleSheet.create({
   rowTitle: { color: T.text, fontSize: 16, flex: 1 },
   chev: { color: T.muted, fontSize: 16, marginLeft: 'auto' },
   editor: { padding: 16, gap: 10 },
-  edHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginHorizontal: 16, marginBottom: 8, flexWrap: 'wrap' },
+  edHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginHorizontal: 16, marginBottom: 8, paddingRight: 80, flexWrap: 'wrap' },
   // marginLeft auto pushes it to the right edge of the row, and it keeps its
   // corner when the row wraps on a narrow screen rather than following the
   // dropdowns down.

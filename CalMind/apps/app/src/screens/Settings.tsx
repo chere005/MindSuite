@@ -6,9 +6,11 @@
  * of the password form and Delete account.
  */
 import { useEffect, useState } from 'react';
-import { Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { exportFilename, exportStore, exportText, prefsOf, prefsPut, splitNote, type AnyRec, type Rec } from '@calmind/core';
 import { changePassword, deleteAccount, logout, manageAccountUrl, sharedAccount } from '../api';
+import { signInFacts } from '../appsignin';
+import { inDesktopShell, openInBrowser, returnBrowser } from '../appsignin-browser';
 import { saveTextFile } from '../savefile';
 import { addPasskey, listPasskeys, passkeyAvailable, removePasskey, type PasskeyRow } from '../passkey';
 import { useStore } from '../store';
@@ -20,7 +22,7 @@ import { ShareModal } from '../components/ShareModal';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const store = useStore();
-  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy } = store;
+  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble } = store;
   const refusedNotes = (store as typeof store & { refusedNotes?: { id: string; label: string }[] }).refusedNotes ?? [];
   // ChefMind's space, where this app holds it (CalMind syncs it under the same
   // login; ChefMind's own records ARE that space, so it passes none).
@@ -37,7 +39,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   // flag rides along in the watch feed.
   const clock24 = prefsOf(recs, 'suite').clock24 === true;
   const setClock24 = (on: boolean) => mutate((e) => e.put(prefsPut(recs, 'suite', { clock24: on })));
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
   // The first refused note, as several that fit (#75) — null when it cannot
   // be split (a recipe, a daily log) or no longer needs it.
   const refusedRec = refusedNotes[0]
@@ -67,14 +69,22 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [deleting, setDeleting] = useState(false);
   // A cookie session is the suite's; a bearer one learns it from the server's 403 `shared: true` below.
   const [sharedSeen, setSharedSeen] = useState(false);
-  const shared = sharedSeen || sharedAccount(session?.token);
+  // A session made through the account page (app sign-in) is the suite's too.
+  const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
+  // An install upgraded from the old form still holds a scoped token with no mark: ask the server once (native and desktop only).
+  useEffect(() => {
+    if (shared || !session || returnBrowser() === null) return;
+    let live = true;
+    void signInFacts(session.serverUrl).then((f) => { if (live && f.kind === 'answer' && f.shared) setSharedSeen(true); });
+    return () => { live = false; };
+  }, [session?.serverUrl, shared]);
 
   // The suite's account page: same tab on the web (it comes back here by `next`), the system browser elsewhere.
   const openAccount = () => {
     const to = session ? manageAccountUrl(session.serverUrl) : null;
     if (!to) { setErr('could not find the account page'); return; }
     if (to.web && typeof location !== 'undefined') { location.assign(to.url); return; }
-    void Linking.openURL(to.url).catch((e: unknown) => setErr(e instanceof Error ? e.message : 'could not open the account page'));
+    void openInBrowser(to.url).catch((e: unknown) => setErr(e instanceof Error ? e.message : 'could not open the account page'));
   };
 
   const change = async () => {
@@ -156,6 +166,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <View style={[s.statusDot, { backgroundColor: look.color }]} />
             <Text style={s.statusText}>{look.text}</Text>
           </View>
+          {sharedTrouble === true && <Pill testID="dismiss-shared-trouble" label="Dismiss" onPress={dismissSharedTrouble} />}
           {refusedNotes[0] && (
             <Pressable
               testID="open-refused-note"
@@ -206,7 +217,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <Pill label="Change password" onPress={change} />
             </>
           )}
-          {canPasskey && (
+          {canPasskey && !shared && !inDesktopShell() && (
             <View testID="passkey-section" style={s.pkSection}>
               <Text style={s.pkHead}>Passkeys</Text>
               {!keysKnown && (

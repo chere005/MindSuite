@@ -6,11 +6,18 @@
  * With the suite's shared sign-in on (docs/api.md, "Shared sign-in") the WEB
  * build sends no token at all: the person signs in at /account/ and this file
  * carries the suite cookie, with its CSRF secret on every write. Native and the
- * desktop shell keep the bearer login. See "Shared sign-in" below.
+ * desktop shell sign in through the suite's page /account/app/ (appsignin.ts) when the
+ * API says it takes that, and keep the bearer login otherwise. See "Shared sign-in" below.
  */
 import type { SyncRequest, SyncResponse, Transport } from '@calmind/core';
 
-export type Session = { token: string; username: string; serverUrl: string };
+export type Session = {
+  token: string;
+  username: string;
+  serverUrl: string;
+  /** Signed in through the suite's account page (app sign-in); the token is the same calmind-scoped bearer. */
+  suite?: boolean;
+};
 
 /**
  * How long a request may hang before it is treated as a failure.
@@ -28,7 +35,7 @@ export type Session = { token: string; username: string; serverUrl: string };
  */
 const REQUEST_TIMEOUT_MS = 60_000;
 
-type Reply = { ok?: boolean; error?: string; shared?: boolean } & Record<string, unknown>;
+export type Reply = { ok?: boolean; error?: string; shared?: boolean } & Record<string, unknown>;
 
 /** One POST: the status and the parsed body (null when it is not JSON). Throws only when the request itself fails. */
 async function rawPost(
@@ -55,6 +62,15 @@ async function rawPost(
   }
   const data = (await res.json().catch(() => null)) as Reply | null;
   return { status: res.status, data };
+}
+
+/** One POST with no session and a short timeout, the status and body left to the caller (the sign-in mode probe, the code redeem). */
+export function apiProbe(
+  serverUrl: string,
+  body: Record<string, unknown>,
+  timeoutMs = 8_000,
+): Promise<{ status: number; data: Reply | null }> {
+  return rawPost(serverUrl, body, {}, timeoutMs);
 }
 
 function answer<T>(r: { status: number; data: Reply | null }): T {
@@ -128,7 +144,10 @@ export const logout = (s: Session) => {
 //    from whoami and held in MEMORY only.
 //  - Only a page served from the API's own origin can do any of this. Native has
 //    no `location`, the desktop shell's origin is not the API's, and metro's is
-//    not either: they all keep the bearer login.
+//    not either: they keep a bearer token. Native and the desktop shell get it by
+//    signing in at the suite's /account/app/ in the system browser (appsignin.ts,
+//    when the API's signin_info says it takes that) and fall back to the form,
+//    which still works against a server that is not on shared sign-in.
 
 const COOKIE_PREFIX = 'cookie:';
 

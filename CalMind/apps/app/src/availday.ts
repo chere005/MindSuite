@@ -11,6 +11,10 @@
  * Here the reply is stored WITH its date and read back only for that date, a
  * new selection clears the hours at once, and a reply for a date that is no
  * longer selected is ignored.
+ *
+ * A read that failed leaves the hours empty with a note; retry() asks again for
+ * the same date (the hours stay empty meanwhile), and each read is numbered so
+ * an answer to an earlier read of the same date is void too.
  */
 
 export type AvSlot = { time: string; busy: boolean };
@@ -35,6 +39,7 @@ export function slotsFor(day: AvDay, date: string): AvSlot[] | null {
 export class DayReader {
   private wanted: string | null = null;
   private stop = false;
+  private seq = 0;
 
   constructor(
     private readonly fetchDay: (date: string) => Promise<AvDayReply>,
@@ -45,15 +50,26 @@ export class DayReader {
   /** Select a date: its hours are cleared now and read; older replies are void. */
   select(date: string): void {
     this.wanted = date;
+    this.read(date);
+  }
+
+  /** Read the selected date again (after a failure): the hours are empty meanwhile. */
+  retry(): void {
+    if (this.stop || this.wanted === null) return;
+    this.read(this.wanted);
+  }
+
+  private read(date: string): void {
+    const mine = ++this.seq;
     this.onDay({ date, slots: null, failed: false });
     this.fetchDay(date).then(
       (r) => {
-        if (this.stop || this.wanted !== date) return;
+        if (this.stop || this.wanted !== date || this.seq !== mine) return;
         this.onOwner(r.owner);
         this.onDay({ date, slots: Array.isArray(r.slots) ? r.slots : [], failed: false });
       },
       () => {
-        if (this.stop || this.wanted !== date) return;
+        if (this.stop || this.wanted !== date || this.seq !== mine) return;
         this.onDay({ date, slots: null, failed: true });
       },
     );

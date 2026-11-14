@@ -19,11 +19,24 @@
  *    only that pull is guaranteed to contain it. A pull sent earlier can land
  *    late and is simply laid under the write; a pull older than one already
  *    applied is dropped.
- *  - A write the server refuses (or that never arrives) takes back exactly its
- *    own change. Writes made after it on the SAME record were computed from
- *    the picture it created, so they are taken back with it and never sent;
- *    writes on other records are untouched. The person is told through the
- *    sync dot's existing 'offline' state (onTrouble).
+ *  - A write the server refuses (HTTP 4xx) is taken back, and so
+ *    is every write still QUEUED for that partner: a later write may be built
+ *    on the failed one (a reminder added into a section that was never
+ *    created), and the usual causes (sharing ended = 403, dead token = 401,
+ *    network down) make every later write into that list fail too; the few
+ *    record-specific refusals (outside what they share, structure is theirs,
+ *    too large) also lose the queued writes behind them, which the notice
+ *    tells. Sending them would only land fragments. Writes already
+ *    acknowledged stay, and writes made after the take-back go out normally.
+ *    The person is told once (onTrouble) that the change to the partner's
+ *    list was not saved; the telling stands until dismissed, a later write is
+ *    acknowledged or reset() (onRecovered). A pull, even one showing another
+ *    partner, never clears it. It is not the own-list offline state, and no
+ *    timer clears it.
+ *  - A lost reply or HTTP 5xx is unconfirmed, never a refusal. Keep its overlay and pause the queue, then re-pull.
+ *    Only a pull sent after the loss can settle it: a record at its stamp or a newer one (or an absent deleted row)
+ *    confirms it and releases the queue; an older or absent record takes the write and its dependent queue back.
+ *    If the pull fails or sharing ends, the outcome stays unconfirmed. No write is automatically retried.
  *
  * Nothing here is stored: a write that has not reached the server when the app
  * closes is gone, exactly as it was when the POST was awaited. No outbox.
@@ -33,10 +46,12 @@
  */
 
 export type SharedRec = { id: string; deleted?: boolean; updated?: number };
+export type SharedTrouble = boolean | 'unconfirmed';
 
 export type PullReply<R extends SharedRec, P> = { partners: P[]; partner: string | null; records: R[] };
 
 export type SharedApi<R extends SharedRec, P> = {
+  /** HTTP refusals reject with a numeric 4xx `status`; every other rejection leaves the outcome unknown. */
   put(partner: string, record: R): Promise<void>;
   pull(): Promise<PullReply<R, P>>;
 };
@@ -46,11 +61,15 @@ export type SharedHooks<R extends SharedRec, P> = {
   onView(records: R[]): void;
   /** The partner list of an applied pull. */
   onPulled(meta: { partners: P[]; partner: string | null }): void;
-  /** A write was refused or failed and has been taken back. */
+  /** A write was refused, or a fresh pull showed that the unconfirmed write is absent, and it was taken back. */
   onTrouble(): void;
+  /** The trouble is over: a write was acknowledged, or reset. */
+  onRecovered(): void;
+  /** The reply was lost; a later authoritative pull must determine whether the write landed. */
+  onUnconfirmed?(): void;
 };
 
-type State = 'queued' | 'sent' | 'acked';
+type State = 'queued' | 'sent' | 'acked' | 'uncertain';
 
 type Write<R extends SharedRec> = {
   partner: string;
@@ -71,6 +90,9 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
   private lastStamp = 0;
   private pumping = false;
   private reconcileDue = false;
+  /** A take-back has been reported and nothing has cleared it yet. */
+  private troubled = false;
+  private unconfirmed = false;
   /** Bumped by reset(): replies to requests from before it belong to nobody. */
   private epoch = 0;
 
@@ -92,6 +114,18 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     return Array.from(byId.values());
   }
 
+  /** A take-back has been reported and not yet cleared. */
+  inTrouble(): boolean {
+    return this.troubled;
+  }
+
+  /** A person has read and dismissed a known refusal; this never hides a write whose outcome is still unknown. */
+  dismissTrouble(): void {
+    if (!this.troubled) return;
+    this.troubled = false;
+    if (!this.unconfirmed) this.hooks.onRecovered();
+  }
+
   /** Writes made and not yet acknowledged by the server. */
   unsettled(): number {
     return this.writes.filter((w) => w.state !== 'acked').length;
@@ -99,7 +133,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
 
   /**
    * Make a write: it is drawn before this returns. The promise settles when the
-   * server has answered (or the write was taken back); callers fire and forget.
+   * server has answered, a lost reply has been reconciled, or the write was taken back; callers fire and forget.
    */
   put(partner: string, rec: R): Promise<void> {
     // Strictly increasing, so two taps in one millisecond still go out as an
@@ -133,12 +167,34 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
       // The partner changed: writes into the old one are not this list's.
       this.dropWhere((w) => w.partner !== r.partner);
       this.partner = r.partner;
+      // The trouble is NOT cleared here. A partner going to null is how
+      // sharing ending looks to the re-read the failed write itself caused
+      // (a 403), and with several mutual partners the server then shows the
+      // NEXT one: both are the change being lost, not the trouble being over,
+      // and a silent switch to another list must not hide it. Only an
+      // acknowledged write or reset() clears it.
     }
     this.base = r.records;
+    const uncertain = this.writes.find(w => w.state === 'uncertain' && w.partner === r.partner && w.ackedAt < sent);
+    if (uncertain) {
+      const current = r.records.find(record => record.id === uncertain.rec.id);
+      const confirmed = (uncertain.rec.deleted && !current)
+        || (current !== undefined && (current.updated ?? 0) >= (uncertain.rec.updated ?? Infinity));
+      if (confirmed) {
+        this.dropWhere(w => w === uncertain);
+        this.recover();
+      } else {
+        this.takeBack(uncertain);
+        this.unconfirmed = false;
+        this.troubled = true;
+        this.hooks.onTrouble();
+      }
+    }
     // A pull sent after an acknowledgement contains that write: it can go.
     this.dropWhere((w) => w.state === 'acked' && w.ackedAt < sent);
     this.hooks.onPulled({ partners: r.partners, partner: r.partner });
     this.emit();
+    void this.pump();
     return true;
   }
 
@@ -148,6 +204,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     this.base = [];
     this.partner = null;
     this.reconcileDue = false;
+    this.recover();
     const gone = this.writes;
     this.writes = [];
     for (const w of gone) w.settle();
@@ -169,7 +226,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
 
   /** Send the queue, one write at a time, oldest first. */
   private async pump(): Promise<void> {
-    if (this.pumping) return;
+    if (this.pumping || this.writes.some(w => w.state === 'uncertain')) return;
     this.pumping = true;
     try {
       for (;;) {
@@ -178,10 +235,12 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
         const epoch = this.epoch;
         w.state = 'sent';
         let wrote = true;
+        let failure: unknown;
         try {
           await this.api.put(w.partner, w.rec);
-        } catch {
+        } catch (error) {
           wrote = false;
+          failure = error;
         }
         if (epoch !== this.epoch) continue; // reset() already settled it
         if (wrote) {
@@ -191,9 +250,20 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
           this.dropWhere((x) => x !== w && x.state === 'acked' && x.rec.id === w.rec.id && x.partner === w.partner);
           w.settle();
           this.reconcileDue = true;
+          this.recover();
         } else {
+          const status = (failure as { status?: unknown } | null)?.status;
+          if (!(typeof status === 'number' && status >= 400 && status < 500)) {
+            w.state = 'uncertain';
+            w.ackedAt = ++this.clock;
+            this.unconfirmed = true;
+            this.hooks.onUnconfirmed?.();
+            this.reconcileDue = true;
+            break;
+          }
           this.takeBack(w);
           this.reconcileDue = true;
+          this.troubled = true;
           this.hooks.onTrouble();
         }
       }
@@ -208,10 +278,16 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     }
   }
 
-  /** The write failed: its change, and everything built on it, goes. */
+  private recover(): void {
+    if (!this.troubled && !this.unconfirmed) return;
+    this.troubled = false;
+    this.unconfirmed = false;
+    this.hooks.onRecovered();
+  }
+
+  /** The write failed: its change, and every write still queued for that partner, goes. */
   private takeBack(failed: Write<R>): void {
-    this.dropWhere((w) =>
-      w === failed || (w.state === 'queued' && w.partner === failed.partner && w.rec.id === failed.rec.id));
+    this.dropWhere((w) => w === failed || (w.state === 'queued' && w.partner === failed.partner));
     this.emit();
   }
 }

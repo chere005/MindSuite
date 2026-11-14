@@ -30,6 +30,7 @@
     "./sync": "./src/sync.ts",
     "./watch": "./src/watch.ts",
     "./normalize": "./src/normalize.ts",
+    "./pkce": "./src/pkce.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
