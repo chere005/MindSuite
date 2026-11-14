@@ -1003,6 +1003,7 @@ the listener, the Sign in card, no error) and the app's own Cancel pill; held, w
 shown; and the screens by eye (the confirm page in midnight and sage at 420 and 1280 wide, the invalid-link page, the app's
 Sign in, waiting and offline cards). The desktop Rust listener is `sh desktop/test-signin.sh`. Not provable here: a real
 Tauri IPC call and an https-to-loopback hand-back inside a running shell (no app is launched).
+Native acceptance: a Release iOS simulator build was tested against a disposable HTTPS account page and API, with a trust root confined to that simulator. XCTest drove the real system authentication session, password sign-in, account confirmation and return to the signed-in app; all assertions passed and the captured screens were inspected. The fixture, trust root and simulator were removed afterward.
 Not covered in a browser: ChefMind (its dev-host rule aims a page on 127.0.0.1 at port 8788, so its web build cannot be pointed at
 this server without a second export built for it); its `api.ts` and `Login.tsx` are covered by the unit file and the same
 `Login.tsx` bytes.
