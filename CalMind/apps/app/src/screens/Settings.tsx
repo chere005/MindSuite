@@ -20,7 +20,7 @@ import { ShareModal } from '../components/ShareModal';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const store = useStore();
-  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = store;
+  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble } = store;
   const refusedNotes = (store as typeof store & { refusedNotes?: { id: string; label: string }[] }).refusedNotes ?? [];
   // ChefMind's space, where this app holds it (CalMind syncs it under the same
   // login; ChefMind's own records ARE that space, so it passes none).
@@ -156,6 +156,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <View style={[s.statusDot, { backgroundColor: look.color }]} />
             <Text style={s.statusText}>{look.text}</Text>
           </View>
+          {sharedTrouble === true && <Pill testID="dismiss-shared-trouble" label="Dismiss" onPress={dismissSharedTrouble} />}
           {refusedNotes[0] && (
             <Pressable
               testID="open-refused-note"

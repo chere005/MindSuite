@@ -293,7 +293,7 @@ function NoteBody({ body, recipe, onLine }: { body: string; recipe: boolean; onL
 
 export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | null; onOpenConsumed?: () => void }) {
   const store = useStore();
-  const { recs, mutate, sharedRecs, sharedPartnerLabel, syncState, persistFailed, sharedTrouble, chefRecs } = store;
+  const { recs, mutate, sharedRecs, sharedPartnerLabel, syncState, persistFailed, chefRecs } = store;
   // Notes the server refused as too long (#84 names them, #75 offers the way
   // out). Optional: an edition with no server has no refusals to report.
   const refusedNoteIds = new Set(
@@ -1087,7 +1087,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
             second line, which is not the top right of anything. Measured at
             390pt, where it sat 44pt below the back button. */}
         <View style={s.edStatus} pointerEvents="none">
-          <SyncDot testID="editor-sync" withText />
+          <SyncDot testID="editor-sync" withText showPartner={false} />
         </View>
         {/* The keyboard, which this screen used to ignore (the owner, 2026-10-27:
             "scrolling and making the keyboard go away is super awkward"):
@@ -1413,9 +1413,9 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
           <View style={s.footRow}>
             <Text
               testID="editor-saved"
-              style={[s.saved, (persistFailed || syncState === 'refused' || sharedTrouble) && s.savedBad]}
+              style={[s.saved, (persistFailed || syncState === 'refused') && s.savedBad]}
             >
-              {syncWord(syncState, persistFailed, sharedTrouble)}
+              {syncWord(syncState, persistFailed)}
             </Text>
             {/* Notes has no account dropdown to hang "Copy as Markdown" off —
                 the editor is its own screen — so it gets the control directly.
@@ -2240,7 +2240,7 @@ const s = themed(() => StyleSheet.create({
   // final card's last line reachable when safe-area and keyboard insets land
   // on different frames.
   editorKbClearance: { paddingBottom: 72 },
-  edHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginHorizontal: 16, marginBottom: 8, flexWrap: 'wrap' },
+  edHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginHorizontal: 16, marginBottom: 8, paddingRight: 80, flexWrap: 'wrap' },
   // marginLeft auto pushes it to the right edge of the row, and it keeps its
   // corner when the row wraps on a narrow screen rather than following the
   // dropdowns down.

@@ -13,7 +13,7 @@ import { SyncEngine, lastDeleted, normalize, prefsOf, folderApp, recLabel, share
 import { apiPost, SYNC_SPACE, type Session, syncTransport, ApiError } from './api';
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
-import { SharedWrites } from './sharedwrites';
+import { SharedWrites, type SharedTrouble } from './sharedwrites';
 
 /**
  * Storage is per-INSTANCE, because on the web it is per-ORIGIN and prod, test
@@ -101,8 +101,9 @@ type Store = {
   refusedLabels: string[];
   /** Why: too long (the user's to fix) or malformed (the app's bug). */
   refusedWhy: 'too_large' | 'invalid';
-  /** A write into the partner's list was refused or failed and taken back; see sharedwrites.ts. */
-  sharedTrouble: boolean;
+  /** A known refusal, or a lost reply awaiting reconciliation; see sharedwrites.ts. */
+  sharedTrouble: SharedTrouble;
+  dismissSharedTrouble: () => void;
   signIn: (s: Session) => Promise<void>;
   signOut: () => Promise<void>;
   clearDeletedAccount: () => Promise<void>;
@@ -137,7 +138,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /** The names of records the server refused, for a message that can point. */
   const [refusedLabels, setRefusedLabels] = useState<string[]>([]);
   const [refusedWhy, setRefusedWhy] = useState<'too_large' | 'invalid'>('too_large');
-  const [sharedTrouble, setSharedTrouble] = useState(false);
+  const [sharedTrouble, setSharedTrouble] = useState<SharedTrouble>(false);
   const [partners, setPartners] = useState<PartnerBadge[]>([]);
   const [sharedPartner, setSharedPartner] = useState<string | null>(null);
   const [sharedRaw, setSharedRaw] = useState<AnyRec[]>([]);
@@ -204,13 +205,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setPartners(p);
           setSharedPartner(partner);
         },
-        // A refused or failed write has been taken back. NOT 'offline': that
-        // promises a retry (partner writes get none) and the next own sync
-        // would wipe it, along with a standing 'refused'. A flag of its own,
-        // cleared by the next acknowledged write, the partner changing or
-        // sign-out (see sharedwrites.ts).
+        // Partner writes are not retried. Known refusals can be dismissed; lost replies await a later pull.
         onTrouble: () => setSharedTrouble(true),
         onRecovered: () => setSharedTrouble(false),
+        onUnconfirmed: () => setSharedTrouble('unconfirmed'),
       },
     );
   }
@@ -317,7 +315,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Every caller fires this and forgets it (`void sharedPut(...)`). The write
   // is drawn at once and sent in order; a refusal (sharing ending a moment
   // earlier is a 403, a dead token a 401) takes back that change and every write
-  // still queued for the partner and says it was not saved, and the re-read that follows drops rows that are no longer
+  // still queued for the partner and says it was not saved. A lost reply pauses and re-pulls before deciding; the re-read drops rows that are no longer
   // ours to touch. No retry and nothing stored: see sharedwrites.ts.
   const sharedPut = useCallback(async (rec: AnyRec) => {
     if (!sessionRef.current || !sharedPartner) return;
@@ -590,7 +588,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // One identity per actual change: a fresh object on every provider render
   // re-rendered every screen that reads the store for state it did not use.
   const value = useMemo<Store>(
-    () => ({ ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut }),
+    () => ({ ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble: () => sharedWrites.current?.dismissTrouble(), signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut }),
     [ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut],
   );
   return (

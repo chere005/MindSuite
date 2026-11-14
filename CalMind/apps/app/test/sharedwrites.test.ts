@@ -6,7 +6,7 @@ import { SharedWrites } from '../src/sharedwrites';
 // in whatever order the test likes.
 
 type R = { id: string; deleted?: boolean; updated?: number; payload: { done?: boolean; title?: string } };
-type Held = { arg: unknown; ok: () => void; fail: () => void };
+type Held = { arg: unknown; ok: () => void; fail: () => void; lose?: (applied: boolean, status?: number) => void };
 
 function setup(serverRows: R[] = []) {
   const server = new Map(serverRows.map((r) => [r.id, r]));
@@ -15,11 +15,14 @@ function setup(serverRows: R[] = []) {
   const views: R[][] = [];
   const troubles: number[] = [];
   const recovered: number[] = [];
+  const unconfirmed: number[] = [];
   const who = { partner: 'p' };
   const w = new SharedWrites<R, string>(
     {
       put: (_partner, rec) => new Promise<void>((ok, fail) => {
-        putCalls.push({ arg: rec, rec, ok: () => { if (rec.deleted) server.delete(rec.id); else server.set(rec.id, rec); ok(); }, fail: () => fail(new Error('refused')) });
+        const apply = () => { if (rec.deleted) server.delete(rec.id); else server.set(rec.id, rec); };
+        putCalls.push({ arg: rec, rec, ok: () => { apply(); ok(); }, fail: () => fail(Object.assign(new Error('refused'), { status: 403 })),
+          lose: (applied, status = 0) => { if (applied) apply(); fail(Object.assign(new Error('reply lost'), { status })); } });
       }),
       pull: () => new Promise((ok, fail) => {
         // The server's state AT THE MOMENT THE PULL IS SENT is what it will answer with.
@@ -27,9 +30,9 @@ function setup(serverRows: R[] = []) {
         pullCalls.push({ arg: null, snapshot, ok: () => ok({ partners: [who.partner], partner: who.partner, records: snapshot }), fail: () => fail(new Error('down')) });
       }),
     },
-    { onView: (v) => views.push(v), onPulled: () => {}, onTrouble: () => troubles.push(views.length), onRecovered: () => recovered.push(views.length) },
+    { onView: (v) => views.push(v), onPulled: () => {}, onTrouble: () => troubles.push(views.length), onRecovered: () => recovered.push(views.length), onUnconfirmed: () => unconfirmed.push(views.length) },
   );
-  return { w, who, putCalls, pullCalls, views, troubles, recovered, server };
+  return { w, who, putCalls, pullCalls, views, troubles, recovered, unconfirmed, server };
 }
 
 const row = (id: string, done = false, title = id): R => ({ id, updated: 1, payload: { done, title } });
@@ -204,6 +207,94 @@ describe('(d) a refused write takes back exactly its own change', () => {
   });
 });
 
+describe('a lost reply is reconciled before claiming that the write was not saved', () => {
+  test.each([0, 500])('an applied write with a lost reply (status %s) is kept, with dependent writes paused until the pull confirms it', async status => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('section'));
+    void t.w.put('p', row('child'));
+    t.putCalls[0].lose!(true, status); await settle();
+    expect(t.troubles).toHaveLength(0);
+    expect(t.unconfirmed).toHaveLength(1);
+    expect(t.w.view().map(r => r.id)).toEqual(['a', 'section', 'child']);
+    expect(t.putCalls).toHaveLength(1);
+    t.pullCalls[1].ok(); await settle();
+    expect(t.putCalls).toHaveLength(2);
+    expect(t.recovered).toHaveLength(1);
+    t.putCalls[1].ok(); await settle();
+    t.pullCalls[2].ok(); await settle();
+    expect(t.w.unsettled()).toBe(0);
+    expect(t.troubles).toHaveLength(0);
+  });
+
+  test('a failed re-read keeps the change unconfirmed without retrying; a later pull proving it absent takes back the queue', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('section'));
+    void t.w.put('p', row('child'));
+    t.putCalls[0].lose!(false); await settle();
+    t.pullCalls[1].fail(); await settle();
+    expect(t.troubles).toHaveLength(0);
+    expect(t.w.view().map(r => r.id)).toEqual(['a', 'section', 'child']);
+    void t.w.put('p', row('later'));
+    expect(t.putCalls).toHaveLength(1);
+    const pulled = t.w.pull(); t.pullCalls[2].ok(); await pulled; await settle();
+    expect(t.troubles).toHaveLength(1);
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.w.view().map(r => r.id)).toEqual(['a']);
+    expect(t.putCalls).toHaveLength(1);
+  });
+
+  test('a pull sent before the lost reply cannot decide whether it landed', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    const old = t.w.pull();
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    t.putCalls[0].lose!(true); await settle();
+    t.pullCalls[1].ok(); await old;
+    expect(t.troubles).toHaveLength(0);
+    expect(done(t.w, 'a')).toBe(true);
+    t.pullCalls[2].ok(); await settle();
+    expect(t.recovered).toHaveLength(1);
+    expect(t.troubles).toHaveLength(0);
+  });
+
+  test('an applied deletion is confirmed by its absence', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', { ...row('a'), deleted: true });
+    t.putCalls[0].lose!(true); await settle();
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.view()).toEqual([]);
+    expect(t.troubles).toHaveLength(0);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('an ended share cannot prove a lost write absent', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    t.putCalls[0].lose!(true); await settle();
+    t.who.partner = 'q';
+    t.pullCalls[1].ok(); await settle();
+    expect(t.troubles).toHaveLength(0);
+    expect(t.unconfirmed).toHaveLength(1);
+    expect(t.putCalls).toHaveLength(1);
+  });
+
+  test('reset prevents an old reconciliation from changing the next account', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    t.putCalls[0].lose!(true); await settle();
+    t.w.reset();
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.view()).toEqual([]);
+    expect(t.troubles).toHaveLength(0);
+    expect(t.recovered).toHaveLength(1);
+  });
+});
+
 describe('(d2) the trouble stands until something true clears it', () => {
   const fail1 = async () => {
     const t = setup([row('a')]);
@@ -242,6 +333,15 @@ describe('(d2) the trouble stands until something true clears it', () => {
     const t = await fail1();
     t.w.reset();
     expect(t.w.inTrouble()).toBe(false);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a known refusal can be dismissed without resetting the partner list', async () => {
+    const t = await fail1();
+    const before = t.w.view();
+    t.w.dismissTrouble();
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.w.view()).toEqual(before);
     expect(t.recovered).toHaveLength(1);
   });
 

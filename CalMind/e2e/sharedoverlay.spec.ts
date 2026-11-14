@@ -56,6 +56,38 @@ async function share(pageA: Page, pageB: Page, row: string) {
 }
 
 const DELAY = 1_500;
+
+test('a partner write applied before its reply is lost is confirmed without a false refusal or retry', async ({ browser }) => {
+  test.setTimeout(150_000);
+  const a = await browser.newContext(), b = await browser.newContext();
+  try {
+    const owner = await a.newPage(), writer = await b.newPage();
+    await share(owner, writer, 'applied before the reply was lost');
+    await writer.evaluate(() => {
+      (window as unknown as { falseRefusal: boolean }).falseRefusal = false;
+      const dot = document.querySelector('[data-testid="topbar-sync"]')!;
+      new MutationObserver(() => {
+        if (/partner.*not saved/i.test(dot.getAttribute('aria-label') || '')) (window as unknown as { falseRefusal: boolean }).falseRefusal = true;
+      }).observe(dot, { attributes: true, attributeFilter: ['aria-label'] });
+    });
+    let puts = 0, applied = false;
+    await writer.route('**/api/index.php*', async route => {
+      if (!(route.request().postData() || '').includes('"shared_put"')) return route.continue();
+      puts++;
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      applied = true;
+      await route.abort('connectionreset');
+    });
+    const checked = writer.waitForResponse(response => applied && (response.request().postData() || '').includes('"shared_pull"'));
+    await writer.getByTestId('shared-tick').first().click();
+    await checked;
+    await expect.poll(async () => (await writer.getByTestId('topbar-sync').getAttribute('aria-label')) || '').not.toMatch(/not saved|confirm whether/i);
+    expect(await writer.evaluate(() => (window as unknown as { falseRefusal: boolean }).falseRefusal)).toBe(false);
+    expect(puts).toBe(1);
+  } finally { await a.close(); await b.close(); }
+});
+
 /** Hold every shared_put and shared_pull for DELAY ms before it goes out. */
 async function slow(page: Page) {
   await page.route('**/api/index.php*', async (route) => {

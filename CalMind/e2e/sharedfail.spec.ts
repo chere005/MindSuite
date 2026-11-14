@@ -93,6 +93,18 @@ test('a tick on a row the partner just un-shared fails quietly and honestly', as
   expect(label).toMatch(/partner.*not saved/i);
   expect(label).not.toMatch(/offline/i);
 
+  // A partner refusal says nothing about this account's own note, and can be dismissed even after sharing ends.
+  await pageB.getByTestId('tab-notes').click();
+  await pageB.getByTestId('secadd-General').first().click();
+  await expect(pageB.getByTestId('editor-sync')).not.toHaveAttribute('aria-label', /partner.*not saved/i);
+  await expect(pageB.getByTestId('editor-saved')).not.toHaveText('Not saved');
+  await pageB.getByTestId('note-back').click();
+  await pageB.getByTestId('topbar-sync').click();
+  await pageB.getByText('Settings', { exact: true }).click();
+  await pageB.getByTestId('dismiss-shared-trouble').click();
+  await expect(pageB.getByTestId('dismiss-shared-trouble')).toHaveCount(0);
+  await pageB.getByText('Done', { exact: true }).click();
+
   // Nothing thrown at the page, and the app is still alive and usable.
   expect(errors, 'a refused shared write is not a page error').toEqual([]);
   const rejections = await pageB.evaluate(() => (window as unknown as { __rej?: string[] }).__rej ?? []);

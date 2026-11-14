@@ -37,3 +37,9 @@ test('without it nothing changes', () => {
   expect(syncWord('idle', false)).toBe('Saved');
   expect(syncWord('offline', false)).toBe('Offline');
 });
+
+test('a lost reply says unconfirmed until the partner list can be checked', () => {
+  expect(syncLook('idle', false, [], 'too_large', 'unconfirmed')).toEqual({ color: 'gold', text: 'Could not confirm whether a change to your partner’s list was saved.' });
+  expect(syncWord('idle', false, 'unconfirmed')).toBe('Unconfirmed');
+  expect(syncWord('refused', false, 'unconfirmed')).toBe('Not saved');
+});

@@ -1,17 +1,7 @@
 /**
- * Ticking a partner's row with no network must SAY so.
- *
- * A partner's records are not held in a local engine: `sharedPut` draws the
- * write at once and sends it later. When the network is down the write is
- * taken back, and the person must be told the change to the partner's list was
- * not saved (not the own-list "Offline" wording, which would promise a retry
- * that never happens).
- *
- * Reaching that needs two things at once: a live mutual share AND no network.
- * The sharing test is online throughout; the offline tests have no partner.
- *
- * That combination is not a stunt. It is a phone on a train with a shared
- * list open, which is most of what sharing is for.
+ * A lost reply is not a refusal. With both partner routes unreachable, the optimistic change stays unconfirmed;
+ * own-list sync cannot prove whether the partner write landed and must not replace that message with Online.
+ * No partner write is automatically retried.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -29,7 +19,7 @@ async function signup(page: Page): Promise<string> {
   return user;
 }
 
-test('a shared tick that cannot reach the server says it was not saved, not nothing', async ({ browser }) => {
+test('a shared tick with no write or read reply remains unconfirmed, never falsely not saved', async ({ browser }) => {
   test.setTimeout(180_000);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
@@ -81,20 +71,21 @@ test('a shared tick that cannot reach the server says it was not saved, not noth
 
   // The dot is the app's one honest signal here, and it carries the sentence
   // as its accessibility label — a coloured circle tells a screen reader
-  // nothing, so that is what this reads. The change to the PARTNER's list was
-  // not saved and is never retried, so the sentence must not promise a retry
+  // nothing, so that is what this reads. The change to the PARTNER's list is
+  // unconfirmed and is never retried, so the sentence must not promise a retry
   // ('Offline — changes sync when you are back' is true of my own lists only).
   const dot = async () => (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '';
   await expect
-    .poll(dot, { message: 'the app says the change to the partner list was not saved', timeout: 20_000 })
-    .toMatch(/partner.*not saved/i);
+    .poll(dot, { message: 'the app admits that the partner write is unconfirmed', timeout: 20_000 })
+    .toMatch(/confirm.*partner/i);
   expect(await dot()).not.toMatch(/sync when you are back/i);
 
   // It survives the next own sync (30 s at most): that sync is about MY lists
   // and proves nothing about the partner's.
   await pageB.waitForRequest((r) => (r.postData() ?? '').includes('"action":"sync"'), { timeout: 45_000 });
   await pageB.waitForTimeout(1_500);
-  expect(await dot()).toMatch(/partner.*not saved/i);
+  expect(await dot()).toMatch(/confirm.*partner/i);
+  expect(await dot()).not.toMatch(/not saved/i);
 
   await ctxA.close();
   await ctxB.close();
