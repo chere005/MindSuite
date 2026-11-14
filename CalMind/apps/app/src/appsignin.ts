@@ -75,14 +75,15 @@ export type Returned = { kind: 'code'; code: string } | { kind: 'cancel' } | { k
 const NOT_FINISHED = 'That sign-in did not finish. Press Sign in to try again.';
 
 function queryOf(q: string): Record<string, string> {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
   for (const pair of q.split('&')) {
     if (!pair) continue;
     const i = pair.indexOf('=');
     const k = i < 0 ? pair : pair.slice(0, i);
     const v = i < 0 ? '' : pair.slice(i + 1);
     try {
-      if (!(k in out)) out[decodeURIComponent(k)] = decodeURIComponent(v.replace(/\+/g, ' '));
+      const key = decodeURIComponent(k.replace(/\+/g, ' '));
+      if (!(key in out)) out[key] = decodeURIComponent(v.replace(/\+/g, ' '));
     } catch {
       return {};
     }

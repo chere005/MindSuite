@@ -18,7 +18,7 @@ import { defaultServerUrl } from '../config';
 import { login, signup, recover, reset, cookieApi, cookieToken, claimAccountRedirect, probeSharedSignIn, type SharedProbe } from '../api';
 import { useStore } from '../store';
 import { Field, Pill, ErrorLine } from '../ui';
-import { gateFor, signInFacts, signInThroughAccount } from '../appsignin';
+import { gateFor, signInFacts, signInThroughAccount, type LoginGate } from '../appsignin';
 import { inDesktopShell, randomBytes, returnBrowser } from '../appsignin-browser';
 import { passkeyAvailable, signInWithPasskey } from '../passkey';
 import { themed, T } from '../theme';
@@ -90,12 +90,12 @@ export function Login() {
     return false;
   };
   const check = () => probeSharedSignIn(serverUrl).then(apply);
-  /** Native and desktop: what does the API say it takes? Sets the card; true when it says app sign-in. */
-  const probeApp = async (): Promise<boolean> => {
+  /** Native and desktop: what does the API say it takes? Only a fresh 'form' answer permits password submission. */
+  const probeApp = async (): Promise<LoginGate> => {
     const f = await signInFacts(serverUrl);
     const g = gateFor(f);
     setGate(g === 'unavailable' && f.kind === 'unavailable' ? { at: 'unavailable', message: f.message } : { at: g === 'unavailable' ? 'offline' : g });
-    return g === 'app';
+    return g;
   };
   const retry = () => { setGate({ at: 'checking' }); void (browser ? probeApp() : check()).catch(() => setGate({ at: browser ? 'offline' : 'form' })); };
   useEffect(() => {
@@ -157,7 +157,7 @@ export function Login() {
       // nothing (offline at load) must not let a password sign in with a token against a server that is.
       if (cookieApi(serverUrl) && (await check())) return;
       // Native and desktop: a server that now takes app sign-in switches the card and posts nothing.
-      if (browser && (await probeApp())) return;
+      if (browser && (await probeApp()) !== 'form') return;
       if (mode === 'signin') {
         const r = await login(serverUrl, username, password);
         await signIn({ token: r.token, username: r.username, serverUrl });

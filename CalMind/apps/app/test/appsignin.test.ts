@@ -126,6 +126,7 @@ describe('readReturn', () => {
     expect(flow.readReturn(`${q(`code=${CODE}&state=${STATE}`)}#x`, RETURN, STATE).kind).toBe('error');
     // The first value of a key counts: a second "state" cannot replace the checked one.
     expect(flow.readReturn(q(`code=${CODE}&state=other&state=${STATE}`), RETURN, STATE).kind).toBe('error');
+    expect(flow.readReturn(q(`code=${CODE}&state=other&%73tate=${STATE}`), RETURN, STATE).kind).toBe('error');
     expect(flow.readReturn(q(`code=%zz&state=${STATE}`), RETURN, STATE).kind).toBe('error');
   });
 });

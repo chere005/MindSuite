@@ -97,19 +97,26 @@ fn page(title: &str, text: &str) -> String {
 }
 
 /// What one connection asked for: the request line's query when it is `GET /signin[?q]`, else None.
-fn read_request(stream: &mut TcpStream) -> Option<Option<String>> {
+fn read_request(stream: &mut TcpStream, cancel: &AtomicBool, deadline: Instant) -> Option<Option<String>> {
     let _ = stream.set_nonblocking(false);
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+    let read_until = std::cmp::min(deadline, Instant::now() + Duration::from_secs(5));
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 1024];
     while buf.len() < 8192 && !buf.windows(4).any(|w| w == b"\r\n\r\n") {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
+        if cancel.load(Ordering::SeqCst) || Instant::now() >= read_until { return None; }
+        let remaining = read_until.saturating_duration_since(Instant::now());
+        if remaining.is_zero() { return None; }
+        stream.set_read_timeout(Some(std::cmp::min(remaining, Duration::from_millis(50)))).ok()?;
+        let take = std::cmp::min(chunk.len(), 8192 - buf.len());
+        match stream.read(&mut chunk[..take]) {
+            Ok(0) => return None,
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted) => continue,
             Err(_) => return None,
         }
     }
+    if !buf.windows(4).any(|w| w == b"\r\n\r\n") { return None; }
     let line_end = buf.windows(2).position(|w| w == b"\r\n")?;
     let line = std::str::from_utf8(&buf[..line_end]).ok()?;
     let mut parts = line.split(' ');
@@ -139,7 +146,7 @@ pub fn wait(p: Pending, limit: Duration, app_name: &str) -> Result<Option<String
             return Err("timeout".to_string());
         }
         match p.listener.accept() {
-            Ok((mut stream, _)) => match read_request(&mut stream) {
+            Ok((mut stream, _)) => match read_request(&mut stream, &p.cancel, started + limit) {
                 None => {}
                 Some(None) => respond(&mut stream, "404 Not Found", &page("Not found", "Not found.")),
                 Some(Some(q)) => {
@@ -396,6 +403,26 @@ mod tests {
     fn the_limit_is_a_timeout() {
         let p = listen(STATE).unwrap();
         assert_eq!(wait(p, Duration::from_millis(300), "CalMind"), Err("timeout".to_string()));
+    }
+
+    #[test]
+    fn an_idle_connection_cannot_delay_cancel_or_the_overall_timeout() {
+        for cancel in [false, true] {
+            let p = listen(STATE).unwrap();
+            let mut idle = TcpStream::connect(("127.0.0.1", p.port())).unwrap();
+            idle.write_all(b"GET /signin?state=").unwrap();
+            let flag = p.canceller();
+            let signal = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(150));
+                if cancel { flag.store(true, Ordering::SeqCst); }
+            });
+            let started = Instant::now();
+            let result = wait(p, Duration::from_millis(300), "CalMind");
+            if cancel { assert_eq!(result, Ok(None)); }
+            else { assert_eq!(result, Err("timeout".to_string())); }
+            signal.join().unwrap();
+            assert!(started.elapsed() < Duration::from_millis(700), "idle connection delayed the outcome: {:?}", started.elapsed());
+        }
     }
 
     #[test]

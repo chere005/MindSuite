@@ -65,7 +65,14 @@ class FakeShell {
     }
   }
 
-  async close() { await new Promise<void>((ok) => (this.server ? this.server.close(() => ok()) : ok())); }
+  async close() {
+    this.resolve?.(null);
+    await new Promise<void>(ok => {
+      if (!this.server) { ok(); return; }
+      this.server.close(() => ok());
+      this.server.closeAllConnections();
+    });
+  }
 }
 
 /** An app window whose page believes it is in the desktop shell. */
@@ -128,7 +135,9 @@ test('desktop path, end to end: Sign in opens the account page in the system bro
     await signInAtAccount(sys, 'alex');
     await expect(sys.getByRole('heading', { name: 'Continue to CalMind as alex?' })).toBeVisible();
     // The first load of the confirm page: what Sec-Fetch-Site did the browser send? (design assumption: none, then same-origin)
+    const continued = sys.waitForResponse(r => r.url().startsWith(`${ORIGIN}/account/app/`) && r.request().method() === 'POST');
     await sys.getByRole('button', { name: 'Continue to CalMind', exact: true }).click();
+    expect((await continued).status(), 'the confirmation POST hands back the code').toBe(303);
     await sys.waitForURL(new RegExp(`^http://127\\.0\\.0\\.1:${d.shell.port}/signin\\?`));
     await expect(d.app.getByTestId('tab-reminders')).toBeVisible({ timeout: 15_000 });
     expect(d.shell.queries).toHaveLength(1);
@@ -236,6 +245,30 @@ test('held: the API answers legacy, so the card shows the old form and nothing o
     expect(d.shell.commands).toEqual([]);
   } finally { await d.close(); writeSite('on'); }
 });
+
+for (const refusal of ['offline', 'unavailable'] as const) {
+  test(`a legacy form does not submit a password when its fresh mode check is ${refusal}`, async ({ browser }) => {
+    writeSite('held');
+    const d = await desktopApp(browser);
+    const calls = watch(d.app);
+    try {
+      await d.app.goto(BASE);
+      await expect(d.app.getByPlaceholder('Username')).toBeVisible();
+      await d.app.getByPlaceholder('Username').fill('alex');
+      await d.app.getByPlaceholder('Password', { exact: true }).fill(ACCOUNTS.alex);
+      await d.app.route(API, async route => {
+        if (route.request().postDataJSON().action !== 'signin_info') return route.continue();
+        if (refusal === 'offline') return route.abort();
+        return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, shared: true, error: 'Sign-in is unavailable right now.' }) });
+      });
+      await d.app.getByText('Sign in', { exact: true }).click();
+      await expect(d.app.getByText(refusal === 'offline'
+        ? 'Could not reach the server. Check your connection and try again.'
+        : 'Sign-in is unavailable right now.', { exact: true })).toBeVisible();
+      expect(calls.filter(call => call.action === 'login')).toEqual([]);
+    } finally { await d.close(); writeSite('on'); }
+  });
+}
 
 test('screens: the confirm page and the account page it sends people to, midnight and sage, phone and desktop; the app\'s sign-in cards', async ({ browser }, testInfo) => {
   const shot = (page: Page, name: string) => page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: false });

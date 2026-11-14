@@ -239,7 +239,10 @@ test('the harness is not vacuous: held really is legacy and on really is shared 
     const r = await fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whoami' }) });
     return { status: r.status, body: await r.json() };
   }, API);
-  await page.goto(BASE);   // an origin to ask from
+  // An origin to ask from. The site is 'on' (beforeEach), so the app sends this tab on to /account/: wait for THAT
+  // navigation, or the first evaluate() races it and dies with "Execution context was destroyed".
+  await page.goto(BASE);
+  await page.waitForURL(/\/account\/\?next=/);
   writeSite('on');
   expect(await asked()).toEqual({ status: 401, body: { ok: false, error: 'auth required', shared: true } });
   writeSite('held');
