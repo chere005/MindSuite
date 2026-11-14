@@ -211,6 +211,8 @@ button.day-ev[data-n="1"] .day-ev-text{position:absolute;z-index:2;inset-block-s
 .day-tasks{list-style:none;margin:0;padding:0}
 .day-free{position:relative;cursor:text}
 .day-ghost{flex:none;width:18px;height:18px;margin:0 2px;border:1.5px solid var(--line);border-radius:50%;opacity:.8}
+/* The add line the keyboard was carried to after Enter is for the people of the to-do just entered: its circle wears their color. */
+.day-free-add[data-c] .day-ghost{border-color:var(--tone-line);opacity:1}
 .day-add{flex:1;min-width:0;align-self:stretch;display:flex;align-items:center;gap:8px;margin:0}
 .day-panel .day-add-title{flex:1;min-width:0;min-height:0;height:100%;padding:0;border:0;border-radius:0;background:transparent;font-size:14px;outline:none}
 .day-panel .day-add-title::placeholder{color:var(--dim);opacity:1}

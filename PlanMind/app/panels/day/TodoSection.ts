@@ -3,6 +3,7 @@ import {
   type BlankAim, type DayView, type Task, type TodoRow,
 } from '../../../packages/core/src/planner';
 import { RESTORED, cancel, commit, countHtml, deleteHtml, errorHtml, fieldName, paintSession, press, q, textHtml, unpress, wireRow, type Host, type Plan } from '../../inplace/Inline';
+import { createCarry } from '../../inplace/carry';
 import { unsentRest, type Session } from '../../inplace/session';
 import { esc, type PanelContext } from '../../panelContext';
 import { bothButton, mountBlanks, newName, ownerColor, seatRow } from '../BlankSlots';
@@ -19,12 +20,17 @@ const todoAdd = { title: '', id: crypto.randomUUID(), refocus: false, error: '' 
 export const unsentAdd = () => todoAdd.title.trim() !== '';
 const fullMessage = (kit: Kit, id: string) => `${kit.nameOf(id)} already has ${CAPS.dayTodosPerList} things to do that day.`;
 
-/** Who a new to-do is for (the top picker: its base list, or both of us under Both) and whether that leaves room for it. Carried to-dos count on today. */
+/** Who the add field is for after an Enter that added a to-do over a blank line aimed at one person (or both): the same people, until the person stops writing (inplace/carry.ts). */
+const carry = createCarry();
+const carryAt = (ctx: PanelContext) => [`day:${ctx.date}`, JSON.stringify(ctx.selection)] as const;
+
+/** Who a new to-do is for (the people carried from the last Enter, else the top picker: its base list, or both of us under Both) and whether that leaves room for it. Carried-over to-dos count on today. */
 function addState(ctx: PanelContext) {
-  const { owners } = newOwners(ctx.selection, ctx.lists, ctx.settings);
+  const owners = carry.owners(...carryAt(ctx), newOwners(ctx.selection, ctx.lists, ctx.settings).owners);
+  const carried = carry.active;
   const counts = owners.map(o => todoCounter(ctx.session.tasks, ctx.date, o, undefined, ctx.today));
   const full = counts.findIndex(c => c.over);
-  return { owners, used: Math.max(0, ...counts.map(c => c.used)), full: full >= 0 ? owners[full] : '' };
+  return { owners, carried, used: Math.max(0, ...counts.map(c => c.used)), full: full >= 0 ? owners[full] : '' };
 }
 
 /**
@@ -81,10 +87,13 @@ const GHOST = '<span class="day-ghost" aria-hidden="true"></span>';
 /** `line` is the slot's ruled line counted from the top, 1 to 13 (14 for the add field's line when 13 open rows already fill the slots): the open rows above it take the first lines, the done rows are not numbered. */
 const blankSlot = (line: number) => `<li class="day-free" data-row="free" data-slot="${line}" aria-hidden="true">${GHOST}</li>`;
 /** The first empty slot: the add field. Enter (or Add, which shows once there is text) puts the to-do on this line. */
-const addSlot = (ctx: PanelContext, phone: boolean, line: number) => `<li class="day-free day-free-add" data-row="add" data-slot="${line}">${GHOST}<form class="day-add" autocomplete="off" novalidate>
-    <input class="day-add-title" data-key="todo:add" aria-label="New task" value="${esc(todoAdd.title)}" placeholder="${phone ? 'Add…' : `Add something for ${ctx.date === ctx.today ? 'today' : 'this day'}…`}" enterkeyhint="done">
+const addSlot = (ctx: PanelContext, phone: boolean, line: number) => {
+  const { owners, carried } = addState(ctx);
+  return `<li class="day-free day-free-add" data-row="add" data-slot="${line}"${carried ? ` data-c="${ownerColor(ctx, owners)}"` : ''}>${GHOST}<form class="day-add" autocomplete="off" novalidate>
+    <input class="day-add-title" data-key="todo:add" aria-label="${carried ? esc(newName(ctx, owners)) : 'New task'}" value="${esc(todoAdd.title)}" placeholder="${phone ? 'Add…' : `Add something for ${ctx.date === ctx.today ? 'today' : 'this day'}…`}" enterkeyhint="done">
     <span class="day-count" data-kind="chars"></span>
     <button type="submit" class="primary day-add-go" hidden>Add</button></form>${bothButton(ctx)}</li>`;
+};
 
 /** A new to-do is one edit over a blank slot, named for its ruled line; it has no stored record yet, so the key says ":new". */
 const newKey = (line: number) => `todo:new:${line}`;
@@ -148,9 +157,26 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     const message = s.full ? fullMessage(kit, s.full) : s.size.over ? `Keep it to ${s.size.max} characters.` : todoAdd.error;
     msg.textContent = message; msg.hidden = !message;
   }
+  // The add line wears the color and name of the people carried to it (a line nobody came to by Enter is the picker's and wears neither).
+  const line = find<HTMLElement>('.day-free-add');
+  const paintLine = () => {
+    const { owners, carried } = addState(ctx);
+    if (line) { if (carried) { line.dataset.c = ownerColor(ctx, owners); } else { delete line.dataset.c; } }
+    title?.setAttribute('aria-label', carried ? newName(ctx, owners) : 'New task');
+    draw();
+  };
   if (go) { kit.guard(go, () => { const s = state(); return s.text !== '' && !s.size.over && !s.full; }); }
   draw();
 
+  // The people carried end when the person stops writing: Escape, or the focus leaving the line. A press on Add (or a tap: some browsers give a
+  // button no focus and report no related target) and the redraw this field asks for after its own add are not leaving.
+  let pressing = false;
+  form?.addEventListener('pointerdown', () => { pressing = true; setTimeout(() => { pressing = false; }, 1000); });
+  title?.addEventListener('keydown', event => { if (event.key === 'Escape' && carry.active) { carry.drop(); paintLine(); } });
+  title?.addEventListener('blur', event => {
+    if (todoAdd.refocus || pressing || (event.relatedTarget instanceof Node && form?.contains(event.relatedTarget)) || !carry.active) { return; }
+    carry.drop(); paintLine();
+  });
   title?.addEventListener('input', () => { todoAdd.title = title.value; todoAdd.error = ''; draw(); kit.refresh(); });
   form?.addEventListener('submit', async event => {
     event.preventDefault();
@@ -195,11 +221,12 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
   const unmountBlanks = blanks ? mountBlanks(ctx, {
     list: blanks, slot: '.day-free', typed: () => (title?.value ?? todoAdd.title).trim() !== '', focusAdd: () => title?.focus(), open: (aim, slot, onAdd) => openNew(aim, Number(slot.dataset.slot), onAdd),
   }) : () => {};
-  section.querySelectorAll<HTMLElement>('.day-more').forEach(button => button.addEventListener('click', () => { shown = button.dataset.list as Shown; ctx.rerender(); }));
+  section.querySelectorAll<HTMLElement>('.day-more').forEach(button => button.addEventListener('click', () => { carry.drop(); shown = button.dataset.list as Shown; ctx.rerender(); }));
 
   /** A new to-do over a blank slot: its id is made once, so a retried add is the same add. The add field lets go first (the panel is not drawn under it). */
   function openNew(aim: BlankAim, line: number, viaAdd: boolean) {
     title?.blur();
+    carry.drop();
     edits.open(newKey(line), { ...NONE, date: ctx.date }, { kind: 'todo', id: crypto.randomUUID(), stored: false, owners: aim.owners, listId: '', line, viaButton: false, viaAdd, revision: 0 });
     ctx.rerender();
   }
@@ -236,7 +263,7 @@ function mountNew(panel: HTMLElement, ctx: PanelContext, kit: Kit, s: DaySession
     paintSession(root, s, 'task', '', s.error || v.message || (s.restored ? RESTORED : ''));
     showMessage(root);
   };
-  const plan = (): Plan => {
+  const plan = (how: 'enter' | 'leave'): Plan => {
     const text = s.draft.text.trim(), v = verdict();
     // The add went through and only its reply was lost: it is there, there is nothing more to write.
     if (stored()) { return { kind: 'none' }; }
@@ -244,10 +271,13 @@ function mountNew(panel: HTMLElement, ctx: PanelContext, kit: Kit, s: DaySession
     if (!v.ok) { return { kind: 'invalid', message: v.message }; }
     // Written over the add field's line (a click on the empty field): the keyboard goes back to the add field to type the next one, as after
     // Enter in it, unless this to-do fills the list and the field is gone; written over another blank line, it goes to the new to-do.
-    return { kind: 'send', said: 'Saved.', focusKey: s.meta.viaAdd && roomAfter() ? 'todo:add' : keyOf(id), mutation: { action: 'add', kind: 'todo', id, scope: 'day', date: ctx.date, owners, title: text } };
+    // After Enter the add field is for the SAME people as this to-do (its color, name, room check and add), so a run of Enters keeps writing their list; leaving the row any other way ends that.
+    const toAdd = how === 'enter' && s.meta.viaAdd && roomAfter();
+    if (toAdd) { carry.set(owners, ...carryAt(ctx)); } else { carry.drop(); }
+    return { kind: 'send', said: 'Saved.', focusKey: toAdd ? 'todo:add' : keyOf(id), mutation: { action: 'add', kind: 'todo', id, scope: 'day', date: ctx.date, owners, title: text } };
   };
-  // Whether the add field is still drawn once this to-do is in: it is not when the list the field adds to has no room left.
-  const roomAfter = () => addState(ctx).owners.every(o => todoCounter(ctx.session.tasks, ctx.date, o, undefined, ctx.today).used + (owners.includes(o) ? 1 : 0) < CAPS.dayTodosPerList);
+  // Whether the add field is still drawn once this to-do is in: it is not when these people's list has no room left.
+  const roomAfter = () => owners.every(o => todoCounter(ctx.session.tasks, ctx.date, o, undefined, ctx.today).used + 1 < CAPS.dayTodosPerList);
   // Closed by hand where the panel cannot be drawn again: the to-do if it was added, the blank line it was written on if not. An open to-do
   // goes after the last open row (ahead of the blank lines), where the next drawing will put it.
   const swap = (row: HTMLElement) => {
