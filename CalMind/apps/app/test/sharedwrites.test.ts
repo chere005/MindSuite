@@ -282,6 +282,30 @@ describe('a lost reply is reconciled before claiming that the write was not save
     expect(t.putCalls).toHaveLength(1);
   });
 
+  test.each([false, true])('another partner’s acknowledged write cannot confirm an old lost reply (partner changed before loss: %s)', async changedBeforeLoss => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    if (changedBeforeLoss) {
+      t.who.partner = 'q';
+      const changed = t.w.pull(); t.pullCalls[1].ok(); await changed;
+    }
+    t.putCalls[0].lose!(true); await settle();
+    t.who.partner = 'q';
+    t.pullCalls.at(-1)!.ok(); await settle();
+    void t.w.put('q', row('q-change'));
+    t.putCalls[1].ok(); await settle();
+    t.pullCalls.at(-1)!.ok(); await settle();
+    expect(t.recovered).toHaveLength(0);
+    void t.w.put('q', row('q-refused'));
+    t.putCalls[2].fail(); await settle();
+    expect(t.troubles).toHaveLength(0); // the unresolved outcome remains the notice
+    t.w.dismissTrouble();
+    expect(t.recovered).toHaveLength(0);
+    t.w.reset();
+    expect(t.recovered).toHaveLength(1);
+  });
+
   test('reset prevents an old reconciliation from changing the next account', async () => {
     const t = setup([row('a')]);
     const first = t.w.pull(); t.pullCalls[0].ok(); await first;

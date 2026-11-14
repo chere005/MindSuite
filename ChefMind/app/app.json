@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.seancheren.chefmind",
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "package": "com.seancheren.chefmind",
