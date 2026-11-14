@@ -22,7 +22,7 @@ import { ShareModal } from '../components/ShareModal';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const store = useStore();
-  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy } = store;
+  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble } = store;
   const refusedNotes = (store as typeof store & { refusedNotes?: { id: string; label: string }[] }).refusedNotes ?? [];
   // ChefMind's space, where this app holds it (CalMind syncs it under the same
   // login; ChefMind's own records ARE that space, so it passes none).
@@ -39,7 +39,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   // flag rides along in the watch feed.
   const clock24 = prefsOf(recs, 'suite').clock24 === true;
   const setClock24 = (on: boolean) => mutate((e) => e.put(prefsPut(recs, 'suite', { clock24: on })));
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
   // The first refused note, as several that fit (#75) — null when it cannot
   // be split (a recipe, a daily log) or no longer needs it.
   const refusedRec = refusedNotes[0]
@@ -166,6 +166,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <View style={[s.statusDot, { backgroundColor: look.color }]} />
             <Text style={s.statusText}>{look.text}</Text>
           </View>
+          {sharedTrouble === true && <Pill testID="dismiss-shared-trouble" label="Dismiss" onPress={dismissSharedTrouble} />}
           {refusedNotes[0] && (
             <Pressable
               testID="open-refused-note"

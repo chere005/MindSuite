@@ -14,7 +14,7 @@ import { apiPost, type Session, syncTransport, ApiError } from './api';
 import { drainWatchTicks, drainWidgetTicks, onWatchTick, pushWatchIfWidgetMoved, pushWatchList } from './watch';
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
-import { SharedWrites } from './sharedwrites';
+import { SharedWrites, type SharedTrouble } from './sharedwrites';
 
 /**
  * Storage is per-INSTANCE, because on the web it is per-ORIGIN and prod, test
@@ -163,6 +163,9 @@ type Store = {
   refusedNotes: { id: string; label: string }[];
   /** Why: too long (the user's to fix) or malformed (the app's bug). */
   refusedWhy: 'too_large' | 'invalid';
+  /** A known refusal, or a lost reply still awaiting reconciliation; see sharedwrites.ts. */
+  sharedTrouble: SharedTrouble;
+  dismissSharedTrouble: () => void;
   signIn: (s: Session) => Promise<void>;
   signOut: () => Promise<void>;
   clearDeletedAccount: () => Promise<void>;
@@ -205,6 +208,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [refusedLabels, setRefusedLabels] = useState<string[]>([]);
   const [refusedNotes, setRefusedNotes] = useState<{ id: string; label: string }[]>([]);
   const [refusedWhy, setRefusedWhy] = useState<'too_large' | 'invalid'>('too_large');
+  const [sharedTrouble, setSharedTrouble] = useState<SharedTrouble>(false);
   const [partners, setPartners] = useState<PartnerBadge[]>([]);
   const [sharedPartner, setSharedPartner] = useState<string | null>(null);
   const [sharedRaw, setSharedRaw] = useState<AnyRec[]>([]);
@@ -290,9 +294,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setPartners(p);
           setSharedPartner(partner);
         },
-        // A refused or failed write has been taken back; 'offline' is the
-        // word this app already uses for sync trouble, and the top bar shows it.
-        onTrouble: () => setSyncState('offline'),
+        // Partner writes are never retried. A known refusal is kept until dismissed, a later acknowledgement or reset;
+        // a lost reply stays unconfirmed until a later pull can determine whether the write landed.
+        onTrouble: () => setSharedTrouble(true),
+        onRecovered: () => setSharedTrouble(false),
+        onUnconfirmed: () => setSharedTrouble('unconfirmed'),
       },
     );
   }
@@ -421,8 +427,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Every caller fires this and forgets it (`void sharedPut(...)`). The write
   // is drawn at once and sent in order; a refusal (sharing ending a moment
-  // earlier is a 403, a dead token a 401) takes back exactly that change and
-  // says 'offline', and the re-read that follows drops rows that are no longer
+  // earlier is a 403, a dead token a 401) takes back that change and every write
+  // still queued for the partner and says it was not saved. A lost reply pauses the queue and re-pulls before deciding.
+  // The re-read also drops rows that are no longer
   // ours to touch. No retry and nothing stored: see sharedwrites.ts.
   const sharedPut = useCallback(async (rec: AnyRec) => {
     if (!sessionRef.current || !sharedPartner) return;
@@ -767,7 +774,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [sharedRecs, sharedPartner, sharedPartnerLabel]);
 
   return (
-    <Ctx.Provider value={{ ready, session, recs, syncState, persistFailed, refusedLabels, refusedNotes, refusedWhy, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut, chefRecs }}>
+    <Ctx.Provider value={{ ready, session, recs, syncState, persistFailed, refusedLabels, refusedNotes, refusedWhy, sharedTrouble, dismissSharedTrouble: () => sharedWrites.current?.dismissTrouble(), signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut, chefRecs }}>
       {children}
     </Ctx.Provider>
   );

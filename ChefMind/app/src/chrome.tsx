@@ -76,7 +76,7 @@ export function TopBar({
 }) {
   const nav = useNav();
   const insets = useSafeAreaInsets();
-  const { session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy } = useStore();
+  const { session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
   // No requests badge here. Upstream the account button carries a count of
   // new meeting requests from the public /request link; that page is a server
   // endpoint CalMind owns and ChefMind has no equivalent of, so the button is
@@ -124,7 +124,7 @@ export function TopBar({
   };
   // One rule, one place: the dot, Settings, the note editor and this border
   // all read the same function.
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
   return (
     <>
       <View style={s.topbar}>

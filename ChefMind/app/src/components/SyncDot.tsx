@@ -15,6 +15,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
 import { SYNC_DOT } from '../ui';
+import type { SharedTrouble } from '../sharedwrites';
 
 export type SyncLook = { color: string; text: string };
 
@@ -30,6 +31,12 @@ export function syncLook(
    * sent people hunting for a length problem that was not there (TODO §2).
    */
   why: 'too_large' | 'invalid' = 'too_large',
+  /**
+   * A write into the PARTNER's shared list was refused or failed and has been
+   * taken back. Not an own-list state: my own copy is fine, so 'offline' (which
+   * promises a retry) would be false — partner writes are never retried.
+   */
+  sharedTrouble: SharedTrouble = false,
 ): SyncLook {
   if (persistFailed) {
     return { color: T.danger, text: 'This device cannot save its copy — a reload may lose recent changes.' };
@@ -55,6 +62,15 @@ export function syncLook(
         : 'A note is too long to save — it is on this device only. Shorten it to sync.',
     };
   }
+  // After persistFailed and 'refused' so neither is ever hidden by it; before
+  // 'offline' and 'syncing', which clear themselves and would otherwise leave
+  // the person never having been told.
+  if (sharedTrouble === 'unconfirmed') {
+    return { color: T.gold, text: 'Could not confirm whether a change to your partner’s list was saved.' };
+  }
+  if (sharedTrouble) {
+    return { color: T.danger, text: 'A change to your partner’s list was not saved — it is not on their list.' };
+  }
   if (syncState === 'offline') return { color: T.gold, text: 'Offline — changes sync when you are back' };
   if (syncState === 'syncing') return { color: T.accent, text: 'Syncing…' };
   return { color: T.accent, text: 'Online — synced' };
@@ -74,8 +90,10 @@ export function syncLook(
 export function syncWord(
   syncState: 'idle' | 'syncing' | 'offline' | 'refused',
   persistFailed: boolean,
+  sharedTrouble: SharedTrouble = false,
 ): string {
-  if (persistFailed || syncState === 'refused') return 'Not saved';
+  if (persistFailed || syncState === 'refused' || sharedTrouble === true) return 'Not saved';
+  if (sharedTrouble === 'unconfirmed') return 'Unconfirmed';
   if (syncState === 'offline') return 'Offline';
   return syncState === 'syncing' ? 'Saving…' : 'Saved';
 }
@@ -88,9 +106,10 @@ export function syncWord(
  * That is also why the note editor's one is a dot AND the word when there is
  * something wrong: green needs no explanation, red does.
  */
-export function SyncDot({ testID, withText = false }: { testID?: string; withText?: boolean }) {
-  const { syncState, persistFailed, refusedLabels, refusedWhy } = useStore();
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy);
+export function SyncDot({ testID, withText = false, showPartner = true }: { testID?: string; withText?: boolean; showPartner?: boolean }) {
+  const { syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
+  const trouble = showPartner ? sharedTrouble : false;
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, trouble);
   const bad = look.color === T.danger || look.color === T.gold;
   return (
     // The word goes to the LEFT of the dot so the DOT is what the right edge
@@ -100,7 +119,7 @@ export function SyncDot({ testID, withText = false }: { testID?: string; withTex
     // want to find it in the same place as always. Now the word grows away
     // from the dot and the dot does not move, in the editor or the top bar.
     <View style={s.row} testID={testID} accessibilityLabel={look.text}>
-      {withText && bad && <Text style={s.short} numberOfLines={1}>{syncWord(syncState, persistFailed)}</Text>}
+      {withText && bad && <Text style={s.short} numberOfLines={1}>{syncWord(syncState, persistFailed, trouble)}</Text>}
       <View style={[s.dot, { backgroundColor: look.color }]} />
     </View>
   );

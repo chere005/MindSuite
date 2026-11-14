@@ -12,7 +12,7 @@
  * `id` pins the record). The pending count is worn as a badge by chrome.tsx
  * (core's meetreqBadgeCount).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -64,6 +64,7 @@ export function Requests({ onClose }: { onClose: () => void }) {
   // none to draw or tap (see availday.ts).
   const avSlots = slotsFor(avDay, avDate);
 
+  const readerRef = useRef<DayReader | null>(null);
   useEffect(() => {
     if (!session) return;
     const reader = new DayReader(
@@ -72,13 +73,18 @@ export function Requests({ onClose }: { onClose: () => void }) {
         setAvDay(day);
         // The section is left as it was rather than torn down: a dropped
         // connection is not evidence that the request page stopped being his.
-        setAvNote(day.failed ? 'Could not read the hours for that day.' : '');
+        setAvNote(day.failed ? 'Could not read the hours for that day. Tap here or the day to try again.' : '');
       },
       setAvOwner,
     );
+    readerRef.current = reader;
     reader.select(avDate);
-    return () => reader.dispose();
+    return () => { reader.dispose(); readerRef.current = null; };
   }, [avDate, session]);
+
+  // Tapping the selected day (or the note) after a failed read asks again;
+  // while a read is in flight, or after one that worked, it does nothing.
+  const retryDay = () => { if (avDay.failed) readerRef.current?.retry(); };
 
   const putAv = (next: MeetAvail) =>
     mutate((e) => e.put({ id: meetAvailId(avDate), type: 'meetavail', updated: 0, payload: next }));
@@ -216,7 +222,7 @@ export function Requests({ onClose }: { onClose: () => void }) {
                     key={iso}
                     testID="av-cell"
                     accessibilityLabel={iso}
-                    onPress={() => setAvDate(iso)}
+                    onPress={() => (iso === avDate ? retryDay() : setAvDate(iso))}
                     style={[s.cell, avDate === iso && s.cellOn]}
                   >
                     <Text
@@ -268,7 +274,11 @@ export function Requests({ onClose }: { onClose: () => void }) {
                   <Text style={s.avEmpty}>Nothing can be requested that day.</Text>
                 )}
               </View>
-              {avNote !== '' && <Text testID="av-note" style={s.avErr}>{avNote}</Text>}
+              {avNote !== '' && (
+                <Pressable testID="av-note-retry" accessibilityRole="button" accessibilityLabel={avNote} onPress={retryDay}>
+                  <Text testID="av-note" style={s.avErr}>{avNote}</Text>
+                </Pressable>
+              )}
             </View>
           )}
         </Scroll>

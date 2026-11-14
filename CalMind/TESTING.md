@@ -1014,15 +1014,16 @@ writes laid over it. The unit file drives it with a fake API whose every reply i
 order: a write is drawn before any request is answered (changed, new, deleted); writes go out one at a time in the order
 made with strictly increasing stamps; a pull sent before a write and answered after it, a pull older than one already
 applied, and a pull while the write is in flight never bring the old copy back; a pull sent after the acknowledgement
-shows the server's copy; a refused write takes back exactly its own change, later queued writes on the SAME record are
-taken back with it and never sent, other records and earlier acknowledged writes stay; an undo after the pull has landed
+shows the server's copy; a refused write takes back exactly its own change, every write still queued for that partner is
+taken back with it and never sent, earlier acknowledged writes stay, and the person is told the change was not saved (the
+telling clears when dismissed in Settings, on the next acknowledged write or sign-out; no pull clears it, so neither sharing ending nor a switch to another partner hides it); an undo after the pull has landed
 is drawn at once; a reply from before a sign-out is ignored. Each guard was broken on purpose and the file went red (stale
 pull, drop-on-ack, same-record cancel, stamp). `availday.test.ts` does the same for the editor's day read (no hours until
 that date's reply, replies for a date no longer selected ignored in any order, a failure for an old date silent).
 `e2e/sharedoverlay.spec.ts` is the same in a browser with two linked accounts and 300 ms to 1.5 s injected on
 `shared_put`/`shared_pull`: the undo after the pull has landed never makes the row vanish, an edit, a quick add and a delete
-are drawn inside the delay and reach the owner, a forced 403 is taken back and the dot says offline. The last case of
-`e2e/meetavail.spec.ts` holds the next day's `meetreq_day` reply open and asserts no hours are drawn meanwhile.
+are drawn inside the delay and reach the owner, a forced 403 is taken back and the dot says the partner's change was not saved. A lost write reply (including a 5xx after applying it) pauses dependent writes and stays unconfirmed until a pull sent after the loss lands: a confirmed row resumes the queue without retrying, an absent write takes it back, and a failed pull or ended share cannot claim it was not saved. The browser case applies a real partner write then drops its response and checks that no false refusal or retry appears; a separate outage of both partner routes remains unconfirmed through own-list sync. Own-note status ignores partner failures, and refused-note status has space beside the section chip at 320 and 390 pixels. The retry case of
+`e2e/meetavail.spec.ts` fails a day's `meetreq_day` read, asserts the hours stay empty and that tapping the day reads again.
 
 ## server/ — the API contract (PHP over real HTTP)
 
