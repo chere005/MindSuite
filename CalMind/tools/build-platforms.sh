@@ -226,6 +226,10 @@ if [ "$WANT_MAC" = 1 ]; then
   APPBUNDLE=$(ls -d "$ROOT"/desktop/src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -1)
   [ -n "$APPBUNDLE" ] || { echo "the build reported success and produced no .app" >&2; exit 1; }
   echo "    $APPBUNDLE"
+  # Local Tauri bundles need a complete ad-hoc signature before any smoke may launch them.
+  codesign --force --deep --sign - "$APPBUNDLE" \
+    && codesign --verify --deep --strict "$APPBUNDLE" \
+    || { echo 'the built app signature could not be verified' >&2; exit 1; }
   # WAS IT OPEN? The owner, 2026-09-21: "make sure to reopen already opened apps in
   # a dtp.. i was looking at an old acctmind". An rm -rf and a cp -R under a
   # RUNNING app change nothing you can see: macOS still has the old bundle's

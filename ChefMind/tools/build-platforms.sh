@@ -252,6 +252,10 @@ if [ "$WANT_MAC" = 1 ]; then
   APPBUNDLE=$(ls -d "$ROOT"/desktop/src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -1)
   [ -n "$APPBUNDLE" ] || { echo "the build reported success and produced no .app" >&2; exit 1; }
   echo "    $APPBUNDLE"
+  # Local Tauri bundles need a complete ad-hoc signature before any smoke may launch them.
+  codesign --force --deep --sign - "$APPBUNDLE" \
+    && codesign --verify --deep --strict "$APPBUNDLE" \
+    || { echo 'the built app signature could not be verified' >&2; exit 1; }
   # --no-build: the smoke checks the bundle built just above, the one that is
   # then installed. It must not compile the shell a second time. AcctMind's
   # did, inside every lane: 16 s quiet and 74 s under load, and the app it

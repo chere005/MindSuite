@@ -32,3 +32,24 @@ export SMOKE_SIGNATURE=valid
 bash "$OUT/desktop/smoke.sh" --no-build > "$OUT/log" 2>&1 || :
 test "$(cat "$SMOKE_CALLS")" = $'verify\nopen -g' || { echo 'a verified bundle did not launch in the background' >&2; exit 1; }
 echo 'desktop smoke signature and background-launch guards passed'
+
+# The build lane must repair its fresh local bundle before the smoke sees it; a signing error stops the lane.
+for APPNAME in CalMind ChefMind; do
+  python3 - "$HERE/../../$APPNAME/tools/build-platforms.sh" "$OUT/sign-built.sh" <<'PYTEST'
+import sys
+from pathlib import Path
+text=Path(sys.argv[1]).read_text()
+start=text.index('  codesign --force --deep --sign - "$APPBUNDLE"')
+end=text.index("\n", text.index("the built app signature could not be verified",start))
+Path(sys.argv[2]).write_text(text[start:end]+"\nprintf 'smoke\\n' >> \"$SMOKE_CALLS\"\n")
+PYTEST
+  : > "$SMOKE_CALLS"
+  export APPBUNDLE="$OUT/fixture.app" SMOKE_SIGNATURE=valid
+  bash "$OUT/sign-built.sh" > "$OUT/log" 2>&1
+  test "$(cat "$SMOKE_CALLS")" = $'verify\nverify\nsmoke'
+  : > "$SMOKE_CALLS"
+  export SMOKE_SIGNATURE=invalid
+  if bash "$OUT/sign-built.sh" > "$OUT/log" 2>&1; then echo 'failed bundle signing was accepted' >&2; exit 1; fi
+  test "$(cat "$SMOKE_CALLS")" = verify
+done
+echo 'fresh local bundle signing guards passed'
