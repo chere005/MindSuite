@@ -20,6 +20,7 @@ Calendar/reminders/notes/habits/recipes app. Docs: `ARCHITECTURE.md` (map), `TES
 - **Exit code:** the lane ends non-zero when a device build is owed (release still shipped, card closed `ok` severity 2); CoreMind's batch continues to later repos.
 - **Sibling repos:** ChefMind lives at `../ChefMind`; it is a CLONE — fixes land here first, then copied down deliberately. **ChefMind sync:** ChefMind syncs through THIS server (`chef` space) and reads this checkout as `$CALMIND_REPO`; changes to `server/lib` must keep the space contract or its gates break.
 - **Widget page = write:** opening the Scriptable widget feed page on the owner's account mutates his token store; treat as a write to his data.
+- **App sign-in:** native and desktop sign in through `src/appsignin.ts` (+ `-browser.ts`): `/account/app/` in the system auth browser, PKCE, `signin_redeem`; the form only for a server that says it is not shared.
 - **Shared-files drift gate:** `node ../tools/check-shared.mjs --app CalMind` must pass or the lane refuses and names `--fix <group>`; it fails closed if the tool is missing or errors, and the lane never rewrites source mid-release.
 - Use the owner's own recipe notes/shapes (read via the app or round-tripped through core), not invented cards; every real recipe bug came from his.
 

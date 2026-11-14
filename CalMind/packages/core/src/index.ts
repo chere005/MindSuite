@@ -7,6 +7,7 @@ export * from './normalize';
 export * from './day';
 export * from './richtext';
 export * from './b64u';
+export * from './pkce';
 export * from './ical';
 export * from './rrule';
 export * from './calsub';

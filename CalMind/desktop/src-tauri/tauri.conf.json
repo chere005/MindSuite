@@ -9,6 +9,7 @@
     "beforeDevCommand": "sh stage-dist.sh"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "CalMind",

@@ -214,6 +214,16 @@ evidence either way. The watch app picks it up through
 `CURRENT_PROJECT_VERSION`, which is the only reason it was possible to see
 that iOS had left the wrist on an older build than the phone.
 
+**App sign-in (native and desktop).** On a server that is on the suite's shared sign-in the phones and the desktop shells
+show no username and password form: `apps/app/src/appsignin.ts` (the flow, no platform in it) and `appsignin-browser.ts`
+(ASWebAuthenticationSession on iOS, a Custom Tab on Android, the system browser and a one-shot 127.0.0.1 listener in the
+shell: `desktop/src-tauri/src/signin.rs`, std only, four commands in `main.rs`, `withGlobalTauri` and
+`capabilities/default.json`) open the site's `/account/app/` in the system's authentication browser; the person signs in
+there (password, passkey, a password manager), confirms, and the app redeems a PKCE S256 code at `signin_redeem` for the
+same `calmind`-scoped bearer the form gives. The server says whether it takes this (`signin_info`); the form stays only for
+a server that does not. `docs/api.md` "App sign-in" has the contract, the site's `docs/MINDSUITE-LOGIN.md` the threat model.
+ChefMind carries the same files and names `space: 'chef'` on every call.
+
 **The desktop shells.** macOS builds locally out of `desktop/` and the
 `dtp`/`tdtp` lane builds the bundle before the tag; the tag push then starts
 the Release workflow, which builds the Windows installers, the Apple-silicon

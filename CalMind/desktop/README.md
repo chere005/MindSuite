@@ -67,6 +67,17 @@ Needs the Rust toolchain (`rustup`, minimal profile is enough) and the
 `npm run dev` opens a live window against the current export without
 bundling an .app.
 
+## Sign-in
+
+On a server that is on the suite's shared sign-in the window shows one "Sign in" instead of a username and password form
+(`apps/app/src/appsignin.ts`). The shell carries four commands for it, in `src-tauri/src/main.rs` and `signin.rs` (std
+only, no new crate): `signin_listen` binds `127.0.0.1` on a port the system picks and keeps the page's 256-bit `state`,
+`open_in_browser` opens one of the suite's account pages in the default browser (it refuses any other address),
+`signin_wait` waits up to ten minutes for the one request that carries the state and hands its query to the page (the
+window comes to the front), and `signin_cancel` ends the wait. The page reaches them through `window.__TAURI__`, which
+`tauri.conf.json`'s `withGlobalTauri` turns on, and `capabilities/default.json` gives the `main` window the IPC. The
+listener's own tests run without a window or a browser: `sh desktop/test-signin.sh` (also part of `npm run test:desktop`).
+
 ## Windows
 
 Tauri cannot cross-compile from macOS, so Windows (and Linux) build on

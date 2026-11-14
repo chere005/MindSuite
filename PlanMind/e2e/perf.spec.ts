@@ -384,6 +384,64 @@ test.describe('performance', { tag: '@perf' }, () => {
     dayRow(`${info.project.name} tick then untick`, rows);
   });
 
+  /** In the page: taps the circle of each title `gap` ms apart and returns the ms from each tap to the frame that draws its row crossed out (want true) or open (false) in its place, among the done rows or above them (null: never drawn). */
+  const tapRows = (page: Page, steps: { title: string; want: boolean }[], gap: number) => page.evaluate(async ({ steps, gap, wait }) => {
+    const row = (title: string) => document.querySelector<HTMLElement>(`input.day-circle[aria-label$=" ${title}"]`)?.closest<HTMLElement>('li');
+    const seen: (number | null)[] = steps.map(() => null), tapped: number[] = [], before: (boolean | undefined)[] = [];
+    let stop = false;
+    // A step counts as drawn only when its row changed after the tap: an untick of a row that was never drawn crossed out shows nothing.
+    const watch = () => {
+      steps.forEach((step, i) => { if (seen[i] === null && tapped[i] !== undefined && before[i] !== step.want && row(step.title)?.classList.contains('day-done') === step.want) { seen[i] = performance.now() - tapped[i]!; } });
+      if (!stop) { requestAnimationFrame(watch); }
+    };
+    requestAnimationFrame(watch);
+    for (let i = 0; i < steps.length; i++) {
+      before[i] = row(steps[i]!.title)?.classList.contains('day-done');
+      tapped[i] = performance.now();
+      document.querySelector<HTMLInputElement>(`input.day-circle[aria-label$=" ${steps[i]!.title}"]`)?.click();
+      await new Promise(r => setTimeout(r, gap));
+    }
+    // Long enough for a screen that only draws once the last save has returned (a write per tap, one at a time) to show it.
+    await new Promise(r => setTimeout(r, 400 + wait));
+    stop = true;
+    return { seen };
+  }, { steps, gap, wait: steps.length * LATENCY * 1.5 });
+  /** Which of the rows are drawn crossed out now (read after the server holds everything, so the last redraw has happened). */
+  const crossedOut = (page: Page, titles: string[]) => page.evaluate(titles => titles.map(title => document.querySelector<HTMLElement>(`input.day-circle[aria-label$=" ${title}"]`)?.closest('li')?.classList.contains('day-done') === true), titles);
+
+  test('latency: a check-off to the crossed-out row in its place', async ({ page, baseURL }, info) => {
+    await setup(page);
+    const rows = [];
+    for (let run = 0; run < RUNS; run++) {
+      const { owner, date, titles } = await makeTodos(baseURL!, 3, 'Cross');
+      await freshDay(page, date); await showTodos(page); await page.locator(`input.day-circle[aria-label$=" ${titles[0]}"]`).waitFor();
+      await throttle(THROTTLE);
+      const r = await tapRows(page, [{ title: titles[0]!, want: true }], 80);
+      const saved = await settled(owner, s => s.tasks.find((x: any) => x.title === titles[0])?.done === true, 10_000 + LATENCY * 4);
+      await throttle(1); await sleep(LATENCY + 300);
+      rows.push({ visible: r.seen, ok: (await crossedOut(page, [titles[0]!]))[0] === true && saved !== null, saved });
+      await owner.dispose();
+    }
+    dayRow(`${info.project.name} tap to crossed-out row`, rows);
+  });
+
+  test('latency: fifteen taps (thirteen ticks, then two unticks) 80 ms apart', async ({ page, baseURL }, info) => {
+    await setup(page);
+    const rows = [];
+    for (let run = 0; run < RUNS; run++) {
+      const { owner, date, titles } = await makeTodos(baseURL!, 13, 'Run');
+      await freshDay(page, date); await showTodos(page); await page.locator(`input.day-circle[aria-label$=" ${titles[0]}"]`).waitFor();
+      await throttle(THROTTLE);
+      const steps = [...titles.map(title => ({ title, want: true })), { title: titles[0]!, want: false }, { title: titles[1]!, want: false }];
+      const r = await tapRows(page, steps, 80);
+      const saved = await settled(owner, s => titles.every((t, i) => s.tasks.find((x: any) => x.title === t)?.done === (i > 1)), 10_000 + 15 * LATENCY * 2);
+      await throttle(1); await sleep(LATENCY + 300);
+      rows.push({ visible: r.seen, ok: (await crossedOut(page, titles)).every((on, i) => on === (i > 1)) && saved !== null, saved });
+      await owner.dispose();
+    }
+    dayRow(`${info.project.name} fifteen taps`, rows);
+  });
+
   /** A press, a move of `dy` px in 20 steps, a release: a mouse, or a finger that holds first. Returns when the release has been sent. */
   async function rawDrag(page: Page, phone: boolean, from: Pt, dy: number) {
     if (phone) {

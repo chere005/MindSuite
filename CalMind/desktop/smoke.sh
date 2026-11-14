@@ -72,7 +72,8 @@ else
   sed 's/^/      /' /tmp/calmind-desktop-assets.log
 fi
 
-open "$APP"
+codesign --verify --deep --strict "$APP" || { bad "the bundle signature is invalid — refusing to launch"; exit 1; }
+open -g "$APP"
 LAUNCHED=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   pgrep -f calmind-desktop >/dev/null && { LAUNCHED=1; break; }

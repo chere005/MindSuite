@@ -123,7 +123,9 @@ into whichever synced last.
 
 With the suite's shared sign-in on, the web build (this page and CalMind's API share an origin) holds no token: no
 session means `/account/?next=/ChefMind/` and back on the suite cookie, with `X-CSRF-Token` on every write; native and the
-desktop shell keep the bearer login. `app/src/api.ts` and `screens/Login.tsx` carry it, CalMind's `docs/api.md` describes it,
+desktop shell sign in through the suite's `/account/app/` in the system browser (`app/src/appsignin.ts`, PKCE, redeemed at
+CalMind's `signin_redeem` with `space: 'chef'` like every call here) and keep the bearer form only against a server that is not
+on shared sign-in. `app/src/api.ts` and `screens/Login.tsx` carry it, CalMind's `docs/api.md` describes it,
 and `app/test/sharedlogin.test.ts` covers it.
 
 The server endpoint can be selected for a build with `EXPO_PUBLIC_API_URL`,

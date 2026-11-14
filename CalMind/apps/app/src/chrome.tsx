@@ -65,7 +65,7 @@ export function TopBar({
 }) {
   const nav = useNav();
   const insets = useSafeAreaInsets();
-  const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy } = useStore();
+  const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
   // The badge the owner asked for on 2026-08-20, wearing the number core has
   // carried since the stub went in: new meeting requests from the public
   // /request link. The account button is where the stub always said it
@@ -115,7 +115,7 @@ export function TopBar({
   };
   // One rule, one place: the dot, Settings, the note editor and this border
   // all read the same function.
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
   return (
     <>
       <View style={s.topbar}>

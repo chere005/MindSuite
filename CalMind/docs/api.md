@@ -75,7 +75,8 @@ overrides it, `''` keeps the instance legacy). CalMind never copies the library.
   action) follows `chefmind` instead, but only on the space-scoped, sign-in
   and identity actions (`SUITE_SPACE_ACTIONS` in `server/lib/app.php`:
   `sync`, `shared_*`, `recipe_fetch`, `login`, `logout`, `whoami`, `signup`,
-  `recover`, `reset`, `change_password`, `passkey_login_*`, `passkey_list`);
+  `recover`, `reset`, `change_password`, `passkey_login_*`, `passkey_list`,
+  `signin_info`, `signin_redeem`);
   every other action (`delete_account`, `passkey_register_*`,
   `passkey_remove`, `meetreq_*`, `calsub_*`) follows `calmind` whatever the
   body says: `chefmind` held keeps it legacy while
@@ -147,9 +148,17 @@ The **web build** (`apps/app/src/api.ts`, `screens/Login.tsx`; ChefMind's copy i
   it is not a loop.
 - **Log out** (`logout` with the cookie session) revokes the browser's session and clears the cookie; the next check waits
   for it, so the old cookie cannot sign the person straight back in.
-- **Native, the desktop shell and every build off the API's origin** keep the bearer login and its reply shapes unchanged.
+- **Native, the desktop shell and every build off the API's origin** keep the bearer login and its reply shapes unchanged, and sign in through `/account/app/` when the server says so (below).
 
-Tests: `server/tools/shared-login-test.php` (every mode),
+### App sign-in (native and desktop)
+
+A native or desktop app on a shared server shows no username or password form: one "Sign in" opens the site's `/account/app/` in the system's authentication browser (iOS ASWebAuthenticationSession, Android Custom Tabs, the desktop's default browser), where the person signs in as on the web (password, passkey, a password manager) and confirms. The site hands back ONE code to the app's own return address (`com.seancheren.calmind:/signin`, `com.seancheren.chefmind:/signin`, or `http://127.0.0.1:<port>/signin` on desktop) bound to a PKCE S256 challenge; the app redeems it here for the same `calmind`-scoped bearer `login` gives. The code half is the site library's `lib/mindsuite-app-signin.php` (64 hex, 120 s, one attempt, stored as sha256 only, bound to the app, the return address, the challenge, the confirming browser session and the account's revocation generation); the page is described in the site's `docs/MINDSUITE-LOGIN.md`.
+
+- `signin_info` (public) answers `{ ok, shared, app_signin }`. `shared: false` is the legacy mode; `app_signin: false` on a shared server is a site lib that predates the feature. In both the app keeps its form. A server too old to know the action answers `400 unknown action`, which the app reads the same way. A shared server whose store cannot be read answers `503` with `shared: true`.
+- `signin_redeem` (public) takes `{ code, code_verifier, redirect_uri }` (and ChefMind's `space: 'chef'`, which makes it follow the `chefmind` hold and register the code as ChefMind's) and answers `{ ok, token, username }`. A legacy server answers `400 app sign-in needs the shared sign-in` with no `shared` flag; an older site lib `503 shared`; a bad shape `400 invalid request`; a code that is expired, spent, bound to another app, address, verifier or browser session, or whose account signed out everywhere meanwhile `400 that sign-in expired; try again` (all shared). Redeeming a spent code ends the session it made. The cap is below and is taken before the code is looked at, so a refusal leaves a valid code unspent.
+- Nothing logs a code, verifier or token; the usage log records `app_signin` or `app_signin_fail` and, for the first, the user.
+
+Tests: `server/tools/shared-login-test.php` (every mode), `server/tools/app-signin-test.php` (app sign-in),
 `contract-test.php --shared`, and the shared case in `abuse-test.php`; each
 reads the site lib from `CALMIND_SITE_LIB_TEST` (default: a `seancheren-site`
 checkout beside this repository's).
@@ -162,6 +171,8 @@ checkout beside this repository's).
 | `login` | — | `{ username, password }` → `{ token, username }`. |
 | `logout` | Bearer | Revoke the calling token. |
 | `whoami` | Bearer | `{ username }` for the token. |
+| `signin_info` | — | `{ shared, app_signin }`: does this server take app sign-in (see above). |
+| `signin_redeem` | — | `{ code, code_verifier, redirect_uri }` from `/account/app/` -> `{ token, username }`, a `calmind`-scoped bearer. Shared sign-in only. |
 | `change_password` | Bearer | Set a new password; revokes all tokens. Shared sign-in: `403`, change it at `/account/`. |
 | `recover` | — | Email a 6-digit reset code (15 min, 5 tries; hashed at rest). Always `{ok:true}`; 60 s and 3/h per username, 3/h per address, 10/h per IP (a speed bump), plus the address-independent caps below; mail sent by a detached worker (never inside the request: the host is CGI). |
 | `reset` | — | Code + new password; revokes all tokens. |
@@ -197,6 +208,7 @@ loops), and `lib/app.php` adds counters that name no address, through `cap_take(
 | `meetreq_create` | whole site | 30 an hour, 100 a day |
 | `meetreq_create` | the account asked about, whether or not it exists | 10 an hour, 30 a day |
 | `meetreq_mail` | whole site, counted only for an authorised answer about to go out | 60 an hour, 200 a day |
+| `signin_redeem` | whole site, every attempt, taken before the code is looked at | 60 an hour, 200 a day |
 
 The per-account and per-destination parts of the mail limits (`u:` and `a:` in `abuse_take`) already named no address and
 are unchanged; only their site-wide part was missing.

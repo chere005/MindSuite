@@ -991,6 +991,19 @@ form; a cookie that now belongs to somebody else never carries the page's write 
 and held, where CalMind keeps its form and a bearer token. The last case flips one line of the scratch site config
 between `on` and `held` on the same server, so the other cases cannot be vacuous. "Off" and "site lib missing" answer the
 legacy way and are what the whole gesture suite runs against (no site lib is set there), so this config does not repeat them.
+`e2e-shared/appsignin.spec.ts` is app sign-in in the same harness (`CALMIND_E2E_SHARED_PORT=8905 npx playwright test -c
+playwright.shared.config.ts e2e-shared/appsignin.spec.ts`; the router also serves the real `/account/app/`). The desktop shell
+is faked at ONE seam, `window.__TAURI__.core.invoke`: node answers `signin_listen` with a real loopback http server, runs
+`open_in_browser` in a SECOND browser context (the system browser's own cookie jar) and resolves `signin_wait` with the
+query the listener received. Cases: Sign in, no username or password field, the account page with its banner, sign in as
+alex, "Continue to CalMind as alex?", Continue, and the app is signed in (a 64-hex token, `suite: true`, scope `calmind` in
+the shared store, no request ever carried `login`); the scheme return (a 303 to `com.seancheren.calmind:/signin` with a
+64-hex code that redeems once and ends its session on replay); a wrong verifier; Cancel on the page (`access_denied` back to
+the listener, the Sign in card, no error) and the app's own Cancel pill; held, where the API is legacy and the old form is
+shown; and the screens by eye (the confirm page in midnight and sage at 420 and 1280 wide, the invalid-link page, the app's
+Sign in, waiting and offline cards). The desktop Rust listener is `sh desktop/test-signin.sh`. Not provable here: a real
+Tauri IPC call and an https-to-loopback hand-back inside a running shell (no app is launched).
+Native acceptance: a Release iOS simulator build was tested against a disposable HTTPS account page and API, with a trust root confined to that simulator. XCTest drove the real system authentication session, password sign-in, account confirmation and return to the signed-in app; all assertions passed and the captured screens were inspected. The fixture, trust root and simulator were removed afterward.
 Not covered in a browser: ChefMind (its dev-host rule aims a page on 127.0.0.1 at port 8788, so its web build cannot be pointed at
 this server without a second export built for it); its `api.ts` and `Login.tsx` are covered by the unit file and the same
 `Login.tsx` bytes.
@@ -1002,15 +1015,16 @@ writes laid over it. The unit file drives it with a fake API whose every reply i
 order: a write is drawn before any request is answered (changed, new, deleted); writes go out one at a time in the order
 made with strictly increasing stamps; a pull sent before a write and answered after it, a pull older than one already
 applied, and a pull while the write is in flight never bring the old copy back; a pull sent after the acknowledgement
-shows the server's copy; a refused write takes back exactly its own change, later queued writes on the SAME record are
-taken back with it and never sent, other records and earlier acknowledged writes stay; an undo after the pull has landed
+shows the server's copy; a refused write takes back exactly its own change, every write still queued for that partner is
+taken back with it and never sent, earlier acknowledged writes stay, and the person is told the change was not saved (the
+telling clears when dismissed in Settings, on the next acknowledged write or sign-out; no pull clears it, so neither sharing ending nor a switch to another partner hides it); an undo after the pull has landed
 is drawn at once; a reply from before a sign-out is ignored. Each guard was broken on purpose and the file went red (stale
 pull, drop-on-ack, same-record cancel, stamp). `availday.test.ts` does the same for the editor's day read (no hours until
 that date's reply, replies for a date no longer selected ignored in any order, a failure for an old date silent).
 `e2e/sharedoverlay.spec.ts` is the same in a browser with two linked accounts and 300 ms to 1.5 s injected on
 `shared_put`/`shared_pull`: the undo after the pull has landed never makes the row vanish, an edit, a quick add and a delete
-are drawn inside the delay and reach the owner, a forced 403 is taken back and the dot says offline. The last case of
-`e2e/meetavail.spec.ts` holds the next day's `meetreq_day` reply open and asserts no hours are drawn meanwhile.
+are drawn inside the delay and reach the owner, a forced 403 is taken back and the dot says the partner's change was not saved. A lost write reply (including a 5xx after applying it) pauses dependent writes and stays unconfirmed until a pull sent after the loss lands: a confirmed row resumes the queue without retrying, an absent write takes it back, and a failed pull or ended share cannot claim it was not saved. After a partner becomes unreadable, writes acknowledged or refused for another partner cannot settle the original lost reply; that warning lasts until sign-out/reset (two timing cases, before and after the loss). The browser case applies a real partner write then drops its response and checks that no false refusal or retry appears; a separate outage of both partner routes remains unconfirmed through own-list sync. Own-note status ignores partner failures, and refused-note status has space beside the section chip at 320 and 390 pixels. The retry case of
+`e2e/meetavail.spec.ts` fails a day's `meetreq_day` read, asserts the hours stay empty and that tapping the day reads again.
 
 ## server/ — the API contract (PHP over real HTTP)
 
@@ -1468,3 +1482,5 @@ temptation to report them was real:
   the live test API, quits clean. Windows and Linux: the Release
   workflow's jobs install and launch the package on the runner; `sh
   tools/preflight.sh` runs them without publishing.
+
+The local desktop smoke verifies the bundle signature before opening it in the background; `bash desktop/test-smoke.sh` checks refusal and launch ordering against OS command stand-ins without opening a window.

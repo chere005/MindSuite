@@ -6,7 +6,7 @@ import { SharedWrites } from '../src/sharedwrites';
 // in whatever order the test likes.
 
 type R = { id: string; deleted?: boolean; updated?: number; payload: { done?: boolean; title?: string } };
-type Held = { arg: unknown; ok: () => void; fail: () => void };
+type Held = { arg: unknown; ok: () => void; fail: () => void; lose?: (applied: boolean, status?: number) => void };
 
 function setup(serverRows: R[] = []) {
   const server = new Map(serverRows.map((r) => [r.id, r]));
@@ -14,20 +14,25 @@ function setup(serverRows: R[] = []) {
   const pullCalls: Array<Held & { snapshot: R[] }> = [];
   const views: R[][] = [];
   const troubles: number[] = [];
+  const recovered: number[] = [];
+  const unconfirmed: number[] = [];
+  const who = { partner: 'p' };
   const w = new SharedWrites<R, string>(
     {
       put: (_partner, rec) => new Promise<void>((ok, fail) => {
-        putCalls.push({ arg: rec, rec, ok: () => { if (rec.deleted) server.delete(rec.id); else server.set(rec.id, rec); ok(); }, fail: () => fail(new Error('refused')) });
+        const apply = () => { if (rec.deleted) server.delete(rec.id); else server.set(rec.id, rec); };
+        putCalls.push({ arg: rec, rec, ok: () => { apply(); ok(); }, fail: () => fail(Object.assign(new Error('refused'), { status: 403 })),
+          lose: (applied, status = 0) => { if (applied) apply(); fail(Object.assign(new Error('reply lost'), { status })); } });
       }),
       pull: () => new Promise((ok, fail) => {
         // The server's state AT THE MOMENT THE PULL IS SENT is what it will answer with.
         const snapshot = Array.from(server.values());
-        pullCalls.push({ arg: null, snapshot, ok: () => ok({ partners: ['p'], partner: 'p', records: snapshot }), fail: () => fail(new Error('down')) });
+        pullCalls.push({ arg: null, snapshot, ok: () => ok({ partners: [who.partner], partner: who.partner, records: snapshot }), fail: () => fail(new Error('down')) });
       }),
     },
-    { onView: (v) => views.push(v), onPulled: () => {}, onTrouble: () => troubles.push(views.length) },
+    { onView: (v) => views.push(v), onPulled: () => {}, onTrouble: () => troubles.push(views.length), onRecovered: () => recovered.push(views.length), onUnconfirmed: () => unconfirmed.push(views.length) },
   );
-  return { w, putCalls, pullCalls, views, troubles, server };
+  return { w, who, putCalls, pullCalls, views, troubles, recovered, unconfirmed, server };
 }
 
 const row = (id: string, done = false, title = id): R => ({ id, updated: 1, payload: { done, title } });
@@ -73,7 +78,7 @@ describe('(b) writes go out in order, each from the latest picture', () => {
     const sent: number[] = [];
     const w = new SharedWrites<R, string>(
       { put: async (_p, rec) => { sent.push(rec.updated!); }, pull: () => new Promise(() => {}) },
-      { onView: () => {}, onPulled: () => {}, onTrouble: () => {} }, () => 1000);
+      { onView: () => {}, onPulled: () => {}, onTrouble: () => {}, onRecovered: () => {} }, () => 1000);
     void w.put('p', row('a'));
     void w.put('p', row('b'));
     await settle();
@@ -142,15 +147,28 @@ describe('(d) a refused write takes back exactly its own change', () => {
     const t = setup([row('a')]);
     const p = t.w.pull(); t.pullCalls[0].ok(); await p;
     void t.w.put('p', row('new'));
-    void t.w.put('p', { ...row('a'), deleted: true });
-    expect(t.w.view().map((r) => r.id)).toEqual(['new']);
     t.putCalls[0].fail(); await settle();
+    expect(t.w.view().map((r) => r.id)).toEqual(['a']);
+    void t.w.put('p', { ...row('a'), deleted: true });
+    expect(t.w.view().map((r) => r.id)).toEqual([]);
     t.putCalls[1].fail(); await settle();
     expect(t.w.view().map((r) => r.id)).toEqual(['a']);
     expect(t.troubles).toHaveLength(2);
   });
 
-  test('later queued writes on the SAME record are taken back and never sent; other records are untouched', async () => {
+  test('a write built on a failed one on ANOTHER record is taken back and never sent (section then reminder)', async () => {
+    const t = setup([row('list')]);
+    const p = t.w.pull(); t.pullCalls[0].ok(); await p;
+    void t.w.put('p', row('section'));
+    void t.w.put('p', { ...row('reminder'), payload: { title: 'in the section' } });
+    expect(t.w.view().map((r) => r.id).sort()).toEqual(['list', 'reminder', 'section']);
+    t.putCalls[0].fail(); await settle();
+    expect(t.w.view().map((r) => r.id)).toEqual(['list']);
+    expect(t.putCalls).toHaveLength(1); // the reminder was never sent
+    expect(t.troubles).toHaveLength(1);
+  });
+
+  test('later queued writes for the partner are all taken back, same record or not; later ones go out', async () => {
     const t = setup([row('a'), row('b')]);
     const p = t.w.pull(); t.pullCalls[0].ok(); await p;
     void t.w.put('p', { ...row('a'), payload: { done: true } });
@@ -158,14 +176,24 @@ describe('(d) a refused write takes back exactly its own change', () => {
     void t.w.put('p', { ...row('a'), payload: { done: false, title: 'edited' } });
     t.putCalls[0].fail(); await settle();
     expect(done(t.w, 'a')).toBe(false);
-    expect(t.w.view().find((r) => r.id === 'a')!.payload.title).toBe('a'); // the edit went with it
-    expect(done(t.w, 'b')).toBe(true);
-    // only b is sent next; a's second write never is
+    expect(t.w.view().find((r) => r.id === 'a')!.payload.title).toBe('a');
+    expect(done(t.w, 'b')).toBe(false); // the unrelated record went too: same list, same cause
+    expect(t.putCalls).toHaveLength(1);
+    // a write made after the take-back is sent normally
+    void t.w.put('p', { ...row('b'), payload: { done: true } });
     expect(t.putCalls).toHaveLength(2);
-    expect(t.putCalls[1].rec.id).toBe('b');
-    t.putCalls[1].ok(); await settle();
-    expect(t.putCalls).toHaveLength(2);
     expect(done(t.w, 'b')).toBe(true);
+  });
+
+  test('a write already acknowledged on another record survives the failure', async () => {
+    const t = setup([row('a'), row('b')]);
+    const p = t.w.pull(); t.pullCalls[0].ok(); await p;
+    void t.w.put('p', { ...row('b'), payload: { done: true } });
+    t.putCalls[0].ok(); await settle();
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    t.putCalls[1].fail(); await settle();
+    expect(done(t.w, 'b')).toBe(true);
+    expect(done(t.w, 'a')).toBe(false);
   });
 
   test('an earlier acknowledged write on the same record survives a later failure', async () => {
@@ -176,6 +204,195 @@ describe('(d) a refused write takes back exactly its own change', () => {
     void t.w.put('p', { ...row('a'), payload: { done: false } });
     t.putCalls[1].fail(); await settle();
     expect(done(t.w, 'a')).toBe(true);
+  });
+});
+
+describe('a lost reply is reconciled before claiming that the write was not saved', () => {
+  test.each([0, 500])('an applied write with a lost reply (status %s) is kept, with dependent writes paused until the pull confirms it', async status => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('section'));
+    void t.w.put('p', row('child'));
+    t.putCalls[0].lose!(true, status); await settle();
+    expect(t.troubles).toHaveLength(0);
+    expect(t.unconfirmed).toHaveLength(1);
+    expect(t.w.view().map(r => r.id)).toEqual(['a', 'section', 'child']);
+    expect(t.putCalls).toHaveLength(1);
+    t.pullCalls[1].ok(); await settle();
+    expect(t.putCalls).toHaveLength(2);
+    expect(t.recovered).toHaveLength(1);
+    t.putCalls[1].ok(); await settle();
+    t.pullCalls[2].ok(); await settle();
+    expect(t.w.unsettled()).toBe(0);
+    expect(t.troubles).toHaveLength(0);
+  });
+
+  test('a failed re-read keeps the change unconfirmed without retrying; a later pull proving it absent takes back the queue', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('section'));
+    void t.w.put('p', row('child'));
+    t.putCalls[0].lose!(false); await settle();
+    t.pullCalls[1].fail(); await settle();
+    expect(t.troubles).toHaveLength(0);
+    expect(t.w.view().map(r => r.id)).toEqual(['a', 'section', 'child']);
+    void t.w.put('p', row('later'));
+    expect(t.putCalls).toHaveLength(1);
+    const pulled = t.w.pull(); t.pullCalls[2].ok(); await pulled; await settle();
+    expect(t.troubles).toHaveLength(1);
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.w.view().map(r => r.id)).toEqual(['a']);
+    expect(t.putCalls).toHaveLength(1);
+  });
+
+  test('a pull sent before the lost reply cannot decide whether it landed', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    const old = t.w.pull();
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    t.putCalls[0].lose!(true); await settle();
+    t.pullCalls[1].ok(); await old;
+    expect(t.troubles).toHaveLength(0);
+    expect(done(t.w, 'a')).toBe(true);
+    t.pullCalls[2].ok(); await settle();
+    expect(t.recovered).toHaveLength(1);
+    expect(t.troubles).toHaveLength(0);
+  });
+
+  test('an applied deletion is confirmed by its absence', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', { ...row('a'), deleted: true });
+    t.putCalls[0].lose!(true); await settle();
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.view()).toEqual([]);
+    expect(t.troubles).toHaveLength(0);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('an ended share cannot prove a lost write absent', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    t.putCalls[0].lose!(true); await settle();
+    t.who.partner = 'q';
+    t.pullCalls[1].ok(); await settle();
+    expect(t.troubles).toHaveLength(0);
+    expect(t.unconfirmed).toHaveLength(1);
+    expect(t.putCalls).toHaveLength(1);
+  });
+
+  test.each([false, true])('another partner’s acknowledged write cannot confirm an old lost reply (partner changed before loss: %s)', async changedBeforeLoss => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    if (changedBeforeLoss) {
+      t.who.partner = 'q';
+      const changed = t.w.pull(); t.pullCalls[1].ok(); await changed;
+    }
+    t.putCalls[0].lose!(true); await settle();
+    t.who.partner = 'q';
+    t.pullCalls.at(-1)!.ok(); await settle();
+    void t.w.put('q', row('q-change'));
+    t.putCalls[1].ok(); await settle();
+    t.pullCalls.at(-1)!.ok(); await settle();
+    expect(t.recovered).toHaveLength(0);
+    void t.w.put('q', row('q-refused'));
+    t.putCalls[2].fail(); await settle();
+    expect(t.troubles).toHaveLength(0); // the unresolved outcome remains the notice
+    t.w.dismissTrouble();
+    expect(t.recovered).toHaveLength(0);
+    t.w.reset();
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('reset prevents an old reconciliation from changing the next account', async () => {
+    const t = setup([row('a')]);
+    const first = t.w.pull(); t.pullCalls[0].ok(); await first;
+    void t.w.put('p', row('new'));
+    t.putCalls[0].lose!(true); await settle();
+    t.w.reset();
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.view()).toEqual([]);
+    expect(t.troubles).toHaveLength(0);
+    expect(t.recovered).toHaveLength(1);
+  });
+});
+
+describe('(d2) the trouble stands until something true clears it', () => {
+  const fail1 = async () => {
+    const t = setup([row('a')]);
+    const p = t.w.pull(); t.pullCalls[0].ok(); await p;
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    t.putCalls[0].fail(); await settle();
+    return t;
+  };
+
+  test('it is set by a take-back, and a pull alone does not clear it', async () => {
+    const t = await fail1();
+    expect(t.w.inTrouble()).toBe(true);
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.recovered).toHaveLength(0);
+  });
+
+  test('the next acknowledged write clears it, once', async () => {
+    const t = await fail1();
+    void t.w.put('p', { ...row('a'), payload: { done: true } });
+    expect(t.w.inTrouble()).toBe(true); // made, not yet acknowledged
+    t.putCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a second failure while troubled tells again and still needs one acknowledgement', async () => {
+    const t = await fail1();
+    void t.w.put('p', row('x'));
+    t.putCalls[1].fail(); await settle();
+    expect(t.troubles).toHaveLength(2);
+    expect(t.w.inTrouble()).toBe(true);
+  });
+
+  test('reset clears it', async () => {
+    const t = await fail1();
+    t.w.reset();
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a known refusal can be dismissed without resetting the partner list', async () => {
+    const t = await fail1();
+    const before = t.w.view();
+    t.w.dismissTrouble();
+    expect(t.w.inTrouble()).toBe(false);
+    expect(t.w.view()).toEqual(before);
+    expect(t.recovered).toHaveLength(1);
+  });
+
+  test('a pull that shows a different partner (several mutual partners) does not clear it', async () => {
+    const t = await fail1();
+    t.who.partner = 'q';
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.recovered).toHaveLength(0);
+    const p2 = t.w.pull();
+    t.pullCalls[2].ok(); await p2;
+    expect(t.w.inTrouble()).toBe(true);
+  });
+
+  test('a pull that shows no partner (sharing ended) does not clear it', async () => {
+    const t = await fail1();
+    t.who.partner = null as unknown as string;
+    t.pullCalls[1].ok(); await settle();
+    expect(t.w.inTrouble()).toBe(true);
+    expect(t.recovered).toHaveLength(0);
+  });
+
+  test('no trouble reported: nothing to clear', async () => {
+    const t = setup([row('a')]);
+    void t.w.put('p', row('a'));
+    t.putCalls[0].ok(); await settle();
+    expect(t.recovered).toHaveLength(0);
   });
 });
 

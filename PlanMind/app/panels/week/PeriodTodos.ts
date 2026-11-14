@@ -5,6 +5,7 @@
  */
 import { counter, dayLabel, monthView, newOwners, periodBlankLines, periodStart, textLimit, weekView, type BlankAim, type ListId, type Owners, type Task, type TodoRow } from '../../../packages/core/src/planner';
 import { RESTORED, cancel, commit, countHtml, deleteHtml, errorHtml, fieldName, paintSession, press, q, textHtml, unpress, wireRow, type Host, type Plan } from '../../inplace/Inline';
+import { createCarry } from '../../inplace/carry';
 import { createEdits, unsentRest, type Session } from '../../inplace/session';
 import { esc, type PanelContext, type Unmount } from '../../panelContext';
 import { bothButton, mountBlanks, newName, ownerColor, seatRow } from '../BlankSlots';
@@ -20,6 +21,15 @@ const addState = (scope: TodoScope, date: string): AddState => {
   if (!state) { state = { title: '', id: crypto.randomUUID(), refocus: false }; adds.set(key, state); }
   return state;
 };
+
+/** Who the add field is for after an Enter that added a to-do over a blank line aimed at one person (or both): the same people, until the person stops writing (inplace/carry.ts). */
+const carry = createCarry();
+const carryAt = (ctx: PanelContext, scope: TodoScope) => [`${scope}:${ctx.date}`, JSON.stringify(ctx.selection)] as const;
+/** Who the add field is for: the people carried from the last Enter, else the top picker's (its base list, or both of us when the base is Both). */
+function addFor(ctx: PanelContext, scope: TodoScope) {
+  const owners = carry.owners(...carryAt(ctx, scope), newOwners(ctx.selection, ctx.lists, ctx.settings).owners);
+  return { owners, carried: carry.active };
+}
 
 /** The one to-do of a week or a month that is being edited where it stands (no window). */
 type EditFields = { text: string; date: string };
@@ -71,8 +81,9 @@ export function todoSectionHtml(ctx: PanelContext, scope: TodoScope, open: TodoR
   const length = counter(add.title.trim(), textLimit('todo', scope, false));
   // The first blank line is the add field (Enter adds; Add shows once there is text); the rest are blank lines down to the page's minimum, less the done rows,
   // which are the last lines of the page.
-  const addLine = (line: number) => `<li class="wm-free wm-free-add" data-slot="${line}">${GHOST}<form class="wm-add" aria-label="Add a to-do" autocomplete="off" novalidate>
-    <input class="wm-add-title" data-key="${ADD_KEY}" aria-label="New to-do" placeholder="Add something for this ${scope}…" autocomplete="off" value="${esc(add.title)}" enterkeyhint="done">
+  const { owners: addOwners, carried } = addFor(ctx, scope);
+  const addLine = (line: number) => `<li class="wm-free wm-free-add" data-slot="${line}"${carried ? ` data-c="${ownerColor(ctx, addOwners)}"` : ''}>${GHOST}<form class="wm-add" aria-label="Add a to-do" autocomplete="off" novalidate>
+    <input class="wm-add-title" data-key="${ADD_KEY}" aria-label="${carried ? esc(newName(ctx, addOwners)) : 'New to-do'}" placeholder="Add something for this ${scope}…" autocomplete="off" value="${esc(add.title)}" enterkeyhint="done">
     <span class="wm-add-count"${nearLimit(length.used, length.max) ? '' : ' hidden'}>${length.used} / ${length.max}</span>
     <button class="primary wm-add-go" type="submit" data-writes${add.title.trim() ? '' : ' hidden'}>Add</button></form>${bothButton(ctx)}</li>`;
   // A new to-do being written takes the blank line it was started on (the first one when rows came in above it).
@@ -95,6 +106,21 @@ export function mountTodos(root: HTMLElement, ctx: PanelContext, scope: TodoScop
   const max = textLimit('todo', scope, false);
 
   if (add.refocus) { add.refocus = false; title?.focus(); }
+  // The people carried end when the person stops writing: Escape, or the focus leaving the line. A press on Add (or a tap: some browsers give a
+  // button no focus and report no related target) and the redraw this field asks for after its own add are not leaving.
+  const line = find<HTMLElement>('.wm-free-add');
+  const paintLine = () => {
+    const { owners, carried } = addFor(ctx, scope);
+    if (line) { if (carried) { line.dataset.c = ownerColor(ctx, owners); } else { delete line.dataset.c; } }
+    title?.setAttribute('aria-label', carried ? newName(ctx, owners) : 'New to-do');
+  };
+  let pressing = false;
+  form?.addEventListener('pointerdown', () => { pressing = true; setTimeout(() => { pressing = false; }, 1000); });
+  title?.addEventListener('keydown', event => { if (event.key === 'Escape' && carry.active) { carry.drop(); paintLine(); } });
+  title?.addEventListener('blur', event => {
+    if (add.refocus || pressing || (event.relatedTarget instanceof Node && form?.contains(event.relatedTarget)) || !carry.active) { return; }
+    carry.drop(); paintLine();
+  });
   if (title && addCount && go && form) {
     title.oninput = () => {
       add.title = title.value;
@@ -106,8 +132,8 @@ export function mountTodos(root: HTMLElement, ctx: PanelContext, scope: TodoScop
     form.onsubmit = async event => {
       event.preventDefault();
       const text = title.value.trim();
-      // Who a new to-do is for follows the top picker: its base list, or both of us when the base is Both.
-      const { owners } = newOwners(ctx.selection, ctx.lists, ctx.settings);
+      // Who a new to-do is for: the people carried from the last Enter, else the top picker's (its base list, or both of us when the base is Both).
+      const { owners } = addFor(ctx, scope);
       if (!text) { return; }
       if (counter(text, max).over) { ctx.report(`Use at most ${max} characters.`); return; }
       const result = await ctx.send({ action: 'add', kind: 'todo', id: add.id, scope, date: ctx.date, owners, title: text });
@@ -150,6 +176,7 @@ export function mountTodos(root: HTMLElement, ctx: PanelContext, scope: TodoScop
     open: (aim: BlankAim, slot, onAdd) => {
       const line = Number(slot.dataset.slot);
       title?.blur();
+      carry.drop();
       edits.open(newKey(line), { text: '', date: ctx.date }, { id: crypto.randomUUID(), scope, owners: aim.owners, revision: 0, listId: '', stored: false, line, viaAdd: onAdd });
       ctx.rerender();
     },
@@ -181,14 +208,17 @@ function mountNew(root: HTMLElement, ctx: PanelContext, scope: TodoScope, s: Edi
     q(row, 'count')!.dataset.over = String(v.size.over);
     paintSession(row, s, 'to-do', '', s.error || v.message || (s.restored ? RESTORED : ''));
   };
-  const plan = (): Plan => {
+  const plan = (how: 'enter' | 'leave'): Plan => {
     const text = s.draft.text.trim(), v = verdict();
     // The add went through and only its reply was lost: it is there, there is nothing more to write.
     if (stored()) { return { kind: 'none' }; }
     if (text === '') { return { kind: 'empty' }; }
     if (!v.ok) { return { kind: 'invalid', message: v.message }; }
-    // Written over the add field's line (a click on the empty field): the keyboard goes back to the add field to type the next one, as after Enter in it.
-    return { kind: 'send', said: 'Saved.', focusKey: s.meta.viaAdd ? ADD_KEY : keyOf(id), mutation: { action: 'add', kind: 'todo', id, scope, date: ctx.date, owners, title: text } };
+    // Written over the add field's line (a click on the empty field): the keyboard goes back to the add field to type the next one, as after Enter in it,
+    // and that field is for the SAME people as this to-do; leaving the row any other way ends that.
+    const toAdd = how === 'enter' && !!s.meta.viaAdd;
+    if (toAdd) { carry.set(owners, ...carryAt(ctx, scope)); } else { carry.drop(); }
+    return { kind: 'send', said: 'Saved.', focusKey: toAdd ? ADD_KEY : keyOf(id), mutation: { action: 'add', kind: 'todo', id, scope, date: ctx.date, owners, title: text } };
   };
   // Closed by hand where the panel cannot be drawn again: the to-do if it was added, the blank line it was written on if not.
   // An open to-do goes after the last open row (ahead of the blank lines), where the next drawing will put it.

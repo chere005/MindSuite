@@ -83,6 +83,8 @@ const MEETREQ_ACCT_HOUR   = 10;   // creates aimed at one account per hour
 const MEETREQ_ACCT_DAY    = 30;
 const MEETREQ_MAIL_GLOBAL_HOUR = 60;   // answers mailed, whole site (counted once the caller is authorised)
 const MEETREQ_MAIL_GLOBAL_DAY  = 200;
+const SIGNIN_REDEEM_HOUR = 60;   // app sign-in redemptions (signin_redeem), whole site, every attempt
+const SIGNIN_REDEEM_DAY  = 200;
 
 function app_config(): array
 {
@@ -601,13 +603,13 @@ const SUITE_SPACE_APPS = ['chef' => 'chefmind'];
 /**
  * The only actions whose `space` picks the hold: the three whose data is scoped by space, ChefMind's own recipe_fetch,
  * and the ones that carry identity only (sign-in, sign-up, recover/reset, passkey sign-in and list, change_password,
- * whoami, logout), so a held ChefMind keeps its whole legacy sign-in. Every other action (delete_account,
+ * whoami, logout, and the two app sign-in actions signin_info and signin_redeem), so a held ChefMind keeps its whole legacy sign-in. Every other action (delete_account,
  * passkey_register_*, passkey_remove, meetreq_*, calsub_*, ...) reaches CalMind's own data or adds a way into the whole
  * account and always follows calmind's hold, so a body field can never open a second door into CalMind while the two
  * holds differ.
  */
 const SUITE_SPACE_ACTIONS = ['sync', 'shared_pull', 'shared_put', 'login', 'logout', 'whoami', 'signup', 'recover', 'reset',
-    'change_password', 'passkey_login_begin', 'passkey_login_finish', 'passkey_list', 'recipe_fetch'];
+    'change_password', 'passkey_login_begin', 'passkey_login_finish', 'passkey_list', 'recipe_fetch', 'signin_info', 'signin_redeem'];
 
 /** The suite app this request follows (SUITE_SPACE_APPS by its `space`, else SUITE_APP). The API sets it once from the body. */
 function suite_app(?array $in = null): string
@@ -669,6 +671,9 @@ function suite_auth(array $cfg): array
         // same value back (handle_signup), so a per-request random value keeps msa_signup working and leaks nothing.
         if (!defined('SIGNUP_CODE')) { define('SIGNUP_CODE', bin2hex(random_bytes(16))); }
         foreach ($files as $f) { require_once $lib . '/' . $f; }
+        // Optional: a site lib that predates app sign-in has nothing to redeem (signin_info says so). Never part of $files or
+        // SUITE_FUNCS: either would turn the whole API legacy against an older site lib.
+        if (is_file($lib . '/mindsuite-app-signin.php')) { require_once $lib . '/mindsuite-app-signin.php'; }
         foreach (SUITE_FUNCS as $fn) { if (!function_exists($fn)) { return $memo[$key] = $legacy; } }
         $site = suite_site_config($cfg, $lib);
     } catch (Throwable $e) {
@@ -1857,6 +1862,39 @@ function handle_passkey_login_finish_shared(array $cfg, array $suite, array $in)
         fail_shared(503, 'sign-in unavailable');
     }
     usage_log($cfg, 'passkey_login', (string) $s['user']);
+    reply(200, ['ok' => true, 'token' => (string) $s['token'], 'username' => (string) $s['user']]);
+}
+
+// ---------------------------------------------------------------- app sign-in (native and desktop)
+
+/** Public: does this API take app sign-in? Legacy: no; shared: yes when the site lib has the code half. */
+function handle_signin_info(array $cfg): never
+{
+    $suite = suite_auth($cfg);
+    if (!$suite['shared']) { reply(200, ['ok' => true, 'shared' => false, 'app_signin' => false]); }
+    suite_cfg($suite);   // 503 shared:true when the store or key cannot be read
+    reply(200, ['ok' => true, 'shared' => true, 'app_signin' => function_exists('msa_app_signin_redeem')]);
+}
+
+/** Public, and worth nothing alone: a code from /account/app/ plus its PKCE verifier -> a calmind-scoped bearer, the reply `login` gives. */
+function handle_signin_redeem(array $cfg, array $in): never
+{
+    $suite = suite_auth($cfg);
+    if (!$suite['shared']) { fail(400, 'app sign-in needs the shared sign-in'); }
+    $acfg = suite_cfg($suite);
+    if (!function_exists('msa_app_signin_redeem')) { fail_shared(503, 'sign-in unavailable'); }
+    $code = $in['code'] ?? null; $verifier = $in['code_verifier'] ?? null; $redirect = $in['redirect_uri'] ?? null;
+    if (!is_string($code) || !is_string($verifier) || !is_string($redirect) || strlen($code) > 64 || strlen($verifier) > 128 || strlen($redirect) > 64) {
+        fail_shared(400, 'invalid request');
+    }
+    // Every attempt takes a place before the code is looked at; a refusal here leaves the code unspent.
+    if (!cap_take($cfg, 'signin-redeem', [
+        ['key' => 'site', 'max' => SIGNIN_REDEEM_HOUR, 'window' => 3600],
+        ['key' => 'site', 'max' => SIGNIN_REDEEM_DAY, 'window' => 86400],
+    ])) { fail_shared(429, 'too many sign-ins; try again later'); }
+    $s = msa_app_signin_redeem($acfg, suite_app(), $code, $verifier, $redirect, suite_device(), SUITE_SCOPE, time());
+    if ($s === null) { usage_log($cfg, 'app_signin_fail', ''); fail_shared(400, 'that sign-in expired; try again'); }
+    usage_log($cfg, 'app_signin', (string) $s['user']);
     reply(200, ['ok' => true, 'token' => (string) $s['token'], 'username' => (string) $s['user']]);
 }
 

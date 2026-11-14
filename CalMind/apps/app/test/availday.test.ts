@@ -57,3 +57,54 @@ test('after dispose nothing is delivered', async () => {
   t.calls[0].ok({ owner: true, slots: [] }); await settle();
   expect(t.days).toHaveLength(n);
 });
+
+test('retry after a failed read asks again for the same date, with the hours empty meanwhile', async () => {
+  const t = setup();
+  t.r.select('2030-01-07');
+  t.calls[0].fail(); await settle();
+  expect(t.last()).toEqual({ date: '2030-01-07', slots: null, failed: true });
+  t.r.retry();
+  expect(t.calls).toHaveLength(2);
+  expect(t.calls[1].date).toBe('2030-01-07');
+  expect(t.last()).toEqual({ date: '2030-01-07', slots: null, failed: false });
+  t.calls[1].ok({ owner: true, slots: slots('10:00') }); await settle();
+  expect(slotsFor(t.last(), '2030-01-07')).toEqual(slots('10:00'));
+});
+
+test('a retry that fails again says so again', async () => {
+  const t = setup();
+  t.r.select('2030-01-07');
+  t.calls[0].fail(); await settle();
+  t.r.retry();
+  t.calls[1].fail(); await settle();
+  expect(t.last()).toEqual({ date: '2030-01-07', slots: null, failed: true });
+});
+
+test('a reply to the read before a retry is ignored, and so are replies for other dates', async () => {
+  const t = setup();
+  t.r.select('2030-01-07');
+  t.r.retry();
+  t.calls[0].ok({ owner: true, slots: slots('09:00') }); await settle();
+  expect(slotsFor(t.last(), '2030-01-07')).toBeNull(); // the first read is void
+  t.calls[1].ok({ owner: true, slots: slots('10:00') }); await settle();
+  expect(slotsFor(t.last(), '2030-01-07')).toEqual(slots('10:00'));
+  t.r.select('2030-01-08');
+  t.r.retry();
+  t.calls[2].ok({ owner: true, slots: slots('07:00') }); await settle(); // for the day before: ignored
+  expect(t.last().date).toBe('2030-01-08');
+  expect(slotsFor(t.last(), '2030-01-08')).toBeNull();
+});
+
+test('retry before any selection does nothing', () => {
+  const t = setup();
+  t.r.retry();
+  expect(t.calls).toHaveLength(0);
+});
+
+test('retry after dispose does nothing', () => {
+  const t = setup();
+  t.r.select('2030-01-07');
+  t.r.dispose();
+  t.r.retry();
+  expect(t.calls).toHaveLength(1);
+});

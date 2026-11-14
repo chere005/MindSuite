@@ -225,7 +225,7 @@ for (const [width, height] of [[375, 812], [375, 667], [320, 568]] as const) {
         await login(page); await openDay(page, date);
         await pickList(page, OWNER_NAME);
         await goToTodo(page);
-        const add = page.getByLabel('New task', { exact: true }), lines = page.locator('.day-tasks > li');
+        const add = page.locator('[data-key="todo:add"]'), lines = page.locator('.day-tasks > li');
         // The add line is under the three open rows with the pile under it; the list is scrolled a little, so the add line is still on screen.
         const at = await scrollList(page, 40);
         expect(at, 'the list is scrolled').toBeGreaterThan(20);

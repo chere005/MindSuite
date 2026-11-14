@@ -93,7 +93,7 @@ test.describe('Day to-do, phone: thirds in the Both view', () => {
       await page.keyboard.press('Enter');
       await expect(page.getByRole('checkbox', { name: `Complete ${PARTNER_NAME} first`, exact: true })).toHaveAttribute('data-c', 'yellow');
       // Words in the add field are the field's: a tap on its line goes on typing there.
-      const input = page.getByLabel('New task', { exact: true });
+      const input = page.locator('[data-key="todo:add"]');
       await input.fill('Half a thought');
       await tapAt(page, slot(page, 2), 0.15);
       await expect(input).toBeFocused();
@@ -127,7 +127,7 @@ test.describe('Day to-do, phone: the empty add field', () => {
       await login(page); await openDay(page, date);
       await page.getByRole('tab', { name: 'To-do', exact: true }).tap();
       await pickList(page, OWNER_NAME);
-      const input = page.getByLabel('New task', { exact: true });
+      const input = page.locator('[data-key="todo:add"]');
       // A to-do with changed words is open: the tap leaves it (saved) and the new editor opens, the row is not left as a dead field.
       await page.getByRole('button', { name: `Edit ${title}`, exact: true }).tap();
       await field(page, `Edit task: ${title}`).fill(`${title} 2`);

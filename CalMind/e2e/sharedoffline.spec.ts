@@ -1,23 +1,7 @@
 /**
- * Ticking a partner's row with no network must SAY so.
- *
- * `sharedPut` writes to the partner's store over the network — there is no
- * local engine for someone else's records — and then re-reads to correct the
- * screen. store.tsx guards the case where both halves fail:
- *
- *     if (!wrote && !reconciled) setSyncState('offline');
- *
- * Its own comment says why: "the edit did not land AND the screen was not
- * corrected, so a partner's row sits there showing a change that does not
- * exist anywhere but this device."
- *
- * Nothing was checking it. Deleting that line left all 188 gesture tests
- * green, because reaching it needs two things at once — a live mutual share
- * AND no network — and no spec combined them. The sharing test is online
- * throughout; the offline tests have no partner.
- *
- * That combination is not a stunt. It is a phone on a train with a shared
- * list open, which is most of what sharing is for.
+ * A lost reply is not a refusal. With both partner routes unreachable, the optimistic change stays unconfirmed;
+ * own-list sync cannot prove whether the partner write landed and must not replace that message with Online.
+ * No partner write is automatically retried.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -35,7 +19,7 @@ async function signup(page: Page): Promise<string> {
   return user;
 }
 
-test('a shared tick that cannot reach the server says offline, not nothing', async ({ browser }) => {
+test('a shared tick with no write or read reply remains unconfirmed, never falsely not saved', async ({ browser }) => {
   test.setTimeout(180_000);
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
@@ -87,11 +71,21 @@ test('a shared tick that cannot reach the server says offline, not nothing', asy
 
   // The dot is the app's one honest signal here, and it carries the sentence
   // as its accessibility label — a coloured circle tells a screen reader
-  // nothing, so that is what this reads.
+  // nothing, so that is what this reads. The change to the PARTNER's list is
+  // unconfirmed and is never retried, so the sentence must not promise a retry
+  // ('Offline — changes sync when you are back' is true of my own lists only).
+  const dot = async () => (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '';
   await expect
-    .poll(async () => (await pageB.getByTestId('topbar-sync').getAttribute('aria-label')) ?? '',
-      { message: 'the app says offline rather than showing a tick that reached nobody', timeout: 20_000 })
-    .toMatch(/offline/i);
+    .poll(dot, { message: 'the app admits that the partner write is unconfirmed', timeout: 20_000 })
+    .toMatch(/confirm.*partner/i);
+  expect(await dot()).not.toMatch(/sync when you are back/i);
+
+  // It survives the next own sync (30 s at most): that sync is about MY lists
+  // and proves nothing about the partner's.
+  await pageB.waitForRequest((r) => (r.postData() ?? '').includes('"action":"sync"'), { timeout: 45_000 });
+  await pageB.waitForTimeout(1_500);
+  expect(await dot()).toMatch(/confirm.*partner/i);
+  expect(await dot()).not.toMatch(/not saved/i);
 
   await ctxA.close();
   await ctxB.close();
