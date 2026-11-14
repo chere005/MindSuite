@@ -134,6 +134,19 @@ function msa_migration_report(array $sources): array
     return ['accounts' => array_values($accounts), 'invalid' => $invalid];
 }
 
+/** Deleted names must be a valid map on reads and writes; an absent field is the older store shape. */
+function msa_deleted_names(array $db): array
+{
+    if (array_key_exists('deleted', $db) && !is_array($db['deleted'])) { throw new RuntimeException('MindSuite auth store contains an invalid deleted-name list.'); }
+    $names = $db['deleted'] ?? [];
+    foreach ($names as $user => $row) {
+        if (msa_normalize_username((string) $user) !== (string) $user || !is_array($row) || !is_int($row['at'] ?? null)) {
+            throw new RuntimeException('MindSuite auth store contains an invalid deleted name.');
+        }
+    }
+    return $names;
+}
+
 /** Read the complete auth store and fail closed on unreadable or damaged data. */
 function msa_store_read(array $cfg): array
 {
@@ -157,12 +170,28 @@ function msa_store_read(array $cfg): array
             throw new RuntimeException('MindSuite auth store contains an invalid account.');
         }
     }
+    msa_deleted_names($db);
     return $db;
+}
+
+/**
+ * Was this name deleted by its owner (msa_account_delete)? The store keeps the NAME and the time, nothing else (no hash, no
+ * address, no token), so no later account can start under it by sign-up, by the importer or by any other way until the
+ * operator lifts it (msa_admin_undelete, `undelete=` on the admin page). Each app's data and permissions tied to the name
+ * outlive the account, so a new person under the same name would inherit them.
+ */
+function msa_name_deleted(array $db, string $user): bool
+{
+    return isset($db['deleted'][$user]);
 }
 
 /** Publish one authenticated, encrypted snapshot while the caller holds the store lock. */
 function msa_store_write(array $cfg, array $db): void
 {
+    // The last guard for every way of creating an account: no write may leave an account under a deleted name.
+    foreach (array_keys(msa_deleted_names($db)) as $name) {
+        if (isset($db['accounts'][$name])) { throw new RuntimeException('MindSuite auth store would hold an account under a deleted name.'); }
+    }
     $json = json_encode($db, JSON_THROW_ON_ERROR);
     $iv = random_bytes(12);
     $tag = '';
@@ -212,10 +241,25 @@ function msa_signup(array $cfg, string $username, string $email, string $passwor
     return msa_lock($cfg, function () use ($cfg, $user, $email, $hash): bool {
         $db = msa_store_read($cfg);
         if (isset($db['accounts'][$user])) { return false; }
+        if (msa_name_deleted($db, $user)) {
+            error_log('mindsuite sign-up refused: ' . $user . ' was deleted by its owner');
+            return false;
+        }
         $db['accounts'][$user] = ['email' => $email, 'hash' => $hash, 'created' => time()];
         msa_store_write($cfg, $db);
         return true;
     });
+}
+
+/**
+ * Would a sign-up with this invite be refused only because the name was deleted? True only for the right invite and a
+ * deleted name, so the page can say so to the one person who holds the invite, and to nobody else.
+ */
+function msa_signup_name_deleted(array $cfg, string $username, string $invite): bool
+{
+    $user = msa_normalize_username($username);
+    $code = $cfg['invite_code'] ?? '';
+    return $user !== null && $code !== '' && hash_equals($code, $invite) && msa_name_deleted(msa_store_read($cfg), $user);
 }
 
 /** A session row lives while it was used within the session age: every authenticated use slides it forward. */
@@ -316,6 +360,30 @@ function msa_stamp_first_login(array &$db, string $user, int $now): void
 }
 
 /**
+ * Count one failed password against an account (the caller holds the store lock and writes): the address's bucket climbs the
+ * ladder (5 wrong guesses, then 5, 10, 60, 120, 180 minutes) and the account-wide count towards MSA_WIDE_TRIES. The one place
+ * a failed guess is counted, so a sign-in and a re-authentication (msa_account_delete) cost the same.
+ */
+function msa_note_failure(array &$account, string $client, int $now): void
+{
+    $bucket = msa_bucket($account, $client);
+    if (++$bucket['tries'] >= 5) {
+        $round = ++$bucket['rounds'];
+        $minutes = [5, 10, 60, 120, 180][$round - 1] ?? 180 + 60 * ($round - 5);
+        $bucket['tries'] = 0;
+        $bucket['until'] = $now + 60 * $minutes;
+    }
+    msa_bucket_put($account, $client, $bucket, $now);
+    $wide = is_array($account['wide'] ?? null) ? $account['wide'] + msa_bucket_blank() : msa_bucket_blank();
+    if (++$wide['tries'] >= MSA_WIDE_TRIES) {
+        $round = ++$wide['rounds'];
+        $wide['tries'] = 0;
+        $wide['until'] = $now + 60 * ([15, 60, 180][$round - 1] ?? 720);
+    }
+    $account['wide'] = $wide;
+}
+
+/**
  * Verify a password and issue a session. Two locks: CalMind's escalating ladder per account and client address (5 wrong
  * guesses, then 5, 10, 60, 120, 180 minutes), a speed bump only since the address can be forged; and the account-wide lock:
  * MSA_WIDE_TRIES failures from any addresses lock the account for every client, the right password included (15, 60, 180,
@@ -354,7 +422,6 @@ function msa_login(array $cfg, string $username, string $password, string $devic
         $now = time();
         if ($account === null || msa_password_hashes($account, $now) !== $hashes) { return null; }
         if (msa_account_locked_until($account, $client, $now) > 0) { return null; }
-        $bucket = msa_bucket($account, $client);
         if ($matched !== null) {
             $account['hash'] = $matched;
             msa_bucket_clear($account, $client);
@@ -366,20 +433,7 @@ function msa_login(array $cfg, string $username, string $password, string $devic
             msa_store_write($cfg, $db);
             return $session;
         }
-        if (++$bucket['tries'] >= 5) {
-            $round = ++$bucket['rounds'];
-            $minutes = [5, 10, 60, 120, 180][$round - 1] ?? 180 + 60 * ($round - 5);
-            $bucket['tries'] = 0;
-            $bucket['until'] = $now + 60 * $minutes;
-        }
-        msa_bucket_put($account, $client, $bucket, $now);
-        $wide = is_array($account['wide'] ?? null) ? $account['wide'] + msa_bucket_blank() : msa_bucket_blank();
-        if (++$wide['tries'] >= MSA_WIDE_TRIES) {
-            $round = ++$wide['rounds'];
-            $wide['tries'] = 0;
-            $wide['until'] = $now + 60 * ([15, 60, 180][$round - 1] ?? 720);
-        }
-        $account['wide'] = $wide;
+        msa_note_failure($account, $client, $now);
         $db['accounts'][$user] = $account;
         msa_store_write($cfg, $db);
         return null;
@@ -617,6 +671,27 @@ function msa_account_email(array $cfg, string $username): ?string
     return is_string($email) && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : null;
 }
 
+/** A reset code's account incarnation, including password and revocation changes. Never sent to the browser. */
+function msa_reset_stamp(array $cfg, array $db, string $user): ?string
+{
+    $account = $db['accounts'][$user] ?? null;
+    if (!is_array($account)) { return null; }
+    $identity = json_encode([$user, $account['created'] ?? null, $account['hash'] ?? null, msa_account_gen($db, $user)], JSON_THROW_ON_ERROR);
+    return hash_hmac('sha256', "mindsuite-reset-account-v1\0" . $identity, $cfg['key']);
+}
+
+/** Address and reset stamp from one store snapshot, so a deleted/recreated name cannot send a new account's code to the old address. */
+function msa_reset_identity(array $cfg, string $username): ?array
+{
+    $user = msa_normalize_username($username);
+    if ($user === null) { return null; }
+    $db = msa_store_read($cfg);
+    $stamp = msa_reset_stamp($cfg, $db, $user);
+    if ($stamp === null) { return null; }
+    $email = $db['accounts'][$user]['email'] ?? null;
+    return ['email' => is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : null, 'stamp' => $stamp];
+}
+
 /** Operator action: clear every lockout of one account, the account-wide lock included, for every client. False when it does not exist. */
 function msa_admin_unlock(array $cfg, string $username): bool
 {
@@ -665,17 +740,24 @@ function msa_admin_set_hash(array $cfg, string $username, string $hash): bool
  * account (scoped ones too), raises the account's revocation generation (so a token import planned earlier is refused),
  * and clears its lockout buckets, the account-wide lock and any transition hash. Other accounts are never touched.
  * False for an invalid password, an invalid name or an unknown account; an unknown account costs the same bcrypt hash
- * as a known one and returns the same false.
+ * as a known one and returns the same false. A caller that says when its code was issued (`$codeIssuedAt`, a Unix time) is
+ * refused, with the same false, for an account made after that moment: a code asked for before a deletion never resets a
+ * different person's account under the same name, whatever the caller's own code store still holds. Callers should also
+ * supply the stamp from msa_reset_identity: it binds the code to the exact account even when deletion and recreation
+ * happen in the same second, and invalidates it after a password or revocation change.
  */
-function msa_reset_password(array $cfg, string $username, string $newPassword): bool
+function msa_reset_password(array $cfg, string $username, string $newPassword, ?int $codeIssuedAt = null, ?string $accountStamp = null): bool
 {
     if (!msa_valid_new_password($newPassword)) { return false; }
     $hash = password_hash($newPassword, PASSWORD_BCRYPT);
     $user = msa_normalize_username($username);
     if ($user === null || !is_string($hash) || (password_get_info($hash)['algoName'] ?? null) !== 'bcrypt') { return false; }
-    return msa_lock($cfg, function () use ($cfg, $user, $hash): bool {
+    return msa_lock($cfg, function () use ($cfg, $user, $hash, $codeIssuedAt, $accountStamp): bool {
         $db = msa_store_read($cfg);
         if (!isset($db['accounts'][$user])) { return false; }
+        // A code asked for before this account was made belonged to an earlier one under the name (deleted, the name lifted, taken again).
+        if ($codeIssuedAt !== null && (int) ($db['accounts'][$user]['created'] ?? 0) > $codeIssuedAt) { return false; }
+        if ($accountStamp !== null && !hash_equals(msa_reset_stamp($cfg, $db, $user), $accountStamp)) { return false; }
         $account = &$db['accounts'][$user];
         $account['hash'] = $hash;
         unset($account['lockout'], $account['lockouts'], $account['wide'], $account['known'], $account['transition_hashes'], $account['transition_until']);
@@ -683,6 +765,106 @@ function msa_reset_password(array $cfg, string $username, string $newPassword): 
         $account['gen'] = (int) ($account['gen'] ?? 0) + 1;
         unset($account);
         msa_store_write($cfg, $db);
+        return true;
+    });
+}
+
+/**
+ * Delete the signed-in person's own account: the account, its passkeys, every session of it (scoped app tokens included) and
+ * the passkey challenges and app sign-in grants pending for those sessions, in ONE write of the store under the store lock; nothing else is touched
+ * (another account, the status probes, the importer's records in `import`, which also keep a deleted account's legacy tokens
+ * and passkeys from coming back in a later token scan). The same write records the NAME as deleted (`deleted`: the name and
+ * the time, no secret): every app keeps its own data and permissions under that name, so no account may start under it again,
+ * by sign-up, import or any other way, until the operator says so (msa_admin_undelete). Needs a full credential (a cookie or
+ * unscoped session, never an app token), the account's own name typed again (`$confirmName`: capitals do not matter, as at
+ * sign-in; a stray space does, so the page trims it first; judged first and counted as nothing) and the current password (a password still in its
+ * transition window counts, as for msa_change_password). A wrong or locked password is refused with the same false as a
+ * failed sign-in and counted the same way (msa_note_failure; a locked account pays the dummy bcrypt and is not counted
+ * again), so this is no way round the lockout. `$client` is the caller's address, required like msa_login's. False for every
+ * refusal, an account already gone included (msa_account_exists tells the caller which); a store that cannot be read or
+ * written throws and leaves the old store as it was. One audit line goes to PHP's `error_log` (the server's error log, where the
+ * site's mss_log_failure() writes "mindsuite sign-in unavailable"; a wrong password is logged nowhere): the account name and
+ * counts, no password, hash, token or address.
+ */
+function msa_account_delete(array $cfg, array $session, string $password, string $confirmName, string $client): bool
+{
+    $user = $session['user'] ?? null;
+    if (!is_string($user) || msa_normalize_username($confirmName) !== $user || $password === '' || strlen($password) > 1024 ||
+        str_contains($password, "\0")) {
+        return false;
+    }
+    $db = msa_store_read($cfg);
+    $account = $db['accounts'][$user] ?? null;
+    if (!msa_session_full($db, $session) || $account === null) { return false; }
+    if (msa_account_locked_until($account, $client, time()) > 0) {
+        msa_dummy_verify($password);
+        return false;
+    }
+    $hashes = msa_password_hashes($account, time());
+    $matched = null;
+    foreach ($hashes as $hash) {
+        if (msa_verify_password($password, $hash)) { $matched = $hash; break; }
+    }
+    // Bcrypt stays outside the lock; the credentials, the session and the lock are checked again inside it.
+    return msa_lock($cfg, function () use ($cfg, $session, $user, $hashes, $matched, $client): bool {
+        $db = msa_store_read($cfg);
+        $now = time();
+        $account = $db['accounts'][$user] ?? null;
+        if ($account === null || !msa_session_full($db, $session) || msa_password_hashes($account, $now) !== $hashes ||
+            msa_account_locked_until($account, $client, $now) > 0) {
+            return false;
+        }
+        if ($matched === null) {
+            msa_note_failure($account, $client, $now);
+            $db['accounts'][$user] = $account;
+            msa_store_write($cfg, $db);
+            return false;
+        }
+        $mine = array_keys(array_filter($db['sessions'], static fn($row) => ($row['user'] ?? null) === $user));
+        $keys = array_keys(array_filter($db['passkeys'], static fn($row) => ($row['user'] ?? null) === $user));
+        $db['challenges'] = array_diff_key($db['challenges'], array_flip(array_keys(array_filter(
+            $db['challenges'], static fn($row) => is_array($row) && in_array($row['session'] ?? null, $mine, true)
+        ))));
+        // Pending authorizations and replay ledgers belong to these sessions too.
+        if (is_array($db['app_codes'] ?? null)) {
+            $db['app_codes'] = array_filter($db['app_codes'], static fn($row) => !is_array($row) ||
+                (($row['user'] ?? null) !== $user && !in_array($row['sid'] ?? null, $mine, true) && !in_array($row['spent'] ?? null, $mine, true)));
+            if ($db['app_codes'] === []) { unset($db['app_codes']); }
+        }
+        $db['sessions'] = array_diff_key($db['sessions'], array_flip($mine));
+        $db['passkeys'] = array_diff_key($db['passkeys'], array_flip($keys));
+        unset($db['accounts'][$user]);
+        $db['deleted'][$user] = ['at' => $now];
+        msa_store_write($cfg, $db);
+        error_log('mindsuite account deleted: ' . $user . ' (' . count($mine) . ' sessions, ' . count($keys) . ' passkeys)');
+        return true;
+    });
+}
+
+/** Whether the shared store holds a tombstone for this name (the name is normalised first). Reads only. */
+function msa_account_deleted(array $cfg, string $username): bool
+{
+    $user = msa_normalize_username($username);
+    return $user !== null && msa_name_deleted(msa_store_read($cfg), $user);
+}
+
+/**
+ * Operator action: lift the deleted-name refusal for one name, so an account may be created under it again. This is the
+ * explicit word (`undelete=<name>` on the admin page); nothing else lifts it. False when the name carries no tombstone.
+ * It restores nothing: the account, its passkeys and sessions stay gone, and whoever then takes the name inherits what the
+ * apps still hold under it. One audit line names the name.
+ */
+function msa_admin_undelete(array $cfg, string $username): bool
+{
+    $user = msa_normalize_username($username);
+    if ($user === null) { return false; }
+    return msa_lock($cfg, function () use ($cfg, $user): bool {
+        $db = msa_store_read($cfg);
+        if (!msa_name_deleted($db, $user)) { return false; }
+        unset($db['deleted'][$user]);
+        if ($db['deleted'] === []) { unset($db['deleted']); }
+        msa_store_write($cfg, $db);
+        error_log('mindsuite deleted name lifted: ' . $user);
         return true;
     });
 }
