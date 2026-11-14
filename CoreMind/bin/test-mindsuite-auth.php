@@ -1032,7 +1032,7 @@ try {
     check(refused(fn() => msa_store_write($cfg, $db)) && !isset(msa_store_read($cfg)['accounts']['sample']),
         'no write of the store, from any caller, can leave an account under a deleted name');
     // a deleted list that is not a list at all must not read as "no names held" (that would open every hold)
-    foreach (['a string', 7, true, false] as $badList) {
+    foreach (['a string', 7, true, false, null] as $badList) {
         $db = msa_store_read($cfg);
         $db['deleted'] = $badList;
         $iv = random_bytes(12);
@@ -1043,7 +1043,7 @@ try {
         file_put_contents($raw, 'MSA1:' . base64_encode($iv . $tag . $enc));
         $threw = refused(fn() => msa_store_read($cfg));
         file_put_contents($raw, $good);
-        check($threw, 'a deleted-name list that is not a list fails closed (' . json_encode($badList) . ')');
+        check($threw && refused(fn() => msa_store_write($cfg, $db)) && file_get_contents($raw) === $good, 'a malformed deleted-name map fails closed on reads and writes (' . json_encode($badList) . ')');
     }
     foreach (['sample' => 'a string', 'Sample' => ['at' => 1], 'ok-name' => 'x', 'ok-name2' => ['at' => 'soon']] as $badName => $badRow) {
         $db = msa_store_read($cfg);
@@ -1056,7 +1056,7 @@ try {
         file_put_contents($raw, 'MSA1:' . base64_encode($iv . $tag . $enc));
         $threw = refused(fn() => msa_store_read($cfg));
         file_put_contents($raw, $good);
-        check($threw, 'a damaged deleted-name list fails closed (' . json_encode([$badName => $badRow]) . ')');
+        check($threw && refused(fn() => msa_store_write($cfg, $db)) && file_get_contents($raw) === $good, 'a damaged deleted-name row fails closed on reads and writes (' . json_encode([$badName => $badRow]) . ')');
     }
     // only the operator's explicit word lifts it
     check(msa_admin_undelete($cfg, 'nobody') === false && msa_admin_undelete($cfg, 'not a name') === false && msa_account_deleted($cfg, 'sample'), 'undelete of a name that is not held, or is no name, does nothing');

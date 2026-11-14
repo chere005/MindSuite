@@ -134,6 +134,19 @@ function msa_migration_report(array $sources): array
     return ['accounts' => array_values($accounts), 'invalid' => $invalid];
 }
 
+/** Deleted names must be a valid map on reads and writes; an absent field is the older store shape. */
+function msa_deleted_names(array $db): array
+{
+    if (array_key_exists('deleted', $db) && !is_array($db['deleted'])) { throw new RuntimeException('MindSuite auth store contains an invalid deleted-name list.'); }
+    $names = $db['deleted'] ?? [];
+    foreach ($names as $user => $row) {
+        if (msa_normalize_username((string) $user) !== (string) $user || !is_array($row) || !is_int($row['at'] ?? null)) {
+            throw new RuntimeException('MindSuite auth store contains an invalid deleted name.');
+        }
+    }
+    return $names;
+}
+
 /** Read the complete auth store and fail closed on unreadable or damaged data. */
 function msa_store_read(array $cfg): array
 {
@@ -157,13 +170,7 @@ function msa_store_read(array $cfg): array
             throw new RuntimeException('MindSuite auth store contains an invalid account.');
         }
     }
-    // Deleted names (msa_account_delete): a store from before them has none; a damaged list fails closed like a damaged account.
-    if (isset($db['deleted']) && !is_array($db['deleted'])) { throw new RuntimeException('MindSuite auth store contains an invalid deleted-name list.'); }
-    foreach ($db['deleted'] ?? [] as $user => $row) {
-        if (msa_normalize_username((string) $user) !== (string) $user || !is_array($row) || !is_int($row['at'] ?? null)) {
-            throw new RuntimeException('MindSuite auth store contains an invalid deleted name.');
-        }
-    }
+    msa_deleted_names($db);
     return $db;
 }
 
@@ -182,7 +189,7 @@ function msa_name_deleted(array $db, string $user): bool
 function msa_store_write(array $cfg, array $db): void
 {
     // The last guard for every way of creating an account: no write may leave an account under a deleted name.
-    foreach (array_keys($db['deleted'] ?? []) as $name) {
+    foreach (array_keys(msa_deleted_names($db)) as $name) {
         if (isset($db['accounts'][$name])) { throw new RuntimeException('MindSuite auth store would hold an account under a deleted name.'); }
     }
     $json = json_encode($db, JSON_THROW_ON_ERROR);
