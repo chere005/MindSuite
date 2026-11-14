@@ -771,7 +771,7 @@ function msa_reset_password(array $cfg, string $username, string $newPassword, ?
 
 /**
  * Delete the signed-in person's own account: the account, its passkeys, every session of it (scoped app tokens included) and
- * the passkey challenges pending for those sessions, in ONE write of the store under the store lock; nothing else is touched
+ * the passkey challenges and app sign-in grants pending for those sessions, in ONE write of the store under the store lock; nothing else is touched
  * (another account, the status probes, the importer's records in `import`, which also keep a deleted account's legacy tokens
  * and passkeys from coming back in a later token scan). The same write records the NAME as deleted (`deleted`: the name and
  * the time, no secret): every app keeps its own data and permissions under that name, so no account may start under it again,
@@ -825,6 +825,12 @@ function msa_account_delete(array $cfg, array $session, string $password, string
         $db['challenges'] = array_diff_key($db['challenges'], array_flip(array_keys(array_filter(
             $db['challenges'], static fn($row) => is_array($row) && in_array($row['session'] ?? null, $mine, true)
         ))));
+        // Pending authorizations and replay ledgers belong to these sessions too.
+        if (is_array($db['app_codes'] ?? null)) {
+            $db['app_codes'] = array_filter($db['app_codes'], static fn($row) => !is_array($row) ||
+                (($row['user'] ?? null) !== $user && !in_array($row['sid'] ?? null, $mine, true) && !in_array($row['spent'] ?? null, $mine, true)));
+            if ($db['app_codes'] === []) { unset($db['app_codes']); }
+        }
         $db['sessions'] = array_diff_key($db['sessions'], array_flip($mine));
         $db['passkeys'] = array_diff_key($db['passkeys'], array_flip($keys));
         unset($db['accounts'][$user]);

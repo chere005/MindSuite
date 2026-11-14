@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../packages/mind-server/lib/mindsuite-passkeys.php';
+require_once __DIR__ . '/../../packages/mind-server/lib/mindsuite-app-signin.php';
 
 /** Results are held until the end: the cookie renewal cases need headers not to have been sent. */
 $GLOBALS['checklog'] = '';
@@ -924,6 +925,14 @@ try {
         $db['import'] = ['tokens_marks' => ['sample' => 5], 'passkeys_seen' => ['pk-sample-1' => 5]];
         msa_store_write($cfg, $db);
         $cookie = static fn(string $token): ?array => msa_session($cfg, [], ['MSSESS_DEV' => $token]);
+        foreach ([$mine, $theirs] as $credential) {
+            $issued = msa_app_signin_issue($cfg, $cookie($credential['token']), 'calmind', 'com.seancheren.calmind:/signin', msa_app_signin_s256(str_repeat('v', 43)), time());
+            if (!$issued['ok']) { throw new RuntimeException('The deletion fixture could not issue an app sign-in grant.'); }
+        }
+        $db = msa_store_read($cfg);
+        $db['app_codes'][hash('sha256', 'spent-mine')] = ['spent' => hash('sha256', $scopedMine['token']), 'until' => time() + 120];
+        $db['app_codes'][hash('sha256', 'spent-other')] = ['spent' => hash('sha256', $theirs['token']), 'until' => time() + 120];
+        msa_store_write($cfg, $db);
         return [$cfg, compact('mine', 'mine2', 'scopedMine', 'theirs', 'probe'), $cookie];
     };
     [$cfg, $tk, $cookie] = $delSetup();
@@ -958,6 +967,8 @@ try {
     check(msa_account_delete($cfg, $me, 'password', 'sample', '192.0.2.11') === true, 'the right password and the typed name delete the account');
     $gone = msa_store_read($cfg);
     check(!isset($gone['accounts']['sample']), 'the account is gone');
+    $otherGrants = array_filter($others['app_codes'], static fn($row) => ($row['user'] ?? null) === 'other' || ($row['spent'] ?? null) === hash('sha256', $tk['theirs']['token']));
+    check(count($otherGrants) === 2 && ($gone['app_codes'] ?? []) === $otherGrants, 'pending app sign-in grants and spent replay ledgers are removed only for the deleted account; another account’s grants stay unchanged');
     check(array_filter($gone['sessions'], static fn($r) => ($r['user'] ?? null) === 'sample') === [], 'every session of the account is gone, scoped app tokens included');
     check(array_filter($gone['passkeys'], static fn($r) => ($r['user'] ?? null) === 'sample') === [] && !isset($gone['challenges']['ch-sample']), 'its passkeys and its pending passkey challenge are gone');
     check([$gone['accounts']['other'], $gone['sessions'][hash('sha256', $tk['theirs']['token'])], $gone['passkeys']['pk-other-1'], $gone['challenges']['ch-other'],
