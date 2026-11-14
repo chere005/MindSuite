@@ -79,6 +79,24 @@ function tm_user(): ?string {
 }
 /** The site's configured accounts, plus the test instance's staging accounts. */
 function tm_users(): array { global $staging; return (app_config()['users'] ?? []) + $staging; }
+/**
+ * What "an existing account" means when a member is added: the legacy list, or, under the shared sign-in, a lookup into the shared store
+ * (read only when asked). Nothing lists the accounts to anyone: the answer is only whether one id is there.
+ */
+function tm_accounts(): array|\Closure {
+    return tm_gate() === null ? tm_users() : static fn(): array => tm_shared_accounts();
+}
+/** The shared store's accounts, keyed by name. A store that cannot be read is a 503 refusal: never an empty list, never the legacy one. */
+function tm_shared_accounts(): array {
+    try {
+        $cfg = mss_config(app_config());     // loads the store functions: ask for them only after, never as one expression
+        return msa_store_read($cfg)['accounts'];
+    }
+    catch (\Throwable $e) {
+        error_log('TaskMind could not read the shared accounts: ' . get_class($e));
+        throw new \TaskMind\RequestError('Accounts cannot be checked right now. Try again in a moment.', 503, 'unavailable');
+    }
+}
 /** The signed-in person's team membership (the gate, read from the workspace on every call), or a RequestError: 401 not signed in, 403 not on the team, 503 unreadable. */
 function tm_member(?array &$workspace = null): array {
     global $store;

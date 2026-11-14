@@ -332,6 +332,216 @@ try {
     check(msa_passkey_remove($prod, $session, $pkPacked) && msa_passkey_remove($prod, $session, $pkNone) && msa_passkey_list($prod, $session) === [],
         'the provider fixtures are removed again');
 
+    // A LastPass-shaped provider and the diagnostics: LastPass's AAGUID, backup flags set, counter 0, an empty or absent userHandle,
+    // an id or challenge that a hand-built credential object writes padded or in the standard alphabet. Every refusal names its step.
+    (static function () use ($prod, $session, $rpHash, $cborBytes): void {
+        $notes = [];
+        $noted = $prod + ['passkey_note' => static function (string $c, string $step, array $facts) use (&$notes): void { $notes[] = [$c, $step, $facts]; }];
+        $last = static function () use (&$notes): array { return $notes[array_key_last($notes)] ?? ['', '', []]; };
+        $secrets = [];
+        $aaguid = hex2bin(str_replace('-', '', 'b78a0a55-6ef8-d246-a042-ba0f6d55050c'));
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $ec = openssl_pkey_get_details($key)['ec'];
+        $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
+        // An id whose canonical form has - or _, so the standard alphabet differs from it.
+        do { $credId = random_bytes(32); $canonical = b64u_encode($credId); } while (!str_contains($canonical, '-') && !str_contains($canonical, '_'));
+        $options = msa_passkey_register_begin($noted, $session);
+        $auth = $rpHash . chr(0x5d) . pack('N', 0) . $aaguid . pack('n', 32) . $credId . $cose;
+        $client = client_data('webauthn.create', $options['challenge'], $prod['origin']);
+        $object = "\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData" . $cborBytes($auth);
+        $secrets[] = $options['challenge'];
+        $id = msa_passkey_register_finish($noted, $session, ['clientDataJSON' => b64u_encode($client), 'attestationObject' => b64u_encode($object), 'label' => 'LastPass']);
+        check($id === $canonical, 'a LastPass-shaped registration (AAGUID, UP+UV+BE+BS+AT, no attestation) is accepted');
+        [$c, $step, $facts] = $last();
+        check($c === 'register' && $step === 'ok' && ($facts['provider'] ?? '') === 'LastPass' && ($facts['flags'] ?? '') === 'UP+UV+BE+BS+AT' &&
+            ($facts['fp'] ?? '') === substr(hash('sha256', (string) $id), 0, 12) && ($facts['alg'] ?? null) === '-7' && ($facts['user'] ?? '') === 'sample',
+            'a registration is noted with its provider, flags, fingerprint and algorithm');
+
+        $get = static function (array $o = []) use ($noted, $key, $rpHash, $id, &$secrets): array {
+            $challenge = $o['challenge'] ?? msa_passkey_login_begin($noted)['challenge'];
+            $secrets[] = $challenge;
+            $client = client_data('webauthn.get', $o['challengeWritten'] ?? $challenge, $o['origin'] ?? $noted['origin']);
+            $auth = ($o['rpHash'] ?? $rpHash) . chr($o['flags'] ?? 0x1d) . pack('N', $o['count'] ?? 0);
+            openssl_sign($auth . hash('sha256', $client, true), $sig, $o['key'] ?? $key, OPENSSL_ALGO_SHA256);
+            $secrets[] = b64u_encode($sig);
+            $out = ['id' => $o['id'] ?? $id, 'clientDataJSON' => b64u_encode($client), 'authenticatorData' => b64u_encode($auth), 'signature' => b64u_encode($sig)];
+            if (array_key_exists('handle', $o)) { $out['userHandle'] = $o['handle']; }
+            return $out;
+        };
+        check(msa_passkey_login_finish($noted, $get()) !== null && $last()[1] === 'ok' && ($last()[2]['flags'] ?? '') === 'UP+UV+BE+BS',
+            'a LastPass sign-in with counter 0 and no userHandle is accepted and noted with its flags');
+        check(msa_passkey_login_finish($noted, $get(['handle' => ''])) !== null, 'an empty userHandle is no claim: accepted');
+        check(msa_passkey_login_finish($noted, $get(['handle' => b64u_encode('sample')])) !== null, 'a correct userHandle is accepted');
+        check(msa_passkey_login_finish($noted, $get(['handle' => b64u_encode('someone-else')])) === null && $last()[1] === 'user-handle', 'a wrong userHandle is still refused, as user-handle');
+        check(msa_passkey_login_finish($noted, $get(['id' => base64_encode($credId)])) !== null, 'a credential id written padded in the standard alphabet is the same credential');
+        $challenge = msa_passkey_login_begin($noted)['challenge'];
+        check(msa_passkey_login_finish($noted, $get(['challenge' => $challenge, 'challengeWritten' => $challenge . '='])) !== null, 'a padded challenge in the client data is the same challenge');
+        check(msa_passkey_login_finish($noted, $get(['challenge' => $challenge, 'challengeWritten' => $challenge . '='])) === null && $last()[1] === 'challenge-unknown', 'and spent once: a replay is challenge-unknown');
+
+        $refuse = static function (array $o, string $step, string $why) use ($noted, $get, $last): array {
+            check(msa_passkey_login_finish($noted, $get($o)) === null && $last()[0] === 'login' && $last()[1] === $step, $why);
+            return $last()[2];
+        };
+        $f = $refuse(['flags' => 0x19], 'flags', 'no user verification: refused, as the flags step');
+        check(($f['flags'] ?? '') === 'UP+BE+BS', 'the refusal says which flags the provider sent');
+        $f = $refuse(['id' => b64u_encode(random_bytes(32))], 'unknown-credential', 'a passkey the store does not hold: unknown-credential');
+        check(strlen($f['fp'] ?? '') === 12 && ($f['idlen'] ?? '') === '43', 'with a fingerprint and length of the id, nothing more');
+        $f = $refuse(['rpHash' => hash('sha256', 'www.mindsuite.example', true)], 'rp', 'the www alias rpIdHash');
+        check(($f['host'] ?? '') === 'www', 'the refusal says it was the www host');
+        $f = $refuse(['rpHash' => hash('sha256', 'test.mindsuite.example', true)], 'rp', 'the test host rpIdHash');
+        check(($f['host'] ?? '') === 'test', 'the refusal says it was the test host');
+        $f = $refuse(['rpHash' => hash('sha256', 'elsewhere.example', true)], 'rp', 'another rpIdHash');
+        check(($f['host'] ?? '') === 'other', 'the refusal says it was another host');
+        $f = $refuse(['origin' => 'https://evil.example:8443/path?x=1'], 'origin', 'a foreign origin');
+        check(($f['origin'] ?? '') === 'https://evil.example:8443', 'the claimed origin is reduced to scheme, host and port');
+        $refuse(['key' => openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1'])], 'signature', 'a signature by another key');
+        check(msa_passkey_login_finish($noted, $get(['count' => 7])) !== null, 'a provider that starts counting is accepted once');
+        $f = $refuse(['count' => 7], 'counter', 'a counter that does not rise');
+        check(($f['stored'] ?? '') === '7' && ($f['counter'] ?? '') === '7', 'the refusal says the stored and received counters');
+        check(msa_passkey_login_finish($noted, array_replace($get(['count' => 9]), ['signature' => ''])) === null && $last()[1] === 'fields' && ($last()[2]['field'] ?? '') === 'signature',
+            'an empty signature is the fields step');
+        check(msa_passkey_login_finish($noted, array_replace($get(['count' => 9]), ['clientDataJSON' => b64u_encode('not json')])) === null && $last()[1] === 'client-data',
+            'client data that is not JSON is the client-data step');
+
+        $log = json_encode($notes);
+        $leak = false;
+        foreach (array_filter($secrets) as $secret) { $leak = $leak || str_contains($log, $secret); }
+        check(!$leak && !str_contains($log, $canonical) && !str_contains($log, 'BEGIN'), 'no note carries a challenge, a signature, the credential id or a key');
+
+        $thrower = $prod + ['passkey_note' => static function (): void { throw new RuntimeException('sink down'); }];
+        check(msa_passkey_login_finish($thrower, $get(['count' => 8, 'challenge' => msa_passkey_login_begin($thrower)['challenge']])) !== null &&
+            msa_passkey_login_finish($thrower, $get(['flags' => 0x19])) === null, 'a sink that throws changes no answer');
+        check(msa_passkey_login_finish($prod, $get(['count' => 9])) !== null, 'a deployment with no sink behaves the same');
+
+        $cleaned = [];
+        msa_passkey_note(['passkey_note' => static function (string $c, string $s, array $f) use (&$cleaned): void { $cleaned = [$c, $s, $f]; }], 'login', 'Odd Step!',
+            ['message' => "line one\nline two \x07 <b>", 'challenge' => 'secret', 'name' => ['x'], 'flags' => 'UP', 'user' => str_repeat('a', 400)]);
+        check($cleaned[1] === 'ddtep', 'a step name is reduced to lower-case letters and dashes');
+        check(!str_contains($cleaned[2]['message'] ?? '', "\n") && !str_contains($cleaned[2]['message'] ?? '', '<') && !isset($cleaned[2]['challenge']) &&
+            !isset($cleaned[2]['name']) && strlen($cleaned[2]['user'] ?? '') === 160, 'facts are limited to the allowed names, printable text, 160 characters');
+
+        $report = msa_passkey_report_facts(['ceremony' => 'conditional', 'step' => 'prompt', 'name' => 'NotAllowedError', 'message' => 'x', 'native' => true,
+            'attachment' => 'platform', 'flags' => 0x1d, 'counter' => 3, 'secret' => 'no', 'field' => 'rawId1']);
+        check($report !== null && $report[0] === 'login' && $report[1] === 'page-prompt' && $report[2]['mediation'] === 'conditional' && $report[2]['name'] === 'NotAllowedError' &&
+            $report[2]['flags'] === 'UP+UV+BE+BS' && !isset($report[2]['secret']) && !isset($report[2]['field']), 'a page report keeps only its allowed, valid facts');
+        check(msa_passkey_report_facts(['ceremony' => 'login', 'step' => 'nonsense']) === null && msa_passkey_report_facts(['ceremony' => 'x', 'step' => 'prompt']) === null &&
+            msa_passkey_report_facts([]) === null, 'a page report with no known ceremony and step is dropped');
+        check(msa_passkey_remove($prod, $session, (string) $id), 'the LastPass fixture is removed again');
+    })();
+
+    // Passkey refusals (#233): every way a forged or replayed assertion could look, with real signatures from keys made here.
+    (static function () use ($prod, $session): void {
+    $cfg = $prod;
+    $ok = static fn($c, string $d) => check((bool) $c, $d);
+    $eq = static fn($want, $got, string $d) => check($want === $got, $d);
+    $rp = $cfg['rp_id'];
+    $origin = $cfg['origin'];
+    $cd = static fn(string $type, string $challenge, string $o, bool $cross = false): string => json_encode(['type' => $type, 'challenge' => $challenge, 'origin' => $o, 'crossOrigin' => $cross], JSON_THROW_ON_ERROR);
+    $newKey = static fn() => openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    $cose = static function ($key): string {
+        $ec = openssl_pkey_get_details($key)['ec'];
+        return "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
+    };
+    // Registration refuses the same shapes: another rpIdHash, a get used for a create, a missing user-present flag.
+    $register = static function (string $hashed, int $flags, string $type, $key, string $credId, int $count, ?string $challenge = null) use ($cfg, $session, $origin, $cd, $cose): ?string {
+        $challenge ??= msa_passkey_register_begin($cfg, $session)['challenge'];
+        $auth = hash('sha256', $hashed, true) . chr($flags | 0x40) . pack('N', $count) . str_repeat("\0", 16) . pack('n', strlen($credId)) . $credId . $cose($key);
+        $object = "\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData\x58" . chr(strlen($auth)) . $auth;
+        return msa_passkey_register_finish($cfg, $session, ['clientDataJSON' => b64u_encode($cd($type, $challenge, $origin)), 'attestationObject' => b64u_encode($object), 'label' => 'fixture']);
+    };
+    $key = $newKey();
+    $credId = random_bytes(32);
+    $id = b64u_encode($credId);
+    $ok($register('www.mindsuite.example', 0x05, 'webauthn.create', $key, $credId, 5) === null, 'registration: the www alias rpIdHash is refused');
+    $ok($register('evil.example', 0x05, 'webauthn.create', $key, $credId, 5) === null, 'registration: another host rpIdHash is refused');
+    $ok($register($rp, 0x05, 'webauthn.get', $key, $credId, 5) === null, 'registration: type webauthn.get is refused');
+    $ok($register($rp, 0x04, 'webauthn.create', $key, $credId, 5) === null, 'registration: user-present missing is refused');
+    $ok($register($rp, 0x01, 'webauthn.create', $key, $credId, 5) === null, 'registration: user-verified missing is refused');
+    $ok($register($rp, 0x05, 'webauthn.create', $key, $credId, 5, msa_passkey_login_begin($cfg)['challenge']) === null, 'registration: a sign-in challenge is refused for a complete, correctly formed registration');
+    $eq([], array_keys(msa_store_read($cfg)['passkeys']), 'none of those registered anything');
+    $eq($id, $register($rp, 0x05, 'webauthn.create', $key, $credId, 5), 'the control: the right registration is accepted, stored counter 5');
+
+    $sessions = static fn(): int => count(msa_store_read($cfg)['sessions']);
+    $counter = static fn(): int => msa_store_read($cfg)['passkeys'][$id]['signCount'] ?? -1;
+    /** One assertion over a fresh challenge, every part overridable. */
+    $assert = static function (array $o = []) use ($cfg, $rp, $origin, $cd, $key, $id): array {
+        $challenge = $o['challenge'] ?? msa_passkey_login_begin($cfg)['challenge'];
+        $client = $cd($o['type'] ?? 'webauthn.get', $challenge, $o['origin'] ?? $origin, $o['cross'] ?? false);
+        $auth = hash('sha256', $o['rpIdFor'] ?? $rp, true) . chr($o['flags'] ?? 0x05) . pack('N', $o['count'] ?? 6) . ($o['tail'] ?? '');
+        openssl_sign($auth . hash('sha256', $client, true), $sig, $o['key'] ?? $key, OPENSSL_ALGO_SHA256);
+        return ['id' => $o['id'] ?? $id, 'clientDataJSON' => b64u_encode($client), 'authenticatorData' => b64u_encode($auth),
+            'signature' => b64u_encode($sig), 'userHandle' => b64u_encode($o['handle'] ?? 'sample')];
+    };
+    $refused = static function (array $o, string $why) use ($cfg, $assert, $sessions, $counter, $ok, $eq): void {
+        $before = [$sessions(), $counter()];
+        $response = $assert($o);
+        $ok(msa_passkey_login_finish($cfg, $response) === null, $why);
+        $eq($before, [$sessions(), $counter()], "$why: no session, counter unchanged");
+    };
+
+    // The wrong relying party id hash.
+    $refused(['rpIdFor' => 'www.mindsuite.example'], 'rpIdHash of the www alias is refused');
+    $refused(['rpIdFor' => 'evil.example'], 'rpIdHash of another host is refused');
+    $refused(['rpIdFor' => 'mindsuite.example.evil.example'], 'rpIdHash of a longer host is refused');
+    $refused(['rpIdFor' => $origin], 'rpIdHash of the origin string (not the id) is refused');
+    $refused(['rpIdFor' => ''], 'rpIdHash of nothing is refused');
+    // Client data that is not for this origin or this ceremony.
+    foreach (['https://www.mindsuite.example', 'http://mindsuite.example', 'https://mindsuite.example:8443', 'https://mindsuite.example.evil.example', 'https://mindsuite.example/', ''] as $o) {
+        $refused(['origin' => $o], "origin '$o' in clientDataJSON is refused");
+    }
+    $refused(['cross' => true], 'a cross-origin ceremony is refused');
+    $refused(['type' => 'webauthn.create'], 'type webauthn.create used for a get is refused');
+    $refused(['type' => ''], 'an empty type is refused');
+    // A challenge from the registration ceremony cannot be spent on a sign-in, nor the reverse.
+    $createChallenge = msa_passkey_register_begin($cfg, $session)['challenge'];
+    $refused(['challenge' => $createChallenge], 'a registration challenge presented as a sign-in challenge is refused');
+    $refused(['challenge' => b64u_encode(random_bytes(32))], 'a challenge the server never issued is refused');
+    // Flags: user-present and user-verified are both required.
+    foreach ([0x04 => 'user-present missing', 0x01 => 'user-verified missing', 0x00 => 'neither flag'] as $flags => $what) {
+        $refused(['flags' => $flags], "$what is refused");
+    }
+    // A well-formed attested-credential block (aaguid, id length, id, an empty COSE map), so the parser accepts it and only the flag guard can refuse.
+    $refused(['flags' => 0x45, 'tail' => str_repeat("\0", 16) . pack('n', 1) . 'c' . "\xa0"], 'attested-credential flag on an assertion is refused');
+    $refused(['handle' => 'someone-else'], 'a user handle that is not the credential owner\'s is refused');
+    // Keys: another key under the known id, and a valid signature under an id the store does not hold.
+    $refused(['key' => $newKey()], 'a signature by another key under a known credential id is refused');
+    $refused(['id' => b64u_encode(random_bytes(32)), 'key' => $newKey()], 'an unknown credential id is refused');
+    $refused(['id' => b64u_encode(random_bytes(32))], 'an unknown credential id signed with the known key is refused');
+    $refused(['id' => ''], 'an empty credential id is refused');
+    // Counter: stored 5. Equal, lower and zero are refused; higher is accepted and becomes the floor.
+    $refused(['count' => 5], 'a counter equal to the stored one is refused');
+    $refused(['count' => 4], 'a counter below the stored one is refused');
+    $refused(['count' => 0], 'a zero counter from a credential that stored 5 is refused');
+
+    // The control after all of those: nothing was spent, the right assertion still signs in.
+    $good = $assert(['count' => 6]);
+    $signedIn = msa_passkey_login_finish($cfg, $good);
+    $ok($signedIn !== null && msa_user($cfg, ['HTTP_AUTHORIZATION' => 'Bearer ' . $signedIn['token']], []) === 'sample', 'the right assertion signs in');
+    $eq(6, $counter(), 'and the counter advanced to 6');
+    // Replay: the same signed response a second time, with and without a fresh challenge in the store.
+    $sessionsAfter = $sessions();
+    $ok(msa_passkey_login_finish($cfg, $good) === null, 'the same signed response sent again is refused');
+    $eq($sessionsAfter, $sessions(), 'the replay minted no session');
+    // A challenge used twice: a fresh, higher-counter signature over the already spent client data.
+    $challenge = msa_passkey_login_begin($cfg)['challenge'];
+    $ok(msa_passkey_login_finish($cfg, $assert(['challenge' => $challenge, 'count' => 7])) !== null, 'a new challenge signs in once (counter 7)');
+    $ok(msa_passkey_login_finish($cfg, $assert(['challenge' => $challenge, 'count' => 8])) === null, 'the same challenge a second time is refused even with a higher counter and a fresh signature');
+    $eq(7, $counter(), 'the counter stays at 7');
+    // Counter again, now that it is non-zero and moving.
+    $refused(['count' => 7], 'the counter just used is refused');
+    $refused(['count' => 6], 'an older counter is refused');
+    $ok(msa_passkey_login_finish($cfg, $assert(['count' => 9])) !== null && $counter() === 9, 'a jump forward is accepted');
+    // A credential that reports zero every time (a synced provider) is not a replay.
+    $zeroKey = $newKey();
+    $zeroCred = random_bytes(16);
+    $zeroId = $register($rp, 0x1d, 'webauthn.create', $zeroKey, $zeroCred, 0);
+    $eq(b64u_encode($zeroCred), $zeroId, 'a zero-counter credential registers');
+    foreach ([1, 2, 3] as $n) {
+        $ok(msa_passkey_login_finish($cfg, $assert(['id' => $zeroId, 'key' => $zeroKey, 'count' => 0, 'flags' => 0x1d])) !== null, "zero-counter sign-in $n");
+    }
+    $ok(msa_passkey_login_finish($cfg, $assert(['id' => $zeroId, 'key' => $zeroKey, 'count' => 0, 'flags' => 0x1d, 'rpIdFor' => 'www.mindsuite.example'])) === null, 'but not under another rpIdHash');
+    })();
+
     $db = msa_store_read($prod);
     $db['sessions'][hash('sha256', $signedIn['token'])]['created'] = time() - MSA_SESSION_AGE - 1;
     $db['sessions'][hash('sha256', $signedIn['token'])]['last_seen'] = time() - MSA_SESSION_AGE - 1;

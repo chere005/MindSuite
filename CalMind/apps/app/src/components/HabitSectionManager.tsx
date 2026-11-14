@@ -36,7 +36,7 @@ export function HabitSectionManager({ onClose }: { onClose: () => void }) {
     if (!item) return;
     const ord = ordForMove(sections, from, to);
     mutate((e) => e.put({ ...item, payload: { ...item.payload, ord } }));
-  });
+  }, { keyOf: (i) => sections[i]?.id ?? null });
 
   const add = () => {
     const name = newName.trim();

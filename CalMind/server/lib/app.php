@@ -1608,6 +1608,7 @@ function client_data_check(array $cfg, string $json, string $wantType): array
     if (!webauthn_origin_ok((string) ($d['origin'] ?? ''), webauthn_origin($cfg))) {
         fail(400, 'passkey: wrong origin');
     }
+    if (($d['crossOrigin'] ?? false) !== false)     { fail(400, 'passkey: cross-origin ceremony'); }
     return $d;
 }
 
@@ -1718,7 +1719,9 @@ function handle_passkey_login_finish(array $cfg, array $in): never
     if ($suite['shared']) { handle_passkey_login_finish_shared($cfg, $suite, $in); }
     $clientJson = b64u_decode((string) ($in['clientDataJSON'] ?? ''));
     $d = client_data_check($cfg, $clientJson, 'webauthn.get');
-    if (challenge_take($cfg, (string) ($d['challenge'] ?? '')) === null) {
+    $row = challenge_take($cfg, (string) ($d['challenge'] ?? ''));
+    // A registration challenge is issued to a signed-in user; a sign-in one to nobody.
+    if ($row === null || ($row['user'] ?? '') !== '') {
         fail(400, 'passkey: stale challenge');
     }
 
@@ -1752,20 +1755,24 @@ function handle_passkey_login_finish(array $cfg, array $in): never
 
     // A counter that goes backwards means two authenticators are answering for
     // one credential. Plenty of passkeys report 0 forever, and 0 vs 0 is not
-    // evidence of anything.
-    $stored = (int) ($key['signCount'] ?? 0);
-    if ($auth['signCount'] > 0 && $stored > 0 && $auth['signCount'] <= $stored) {
+    // evidence of anything. But once a credential has reported a counter, a
+    // zero or a repeat is a replay or a clone, as in the shared library.
+    // Checked again under the lock, so two concurrent answers cannot both pass
+    // one floor and let the lower counter overwrite the higher.
+    $clone = with_lock($cfg, 'passkeys', function () use ($cfg, $id, $auth): bool {
+        $all = store_read($cfg, passkeys_file($cfg));
+        if (!isset($all[$id])) { return false; }
+        $stored = (int) ($all[$id]['signCount'] ?? 0);
+        if ($stored > 0 && $auth['signCount'] <= $stored) { return true; }
+        $all[$id]['signCount'] = $auth['signCount'];
+        $all[$id]['used']      = time();
+        store_write($cfg, passkeys_file($cfg), $all);
+        return false;
+    });
+    if ($clone) {
         usage_log($cfg, 'passkey_clone', (string) $key['user']);
         fail(401, 'passkey: refused, counter went backwards');
     }
-    with_lock($cfg, 'passkeys', function () use ($cfg, $id, $auth) {
-        $all = store_read($cfg, passkeys_file($cfg));
-        if (isset($all[$id])) {
-            $all[$id]['signCount'] = $auth['signCount'];
-            $all[$id]['used']      = time();
-            store_write($cfg, passkeys_file($cfg), $all);
-        }
-    });
 
     $user = (string) $key['user'];
     usage_log($cfg, 'passkey_login', $user);

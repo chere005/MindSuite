@@ -1,5 +1,5 @@
 {
-  "name": "@taskmind/native", "private": true, "version": "0.2.0",
+  "name": "@taskmind/native", "private": true, "version": "0.3.0",
   "scripts": { "dev": "tauri dev", "build": "tauri build", "tauri": "tauri" },
   "devDependencies": { "@tauri-apps/cli": "^2" }
 }
