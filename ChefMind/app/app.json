@@ -3,7 +3,7 @@
     "name": "ChefMind",
     "slug": "chefmind",
     "scheme": "com.seancheren.chefmind",
-    "version": "1.43.0",
+    "version": "1.44.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
