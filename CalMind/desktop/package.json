@@ -1,7 +1,7 @@
 {
   "name": "@calmind/desktop",
   "private": true,
-  "version": "1.68.0",
+  "version": "1.69.0",
   "scripts": {
     "dev": "node tauri-build.mjs dev",
     "build": "node tauri-build.mjs build",

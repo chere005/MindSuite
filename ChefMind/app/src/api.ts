@@ -46,9 +46,8 @@ async function rawPost(
 ): Promise<{ status: number; data: Reply | null }> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  let res: Response;
   try {
-    res = await fetch(serverUrl, {
+    const res = await fetch(serverUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
       // Every call names this app's space, not only sync: the server follows the chefmind hold for it (CalMind
@@ -56,14 +55,15 @@ async function rawPost(
       body: JSON.stringify({ ...body, space: SYNC_SPACE }),
       signal: ctl.signal,
     });
+    const data = (await res.json().catch(() => null)) as Reply | null;
+    return { status: res.status, data };
   } finally {
+    // Cover headers and body: a stalled JSON stream must not outlive the request deadline.
     // In the finally, so a request that FAILS does not leave a timer holding
     // the event loop open — which on native is a warning and on the web is a
     // slow leak of one per failed request.
     clearTimeout(timer);
   }
-  const data = (await res.json().catch(() => null)) as Reply | null;
-  return { status: res.status, data };
 }
 
 /** One POST with no session and a short timeout, the status and body left to the caller (the sign-in mode probe, the code redeem). */
