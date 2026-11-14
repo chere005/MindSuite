@@ -64,7 +64,7 @@ export function FolderManager({ app, onClose }: { app: 'reminders' | 'notes'; on
     if (!item) return;
     const ord = ordForMove(folders, from, to);
     mutate((e) => e.put({ ...item, payload: { ...item.payload, ord } }));
-  });
+  }, { keyOf: (i) => folders[i]?.id ?? null });
 
   const add = () => {
     const name = newName.trim();

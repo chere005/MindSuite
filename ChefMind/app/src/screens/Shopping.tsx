@@ -176,7 +176,7 @@ function FlagList({ kind }: { kind: Kind }) {
         if (r.payload.ord !== prev) e.put({ ...r, payload: { ...r.payload, ord: prev } });
       }
     });
-  });
+  }, { keyOf: (i) => rows[i]?.id ?? null });
 
   const add = () => {
     const text = field.trim();

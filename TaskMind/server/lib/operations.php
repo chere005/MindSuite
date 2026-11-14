@@ -36,7 +36,7 @@ function read_mutation_body(string $contentType, string $length): array {
 }
 
 /** Load, re-authorize, apply and publish under one encrypted workspace lock. */
-function change_workspace(Store $store, array $config, array $accounts, string $user, array $request, ?int $now = null): array {
+function change_workspace(Store $store, array $config, array|\Closure $accounts, string $user, array $request, ?int $now = null): array {
     $owners = seed_owners($config);
     $now ??= time();
     $applying = false;
@@ -177,7 +177,7 @@ function replay_result(array $db, string $user, array $receipt): string {
 }
 
 /** Apply one supported operation. Any refusal discards the candidate in the caller's transaction. */
-function apply_workspace_op(array &$db, array $accounts, string $user, array $request, int $now): string {
+function apply_workspace_op(array &$db, array|\Closure $accounts, string $user, array $request, int $now): string {
     workspace_member($db, $user);
     $op = input_string($request['op'] ?? null);
     $data = input_object($request['data'] ?? null);
@@ -549,7 +549,7 @@ function change_task(array &$db, string $user, string $op, array $data, int $now
     return $id;
 }
 
-function change_team(array &$db, array $accounts, string $user, string $op, array $data, int $now): string {
+function change_team(array &$db, array|\Closure $accounts, string $user, string $op, array $data, int $now): string {
     $who = member_name($db, $user);
     if ($op === 'team.update') {
         require_action($db, $user, $op);
@@ -573,7 +573,8 @@ function change_team(array &$db, array $accounts, string $user, string $op, arra
     $at = array_search($id, array_column($db['members'], 'id'), true);
     if ($op === 'member.add') {
         only_fields($data, ['id', 'role', 'name']);
-        if (!isset($accounts[$id])) { throw new RequestError('Choose an existing site account.'); }
+        // A closure is the shared sign-in's store, read only now (it throws a 503 refusal when it cannot answer).
+        if (!isset(($accounts instanceof \Closure ? $accounts() : $accounts)[$id])) { throw new RequestError('Choose an existing site account.'); }
         if ($at !== false) { throw new RequestError('That person is already on the team.'); }
         require_capacity($db['members'], 'membersMax');
         $name = array_key_exists('name', $data) ? input_text($data['name'], 'memberNameChars') : '';

@@ -2,7 +2,7 @@
   "expo": {
     "name": "ChefMind",
     "slug": "chefmind",
-    "version": "1.42.0",
+    "version": "1.43.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

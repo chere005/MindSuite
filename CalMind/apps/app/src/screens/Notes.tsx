@@ -20,7 +20,7 @@ import { useFolds } from '../folds';
 import { useClock24 } from '../useClock24';
 import { DayPick } from '../components/DayPick';
 import { Dropdown } from '../components/Dropdown';
-import { DropLine, useRowDrag } from '../components/rowdrag';
+import { DropLine, flatKey, useRowDrag } from '../components/rowdrag';
 import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSectionDrag, type SectionSlot } from '../components/sectiondrag';
 import { useSwipeLeft } from '../components/swiperow';
@@ -754,7 +754,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     const res = moveNote(recs, src.rec.id, target.sectionId, target.beforeId);
     if ('error' in res) return;
     mutate((e) => res.put.forEach((r) => e.put(r)));
-  }, { live: true });
+  }, { live: true, keyOf: (i) => flatKey(flatRows[i]) });
   // id -> flat index, built once per flat list: these were findIndex scans
   // called several times per drawn row, O(rows^2) on every render.
   const flatIdx = useMemo(() => {
