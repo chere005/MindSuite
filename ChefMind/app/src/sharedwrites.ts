@@ -36,7 +36,8 @@
  *  - A lost reply or HTTP 5xx is unconfirmed, never a refusal. Keep its overlay and pause the queue, then re-pull.
  *    Only a pull sent after the loss can settle it: a record at its stamp or a newer one (or an absent deleted row)
  *    confirms it and releases the queue; an older or absent record takes the write and its dependent queue back.
- *    If the pull fails or sharing ends, the outcome stays unconfirmed. No write is automatically retried.
+ *    If the pull fails or sharing ends, the outcome stays unconfirmed. An acknowledgement for a different partner
+ *    cannot settle it; after that partner becomes unreadable the warning lasts until sign-out/reset. No write is automatically retried.
  *
  * Nothing here is stored: a write that has not reached the server when the app
  * closes is gone, exactly as it was when the POST was awaited. No outbox.
@@ -93,6 +94,8 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
   /** A take-back has been reported and nothing has cleared it yet. */
   private troubled = false;
   private unconfirmed = false;
+  /** A lost reply belongs to a partner no longer readable; unrelated acknowledgements cannot settle it. */
+  private detachedUnconfirmed = false;
   /** Bumped by reset(): replies to requests from before it belong to nobody. */
   private epoch = 0;
 
@@ -165,6 +168,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     this.appliedPullSent = sent;
     if (r.partner !== this.partner) {
       // The partner changed: writes into the old one are not this list's.
+      if (this.writes.some(w => w.partner !== r.partner && w.state === 'uncertain')) this.detachedUnconfirmed = true;
       this.dropWhere((w) => w.partner !== r.partner);
       this.partner = r.partner;
       // The trouble is NOT cleared here. A partner going to null is how
@@ -185,9 +189,8 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
         this.recover();
       } else {
         this.takeBack(uncertain);
-        this.unconfirmed = false;
-        this.troubled = true;
-        this.hooks.onTrouble();
+        this.unconfirmed = this.detachedUnconfirmed;
+        this.reportTrouble();
       }
     }
     // A pull sent after an acknowledgement contains that write: it can go.
@@ -204,6 +207,7 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     this.base = [];
     this.partner = null;
     this.reconcileDue = false;
+    this.detachedUnconfirmed = false;
     this.recover();
     const gone = this.writes;
     this.writes = [];
@@ -257,14 +261,14 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
             w.state = 'uncertain';
             w.ackedAt = ++this.clock;
             this.unconfirmed = true;
+            if (w.partner !== this.partner) this.detachedUnconfirmed = true;
             this.hooks.onUnconfirmed?.();
             this.reconcileDue = true;
             break;
           }
           this.takeBack(w);
           this.reconcileDue = true;
-          this.troubled = true;
-          this.hooks.onTrouble();
+          this.reportTrouble();
         }
       }
     } finally {
@@ -278,7 +282,14 @@ export class SharedWrites<R extends SharedRec, P = unknown> {
     }
   }
 
+  private reportTrouble(): void {
+    this.troubled = true;
+    if (this.unconfirmed) this.hooks.onUnconfirmed?.();
+    else this.hooks.onTrouble();
+  }
+
   private recover(): void {
+    if (this.detachedUnconfirmed) return;
     if (!this.troubled && !this.unconfirmed) return;
     this.troubled = false;
     this.unconfirmed = false;
