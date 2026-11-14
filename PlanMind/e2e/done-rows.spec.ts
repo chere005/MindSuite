@@ -589,7 +589,7 @@ test.describe('Day to-do, desktop: the list that scrolls keeps its keyboard ring
     try {
       await login(page); await openDay(page, date);
       await pickList(page, OWNER_NAME);
-      const add = page.getByLabel('New task', { exact: true }), lines = page.locator('.day-tasks > li');
+      const add = page.locator('[data-key="todo:add"]'), lines = page.locator('.day-tasks > li');
       // The add line is under the three open rows, with the pile under it; the list is scrolled a little so the first row is out of view and the add line is near the top.
       const at = await scrollList(page, 56);
       expect(at, 'the list is scrolled').toBeGreaterThan(40);
@@ -944,7 +944,7 @@ test.describe('Week and Month to-do on a phone-sized page: done rows stack at th
         await expect(page.getByRole('checkbox', { name: `Complete ${next}`, exact: true })).not.toBeChecked();
         await kept('row reopened');
         // The add line, under the open rows: the body is scrolled a little so it is near the top; a tap on it, a title, Enter; the add field is focused again, one line lower, and on screen.
-        const add = page.getByLabel('New to-do', { exact: true }), near = await scrollList(page, 60, body);
+        const add = page.locator('[data-key="wm:add"]'), near = await scrollList(page, 60, body);
         expect(near, 'the body is scrolled a little').toBeGreaterThan(20);
         await inside(page, add, body);
         await add.tap();

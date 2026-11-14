@@ -154,7 +154,7 @@ test.describe('Day to-do, desktop: thirds in the Both view', () => {
     const owner = await apiLogin(baseURL!, OWNER), date = farDate(342);
     try {
       await login(page); await openDay(page, date);
-      const input = page.getByLabel('New task', { exact: true });
+      const input = page.locator('[data-key="todo:add"]');
       const at = async (across: number) => { const box = (await input.boundingBox())!; const line = (await slot(page, 1).boundingBox())!; return { x: line.x + line.width * across, y: box.y + box.height / 2 }; };
       // The field is empty: pointing at it is pointing at a line. The field does not take the caret; the editor does.
       let p = await at(0.9);
@@ -165,7 +165,7 @@ test.describe('Day to-do, desktop: thirds in the Both view', () => {
       await page.keyboard.press('Enter');
       await expect(page.getByRole('checkbox', { name: 'Complete Right one', exact: true })).toHaveAttribute('data-c', 'yellow');
       // The field moved down a line; the third of it is again each person's.
-      const input2 = page.getByLabel('New task', { exact: true });
+      const input2 = page.locator('[data-key="todo:add"]');
       const line2 = (await slot(page, 2).boundingBox())!;
       await page.mouse.click(line2.x + line2.width * 0.1, line2.y + line2.height / 2);
       await expect(field(page, `New to-do for ${OWNER_NAME}`)).toBeFocused();
@@ -350,7 +350,7 @@ test.describe('Day to-do, desktop: thirds in the Both view', () => {
     try {
       await login(page); await openDay(page, date);
       await pickList(page, OWNER_NAME);
-      const input = page.getByLabel('New task', { exact: true });
+      const input = page.locator('[data-key="todo:add"]');
       await input.click();
       await expect(field(page, `New to-do for ${OWNER_NAME}`)).toBeFocused();
       await expect(input).toHaveCount(0);
@@ -566,7 +566,7 @@ for (const { view, scope, lines, when } of PERIODS) {
         await page.locator('#jump-date').fill(when);
         await expect(page.locator(`.wm-panel[data-panel="${scope}"]`)).toBeVisible();
         await pickList(page, OWNER_NAME);
-        const input = page.getByLabel('New to-do', { exact: true });
+        const input = page.locator('[data-key="wm:add"]');
         await input.click();
         await expect(field(page, `New to-do for ${OWNER_NAME}`)).toBeFocused();
         await page.keyboard.type('Buy milk');
