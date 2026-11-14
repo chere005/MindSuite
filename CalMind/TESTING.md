@@ -1481,3 +1481,5 @@ temptation to report them was real:
   the live test API, quits clean. Windows and Linux: the Release
   workflow's jobs install and launch the package on the runner; `sh
   tools/preflight.sh` runs them without publishing.
+
+The local desktop smoke verifies the bundle signature before opening it in the background; `bash desktop/test-smoke.sh` checks refusal and launch ordering against OS command stand-ins without opening a window.

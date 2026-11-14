@@ -299,6 +299,11 @@ if [ "$WANT_MAC" = 1 ]; then
   rm -rf "/Applications/$(basename "$APPBUNDLE")"
   cp -R "$APPBUNDLE" /Applications/ \
     || { echo "copying the .app into /Applications failed" >&2; exit 1; }
+  if [ "$GONE" = 1 ]; then
+    codesign --force --deep --sign - "/Applications/$(basename "$APPBUNDLE")" \
+      && codesign --verify --deep --strict "/Applications/$(basename "$APPBUNDLE")" \
+      || { echo 'the installed app signature could not be verified' >&2; exit 1; }
+  fi
   echo "    installed: /Applications/$(basename "$APPBUNDLE")"
   # AND PUT HIS SESSION BACK — only if it was open when this started. An app he
   # had closed stays closed: a release that conjures windows onto his desktop
