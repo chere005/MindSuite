@@ -1484,3 +1484,5 @@ temptation to report them was real:
   tools/preflight.sh` runs them without publishing.
 
 The local desktop smoke verifies the bundle signature before opening it in the background; `bash desktop/test-smoke.sh` checks refusal and launch ordering against OS command stand-ins without opening a window.
+
+The stalled-sync browser check advances the browser clock through three poll intervals and a request deadline, measures concurrent fetches and verifies retry and status. Removing the in-flight guard makes it fail; healthy sequential retries are allowed. The `requestdeadline` unit in each app also covers headers arriving before a JSON body stalls: the request deadline remains active until the body settles.
