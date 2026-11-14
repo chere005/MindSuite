@@ -664,6 +664,27 @@ function msa_account_email(array $cfg, string $username): ?string
     return is_string($email) && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : null;
 }
 
+/** A reset code's account incarnation, including password and revocation changes. Never sent to the browser. */
+function msa_reset_stamp(array $cfg, array $db, string $user): ?string
+{
+    $account = $db['accounts'][$user] ?? null;
+    if (!is_array($account)) { return null; }
+    $identity = json_encode([$user, $account['created'] ?? null, $account['hash'] ?? null, msa_account_gen($db, $user)], JSON_THROW_ON_ERROR);
+    return hash_hmac('sha256', "mindsuite-reset-account-v1\0" . $identity, $cfg['key']);
+}
+
+/** Address and reset stamp from one store snapshot, so a deleted/recreated name cannot send a new account's code to the old address. */
+function msa_reset_identity(array $cfg, string $username): ?array
+{
+    $user = msa_normalize_username($username);
+    if ($user === null) { return null; }
+    $db = msa_store_read($cfg);
+    $stamp = msa_reset_stamp($cfg, $db, $user);
+    if ($stamp === null) { return null; }
+    $email = $db['accounts'][$user]['email'] ?? null;
+    return ['email' => is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : null, 'stamp' => $stamp];
+}
+
 /** Operator action: clear every lockout of one account, the account-wide lock included, for every client. False when it does not exist. */
 function msa_admin_unlock(array $cfg, string $username): bool
 {
@@ -712,17 +733,24 @@ function msa_admin_set_hash(array $cfg, string $username, string $hash): bool
  * account (scoped ones too), raises the account's revocation generation (so a token import planned earlier is refused),
  * and clears its lockout buckets, the account-wide lock and any transition hash. Other accounts are never touched.
  * False for an invalid password, an invalid name or an unknown account; an unknown account costs the same bcrypt hash
- * as a known one and returns the same false.
+ * as a known one and returns the same false. A caller that says when its code was issued (`$codeIssuedAt`, a Unix time) is
+ * refused, with the same false, for an account made after that moment: a code asked for before a deletion never resets a
+ * different person's account under the same name, whatever the caller's own code store still holds. Callers should also
+ * supply the stamp from msa_reset_identity: it binds the code to the exact account even when deletion and recreation
+ * happen in the same second, and invalidates it after a password or revocation change.
  */
-function msa_reset_password(array $cfg, string $username, string $newPassword): bool
+function msa_reset_password(array $cfg, string $username, string $newPassword, ?int $codeIssuedAt = null, ?string $accountStamp = null): bool
 {
     if (!msa_valid_new_password($newPassword)) { return false; }
     $hash = password_hash($newPassword, PASSWORD_BCRYPT);
     $user = msa_normalize_username($username);
     if ($user === null || !is_string($hash) || (password_get_info($hash)['algoName'] ?? null) !== 'bcrypt') { return false; }
-    return msa_lock($cfg, function () use ($cfg, $user, $hash): bool {
+    return msa_lock($cfg, function () use ($cfg, $user, $hash, $codeIssuedAt, $accountStamp): bool {
         $db = msa_store_read($cfg);
         if (!isset($db['accounts'][$user])) { return false; }
+        // A code asked for before this account was made belonged to an earlier one under the name (deleted, the name lifted, taken again).
+        if ($codeIssuedAt !== null && (int) ($db['accounts'][$user]['created'] ?? 0) > $codeIssuedAt) { return false; }
+        if ($accountStamp !== null && !hash_equals(msa_reset_stamp($cfg, $db, $user), $accountStamp)) { return false; }
         $account = &$db['accounts'][$user];
         $account['hash'] = $hash;
         unset($account['lockout'], $account['lockouts'], $account['wide'], $account['known'], $account['transition_hashes'], $account['transition_until']);

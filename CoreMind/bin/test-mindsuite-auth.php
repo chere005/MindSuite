@@ -876,8 +876,8 @@ try {
     check(msa_account_exists($cfg, 'sample') === false && !msa_account_delete($cfg, $me, 'password', 'sample', ''), 'a second delete of the same account does nothing');
     $audit = (string) @file_get_contents($auditFile);
     check(str_contains($audit, 'mindsuite account deleted: sample') && substr_count($audit, "\n") === 1, 'one audit line names the account');
-    foreach ([$tk['mine']['token'], $tk['scopedMine']['token'], 'password', $others['accounts']['sample']['hash'], $tk['mine']['csrf']] as $secret) {
-        check(!str_contains($audit, $secret), 'the audit line holds no password, hash, token or CSRF secret');
+    foreach ([$tk['mine']['token'], $tk['scopedMine']['token'], 'password', $others['accounts']['sample']['hash'], $tk['mine']['csrf'], '192.0.2.11'] as $secret) {
+        check(!str_contains($audit, $secret), 'the audit line holds no password, hash, token, CSRF secret or client address');
     }
     // a lockout does not stop a deletion by a person who is not locked: the transition password of a merged account is a password too
     [$cfg, $tk, $cookie] = $delSetup();
@@ -925,7 +925,7 @@ try {
     $signedUp = [msa_signup($cfg, 'sample', 'new@example.test', 'new-password-1', 'invite-1'), msa_signup($cfg, 'SAMPLE', 'new@example.test', 'new-password-1', 'invite-1')];
     check($signedUp === [false, false] && !isset(msa_store_read($cfg)['accounts']['sample']) && lg($cfg, 'sample', 'new-password-1', '') === null, 'sign-up with the right invite under a deleted name is refused, in any case');
     check(msa_signup_name_deleted($cfg, 'Sample', 'invite-1') && !msa_signup_name_deleted($cfg, 'sample', 'wrong-invite') && !msa_signup_name_deleted($cfg, 'sample', '') &&
-        !msa_signup_name_deleted($cfg, 'freshname', 'invite-1') && !msa_signup_name_deleted($cfg + ['invite_code' => ''], 'sample', ''),
+        !msa_signup_name_deleted($cfg, 'freshname', 'invite-1') && !msa_signup_name_deleted(array_merge($cfg, ['invite_code' => '']), 'sample', ''),
         'the page may say so only to the holder of the invite, and only about a deleted name');
     check(msa_signup($cfg, 'freshname', 'new@example.test', 'new-password-1', 'invite-1') === true, 'control: another name signs up with the same invite');
     $aud = (string) @file_get_contents($auditFile);
@@ -934,6 +934,20 @@ try {
     $db['accounts']['sample'] = ['email' => '', 'hash' => $cheap('x-password'), 'created' => time()];
     check(refused(fn() => msa_store_write($cfg, $db)) && !isset(msa_store_read($cfg)['accounts']['sample']),
         'no write of the store, from any caller, can leave an account under a deleted name');
+    // a deleted list that is not a list at all must not read as "no names held" (that would open every hold)
+    foreach (['a string', 7, true, false] as $badList) {
+        $db = msa_store_read($cfg);
+        $db['deleted'] = $badList;
+        $iv = random_bytes(12);
+        $tag = '';
+        $enc = openssl_encrypt(json_encode($db), 'aes-256-gcm', $cfg['key'], OPENSSL_RAW_DATA, $iv, $tag, $cfg['environment']);
+        $raw = $cfg['data_dir'] . '/auth.json';
+        $good = file_get_contents($raw);
+        file_put_contents($raw, 'MSA1:' . base64_encode($iv . $tag . $enc));
+        $threw = refused(fn() => msa_store_read($cfg));
+        file_put_contents($raw, $good);
+        check($threw, 'a deleted-name list that is not a list fails closed (' . json_encode($badList) . ')');
+    }
     foreach (['sample' => 'a string', 'Sample' => ['at' => 1], 'ok-name' => 'x', 'ok-name2' => ['at' => 'soon']] as $badName => $badRow) {
         $db = msa_store_read($cfg);
         $db['deleted'] = [$badName => $badRow];
@@ -954,6 +968,46 @@ try {
     check(str_contains((string) @file_get_contents($auditFile), 'mindsuite deleted name lifted: sample'), 'the lift is in the error log');
     check(msa_signup($cfg, 'sample', 'new@example.test', 'new-password-1', 'invite-1') === true && lg($cfg, 'sample', 'new-password-1', '') !== null &&
         count(array_filter(msa_store_read($cfg)['passkeys'], static fn($r) => $r['user'] === 'sample')) === 0, 'after the lift the name is a new account: no old passkey, session or password comes with it');
+    // a reset code asked for before an account was made (the account it was asked for was deleted, the name lifted and taken again) never resets that account
+    [$cfg, $tk, $cookie] = $delSetup();
+    $createdAt = (int) (msa_store_read($cfg)['accounts']['sample']['created'] ?? 0);
+    check($createdAt > 0 && msa_reset_password($cfg, 'sample', 'brand-new-password', $createdAt - 1) === false && lg($cfg, 'sample', 'password', 'Browser') !== null &&
+        lg($cfg, 'sample', 'brand-new-password', 'Browser') === null, 'a reset code issued before the account was created resets nothing, and the password stands');
+    check(msa_reset_password($cfg, 'sample', 'brand-new-password', $createdAt) === true && lg($cfg, 'sample', 'brand-new-password', 'Browser') !== null,
+        'a code issued after the account was created resets it');
+    check(msa_reset_password($cfg, 'sample', 'brand-new-password-2') === true, 'a caller that does not say when its code was issued is not held back');
+    // Binding to the exact account closes the same-second deletion/recreation gap left by timestamps.
+    [$cfg, $tk, $cookie] = $delSetup();
+    $identity = msa_reset_identity($cfg, 'SaMpLe');
+    $createdAt = (int) msa_store_read($cfg)['accounts']['sample']['created'];
+    check(is_array($identity) && strlen($identity['stamp']) === 64 && msa_reset_identity($cfg, 'nobody') === null,
+        'reset identity comes from the normalised account and an unknown name has none');
+    check(!msa_reset_password($cfg, 'sample', 'reset-before-delete', $createdAt, str_repeat('a', 64)),
+        'a code with the wrong account stamp cannot reset the password');
+    check(msa_account_delete($cfg, $cookie($tk['mine']['token']), 'password', 'sample', '') && msa_admin_undelete($cfg, 'sample'),
+        'control: delete the original account and lift its name');
+    msa_lock($cfg, function () use ($cfg, $acct, $createdAt): void {
+        $db = msa_store_read($cfg);
+        $db['accounts']['sample'] = array_merge($acct('new-owner-password'), ['created' => $createdAt]);
+        msa_store_write($cfg, $db);
+    });
+    $newIdentity = msa_reset_identity($cfg, 'sample');
+    check($newIdentity['stamp'] !== $identity['stamp'] && !msa_reset_password($cfg, 'sample', 'old-code-password', $createdAt, $identity['stamp']) &&
+        lg($cfg, 'sample', 'new-owner-password') !== null, 'an old code cannot reset a recreated account even with the identical creation second');
+    check(msa_reset_password($cfg, 'sample', 'new-code-password', $createdAt, $newIdentity['stamp']) &&
+        !msa_reset_password($cfg, 'sample', 'reuse-code-password', $createdAt, $newIdentity['stamp']),
+        'a current stamp works once and the new password invalidates every code with that stamp');
+    // Recovery when an older library has allowed a held name to be taken: current reads and undelete still work.
+    $db = msa_store_read($cfg);
+    $db['deleted']['sample'] = ['at' => time()];
+    $iv = random_bytes(12);
+    $tag = '';
+    $enc = openssl_encrypt(json_encode($db), 'aes-256-gcm', $cfg['key'], OPENSSL_RAW_DATA, $iv, $tag, $cfg['environment']);
+    file_put_contents($cfg['data_dir'] . '/auth.json', 'MSA1:' . base64_encode($iv . $tag . $enc));
+    check(isset(msa_store_read($cfg)['accounts']['sample']) && refused(fn() => msa_store_write($cfg, $db)),
+        'an account created by an older library under a held name can be read, but ordinary writes fail closed');
+    check(msa_admin_undelete($cfg, 'sample') && !msa_account_deleted($cfg, 'sample') && lg($cfg, 'sample', 'new-code-password') !== null,
+        'the current admin can explicitly lift the conflicting hold without losing the account or editing the store');
     // the operator's other tools never bring an account back
     [$cfg, $tk, $cookie] = $delSetup();
     msa_account_delete($cfg, $cookie($tk['mine']['token']), 'password', 'sample', '');
