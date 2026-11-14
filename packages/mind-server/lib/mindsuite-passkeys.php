@@ -46,7 +46,7 @@ function msa_passkey_challenge(array &$db, string $type, string $session): strin
 }
 
 /** Verify client data and consume its matching challenge once. */
-function msa_passkey_take(array $cfg, array $input, string $type, string $session = ''): string
+function msa_passkey_take(array $cfg, array $input, string $type, string $session = '', string $purpose = '', ?array &$taken = null): string
 {
     [, $origin] = msa_passkey_scope($cfg);
     $ceremony = $type === 'webauthn.create' ? 'register' : 'login';
@@ -61,15 +61,17 @@ function msa_passkey_take(array $cfg, array $input, string $type, string $sessio
     // A provider that writes its own client data may pad the challenge or use the standard alphabet; the bytes are the same.
     $challenge = is_string($client['challenge'] ?? null) ? msa_passkey_unpad($client['challenge']) : null;
     if ($challenge === null) { return msa_passkey_refuse($cfg, $ceremony, 'challenge-unknown') ?? ''; }
-    return msa_lock($cfg, function () use ($cfg, $json, $challenge, $type, $session, $ceremony): string {
+    return msa_lock($cfg, function () use ($cfg, $json, $challenge, $type, $session, $ceremony, $purpose, &$taken): string {
         $db = msa_store_read($cfg);
         $row = $db['challenges'][$challenge] ?? null;
         if ($row === null) { return msa_passkey_refuse($cfg, $ceremony, 'challenge-unknown') ?? ''; }
         if ($row['type'] !== $type) { return msa_passkey_refuse($cfg, $ceremony, 'challenge-ceremony') ?? ''; }
+        if (($row['purpose'] ?? '') !== $purpose) { return ''; }
         if ($row['session'] !== $session) { return msa_passkey_refuse($cfg, $ceremony, 'challenge-session') ?? ''; }
         unset($db['challenges'][$challenge]);
         msa_store_write($cfg, $db);
         if ($row['created'] <= time() - WEBAUTHN_CHALLENGE_TTL) { return msa_passkey_refuse($cfg, $ceremony, 'challenge-expired') ?? ''; }
+        $taken = $row;
         return $json;
     });
 }
@@ -88,34 +90,59 @@ function msa_passkey_authdata(array $cfg, string $bytes, string $ceremony = ''):
     return $data;
 }
 
-/** Start passkey registration for a live session. */
-function msa_passkey_register_begin(array $cfg, array $session): ?array
+/** Verify the current password under the lock, counting wrong guesses just as sign-in does. */
+function msa_passkey_password_proof(array &$db, array $session, string $password, string $client): bool
+{
+    if ($password === '' || strlen($password) > 1024 || str_contains($password, "\0") || !msa_session_full($db, $session)) { return false; }
+    $account = &$db['accounts'][$session['user']];
+    if (!msa_password_enabled($account) || msa_account_locked_until($account, $client, time()) > 0) {
+        msa_dummy_verify($password);
+        return false;
+    }
+    foreach (msa_password_hashes($account, time()) as $hash) {
+        if (msa_verify_password($password, $hash)) { return true; }
+    }
+    msa_note_failure($account, $client, time());
+    return false;
+}
+
+/** Start registration only after proof of a current credential, never a session cookie alone. */
+function msa_passkey_register_begin(array $cfg, array $session, string $password = '', string $client = ''): ?array
+{
+    msa_passkey_scope($cfg);
+    return msa_lock($cfg, function () use ($cfg, $session, $password, $client): ?array {
+        $db = msa_store_read($cfg);
+        $options = msa_passkey_password_proof($db, $session, $password, $client)
+            ? msa_passkey_register_options($cfg, $db, $session) : null;
+        msa_store_write($cfg, $db);
+        return $options;
+    });
+}
+
+/** Create options after a fresh credential proof; caller holds the lock and publishes. */
+function msa_passkey_register_options(array $cfg, array &$db, array $session): array
 {
     [$rp] = msa_passkey_scope($cfg);
-    return msa_lock($cfg, function () use ($cfg, $rp, $session): ?array {
-        $db = msa_store_read($cfg);
-        if (!msa_session_full($db, $session)) { return null; }
-        $user = $session['user'];
-        $challenge = msa_passkey_challenge($db, 'webauthn.create', $session['id']);
-        $mine = array_filter($db['passkeys'], static fn($row) => $row['user'] === $user);
-        msa_store_write($cfg, $db);
-        return [
-            'challenge' => $challenge,
-            'rp' => ['id' => $rp, 'name' => 'MindSuite'],
-            'user' => ['id' => b64u_encode($user), 'name' => $user, 'displayName' => $user],
-            'pubKeyCredParams' => [
-                ['type' => 'public-key', 'alg' => COSE_ES256],
-                ['type' => 'public-key', 'alg' => COSE_RS256],
-            ],
-            // requireResidentKey is the Level 1 spelling of residentKey: a client or third-party provider that predates
-            // residentKey still makes a discoverable credential, which the username-less sign-in needs.
-            'authenticatorSelection' => ['residentKey' => 'required', 'requireResidentKey' => true, 'userVerification' => 'required'],
-            'attestation' => 'none',
-            'excludeCredentials' => array_map(
-                static fn($id) => ['type' => 'public-key', 'id' => (string) $id], array_keys($mine)
-            ),
-        ];
-    });
+    $user = $session['user'];
+    $challenge = msa_passkey_challenge($db, 'webauthn.create', $session['id']);
+    $db['challenges'][$challenge] += ['purpose' => 'register', 'user' => $user, 'gen' => msa_account_gen($db, $user)];
+    $mine = array_filter($db['passkeys'], static fn($row) => $row['user'] === $user);
+    return [
+        'challenge' => $challenge,
+        'rp' => ['id' => $rp, 'name' => 'MindSuite'],
+        'user' => ['id' => b64u_encode($user), 'name' => $user, 'displayName' => $user],
+        'pubKeyCredParams' => [
+            ['type' => 'public-key', 'alg' => COSE_ES256],
+            ['type' => 'public-key', 'alg' => COSE_RS256],
+        ],
+        // requireResidentKey is the Level 1 spelling of residentKey: a client or third-party provider that predates
+        // residentKey still makes a discoverable credential, which the username-less sign-in needs.
+        'authenticatorSelection' => ['residentKey' => 'required', 'requireResidentKey' => true, 'userVerification' => 'required'],
+        'attestation' => 'none',
+        'excludeCredentials' => array_map(
+            static fn($id) => ['type' => 'public-key', 'id' => (string) $id], array_keys($mine)
+        ),
+    ];
 }
 
 /**
@@ -127,7 +154,8 @@ function msa_passkey_register_finish(array $cfg, array $session, array $input): 
 {
     $sessionId = $session['id'] ?? '';
     if ($sessionId === '') { return msa_passkey_refuse($cfg, 'register', 'session'); }
-    if (msa_passkey_take($cfg, $input, 'webauthn.create', $sessionId) === '') { return null; }
+    $proof = null;
+    if (msa_passkey_take($cfg, $input, 'webauthn.create', $sessionId, 'register', $proof) === '') { return null; }
     try {
         $bytes = msa_passkey_bytes($input['attestationObject'] ?? null, 32768);
         $attestation = cbor_decode($bytes);
@@ -146,14 +174,16 @@ function msa_passkey_register_finish(array $cfg, array $session, array $input): 
     $id = b64u_encode($data['credId']);
     $label = $input['label'] ?? '';
     if (!is_string($label) || trim($label) === '' || strlen($label) > 120 || preg_match('//u', $label) !== 1) { $label = 'passkey'; }
-    return msa_lock($cfg, function () use ($cfg, $session, $id, $pem, $data, $label, $attestation): ?string {
+    return msa_lock($cfg, function () use ($cfg, $session, $id, $pem, $data, $label, $attestation, $proof): ?string {
         $db = msa_store_read($cfg);
-        if (!msa_session_full($db, $session)) { return msa_passkey_refuse($cfg, 'register', 'session'); }
+        if (!msa_session_full($db, $session) || ($proof['user'] ?? null) !== $session['user'] ||
+            ($proof['gen'] ?? null) !== msa_account_gen($db, $session['user'])) { return msa_passkey_refuse($cfg, 'register', 'session'); }
         if (isset($db['passkeys'][$id])) { return msa_passkey_refuse($cfg, 'register', 'duplicate', msa_passkey_id_facts($id)); }
         $db['passkeys'][$id] = [
             'user' => $session['user'], 'pem' => $pem, 'signCount' => $data['signCount'],
             'label' => trim($label), 'created' => time(),
         ];
+        $db['accounts'][$session['user']]['gen'] = msa_account_gen($db, $session['user']) + 1;
         msa_store_write($cfg, $db);
         $aaguid = msa_passkey_aaguid($attestation['authData']);
         msa_passkey_note($cfg, 'register', 'ok', [
@@ -236,14 +266,113 @@ function msa_passkey_list(array $cfg, array $session): array
 }
 
 /** Remove only a passkey owned by the authenticated user. */
-function msa_passkey_remove(array $cfg, array $session, string $id): bool
+function msa_passkey_remove(array $cfg, array $session, string $id, string $password = '', string $client = ''): bool
 {
-    return msa_lock($cfg, function () use ($cfg, $session, $id): bool {
+    return msa_lock($cfg, function () use ($cfg, $session, $id, $password, $client): bool {
         $db = msa_store_read($cfg);
-        if (!msa_session_full($db, $session) || ($db['passkeys'][$id]['user'] ?? null) !== $session['user']) { return false; }
+        if (!msa_passkey_can_remove($db, $session, $id)) { return false; }
+        if (!msa_passkey_password_proof($db, $session, $password, $client)) { msa_store_write($cfg, $db); return false; }
         unset($db['passkeys'][$id]);
+        $db['accounts'][$session['user']]['gen'] = msa_account_gen($db, $session['user']) + 1;
         msa_store_write($cfg, $db);
         return true;
+    });
+}
+
+/** Keep at least one working sign-in credential; checked inside the same lock as removal. */
+function msa_passkey_can_remove(array $db, array $session, string $id): bool
+{
+    if (!msa_session_full($db, $session) || ($db['passkeys'][$id]['user'] ?? null) !== $session['user']) { return false; }
+    return msa_password_enabled($db['accounts'][$session['user']]) ||
+        count(array_filter($db['passkeys'], static fn($row) => $row['user'] === $session['user'])) > 1;
+}
+
+/** Start a fresh passkey proof for one account action and this exact session, user and revocation generation. */
+function msa_passkey_manage_begin(array $cfg, array $session, string $purpose, string $target = ''): ?array
+{
+    [$rp] = msa_passkey_scope($cfg);
+    if (!in_array($purpose, ['register', 'remove', 'password', 'password_off', 'delete'], true)) { return null; }
+    return msa_lock($cfg, function () use ($cfg, $session, $purpose, $target, $rp): ?array {
+        $db = msa_store_read($cfg);
+        if (!msa_session_full($db, $session) || ($purpose === 'remove' && !msa_passkey_can_remove($db, $session, $target))) { return null; }
+        $user = $session['user'];
+        $keys = array_keys(array_filter($db['passkeys'], static fn($row) => $row['user'] === $user));
+        if ($keys === []) { return null; }
+        $challenge = msa_passkey_challenge($db, 'webauthn.get', $session['id']);
+        $db['challenges'][$challenge] += ['purpose' => $purpose, 'target' => $target, 'user' => $user, 'gen' => msa_account_gen($db, $user)];
+        msa_store_write($cfg, $db);
+        return ['challenge' => $challenge, 'rpId' => $rp, 'userVerification' => 'required',
+            'allowCredentials' => array_map(static fn($id) => ['type' => 'public-key', 'id' => (string) $id], $keys)];
+    });
+}
+
+/** Replace password state after fresh proof, rotate the current session, and revoke old sessions, grants and proofs. */
+function msa_passkey_password_update(array &$db, array $session, string $hash, bool $enabled): array
+{
+    $user = $session['user'];
+    $account = &$db['accounts'][$user];
+    $account['hash'] = $hash;
+    unset($account['lockout'], $account['lockouts'], $account['wide'], $account['known'], $account['transition_hashes'], $account['transition_until'], $account['password_login']);
+    if (!$enabled) { $account['password_login'] = false; }
+    $account['gen'] = msa_account_gen($db, $user) + 1;
+    $mine = array_keys(array_filter($db['sessions'], static fn($row) => $row['user'] === $user));
+    $device = $db['sessions'][$session['id']]['device'] ?? '';
+    $db['sessions'] = array_filter($db['sessions'], static fn($row) => $row['user'] !== $user);
+    $db['challenges'] = array_filter($db['challenges'], static fn($row) => !in_array($row['session'], $mine, true));
+    if (isset($db['app_codes'])) {
+        $db['app_codes'] = array_filter($db['app_codes'], static fn($row) => ($row['user'] ?? null) !== $user &&
+            !in_array($row['sid'] ?? null, $mine, true) && !in_array($row['spent'] ?? null, $mine, true));
+    }
+    return msa_issue_session($db, $user, $device, time());
+}
+
+/** Verify a one-use assertion and apply its exact account action atomically; a cookie alone authorizes none of these. */
+function msa_passkey_manage_finish(array $cfg, array $session, string $purpose, array $input): ?array
+{
+    if (!in_array($purpose, ['register', 'remove', 'password', 'password_off', 'delete'], true) || !is_string($session['id'] ?? null)) { return null; }
+    $new = $input['password'] ?? '';
+    if ($purpose === 'password' && (!is_string($new) || !msa_valid_new_password($new))) { return null; }
+    if (in_array($purpose, ['password_off', 'remove'], true) && ($input['confirm'] ?? null) !== '1') { return null; }
+    if ($purpose === 'delete' && (msa_normalize_username(is_string($input['confirm_name'] ?? null) ? trim($input['confirm_name']) : '') !== ($session['user'] ?? null) || ($input['confirm'] ?? null) !== '1')) { return null; }
+    // An unusable random hash replaces the old one even for readers predating password_login.
+    $hash = in_array($purpose, ['password', 'password_off'], true) ? password_hash($purpose === 'password' ? $new : bin2hex(random_bytes(32)), PASSWORD_BCRYPT) : '';
+    $proof = null;
+    $json = msa_passkey_take($cfg, $input, 'webauthn.get', $session['id'], $purpose, $proof);
+    if ($json === '') { return null; }
+    $id = is_string($input['id'] ?? null) ? msa_passkey_unpad($input['id']) : '';
+    $bytes = msa_passkey_bytes($input['authenticatorData'] ?? null, 8192);
+    $signature = msa_passkey_bytes($input['signature'] ?? null, 4096);
+    if ($id === '' || $bytes === '' || $signature === '') { return null; }
+    try { $data = msa_passkey_authdata($cfg, $bytes, 'manage'); }
+    catch (RuntimeException | TypeError) { return null; }
+    if ($data === null || ($data['flags'] & 0x40) !== 0) { return null; }
+    return msa_lock($cfg, function () use ($cfg, $session, $purpose, $input, $hash, $proof, $id, $bytes, $json, $signature, $data): ?array {
+        $db = msa_store_read($cfg);
+        if (!msa_session_full($db, $session) || ($proof['user'] ?? null) !== $session['user'] ||
+            ($proof['gen'] ?? null) !== msa_account_gen($db, $session['user'])) { return null; }
+        $key = $db['passkeys'][$id] ?? null;
+        if ($key === null || $key['user'] !== $session['user']) { return null; }
+        $handle = $input['userHandle'] ?? null;
+        if ($handle !== null && $handle !== '' && !hash_equals($key['user_handle'] ?? $session['user'], msa_passkey_bytes($handle, 128))) { return null; }
+        if (openssl_verify($bytes . hash('sha256', $json, true), $signature, $key['pem'], OPENSSL_ALGO_SHA256) !== 1 ||
+            ($key['signCount'] > 0 && $data['signCount'] <= $key['signCount'])) { return null; }
+        $db['passkeys'][$id]['signCount'] = $data['signCount'];
+        $db['passkeys'][$id]['used'] = time();
+        $result = ['ok' => true];
+        if ($purpose === 'register') {
+            $result['options'] = msa_passkey_register_options($cfg, $db, $session);
+        } elseif ($purpose === 'remove') {
+            if (!msa_passkey_can_remove($db, $session, $proof['target'])) { return null; }
+            unset($db['passkeys'][$proof['target']]);
+            $db['accounts'][$session['user']]['gen'] = msa_account_gen($db, $session['user']) + 1;
+        } elseif ($purpose === 'delete') {
+            $counts = msa_account_delete_rows($db, $session['user'], time());
+        } else {
+            $result['session'] = msa_passkey_password_update($db, $session, $hash, $purpose === 'password');
+        }
+        msa_store_write($cfg, $db);
+        if ($purpose === 'delete') { msa_account_delete_note($session['user'], $counts); }
+        return $result;
     });
 }
 
@@ -365,7 +494,7 @@ function msa_passkey_report_facts(array $in): ?array
 {
     $ceremony = $in['ceremony'] ?? null;
     $step = $in['step'] ?? null;
-    if (!in_array($ceremony, ['login', 'register', 'conditional'], true) || !in_array($step, ['options', 'prompt', 'answer', 'server'], true)) { return null; }
+    if (!in_array($ceremony, ['login', 'register', 'conditional', 'manage'], true) || !in_array($step, ['options', 'prompt', 'answer', 'server'], true)) { return null; }
     $facts = [];
     $name = $in['name'] ?? null;
     if (is_string($name) && preg_match('/^[A-Za-z]{1,40}$/', $name) === 1) { $facts['name'] = $name; }

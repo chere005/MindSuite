@@ -235,7 +235,8 @@ try {
         'inventory refuses account records rather than returning them');
 
     $session = msa_session($prod, bearer($account['token']), []);
-    $registration = msa_passkey_register_begin($prod, $session);
+    msa_admin_unlock($prod, 'sample'); // registration now proves a current credential and respects lockout
+    $registration = msa_passkey_register_begin($prod, $session, 'transition');
     $private = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
     $point = openssl_pkey_get_details($private)['ec'];
     $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($point['x'], 32, "\0", STR_PAD_LEFT) .
@@ -281,7 +282,7 @@ try {
         msa_passkey_login_finish($prod, $assertion(2, $prod['origin'], true)) === null &&
         msa_passkey_login_finish($prod, array_replace($assertion(2, $prod['origin']), ['signature' => b64u_encode('invalid')])) === null,
         'passkey rejects stale counters, foreign origins, cross-origin embeds and invalid signatures');
-    check(msa_passkey_remove($prod, $session, $passkey) && msa_passkey_list($prod, $session) === [] &&
+    check(msa_passkey_remove($prod, $session, $passkey, 'transition') && msa_passkey_list($prod, $session) === [] &&
         msa_passkey_login_finish($prod, $assertion(2, $prod['origin'])) === null, 'removed passkey cannot sign in again');
 
     // A synced third-party provider (a password manager's passkeys on a phone), as a software authenticator: ES256,
@@ -289,7 +290,7 @@ try {
     // for, no userHandle from the page. The owner's phone uses one; each refusal path is pinned here.
     $cborBytes = static fn(string $b): string => (strlen($b) < 24 ? chr(0x40 | strlen($b)) : (strlen($b) < 256 ? "\x58" . chr(strlen($b)) : "\x59" . pack('n', strlen($b)))) . $b;
     $provider = static function (int $flags, string $fmt) use ($prod, $session, $rpHash, $cborBytes): array {
-        $options = msa_passkey_register_begin($prod, $session);
+        $options = msa_passkey_register_begin($prod, $session, 'transition');
         $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
         $ec = openssl_pkey_get_details($key)['ec'];
         $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
@@ -330,7 +331,7 @@ try {
     $strayChallenge = json_decode(b64u_decode($stray['clientDataJSON']), true)['challenge'];
     check(msa_passkey_login_finish($prod, $stray) === null && !isset(msa_store_read($prod)['challenges'][$strayChallenge]),
         'a well-formed passkey for this RP that the store does not hold (one made before the shared store) is refused, its challenge spent');
-    check(msa_passkey_remove($prod, $session, $pkPacked) && msa_passkey_remove($prod, $session, $pkNone) && msa_passkey_list($prod, $session) === [],
+    check(msa_passkey_remove($prod, $session, $pkPacked, 'transition') && msa_passkey_remove($prod, $session, $pkNone, 'transition') && msa_passkey_list($prod, $session) === [],
         'the provider fixtures are removed again');
 
     // A LastPass-shaped provider and the diagnostics: LastPass's AAGUID, backup flags set, counter 0, an empty or absent userHandle,
@@ -346,7 +347,7 @@ try {
         $cose = "\xa5\x01\x02\x03\x26\x20\x01\x21\x58\x20" . str_pad($ec['x'], 32, "\0", STR_PAD_LEFT) . "\x22\x58\x20" . str_pad($ec['y'], 32, "\0", STR_PAD_LEFT);
         // An id whose canonical form has - or _, so the standard alphabet differs from it.
         do { $credId = random_bytes(32); $canonical = b64u_encode($credId); } while (!str_contains($canonical, '-') && !str_contains($canonical, '_'));
-        $options = msa_passkey_register_begin($noted, $session);
+        $options = msa_passkey_register_begin($noted, $session, 'transition');
         $auth = $rpHash . chr(0x5d) . pack('N', 0) . $aaguid . pack('n', 32) . $credId . $cose;
         $client = client_data('webauthn.create', $options['challenge'], $prod['origin']);
         $object = "\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData" . $cborBytes($auth);
@@ -427,7 +428,7 @@ try {
             $report[2]['flags'] === 'UP+UV+BE+BS' && !isset($report[2]['secret']) && !isset($report[2]['field']), 'a page report keeps only its allowed, valid facts');
         check(msa_passkey_report_facts(['ceremony' => 'login', 'step' => 'nonsense']) === null && msa_passkey_report_facts(['ceremony' => 'x', 'step' => 'prompt']) === null &&
             msa_passkey_report_facts([]) === null, 'a page report with no known ceremony and step is dropped');
-        check(msa_passkey_remove($prod, $session, (string) $id), 'the LastPass fixture is removed again');
+        check(msa_passkey_remove($prod, $session, (string) $id, 'transition'), 'the LastPass fixture is removed again');
     })();
 
     // Passkey refusals (#233): every way a forged or replayed assertion could look, with real signatures from keys made here.
@@ -445,7 +446,7 @@ try {
     };
     // Registration refuses the same shapes: another rpIdHash, a get used for a create, a missing user-present flag.
     $register = static function (string $hashed, int $flags, string $type, $key, string $credId, int $count, ?string $challenge = null) use ($cfg, $session, $origin, $cd, $cose): ?string {
-        $challenge ??= msa_passkey_register_begin($cfg, $session)['challenge'];
+        $challenge ??= msa_passkey_register_begin($cfg, $session, 'transition')['challenge'];
         $auth = hash('sha256', $hashed, true) . chr($flags | 0x40) . pack('N', $count) . str_repeat("\0", 16) . pack('n', strlen($credId)) . $credId . $cose($key);
         $object = "\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData\x58" . chr(strlen($auth)) . $auth;
         return msa_passkey_register_finish($cfg, $session, ['clientDataJSON' => b64u_encode($cd($type, $challenge, $origin)), 'attestationObject' => b64u_encode($object), 'label' => 'fixture']);
@@ -494,7 +495,7 @@ try {
     $refused(['type' => 'webauthn.create'], 'type webauthn.create used for a get is refused');
     $refused(['type' => ''], 'an empty type is refused');
     // A challenge from the registration ceremony cannot be spent on a sign-in, nor the reverse.
-    $createChallenge = msa_passkey_register_begin($cfg, $session)['challenge'];
+    $createChallenge = msa_passkey_register_begin($cfg, $session, 'transition')['challenge'];
     $refused(['challenge' => $createChallenge], 'a registration challenge presented as a sign-in challenge is refused');
     $refused(['challenge' => b64u_encode(random_bytes(32))], 'a challenge the server never issued is refused');
     // Flags: user-present and user-verified are both required.
@@ -1174,7 +1175,7 @@ try {
     [$cfg, $tk, $cookie] = $delSetup();
     $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
     $me = $cookie($tk['mine']['token']);
-    $options = msa_passkey_register_begin($cfg, $me);
+    $options = msa_passkey_register_begin($cfg, $me, 'password');
     check($options !== null && msa_account_delete($cfg, $me, 'password', 'sample', ''), 'a passkey registration is begun, then the account is deleted');
     $private = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
     $point = openssl_pkey_get_details($private)['ec'];
@@ -1185,7 +1186,7 @@ try {
     $registered = msa_passkey_register_finish($cfg, $me, ['clientDataJSON' => b64u_encode(client_data('webauthn.create', $options['challenge'], $cfg['origin'])),
         'attestationObject' => b64u_encode($attestation), 'label' => 'late']);
     check($registered === null && array_filter(msa_store_read($cfg)['passkeys'], static fn($r) => $r['user'] === 'sample') === [], 'the finished registration is refused and adds no passkey for the deleted account');
-    check(msa_passkey_register_begin($cfg, $me) === null && msa_passkey_list($cfg, $me) === [] && !msa_passkey_remove($cfg, $me, 'pk-sample-1') &&
+    check(msa_passkey_register_begin($cfg, $me, 'password') === null && msa_passkey_list($cfg, $me) === [] && !msa_passkey_remove($cfg, $me, 'pk-sample-1') &&
         !msa_change_password($cfg, $me, 'password', 'a-new-password') && !isset(msa_store_read($cfg)['accounts']['sample']), 'every other call with the old session refuses and recreates nothing');
     msa_revoke_all($cfg, $me);
     check(!isset(msa_store_read($cfg)['accounts']['sample']) && !isset(msa_store_read($cfg)['accounts']['sample']['gen']), 'sign out everywhere with the old session recreates nothing');
@@ -1203,7 +1204,7 @@ try {
     [$cfg, $tk, $cookie] = $delSetup();
     $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
     $me = $cookie($tk['mine']['token']);
-    $options = msa_passkey_register_begin($cfg, $me);
+    $options = msa_passkey_register_begin($cfg, $me, 'password');
     $db = msa_store_read($cfg);
     $db['sessions'] = array_filter($db['sessions'], static fn($r) => $r['user'] !== 'sample');
     unset($db['accounts']['sample']);
@@ -1215,7 +1216,7 @@ try {
     [$cfg, $tk, $cookie] = $delSetup();
     $cfg += ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
     $me = $cookie($tk['mine']['token']);
-    $options = msa_passkey_register_begin($cfg, $me);
+    $options = msa_passkey_register_begin($cfg, $me, 'password');
     check(msa_passkey_register_finish($cfg, $me, $attest($cfg, $options)) !== null, 'control: with the account present the same registration adds its passkey (so only the guard refused it)');
     // the typed name is case-insensitive (the page trims it first), as the page says
     [$cfg, $tk, $cookie] = $delSetup();
@@ -1399,13 +1400,13 @@ try {
     $scopedSession = msa_session($cfg, bearer($tok['token']), []);
     check($scopedSession['scope'] === 'calmind', 'control: the scoped session is scoped');
     $cfg2 = $cfg + ['rp_id' => 'mindsuite.example', 'origin' => 'https://mindsuite.example'];
-    check(msa_passkey_register_begin($cfg2, $scopedSession) === null && msa_passkey_register_begin($cfg2, $fullSession) !== null, 'a scoped session cannot start a passkey registration');
+    check(msa_passkey_register_begin($cfg2, $scopedSession) === null && msa_passkey_register_begin($cfg2, $fullSession, 'password') !== null, 'a scoped session cannot start a passkey registration');
     check(msa_passkey_register_finish($cfg2, $scopedSession, ['clientDataJSON' => 'x']) === null, 'nor finish one');
     $db = msa_store_read($cfg);
     $db['passkeys']['pk1'] = ['user' => 'sample', 'pem' => 'x', 'signCount' => 0, 'label' => 'k', 'created' => 1];
     msa_store_write($cfg, $db);
     check(msa_passkey_list($cfg2, $scopedSession) === [] && count(msa_passkey_list($cfg2, $fullSession)) === 1, 'nor list passkeys');
-    check(!msa_passkey_remove($cfg2, $scopedSession, 'pk1') && isset(msa_store_read($cfg)['passkeys']['pk1']) && msa_passkey_remove($cfg2, $fullSession, 'pk1'), 'nor remove one');
+    check(!msa_passkey_remove($cfg2, $scopedSession, 'pk1') && isset(msa_store_read($cfg)['passkeys']['pk1']) && msa_passkey_remove($cfg2, $fullSession, 'pk1', 'password'), 'nor remove one');
     check(!msa_change_password($cfg, $scopedSession, 'password', 'replacement') && lg($cfg, 'sample', 'password') !== null, 'a scoped session cannot change the password');
     msa_revoke_all($cfg, $scopedSession);
     check(msa_user($cfg, bearer($full['token']), []) === 'sample' && msa_user($cfg, bearer($tok['token']), [], 'calmind') === 'sample', 'nor revoke every session');

@@ -325,7 +325,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(200, call($port, ['action' => 'login', 'username' => 'ben', 'password' => 'ben-shared-pw'])['status'], 'the shared password still signs in');
     });
 
-    t('on: a calmind token cannot add or remove passkeys (and lists none); a browser session can begin', function () use ($port, $plant, $csrfOf, &$alex) {
+    t('on: neither a calmind token nor a browser cookie alone can enroll a shared-account passkey', function () use ($port, $plant, $csrfOf, &$alex) {
         eq([403, true], [call($port, ['action' => 'passkey_register_begin'], bearer($alex))['status'], call($port, ['action' => 'passkey_register_begin'], bearer($alex))['body']['shared'] ?? null], 'register begin');
         eq(403, call($port, ['action' => 'passkey_register_finish', 'clientDataJSON' => 'x', 'attestationObject' => 'y'], bearer($alex))['status'], 'register finish');
         $l = call($port, ['action' => 'passkey_list'], bearer($alex));
@@ -333,8 +333,8 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(404, call($port, ['action' => 'passkey_remove', 'id' => 'whatever'], bearer($alex))['status'], 'remove');
         $c = $plant('alex', '');
         $b = call($port, ['action' => 'passkey_register_begin'], ['Cookie' => 'MSSESS_TEST=' . $c, 'X-CSRF-Token' => $csrfOf($c)]);
-        eq(200, $b['status'], 'browser begin ' . $b['raw']);
-        eq('test.seancheren.com', $b['body']['rp']['id'] ?? null, 'the site\'s relying party');
+        eq(403, $b['status'], 'cookie-only enrollment must use fresh verification at /account/: ' . $b['raw']);
+        ok(!isset($b['body']['challenge']), 'no unverified registration challenge is issued');
     });
 
     t('on: a passkey sign-in hands a phone a calmind-scoped token, never a full-account one', function () use ($port, $acfg, $row) {

@@ -166,7 +166,8 @@ function msa_store_read(array $cfg): array
     foreach ($db['accounts'] as $user => $account) {
         $hash = $account['hash'] ?? null;
         if (msa_normalize_username((string) $user) !== (string) $user || !is_string($hash) ||
-            password_get_info($hash)['algo'] === null) {
+            password_get_info($hash)['algo'] === null ||
+            (array_key_exists('password_login', $account) && !is_bool($account['password_login']))) {
             throw new RuntimeException('MindSuite auth store contains an invalid account.');
         }
     }
@@ -284,9 +285,16 @@ function msa_issue_session(array &$db, string $user, string $device, int $now, s
     return ['token' => $token, 'user' => $user, 'csrf' => $csrf];
 }
 
+/** Whether a password can authenticate this account; old accounts keep their existing behavior. */
+function msa_password_enabled(array $account): bool
+{
+    return ($account['password_login'] ?? true) === true;
+}
+
 /** The current password plus any legacy passwords still within their transition window. */
 function msa_password_hashes(array $account, int $now): array
 {
+    if (!msa_password_enabled($account)) { return []; }
     $hashes = [$account['hash'] ?? ''];
     if (($account['transition_until'] ?? 0) > $now) {
         $hashes = array_merge($hashes, $account['transition_hashes'] ?? []);
@@ -407,6 +415,7 @@ function msa_login(array $cfg, string $username, string $password, string $devic
         return null;
     }
     $hashes = msa_password_hashes($account, $now);
+    if ($hashes === []) { msa_dummy_verify($password); return null; }
     $matched = null;
     foreach ($hashes as $hash) {
         if (msa_verify_password($password, $hash)) {
@@ -601,7 +610,7 @@ function msa_session_full(array $db, array $session): bool
 
 /**
  * An account's revocation generation: it rises each time every session of the account is revoked at once (sign out
- * everywhere, a password change, an operator set-hash). A plan made earlier that would add sessions for the account
+ * everywhere, a password change, an operator set-hash) or its passkeys change. A plan made earlier that would add sessions for the account
  * (the legacy token import) checks it under the store lock and refuses when it moved, so a revocation between the
  * plan and the write is never undone by tokens the plan had not seen.
  */
@@ -723,7 +732,7 @@ function msa_admin_set_hash(array $cfg, string $username, string $hash): bool
         if (!isset($db['accounts'][$user])) { return false; }
         $db['accounts'][$user]['hash'] = $hash;
         unset($db['accounts'][$user]['lockout'], $db['accounts'][$user]['lockouts'], $db['accounts'][$user]['wide'], $db['accounts'][$user]['known'],
-            $db['accounts'][$user]['transition_hashes'], $db['accounts'][$user]['transition_until']);
+            $db['accounts'][$user]['transition_hashes'], $db['accounts'][$user]['transition_until'], $db['accounts'][$user]['password_login']);
         $db['sessions'] = array_filter($db['sessions'], static fn($row) => ($row['user'] ?? null) !== $user);
         $db['accounts'][$user]['gen'] = msa_account_gen($db, $user) + 1;
         msa_store_write($cfg, $db);
@@ -759,6 +768,8 @@ function msa_reset_password(array $cfg, string $username, string $newPassword, ?
         if ($codeIssuedAt !== null && (int) ($db['accounts'][$user]['created'] ?? 0) > $codeIssuedAt) { return false; }
         if ($accountStamp !== null && !hash_equals(msa_reset_stamp($cfg, $db, $user), $accountStamp)) { return false; }
         $account = &$db['accounts'][$user];
+        if (!msa_password_enabled($account) && $accountStamp === null) { return false; }
+        unset($account['password_login']);
         $account['hash'] = $hash;
         unset($account['lockout'], $account['lockouts'], $account['wide'], $account['known'], $account['transition_hashes'], $account['transition_until']);
         $db['sessions'] = array_filter($db['sessions'], static fn($row) => ($row['user'] ?? null) !== $user);
@@ -820,25 +831,38 @@ function msa_account_delete(array $cfg, array $session, string $password, string
             msa_store_write($cfg, $db);
             return false;
         }
-        $mine = array_keys(array_filter($db['sessions'], static fn($row) => ($row['user'] ?? null) === $user));
-        $keys = array_keys(array_filter($db['passkeys'], static fn($row) => ($row['user'] ?? null) === $user));
-        $db['challenges'] = array_diff_key($db['challenges'], array_flip(array_keys(array_filter(
-            $db['challenges'], static fn($row) => is_array($row) && in_array($row['session'] ?? null, $mine, true)
-        ))));
-        // Pending authorizations and replay ledgers belong to these sessions too.
-        if (is_array($db['app_codes'] ?? null)) {
-            $db['app_codes'] = array_filter($db['app_codes'], static fn($row) => !is_array($row) ||
-                (($row['user'] ?? null) !== $user && !in_array($row['sid'] ?? null, $mine, true) && !in_array($row['spent'] ?? null, $mine, true)));
-            if ($db['app_codes'] === []) { unset($db['app_codes']); }
-        }
-        $db['sessions'] = array_diff_key($db['sessions'], array_flip($mine));
-        $db['passkeys'] = array_diff_key($db['passkeys'], array_flip($keys));
-        unset($db['accounts'][$user]);
-        $db['deleted'][$user] = ['at' => $now];
+        $counts = msa_account_delete_rows($db, $user, $now);
         msa_store_write($cfg, $db);
-        error_log('mindsuite account deleted: ' . $user . ' (' . count($mine) . ' sessions, ' . count($keys) . ' passkeys)');
+        msa_account_delete_note($user, $counts);
         return true;
     });
+}
+
+/** Delete rows after either password or passkey proof; the caller holds the lock and publishes once. */
+function msa_account_delete_rows(array &$db, string $user, int $now): array
+{
+    $mine = array_keys(array_filter($db['sessions'], static fn($row) => ($row['user'] ?? null) === $user));
+    $keys = array_keys(array_filter($db['passkeys'], static fn($row) => ($row['user'] ?? null) === $user));
+    $db['challenges'] = array_diff_key($db['challenges'], array_flip(array_keys(array_filter(
+        $db['challenges'], static fn($row) => is_array($row) && in_array($row['session'] ?? null, $mine, true)
+    ))));
+    // Pending authorizations and replay ledgers belong to these sessions too.
+    if (is_array($db['app_codes'] ?? null)) {
+        $db['app_codes'] = array_filter($db['app_codes'], static fn($row) => !is_array($row) ||
+            (($row['user'] ?? null) !== $user && !in_array($row['sid'] ?? null, $mine, true) && !in_array($row['spent'] ?? null, $mine, true)));
+        if ($db['app_codes'] === []) { unset($db['app_codes']); }
+    }
+    $db['sessions'] = array_diff_key($db['sessions'], array_flip($mine));
+    $db['passkeys'] = array_diff_key($db['passkeys'], array_flip($keys));
+    unset($db['accounts'][$user]);
+    $db['deleted'][$user] = ['at' => $now];
+    return [count($mine), count($keys)];
+}
+
+/** Audit only after the deletion snapshot was published. */
+function msa_account_delete_note(string $user, array $counts): void
+{
+    error_log('mindsuite account deleted: ' . $user . ' (' . $counts[0] . ' sessions, ' . $counts[1] . ' passkeys)');
 }
 
 /** Whether the shared store holds a tombstone for this name (the name is normalised first). Reads only. */
