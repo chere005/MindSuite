@@ -53,3 +53,18 @@ PYTEST
   test "$(cat "$SMOKE_CALLS")" = verify
 done
 echo 'fresh local bundle signing guards passed'
+# Run ChefMind's real install block with a stopped app and a disposable Applications folder.
+python3 - "$HERE/../../ChefMind/tools/build-platforms.sh" "$OUT/install.sh" "$OUT/Applications" <<'PYTEST'
+import sys
+from pathlib import Path
+text=Path(sys.argv[1]).read_text()
+start=text.index('  APPNAME=$(basename "$APPBUNDLE" .app)')
+end=text.index('  heavy_unlock',start)
+Path(sys.argv[2]).write_text(text[start:end].replace('/Applications',sys.argv[3]))
+PYTEST
+mkdir -p "$OUT/Applications"
+: > "$SMOKE_CALLS"
+export APPBUNDLE="$OUT/desktop/src-tauri/target/release/bundle/macos/CalMind.app" SMOKE_SIGNATURE=valid
+bash "$OUT/install.sh" > "$OUT/log" 2>&1
+test "$(cat "$SMOKE_CALLS")" = $'verify\nverify' || { echo 'ChefMind skipped installed-copy signing' >&2; exit 1; }
+echo 'ChefMind installed-copy signing passed'

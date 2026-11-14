@@ -288,6 +288,7 @@ if [ "$WANT_MAC" = 1 ]; then
   # target/release/bundle is not the one being replaced here.
   APPNAME=$(basename "$APPBUNDLE" .app)
   WAS_RUNNING=0
+  GONE=1
   if pgrep -f "/Applications/$APPNAME.app/Contents/MacOS/" >/dev/null 2>&1; then
     WAS_RUNNING=1
     # ASKED, NEVER KILLED. `quit app` is the gesture the suite's desktop smoke
@@ -309,7 +310,7 @@ if [ "$WANT_MAC" = 1 ]; then
     osascript -e "quit app \"$APPNAME\"" >/dev/null 2>&1 || true
     WAITED=0
     while pgrep -f "/Applications/$APPNAME.app/Contents/MacOS/" >/dev/null 2>&1; do
-      [ "$WAITED" -lt 8 ] || { echo "warning: $APPNAME would not quit — installing over it anyway" >&2; break; }
+      [ "$WAITED" -lt 8 ] || { echo "warning: $APPNAME would not quit — installing over it anyway" >&2; GONE=0; break; }
       sleep 1
       WAITED=$((WAITED + 1))
     done
@@ -329,8 +330,8 @@ if [ "$WANT_MAC" = 1 ]; then
   # step of this since the quit: failing to reopen a window must never turn a
   # release that shipped into a lane that failed, so nothing below touches the
   # exit status.
-  if [ "$WAS_RUNNING" = 1 ]; then
-    if open "/Applications/$APPNAME.app" >/dev/null 2>&1; then
+  if [ "$WAS_RUNNING" = 1 ] && [ "$GONE" = 1 ]; then
+    if open -g "/Applications/$APPNAME.app" >/dev/null 2>&1; then
       echo "    reopened $APPNAME — it was running before this release"
     else
       echo "warning: $APPNAME was running before this release and would not reopen" >&2
