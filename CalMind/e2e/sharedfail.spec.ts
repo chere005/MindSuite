@@ -103,7 +103,9 @@ test('a tick on a row the partner just un-shared fails quietly and honestly', as
   await pageB.getByText('Settings', { exact: true }).click();
   await pageB.getByTestId('dismiss-shared-trouble').click();
   await expect(pageB.getByTestId('dismiss-shared-trouble')).toHaveCount(0);
-  await pageB.getByText('Done', { exact: true }).click();
+  await pageB.screenshot({ path: test.info().outputPath('dismissal.png') });
+  await expect(pageB.getByRole('button', { name: 'Done', exact: true }), 'dismissing the warning keeps Settings open').toBeVisible();
+  await pageB.getByRole('button', { name: 'Done', exact: true }).click();
 
   // Nothing thrown at the page, and the app is still alive and usable.
   expect(errors, 'a refused shared write is not a page error').toEqual([]);
