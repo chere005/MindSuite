@@ -1,20 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-/**
- * A sync that HANGS rather than fails.
- *
- * A refused connection rejects at once, is caught, and the app says Offline.
- * A stalled one — a captive portal, a dead middlebox, a server that accepts
- * and never answers — never settles at all. `fetch` has no timeout of its own
- * on the web, and store.tsx has no in-flight guard, so the promise sits there
- * while a 30-second interval starts another one behind it.
- *
- * The symptom is the one this app exists to avoid. `syncLook` gives 'syncing'
- * and 'idle' the SAME accent colour, so the dot a hung sync shows is exactly
- * the dot a healthy one shows: the app looks synced while nothing whatever is
- * reaching the server.
- */
-async function signup(page: Page): Promise<string> {
+/** Stalled requests time out and may be retried, but syncs must never overlap. */
+async function signup(page: Page): Promise<void> {
   const user = `sh${String(Date.now()).slice(-7)}`;
   await page.goto('.');
   await page.getByText('Sign up', { exact: true }).click();
@@ -24,45 +11,54 @@ async function signup(page: Page): Promise<string> {
   await page.getByPlaceholder('Confirm password').fill('e2epassword');
   await page.getByText('Sign up', { exact: true }).click();
   await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
-  return user;
 }
 
 test('a sync that never answers does not leave the app looking synced', async ({ page }) => {
-  test.setTimeout(180_000);
-  const user = await signup(page);
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    const stats = { active: 0, max: 0 };
+    (window as unknown as { syncProbe: typeof stats }).syncProbe = stats;
+    window.fetch = (...args: Parameters<typeof fetch>) => {
+      let sync = false;
+      try { sync = JSON.parse(String(args[1]?.body ?? '{}')).action === 'sync'; } catch { }
+      if (!sync) return original(...args);
+      stats.active++;
+      stats.max = Math.max(stats.max, stats.active);
+      return original(...args).finally(() => { stats.active--; });
+    };
+  });
+  await page.clock.install();
+  await signup(page);
+  await page.clock.pauseAt(new Date(Date.now() + 1_000));
 
-  // Every sync from here on is accepted and never answered.
   let hung = 0;
-  await page.route('**/api/index.php*', async (route) => {
-    if ((route.request().postData() ?? '').includes('"sync"')) {
-      hung += 1;
-      await new Promise(() => {});      // never resolves, never rejects
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/index.php*', async route => {
+    if (JSON.parse(route.request().postData() ?? '{}').action === 'sync') {
+      hung++;
+      await held;
+      await route.abort().catch(() => {});
       return;
     }
     await route.continue();
   });
+  try {
+    await page.getByTestId('tab-reminders').click();
+    await page.getByTestId('secadd-General').first().click();
+    await page.getByTestId('rem-add-field').fill('vanishing act');
+    await page.getByTestId('rem-add-field').press('Enter');
+    await page.clock.runFor(1_000);
+    await expect.poll(() => hung).toBeGreaterThan(0);
 
-  await page.getByTestId('tab-reminders').click();
-  await page.getByTestId('secadd-General').first().click();
-  await page.getByTestId('rem-add-field').fill('vanishing act');
-  await page.getByTestId('rem-add-field').press('Enter');
-
-  // Give it well past one poll interval.
-  // Well past three poll intervals. Before the in-flight guard this reached
-  // FOUR stuck requests in ninety-five seconds — one per interval, each
-  // holding a socket, none of them ever recovering — because the poll fires
-  // whether or not the last one finished.
-  await page.waitForTimeout(95_000);
-  expect(hung, 'at least one sync is stuck').toBeGreaterThan(0);
-  expect(
-    hung,
-    `${hung} stalled syncs in 95s — the poll is stacking them instead of waiting`,
-  ).toBeLessThanOrEqual(2);
-
-  await page.getByTestId('topbar-sync').click();
-  await page.getByText('Settings', { exact: true }).click();
-  await expect(
-    page.getByText('Online — synced'),
-    'a stalled sync must not read as synced',
-  ).toHaveCount(0, { timeout: 15_000 });
+    // Cross three poll intervals and the real request deadline without a 95-second wall-clock race.
+    for (const elapsed of [30_000, 30_000, 30_000, 5_000]) await page.clock.runFor(elapsed);
+    await expect.poll(() => hung, { message: 'a stalled request expires and another sync can be attempted' }).toBeGreaterThanOrEqual(2);
+    const stats = await page.evaluate(() => (window as unknown as { syncProbe: { active: number; max: number } }).syncProbe);
+    expect(stats.max, 'a retry starts only after the previous fetch has settled').toBe(1);
+    await expect(page.getByTestId('topbar-sync')).not.toHaveAttribute('aria-label', /Online — synced/);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });
