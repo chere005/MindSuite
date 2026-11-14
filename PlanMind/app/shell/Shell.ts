@@ -36,12 +36,13 @@ export function renderUnavailable(root: HTMLElement) {
   root.innerHTML = '<main class="login"><h1>Unable to open your day</h1><p class="dim">Your saved list is preserved. Reconnect and try again.</p><a class="primary" href="./">Try again</a></main>';
 }
 
-/** Builds the page and keeps it in step with the state. `tab` is the phone tab a page that reloaded itself puts the person back on. Returns what takes it down again. */
 /** How far (px) a finger may move between going down and lifting and still be a tap, whose click follows. */
 const TAP_SLOP = 10;
 
+/** Builds the page and keeps it in step with the state. `tab` is the phone tab a page that reloaded itself puts the person back on. Returns what takes it down again. */
 export function mountShell(root: HTMLElement, state: AppState, tab?: string | null): () => void {
   let unmount: Unmount | undefined, pending = false, pointerDown = false, touching = false, keyDown = false, awaitClick = false;
+  const heldKeys = new Set<string>();
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
   const ctx = makeContext(state, () => { pending = true; later(); }, message => {
     // Emptied first, so the same words said twice are read twice.
@@ -247,7 +248,7 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
     document.addEventListener(type, event => {
       pointerDown = false;
       const up = event as PointerEvent;
-      if (type === 'pointerup' && up.pointerType === 'touch' && Math.hypot(up.clientX - downAt.x, up.clientY - downAt.y) <= TAP_SLOP) { heldForClick(); } else { later(); }
+      if (type === 'pointerup' && (up.pointerType === 'touch' || up.pointerType === 'pen') && Math.hypot(up.clientX - downAt.x, up.clientY - downAt.y) <= TAP_SLOP) { heldForClick(); } else { later(); }
     }, { capture: true, signal: abort.signal });
   }
   document.addEventListener('click', () => { if (awaitClick) { clickDone(); } }, { capture: true, signal: abort.signal });
@@ -256,11 +257,11 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
   for (const type of ['touchstart', 'touchend', 'touchcancel']) { document.addEventListener(type, touch as EventListener, { capture: true, passive: true, signal: abort.signal }); }
   // A key held on a control of the panel (Space on a circle acts on its release) keeps the control the same element until it is let go.
   const holdsKey = (event: KeyboardEvent) => (event.key === ' ' || event.key === 'Enter') && event.target instanceof Node && host.contains(event.target);
-  document.addEventListener('keydown', event => { if (holdsKey(event)) { keyDown = true; } }, { capture: true, signal: abort.signal });
-  document.addEventListener('keyup', () => { if (keyDown) { keyDown = false; later(); } }, { capture: true, signal: abort.signal });
+  document.addEventListener('keydown', event => { if (holdsKey(event)) { heldKeys.add(event.key); keyDown = true; } }, { capture: true, signal: abort.signal });
+  document.addEventListener('keyup', event => { if (heldKeys.delete(event.key)) { keyDown = heldKeys.size > 0; later(); } }, { capture: true, signal: abort.signal });
   // A dialog (the list manager, the rhythm) closing is a quiet moment too.
   document.addEventListener('close', later, { capture: true, signal: abort.signal });
-  window.addEventListener('blur', () => { pointerDown = false; touching = false; keyDown = false; awaitClick = false; }, on);
+  window.addEventListener('blur', () => { pointerDown = false; touching = false; heldKeys.clear(); keyDown = false; awaitClick = false; }, on);
   // Leaving warns only for a draft that still holds something to lose: its list exists and its text differs from the saved note.
   window.addEventListener('beforeunload', event => { if (unsavedDrafts(state.drafts, state.session.notes, listIds()).length) { event.preventDefault(); event.returnValue = ''; } }, on);
   window.addEventListener('pageshow', event => { if (event.persisted) { location.reload(); } }, on);

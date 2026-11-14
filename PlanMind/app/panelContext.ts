@@ -15,7 +15,7 @@ import type { AppState, Draft, SendResult } from './state';
  * - html(ctx) returns markup built from core view models (dayView, weekView, monthView) and escapes every
  *   stored string with esc(). mount(root, ctx) wires events inside root and returns what undoes it.
  * - Writes go through ctx.send(). The shell redraws the whole panel (html, then mount) when data changes, but never while
- *   a write the screen cannot answer by itself is in flight, a text field or select inside it has focus, or a pointer is down;
+ *   a write the screen cannot answer by itself is in flight, a text field or select inside it has focus, a pointer is down or awaiting its click, or Space/Enter is held;
  *   it redraws once that ends, after the code that awaited ctx.send() has run. A write sent with { optimistic: true } holds no redraw:
  *   it is laid over the snapshot (ctx.session), so the panel draws its answer, a ticked row crossed out among the done rows, at once.
  *   Find a row by the id in its markup, never by its position: a redraw can move rows between a person's taps. A redraw puts the keyboard focus back on

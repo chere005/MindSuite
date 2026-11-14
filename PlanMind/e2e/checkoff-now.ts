@@ -170,16 +170,52 @@ export function defineCheckoffNow(phone: boolean) {
     await expect.poll(() => rows(page, 'day', titles), { timeout: 1500 }).toEqual([[b, false], [d, false], [a, true], [c, true]]);
     // Space goes down on B; the first reply comes while it is down (the second write is still on its way): the circle is not replaced, so the release ticks B.
     await circle(page, 'day', b).focus();
+    await circle(page, 'day', b).evaluate(el => { (el as HTMLElement & { heldKey?: boolean }).heldKey = true; });
     await page.keyboard.down('Space');
+    await page.keyboard.down('Shift');
     held.releaseNext();
     await expect.poll(() => held.replies()).toBe(1);
     await page.waitForTimeout(200);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(100);
+    expect(await circle(page, 'day', b).evaluate(el => (el as HTMLElement & { heldKey?: boolean }).heldKey), 'releasing another key does not release Space').toBe(true);
     await page.keyboard.up('Space');
     await expect.poll(() => rows(page, 'day', titles), { timeout: 1500 }).toEqual([[d, false], [a, true], [b, true], [c, true]]);
     held.release();
     await expect.poll(async () => state(api, titles), { timeout: 8000 }).toEqual([[a, true], [b, true], [c, true], [d, false]]);
     await api.dispose();
   });
+
+  if (!phone) {
+    test('desktop day: a pen release keeps the pressed row until its delayed click', async ({ page, baseURL }) => {
+      const { api, date, titles } = await seed(baseURL!, 'day', 5);
+      const [a, b, c, d, e] = titles as [string, string, string, string, string];
+      await login(page); const held = await hold(page);
+      try {
+        await openDay(page, date);
+        await press(circle(page, 'day', a));
+        await press(circle(page, 'day', b));
+        await expect.poll(() => rows(page, 'day', titles)).toEqual([[c, false], [d, false], [e, false], [a, true], [b, true]]);
+        const target = circle(page, 'day', d);
+        const at = (await target.boundingBox())!;
+        const point = { x: at.x + at.width / 2, y: at.y + at.height / 2 };
+        await target.evaluate((el, p) => {
+          (el as HTMLElement & { penHeld?: boolean }).penHeld = true;
+          el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'pen', clientX: p.x, clientY: p.y }));
+        }, point);
+        held.refuse(400, { error: 'Refused for the test.', code: 'invalid' }, 2);
+        held.release();
+        await expect.poll(() => held.replies()).toBe(2);
+        await target.evaluate((el, p) => el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'pen', clientX: p.x, clientY: p.y })), point);
+        // A browser may dispatch the pen's compatibility click in a later task, as it does for touch.
+        await page.waitForTimeout(100);
+        expect(await target.evaluate(el => (el as HTMLElement & { penHeld?: boolean }).penHeld), 'the row stays under the pen until the click').toBe(true);
+        await page.evaluate(p => (document.elementFromPoint(p.x, p.y) as HTMLInputElement).click(), point);
+        await expect.poll(() => rows(page, 'day', titles)).toEqual([[a, false], [b, false], [c, false], [e, false], [d, true]]);
+        await expect.poll(async () => state(api, titles)).toEqual([[a, false], [b, false], [c, false], [d, true], [e, false]]);
+      } finally { held.release(); await api.dispose(); }
+    });
+  }
 
   if (phone) {
     test(`${sized} day: a finger scrolling the list is not drawn under`, async ({ page, baseURL }) => {
