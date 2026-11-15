@@ -1,18 +1,19 @@
 #!/bin/sh
-# Deploy ChefMind — the web client, to production, and nothing else.
+# Deploy ChefMind — the web client, to one explicitly selected instance.
 #
 #   ./deploy.sh --dry-run          preview every transfer
 #   ./deploy.sh --yes-prod         do it
-#   ./deploy.sh --verify           check what is already live
+#   ./deploy.sh --verify           check production
+#   ./deploy.sh --test             deploy TEST only
+#   ./deploy.sh --test --verify    check TEST
 #
 # THE SHAPE OF THIS SCRIPT is deploy-prod.sh's (CalMind's): ChefMind writes
-# ONE directory, has no API of its own, and its destination is the production
-# document root — so it gets constant destinations, a spelled-out flag, and no
-# bare form. A script that cannot be aimed cannot be misaimed.
+# ONE directory, has no API of its own, and each destination is fixed —
+# so production gets a spelled-out flag and neither target takes an arbitrary
+# path. A script that cannot be aimed cannot be misaimed.
 #
-# There is no test instance. The owner, 2026-08-21: "this will be deployed straight
-# away to seancheren.com/ChefMind". The gates below are therefore the whole of
-# the rehearsal, which is why they are not optional.
+# Production remains the default. --test selects its own fixed web root, origin and API;
+# no argument or deploy.conf value can supply a destination. Both targets use the same gates.
 #
 # The host lives in deploy.conf (gitignored) at the repo root — see
 # deploy.conf.sample.
@@ -24,12 +25,13 @@ SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$0")"
 . tools/python.sh
 
-DRY=""; GO=0; VERIFY_ONLY=0
+DRY=""; GO=0; VERIFY_ONLY=0; TARGET=prod
 for a in "$@"; do
   case "$a" in
     --dry-run)  DRY="--dry-run" ;;
     --yes-prod) GO=1 ;;
     --verify)   VERIFY_ONLY=1 ;;
+    --test)     TARGET=test ;;
     *) echo "unknown flag: $a" >&2; exit 1 ;;
   esac
 done
@@ -40,7 +42,15 @@ SITE_URL="https://seancheren.com/ChefMind"
 # The API this client talks to. CalMind's, on purpose — same accounts, and the
 # data is kept apart by the sync space rather than by a second server.
 API_URL="https://seancheren.com/calmind/api/index.php"
+if [ "$TARGET" = test ]; then
+WEB_DEST="/home/public/test/ChefMind"
+SITE_URL="https://test.seancheren.com/ChefMind"
+API_URL="https://test.seancheren.com/calmind/api/index.php"
+fi
 SPACE="chef"
+if [ "$TARGET" = test ] && [ "$GO" = 1 ]; then
+  echo "refusing: --test and --yes-prod select different instances" >&2; exit 1
+fi
 
 # The guards run BEFORE deploy.conf is read, so tools/check-deploy-guards.sh
 # can prove them on a machine with no SSH_DEST and no network.
@@ -56,10 +66,14 @@ fi
 if [ "$WEB_DEST" = "/home/public/calmind" ] || [ "$WEB_DEST" = "/home/public/dev/calmind" ] || [ "$WEB_DEST" = "/home/public/test/calmind" ]; then
   echo "guard: that is CalMind's area, not this app's" >&2; exit 1
 fi
-case "$WEB_DEST" in
-  /home/public/ChefMind) ;;
-  *) echo "guard: WEB_DEST is not ChefMind's web root ($WEB_DEST)" >&2; exit 1 ;;
+case "$TARGET:$WEB_DEST:$SITE_URL:$API_URL" in
+  prod:/home/public/ChefMind:https://seancheren.com/ChefMind:https://seancheren.com/calmind/api/index.php) ;;
+  test:/home/public/test/ChefMind:https://test.seancheren.com/ChefMind:https://test.seancheren.com/calmind/api/index.php) ;;
+  *) echo "guard: ChefMind destination, page and API must match the selected instance" >&2; exit 1 ;;
 esac
+
+# A local config supplies the SSH login only; it cannot alter the checked target or consent flags.
+readonly TARGET WEB_DEST SITE_URL API_URL SPACE DRY GO VERIFY_ONLY
 
 # ---------------------------------------------------------------- the API gate
 #
@@ -98,7 +112,7 @@ sys.exit(0 if '$SPACE' in (d.get('spaces') or []) else 1)
     echo "" >&2
     echo "ChefMind sends space='$SPACE' on every sync. An API that does not know it" >&2
     echo "ignores the parameter and writes ChefMind's records into CalMind's store." >&2
-    echo "Deploy the API first, from the CalMind repo:  ./server/deploy.sh prod --yes-prod" >&2
+    echo "Update this instance's CalMind API before deploying the client." >&2
     exit 1
   fi
   echo "    it does."
@@ -128,12 +142,16 @@ if [ "$VERIFY_ONLY" = 1 ]; then
   exit 0
 fi
 
-if [ "$GO" != 1 ] && [ -z "$DRY" ]; then
+if [ "$TARGET" = prod ] && [ "$GO" != 1 ] && [ -z "$DRY" ]; then
   echo "refusing: this writes the production document root. --yes-prod, spelled out." >&2
   echo "  (--dry-run previews; --verify checks what is already there)" >&2
   exit 1
 fi
 
+# Every web export must resolve its API from the page origin. An inherited build override could otherwise send TEST data to production.
+if [ -n "${EXPO_PUBLIC_API_URL:-}" ]; then
+  echo "refusing: web deployment requires EXPO_PUBLIC_API_URL unset so the API follows the selected origin" >&2; exit 1
+fi
 check_api
 
 # ONCE PER TREE, NOT ONCE PER SCRIPT. Under a tdtp, tools/dtp.sh's --full pass
@@ -186,7 +204,7 @@ else
 fi
 
 echo "==> web export"
-npm run export:web >/dev/null \
+EXPO_NO_DOTENV=1 npm run export:web >/dev/null \
   || { echo "the export failed — not deploying" >&2; exit 1; }
 node tools/patch-web-html.mjs app/dist/index.html
 
@@ -310,10 +328,13 @@ if [ -z "$DRY" ]; then
   # Retried once: an upload that has just finished can serve a moment of
   # inconsistency, and a gate that cries wolf is one people learn to ignore.
   # A second failure still stops the deploy.
-  if ! sh "$SELF" --verify; then
+  verify_live() {
+    if [ "$TARGET" = test ]; then sh "$SELF" --test --verify; else sh "$SELF" --verify; fi
+  }
+  if ! verify_live; then
     echo "   first pass failed — giving the upload a moment and re-checking once" >&2
     sleep 5
-    sh "$SELF" --verify || { echo "the deployed page is wrong" >&2; exit 1; }
+    verify_live || { echo "the deployed page is wrong" >&2; exit 1; }
   fi
 fi
 

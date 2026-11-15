@@ -17,7 +17,7 @@ CalMind's recipes + shopping list + pantry, on CalMind's server and accounts. A 
 - **Version bump** (`npm run dtp` / `tdtp`: tools/dtp.sh, tools/tdtp.sh) moves five files together: `app/app.json`, `package.json`, `desktop/package.json`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml` (Cargo.lock follows). `node tools/release-versions.mjs [tag]` checks all five agree (the Release workflow's `prepare` runs it); a new version-bearing file goes in that script AND the lane.
 - **`ios.buildNumber` / `android.versionCode` move by hand** per device build, not per dtp.
 - **Tags are `ChefMind/x.y.0`**; pre-migration tags remain under `ChefMind/legacy/`.
-- **Prod is the only instance** (seancheren.com/ChefMind, `/home/public/ChefMind` only); `deploy.sh` gates are not optional, no rehearsal. SSH login in gitignored `deploy.conf` (see `deploy.conf.sample`); destination is a guarded constant.
+- **Web deploy targets are fixed:** production by default (`--yes-prod`), TEST only with `--test`; each guards its own web root, origin and API, and web exports refuse `EXPO_PUBLIC_API_URL`. SSH login stays in gitignored `deploy.conf`; gates are mandatory.
 - **Server suite gates deploy when it can**: `deploy.sh` runs CalMind's PHP suite from `$CALMIND_REPO` (default `../CalMind`), says so OUT LOUD if absent (live API `spaces` gate is then the only server check). `e2e-router.php` uses the same checkout.
 - **`packages/core` is platform-free, ONE barrel (`src/index.ts`).** Import `from '@calmind/core'` only, no deep paths; a new core file is unreachable until the barrel names it.
 - **Records = clear `id`/`type`/`updated`/`deleted` + opaque `payload`** (`core/types.ts`); folders/sections/calendars are records, items point at them BY ID.
