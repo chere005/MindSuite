@@ -44,9 +44,12 @@ async function withCloudKit(page: Page, fake: Fake): Promise<void> {
             if (slot && !signedIn && slot.childElementCount === 0) {
               // Apple's real button is a fixed 218 px plus a 1 px border.
               const b = document.createElement('div');
+              b.className = 'apple-auth-button';
               b.style.cssText = 'width:218px;height:40px;border:1px solid black;box-sizing:content-box';
+              b.setAttribute('alt', 'Sign in with Apple ID');
               b.textContent = 'Sign in with Apple ID';
               b.setAttribute('data-testid', 'fake-apple-button');
+              b.onclick = () => { signedIn = true; signIn?.(); };
               slot.appendChild(b);
             }
             return signedIn ? { userRecordName: '_me' } : null;
@@ -104,7 +107,7 @@ test('it asks the right container, in development, by the token', async ({ page 
   });
 });
 
-test('signed out, the cog offers the Apple ID button, and signing in reads', async ({ page }) => {
+test('signed out, the cog offers the Apple ID button, and signing in reads', async ({ page }, info) => {
   await withCloudKit(page, { signedIn: false, record: PACKED});
   await openLedger(page);
   await expect(page.getByTestId('empty-state')).toBeVisible();
@@ -113,11 +116,20 @@ test('signed out, the cog offers the Apple ID button, and signing in reads', asy
   await expect(page.getByTestId('menu-sync')).toContainText('sign in with your Apple ID');
   await expect(page.getByTestId('fake-apple-button')).toBeVisible();
   // Inside the menu, not running off its right edge (it did at 212 px).
-  const button = await page.getByTestId('fake-apple-button').boundingBox();
+  const apple = page.getByRole('button', { name: 'Sign in with Apple ID', exact: true });
+  await expect(apple).toHaveAttribute('tabindex', '0');
+  const button = await apple.boundingBox();
   const note = await page.getByTestId('menu-sync').boundingBox();
+  expect(button!.height).toBe(44);
   expect(button!.x + button!.width).toBeLessThanOrEqual(note!.x + note!.width);
+  expect((await page.getByTestId('suite-account-menu').boundingBox())!.width).toBe(216);
+  await page.waitForTimeout(300); // Let the modal's fade finish before the visual proof.
+  await page.screenshot({ path: info.outputPath('acctmind-apple-id-common-menu.png') });
 
-  await page.evaluate(() => (window as unknown as { __ckSignIn: () => void }).__ckSignIn());
+  await apple.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(apple).toBeFocused();
+  await page.keyboard.press('Enter');
   // The line under the button follows the sign-in without a reopen.
   await expect(page.getByTestId('menu-sync')).toContainText("reading the phone's copy");
   await page.getByTestId('app-menu-backdrop').click({ position: { x: 5, y: 5 } });

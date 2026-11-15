@@ -24,8 +24,10 @@ test('the shared web account replaces the cog on both tabs and Settings retains 
   await expect(page.getByTestId('menu-import')).toHaveCount(0);
   await page.waitForTimeout(300);
   await page.screenshot({ path: info.outputPath('acctmind-account-menu.png') });
-  await page.getByTestId('menu-settings').click();
+  await page.getByTestId('menu-settings').focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('menu-import')).toBeVisible();
+  await expect(page.getByTestId('menu-import')).toBeFocused();
   await expect(page.getByTestId('menu-export')).toBeVisible();
   await expect(page.getByTestId('menu-whole')).toBeVisible();
   await page.getByTestId('app-menu-backdrop').click({ position: { x: 2, y: 500 } });
@@ -66,4 +68,38 @@ test('valid shared names work and malformed or cross-origin metadata cannot crea
     await expect(page.getByTestId('menu-signout')).toHaveCount(0);
     await expect(page.getByTestId('menu-import')).toBeVisible();
   }
+});
+
+
+test('the suite bar and menu keep common dimensions on both tabs, including narrow phones', async ({ page }, info) => {
+  await sharedShell(page, { ...account, username: 'long_account_name_12' });
+  for (const width of [320, 375, 760, 1200]) {
+    await page.setViewportSize({ width, height: 812 });
+    for (const tab of ['budget', 'transactions']) {
+      await page.getByTestId(`tab-${tab}`).click();
+      const bar = page.getByTestId('suite-topbar');
+      const target = page.getByTestId('app-menu-button');
+      const [barBox, targetBox, faceBox] = await Promise.all([bar.boundingBox(), target.boundingBox(), target.locator(':scope > div').first().boundingBox()]);
+      expect(barBox!.height, `${width}px ${tab} bar`).toBe(64);
+      expect(targetBox!.height, `${width}px account target`).toBe(44);
+      expect(faceBox!.height, `${width}px account face`).toBe(32);
+      expect(targetBox!.x + targetBox!.width, `${width}px account right edge`).toBeLessThanOrEqual(width - 16);
+      expect(await bar.evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px ${tab} bar overflow`).toBe(true);
+    }
+  }
+  await page.getByTestId('app-menu-button').click();
+  const menu = page.getByTestId('suite-account-menu');
+  const buttonBox = (await page.getByTestId('app-menu-button').boundingBox())!;
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.width).toBe(216);
+  expect(menuBox.y).toBe(buttonBox.y + buttonBox.height + 6);
+  for (const row of ['menu-account', 'menu-settings', 'menu-signout']) {
+    expect((await page.getByTestId(row).boundingBox())!.height).toBe(44);
+  }
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(page.getByTestId('app-menu-button')).toBeFocused();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.waitForTimeout(300); // The closing modal must not dim the captured bar.
+  await page.screenshot({ path: info.outputPath('acctmind-common-topbar-phone.png') });
 });

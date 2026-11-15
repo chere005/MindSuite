@@ -120,7 +120,9 @@ test('extra tap area stays near its control, and off its neighbours', async ({ p
       for (const el of Array.from(document.querySelectorAll('*')))
         for (const kid of Array.from(el.children))
           if (getComputedStyle(kid).position === 'absolute') absolute++;
-      return { absolute, buttons: document.querySelectorAll('[role="button"], [data-testid^="pick-"]').length };
+      const controls = Array.from(document.querySelectorAll('[role="button"], [data-testid^="pick-"]'));
+      const fullTargets = controls.filter((el) => { const box = el.getBoundingClientRect(); return box.width >= 44 && box.height >= 44; }).length;
+      return { absolute, fullTargets, buttons: controls.length };
     });
 
     const overreach = await page.evaluate(() => {
@@ -155,7 +157,8 @@ test('extra tap area stays near its control, and off its neighbours', async ({ p
     // time the bar changes is a floor that will one day be edited to whatever
     // the broken run reported.
     expect(counted.buttons, `${tab}: the stolen-centre scan found controls at all`).toBeGreaterThanOrEqual(6);
-    expect(counted.absolute, `${tab}: the overreach scan found extra tap area at all`).toBeGreaterThanOrEqual(1);
+    // A full 44px target needs no overhanging child; Add's shared top bar now uses those.
+    expect(counted.absolute + counted.fullTargets, `${tab}: the scan found extra area or actual full-size targets`).toBeGreaterThanOrEqual(1);
     expect(overreach, `${tab}: extra tap area is running well past its control`).toEqual([]);
 
     // And the narrower question, for the controls that can be named: whatever

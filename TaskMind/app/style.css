@@ -31,3 +31,8 @@ h1,h2,p{margin-top:0}
 .quiet:hover{color:var(--text);background:var(--surface-2)}
 .loading{margin:20vh auto;text-align:center;color:var(--dim)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* The standalone scaffold shares primary chrome without adding workspace views. */
+.scaffold-settings{width:min(350px,calc(100vw - 32px));padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text)}
+.scaffold-settings::backdrop{background:rgb(0 0 0 / 40%)}
+.scaffold-settings .quiet{display:block;margin-top:20px}

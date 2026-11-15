@@ -629,45 +629,38 @@ function books_header(string $titleHtml, bool $withEdit = false): void
 {
     $so = bm_signout();
     ?>
-    <header>
-      <div class="hleft">
-        <?php // Same two-buttons-in-one-slot as the rest of the suite: "<" normally,
-              // a black × that leaves edit mode while editing. ?>
-        <button type="button" class="backbtn goback" onclick="history.back()" aria-label="Back">&lsaquo;</button>
-        <button type="button" class="backbtn exitedit" id="exitEditBtn"
-                title="Done editing" aria-label="Leave edit mode">&times;</button>
-        <div class="htitle"><?= $titleHtml ?></div>
+    <header class="ms-app-bar">
+      <div class="hleft ms-app-brand">
+        <button type="button" class="backbtn goback ms-app-icon" onclick="history.back()" aria-label="Back"><span class="ms-app-icon-face">&lsaquo;</span></button>
+        <button type="button" class="backbtn exitedit ms-app-icon" id="exitEditBtn" title="Done editing" aria-label="Leave edit mode"><span class="ms-app-icon-face">&times;</span></button>
+        <div class="ms-app-title"><?= $titleHtml ?></div>
       </div>
-      <div class="hright">
+      <div class="hright ms-app-actions">
         <?php if ($withEdit): ?>
-          <button type="button" class="hedit" id="editBtn" title="Edit" aria-label="Edit">&#9998;&#65038;</button>
+          <button type="button" class="hedit ms-app-icon" id="editBtn" title="Edit" aria-label="Edit"><span class="ms-app-icon-face">&#9998;&#65038;</span></button>
         <?php endif; ?>
-        <?php // Preferences live in the username's dropdown here too — same menu, no ⋮. ?>
-        <div class="usercol">
-          <div class="usermenu">
-            <button type="button" class="who" id="userBtn"><span><?= e(current_user() ?? '') ?></span><span class="caret" aria-hidden="true">&#9662;</span></button>
-            <div class="menu" id="userMenu" hidden>
-              <?php if ($so !== null): ?><a href="<?= e($so['next']) ?>">Account</a><?php endif; ?>
-              <button type="button" id="setBtn">Settings</button>
-              <?php if ($so !== null): ?>
-              <?php // Signing out is a post to the account page (the shared session is its to end); a GET must not end a session. ?>
-              <form method="post" action="<?= e($so['action']) ?>">
-                <input type="hidden" name="action" value="logout">
-                <input type="hidden" name="next" value="<?= e($so['next']) ?>">
-                <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf'] ?? '') ?>">
-                <button type="submit">Sign out</button>
-              </form>
-              <?php else: ?>
-              <a href="?logout">Log out</a>
-              <?php endif; ?>
-            </div>
+        <div class="ms-app-user">
+          <button type="button" class="ms-app-account" id="userBtn" aria-haspopup="menu" aria-controls="userMenu" aria-expanded="false"><span class="ms-app-account-face"><span class="ms-app-account-label"><?= e(current_user() ?? '') ?></span><span class="ms-app-caret" aria-hidden="true">&#9662;</span></span></button>
+          <div class="ms-app-menu" id="userMenu" role="menu" aria-labelledby="userBtn" hidden>
+            <?php if ($so !== null): ?><a class="ms-app-menu-row" href="<?= e($so['next']) ?>">Account</a><?php endif; ?>
+            <button type="button" class="ms-app-menu-row" id="setBtn">Settings</button>
+            <?php if ($so !== null): ?>
+            <form method="post" action="<?= e($so['action']) ?>">
+              <input type="hidden" name="action" value="logout">
+              <input type="hidden" name="next" value="<?= e($so['next']) ?>">
+              <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf'] ?? '') ?>">
+              <button class="ms-app-menu-row" type="submit">Sign out</button>
+            </form>
+            <?php else: ?><a class="ms-app-menu-row" href="?logout">Log out</a><?php endif; ?>
           </div>
         </div>
-        <?= settings_modal_html(book_theme_picker_html()) ?>
       </div>
     </header>
+    <?= settings_modal_html(book_theme_picker_html()) ?>
+    <div class="wrap">
     <?php
 }
+
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -684,9 +677,9 @@ function books_header(string $titleHtml, bool $withEdit = false): void
   <link rel="manifest" href="<?= suite_base() ?>/ReadMind/manifest.webmanifest">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 1.5rem 1rem; }
-    .wrap { max-width: 760px; margin: 0 auto; }
-    /* Same top bar as the rest of the suite: everything 32px on one line, rule under it. */
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 calc(16px + env(safe-area-inset-right, 0px)) 0 calc(16px + env(safe-area-inset-left, 0px)); }
+    /* Local edit states; the shared app-bar geometry loads after these styles. */
     header {
       display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
       margin-bottom: 0.5rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--line-soft);
@@ -699,7 +692,7 @@ function books_header(string $titleHtml, bool $withEdit = false): void
     }
     .backbtn { width: 32px; background: var(--surface); font-size: 1.35rem; padding: 0; }
     .backbtn:hover { border-color: var(--muted); color: var(--text); }
-    .backbtn.exitedit { display: none; background: var(--bg); border-color: var(--line); color: var(--text); font-size: 1.2rem; }
+    .ms-app-bar .backbtn.exitedit { display: none; background: var(--bg); border-color: var(--line); color: var(--text); font-size: 1.2rem; }
     body.editing .backbtn.exitedit { display: inline-flex; }
     body.editing .backbtn.goback { display: none; }
     .htitle h1 { font-size: 1.35rem; }
@@ -722,6 +715,8 @@ function books_header(string $titleHtml, bool $withEdit = false): void
     }
     .hedit:hover { border-color: var(--muted); color: var(--text); }
     body.editing .hedit { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+    body.editing .ms-app-bar .hedit { background: transparent; }
+    body.editing .ms-app-bar .hedit .ms-app-icon-face { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
     .usermenu .who:hover { border-color: var(--accent); }
     .usermenu .menu {
       position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
@@ -1008,10 +1003,11 @@ function books_header(string $titleHtml, bool $withEdit = false): void
 <?= confirm_delete_styles() ?>
 <?= rt_styles() ?>
   </style>
+  <link rel="stylesheet" href="<?= suite_base() ?>/ReadMind/suite-topbar.css?v=<?= e(substr(hash_file('sha256', __DIR__ . '/suite-topbar.css'), 0, 16)) ?>">
+  <script defer src="<?= suite_base() ?>/ReadMind/suite-topbar.js?v=<?= e(substr(hash_file('sha256', __DIR__ . '/suite-topbar.js'), 0, 16)) ?>"></script>
 </head>
 <body>
 <?php if ($greet): ?><div class="lovebanner" id="loveBanner">I love you, baby! &#10084;&#65039;</div><?php endif; ?>
-<div class="wrap">
 <?php if (!$book): ?>
   <!-- ===================== BOOKS LIST ===================== -->
   <?php books_header('<h1>ReadMind</h1>', true); ?>
@@ -1393,16 +1389,19 @@ function books_header(string $titleHtml, bool $withEdit = false): void
   if (exitEditBtn) {
     exitEditBtn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
-      document.body.classList.remove('editing');
+      const toggle = document.getElementById('editBtn');
+      if (toggle && document.body.classList.contains('editing')) toggle.click();
+      else document.body.classList.remove('editing');
     });
   }
 
   // ---- Username dropdown ----
   const userBtn = document.getElementById('userBtn');
   const userMenu = document.getElementById('userMenu');
-  if (userBtn && userMenu) {
-    userBtn.addEventListener('click', (e) => { e.stopPropagation(); userMenu.hidden = !userMenu.hidden; });
-    document.addEventListener('click', (e) => { if (!userMenu.hidden && !userMenu.contains(e.target)) userMenu.hidden = true; });
+  if (userBtn && userMenu && !userMenu.classList.contains('ms-app-menu')) {
+    userBtn.addEventListener('click', (e) => { e.stopPropagation(); userMenu.hidden = !userMenu.hidden; userBtn.setAttribute('aria-expanded', String(!userMenu.hidden)); });
+    document.addEventListener('click', (e) => { if (!userMenu.hidden && !userMenu.contains(e.target)) { userMenu.hidden = true; userBtn.setAttribute('aria-expanded', 'false'); } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !userMenu.hidden) { userMenu.hidden = true; userBtn.setAttribute('aria-expanded', 'false'); userBtn.focus(); } });
   }
 
   // ---- Sort / Filter dropdown ----
@@ -1429,7 +1428,10 @@ function books_header(string $titleHtml, bool $withEdit = false): void
   if (editBtn) {
     const setEdit = (on) => {
       document.body.classList.toggle('editing', on);
-      editBtn.textContent = on ? 'Done' : 'Edit';
+      editBtn.querySelector('.ms-app-icon-face').textContent = on ? '\u2713' : '\u270e';
+      editBtn.setAttribute('aria-label', on ? 'Done editing' : 'Edit');
+      editBtn.setAttribute('aria-pressed', String(on));
+      editBtn.title = on ? 'Done editing' : 'Edit';
     };
     // Always starts off; a structural change redirects back with ?edit=1 to keep it on.
     setEdit(new URLSearchParams(location.search).get('edit') === '1');

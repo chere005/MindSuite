@@ -75,17 +75,35 @@ function loadScript(): Promise<CloudKitJs | null> {
   });
 }
 
-/**
- * Ask CloudKit who is signed in, which is also what draws the Apple ID
- * button into `SIGN_IN_ID` when nobody is. Called again whenever the cog
- * menu opens, because the button's element only exists while it is open.
- */
+/** Fit Apple's generated controls to the menu without shrinking their hit areas. */
+const preparedButtons = new WeakSet<HTMLElement>();
+function prepareAuthButtons(): void {
+  if (typeof document === 'undefined') return;
+  for (const id of [SIGN_IN_ID, SIGN_OUT_ID]) {
+    const button = document.getElementById(id)?.querySelector<HTMLElement>('.apple-auth-button');
+    if (!button) continue;
+    Object.assign(button.style, { width: '100%', maxWidth: '100%', height: '44px', minHeight: '44px', boxSizing: 'border-box' });
+    button.setAttribute('role', 'button');
+    button.tabIndex = 0;
+    button.setAttribute('aria-label', button.getAttribute('alt') ?? (id === SIGN_IN_ID ? 'Sign in with Apple ID' : 'Sign out of Apple ID'));
+    if (!preparedButtons.has(button)) {
+      button.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); button.click(); }
+      });
+      preparedButtons.add(button);
+    }
+  }
+}
+
+/** Ask CloudKit who is signed in and redraw its button after the menu mounts. */
 async function auth(c: CkContainer): Promise<void> {
   try {
     signedIn = (await c.setUpAuth()) != null;
   } catch (e) {
     signedIn = false;
     loadError = `CloudKit sign-in failed: ${String(e)}`;
+  } finally {
+    prepareAuthButtons();
   }
 }
 

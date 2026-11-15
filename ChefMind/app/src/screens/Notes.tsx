@@ -802,7 +802,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
           <CircleBtn
             testID="note-back"
             glyph="‹"
-            size={TOPBAR_CTRL}
+            size={TOPBAR_CTRL} targetSize={44}
             label="Back"
             onPress={() => {
               const external = cameFromTab.current;
@@ -2029,7 +2029,7 @@ const s = themed(() => StyleSheet.create({
   rowTitle: { color: T.text, fontSize: 16, flex: 1 },
   chev: { color: T.muted, fontSize: 16, marginLeft: 'auto' },
   editor: { padding: 16, gap: 10 },
-  edHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginHorizontal: 16, marginBottom: 8, paddingRight: 80, flexWrap: 'wrap' },
+  edHead: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 16, marginBottom: 10, paddingRight: 96, flexWrap: 'wrap', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.line },
   // marginLeft auto pushes it to the right edge of the row, and it keeps its
   // corner when the row wraps on a narrow screen rather than following the
   // dropdowns down.
@@ -2041,7 +2041,7 @@ const s = themed(() => StyleSheet.create({
   // pill as Delete rather than the smaller one it had in the corner.
   footActs: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   copyBtnText: { color: T.dim, fontSize: 15, borderWidth: 1, borderColor: T.line, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5, overflow: 'hidden' },
-  ddPill: { borderWidth: 1, borderColor: T.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: T.surface },
+  ddPill: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: T.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: T.surface },
   backText: { color: T.accent, fontSize: 15, fontWeight: '600' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   addDate: { borderWidth: 1, borderColor: T.accent, borderStyle: 'dashed', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },

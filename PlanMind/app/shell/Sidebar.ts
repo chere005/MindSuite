@@ -1,7 +1,6 @@
 import { dayLabel, people, periodStart, periodWindow } from '../../packages/core/src/planner';
 import { monthShort, weekRange } from '../dates';
 import { esc, icons, type PanelContext } from '../panelContext';
-import { accountMenuHtml } from './AccountMenu';
 
 /**
  * What the phone's menu shows for the Day schedule: the half of the day and CalMind's events. `show` is true on a phone's Day Schedule tab only;
@@ -50,7 +49,6 @@ export const sidebarHtml = (ctx: PanelContext) => `<button id="scrim" class="scr
     <div class="view-switch" role="group" aria-label="Part of the day"><button type="button" data-half="am" aria-pressed="true">AM</button><button type="button" data-half="pm" aria-pressed="false">PM</button></div>
     <button type="button" id="calmind-switch" class="drawer-switch" role="switch" aria-checked="true"><span class="drawer-switch-icon" aria-hidden="true">${icons.calmind}</span><span class="drawer-switch-label">CalMind events</span><span class="picker-toggle" aria-hidden="true"></span></button>
   </div>
-  <div class="drawer-account">${accountMenuHtml(ctx, 'drawer')}</div>
   <div class="sidebar-footer"><span class="private-dot"></span><span>${footerNames(ctx)}</span></div>
 </aside>`;
 

@@ -6,7 +6,7 @@ import { OWNER, PARTNER, PARTNER_NAME } from './people';
 
 // The account: one button (dot, name, chevron) that opens a menu of Settings and Sign out; Settings is a window with the
 // suite's four themes, applied at once and saved as the account's theme (the same prefs file CalMind and the suite read). The
-// desktop top bar holds the button; on a phone the drawer's account row does. Both projects run this file.
+// top bar holds the button on desktop and phone. Both projects run this file.
 const THEME_NAMES = Object.keys(THEMES) as ThemeName[];
 const label = (name: ThemeName) => THEMES[name].label;
 const swatch = (page: Page, name: ThemeName) => page.getByRole('button', { name: label(name), exact: true });
@@ -32,10 +32,8 @@ async function resetThemes(baseURL: string) {
 test.afterEach(async ({ baseURL }) => { await resetThemes(baseURL!); });
 
 test.describe('the account menu', () => {
-  test('one button with the dot, the name and a chevron opens a menu of Settings and Sign out; there is no separate Sign out button', async ({ page }, info) => {
+  test('one button with the dot, the name and a chevron opens a menu of Settings and Sign out; there is no separate Sign out button', async ({ page }) => {
     await login(page, PARTNER);
-    const phone = isPhone(info.project.name);
-    if (phone) { await page.getByRole('button', { name: 'Open menu', exact: true }).click(); }
     const button = page.getByRole('button', { name: PARTNER_NAME, exact: true });
     await expect(button).toBeVisible();
     await expect(button).toHaveAttribute('aria-haspopup', 'menu');
@@ -54,7 +52,7 @@ test.describe('the account menu', () => {
     await expect(menu.getByRole('menuitem', { name: 'Settings', exact: true })).toBeFocused();
   });
 
-  test('the menu opens fully on screen: at the right of the top bar on a desktop, above the account row in the phone drawer', async ({ page }, info) => {
+  test('the menu opens fully on screen beneath the top-right account button', async ({ page }, info) => {
     await login(page);
     await accountMenu(page);
     const box = (await page.getByRole('menu').boundingBox())!, view = page.viewportSize()!;
@@ -62,15 +60,44 @@ test.describe('the account menu', () => {
     expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(view.width);
     expect(box.y + box.height).toBeLessThanOrEqual(view.height);
-    if (isPhone(info.project.name)) {
-      const row = (await page.locator('#account-button-drawer').boundingBox())!, drawer = (await page.locator('#sidebar').boundingBox())!;
-      expect(box.y + box.height, 'above the account row').toBeLessThanOrEqual(row.y);
-      expect(box.x + box.width, 'inside the drawer').toBeLessThanOrEqual(drawer.x + drawer.width);
-    } else {
-      const button = (await page.locator('#account-button-bar').boundingBox())!;
-      expect(box.y, 'below the button').toBeGreaterThanOrEqual(button.y + button.height);
-      expect(Math.abs(box.x + box.width - (button.x + button.width)), 'right edges line up').toBeLessThanOrEqual(2);
-    }
+    const button = (await page.locator('#account-button-bar').boundingBox())!;
+    expect(box.y, 'six pixels below the button').toBe(button.y + button.height + 6);
+    expect(box.x + box.width, 'right edges align').toBeCloseTo(button.x + button.width);
+    expect(box.width).toBe(216);
+    expect(button.height).toBe(44);
+    const face = page.locator('#account-button-bar .ms-app-account-face');
+    expect((await face.boundingBox())!.height).toBe(32);
+    expect(await face.evaluate(el => getComputedStyle(el).borderTopWidth)).toBe('2px');
+    for (const row of await page.getByRole('menuitem').all()) { expect((await row.boundingBox())!.height).toBe(44); }
+    await page.screenshot({ path: info.outputPath('planmind-common-account-menu.png') });
+    await page.setViewportSize({ width: view.width, height: 140 });
+    const shortMenu = (await page.getByRole('menu').boundingBox())!;
+    expect(shortMenu.y + shortMenu.height, 'the short viewport keeps the menu inside its bottom edge').toBeLessThanOrEqual(140);
+    const last = page.getByRole('menuitem', { name: 'Sign out', exact: true });
+    await last.focus();
+    await expect(last).toBeFocused();
+    const lastBox = (await last.boundingBox())!;
+    expect(lastBox.y + lastBox.height, 'the last row remains reachable by scrolling the menu').toBeLessThanOrEqual(shortMenu.y + shortMenu.height);
+  });
+
+  test('shared account metadata shows Account, Settings and Sign out in the common menu', async ({ page }, info) => {
+    await login(page);
+    // The preview has disposable legacy accounts. Supply only the public doorway metadata that shared sign-in emits.
+    await page.route(url => url.pathname === '/PlanMind/', async route => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace('<div id="app"', '<div id="app" data-signout-action="/account/" data-signout-next="/account/?next=%2FPlanMind%2F"');
+      await route.fulfill({ response, body });
+    });
+    await page.reload();
+    await expect(page.locator('#sidebar .date-row.selected')).toBeAttached();
+    await accountMenu(page);
+    const menu = page.getByRole('menu');
+    await expect(menu.getByRole('menuitem')).toHaveText(['Account', 'Settings', 'Sign out']);
+    await expect(menu.getByRole('menuitem', { name: 'Account', exact: true })).toHaveAttribute('href', '/account/?next=%2FPlanMind%2F');
+    await expect(menu.locator('form.logout')).toHaveAttribute('action', '/account/');
+    expect((await menu.boundingBox())!.width).toBe(216);
+    for (const row of await menu.getByRole('menuitem').all()) { expect((await row.boundingBox())!.height).toBe(44); }
+    await page.screenshot({ path: info.outputPath('planmind-shared-account-menu.png') });
   });
 
   test('keyboard: Down and Up open it, the arrows, Home and End move, Escape closes and gives the focus back, Tab closes', async ({ page }, info) => {

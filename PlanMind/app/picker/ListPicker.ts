@@ -29,7 +29,7 @@ function pie(colors: ColorKey[]): string {
  */
 export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
   root.innerHTML = `<div class="picker">
-  <button id="picker-button" class="picker-button" type="button" aria-expanded="false" aria-controls="picker-menu"><span class="picker-pie"></span><span class="picker-name"></span><span class="picker-chevron">${CHEVRON}</span></button>
+  <button id="picker-button" class="picker-button" type="button" aria-expanded="false" aria-controls="picker-menu"><span class="picker-button-face"><span class="picker-pie"></span><span class="picker-name"></span><span class="picker-chevron">${CHEVRON}</span></span></button>
   <div id="picker-menu" class="picker-menu" role="group" aria-label="Lists" hidden><ul class="picker-rows"></ul><p class="picker-hint" role="status"></p><button type="button" class="picker-manage">Manage lists…</button><button type="button" class="picker-rhythm">The rhythm…</button></div>
 </div>`;
   const $ = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;

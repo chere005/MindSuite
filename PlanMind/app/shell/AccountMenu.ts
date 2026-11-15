@@ -4,11 +4,11 @@ import { openSettings } from './Settings';
 
 /**
  * The account: one button (a dot in the list's color, the name, a chevron) that opens a small menu with Account, Settings and Sign out,
- * the suite's username dropdown (seancheren-site lib/chrome.php) drawn with PlanMind's own markup. It sits in the desktop
- * top bar and, on a phone, in the drawer's account row, so Settings is reachable on both. Each copy has its own `where`
- * (it makes the ids unique). Sign out stays a real CSRF form.
+ * the suite's username dropdown (seancheren-site lib/chrome.php) drawn with PlanMind's own markup. It sits in the
+ * top bar on every screen, so Settings remains in the same place. The `where` suffix
+ * keeps the existing control ids stable. Sign out stays a real CSRF form.
  */
-export const accountWho = (ctx: PanelContext) => `<span class="account-who" data-c="${ctx.lists.find(l => l.id === ctx.me)?.color ?? 'gray'}"><i class="owner-dot" aria-hidden="true"></i><span class="account-name">${esc(ctx.lists.find(l => l.id === ctx.me)?.name ?? ctx.me)}</span></span>`;
+export const accountWho = (ctx: PanelContext) => `<span class="account-who" data-c="${ctx.lists.find(l => l.id === ctx.me)?.color ?? 'gray'}"><i class="owner-dot" aria-hidden="true"></i><span class="account-name ms-app-account-label">${esc(ctx.lists.find(l => l.id === ctx.me)?.name ?? ctx.me)}</span></span>`;
 
 /**
  * Under the suite's shared sign-in the page (server/public/PlanMind/index.php) names the account page on #app: Sign out posts there, and the
@@ -18,14 +18,14 @@ const signOutAt = () => { const at = document.getElementById('app')?.dataset; re
 
 const logoutForm = (csrf: string) => {
   const at = signOutAt();
-  return `<form method="post"${at ? ` action="${esc(at.action)}"` : ''} class="logout" role="none"><input name="action" type="hidden" value="logout">${at?.next ? `<input name="next" type="hidden" value="${esc(at.next)}">` : ''}<input name="csrf" type="hidden" value="${esc(csrf)}"><button type="submit" role="menuitem" tabindex="-1">Sign out</button></form>`;
+  return `<form method="post"${at ? ` action="${esc(at.action)}"` : ''} class="logout" role="none"><input name="action" type="hidden" value="logout">${at?.next ? `<input name="next" type="hidden" value="${esc(at.next)}">` : ''}<input name="csrf" type="hidden" value="${esc(csrf)}"><button class="ms-app-menu-row" type="submit" role="menuitem" tabindex="-1">Sign out</button></form>`;
 };
 
-export const accountMenuHtml = (ctx: PanelContext, where: 'bar' | 'drawer') => `<div class="account-menu" data-where="${where}">
-  <button type="button" class="account-button" id="account-button-${where}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-pop-${where}">${accountWho(ctx)}<span class="account-chevron">${icons.chevronDown}</span></button>
-  <div class="account-pop" id="account-pop-${where}" role="menu" aria-labelledby="account-button-${where}" hidden>
-    ${signOutAt()?.next ? `<a href="${esc(signOutAt()!.next)}" role="menuitem" tabindex="-1">Account</a>` : ''}
-    <button type="button" role="menuitem" tabindex="-1" data-act="settings">Settings</button>
+export const accountMenuHtml = (ctx: PanelContext, where: 'bar' | 'drawer') => `<div class="account-menu ms-app-user" data-where="${where}">
+  <button type="button" class="account-button ms-app-account" id="account-button-${where}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-pop-${where}"><span class="ms-app-account-face">${accountWho(ctx)}<span class="account-chevron ms-app-caret">${icons.chevronDown}</span></span></button>
+  <div class="account-pop ms-app-menu" id="account-pop-${where}" role="menu" aria-labelledby="account-button-${where}" hidden>
+    ${signOutAt()?.next ? `<a class="ms-app-menu-row" href="${esc(signOutAt()!.next)}" role="menuitem" tabindex="-1">Account</a>` : ''}
+    <button class="ms-app-menu-row" type="button" role="menuitem" tabindex="-1" data-act="settings">Settings</button>
     ${logoutForm(ctx.session.csrf)}
   </div>
 </div>`;

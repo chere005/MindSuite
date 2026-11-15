@@ -314,13 +314,13 @@ test.describe('the Day view on a desktop fits the window', () => {
     await setup(baseURL!, 'midnight', OWNER);
     await login(page);
     await open(page, 'day', DAY);
-    expect((await page.locator('.topbar').boundingBox())!.height).toBe(46);
+    expect((await page.locator('.topbar').boundingBox())!.height).toBe(64);
     const header = (await page.locator('.page-header').boundingBox())!;
     expect(header.height).toBeLessThanOrEqual(40);
     const [title, date] = [(await page.locator('#day-title').boundingBox())!, (await page.locator('#full-date').boundingBox())!];
     expect(Math.abs((title.y + title.height / 2) - (date.y + date.height / 2)), 'the title and the date share a row').toBeLessThanOrEqual(8);
     expect(date.x).toBeGreaterThan(title.x + title.width - 1);
-    expect((await page.locator('.page').boundingBox())!.y, 'the page starts under the top bar').toBeLessThanOrEqual(46 + 12);
+    expect((await page.locator('.page').boundingBox())!.y, 'the page starts under the top bar').toBe(64 + 10);
     const [sched, notes, prio, todo] = await Promise.all(['.day-sched', '.day-notes', '.day-prio', '.day-todo'].map(async s => (await page.locator(s).boundingBox())!));
     expect(notes.y).toBeGreaterThanOrEqual(sched.y + sched.height - 2);
     expect(Math.abs(notes.x - sched.x)).toBeLessThan(2);

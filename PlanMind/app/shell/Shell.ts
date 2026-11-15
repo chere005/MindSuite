@@ -15,6 +15,7 @@ import { orphanDrafts, unsavedDrafts } from '../panels/week/noteDraft';
 import { mayRedraw } from './redraw';
 import { createDrawer, mountSidebar, sidebarHtml } from './Sidebar';
 import { mountTopBar, topBarHtml } from './TopBar';
+import '../styles/suite-topbar.css';
 
 const PANELS: Record<View, PanelModule> = { day, week, month };
 /** The scroll areas inside a panel that a redraw must not reset (the panel host itself is one too). */

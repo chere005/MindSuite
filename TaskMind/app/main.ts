@@ -1,4 +1,5 @@
 import './style.css';
+import './styles/suite-topbar.css';
 import { createApi } from './api';
 import { createReleaseWatch } from './release';
 import { createWatch, WATCH_INTERVAL_MS } from './watch';

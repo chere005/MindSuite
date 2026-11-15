@@ -1,80 +1,31 @@
-/**
- * The cog in the top right, and the menu under it.
- *
- * The owner, 2026-09-21: "add a user icon in the top right similar to CalMind..
- * it's not actually a logged in user but i want the drop down menu to
- * include 'import from csv', 'export budget', 'whole dollars' (which has a
- * checkbox toggle)", then, immediately: "actually a cog icon, not
- * hamburger". CalMind's is an account pill with a username in it; this app
- * uses a cog for its local ledger. The protected web app uses the shared site's
- * username menu for Account, Settings and Sign out.
- *
- * WHY A MENU AT ALL. The three things in it were three different kinds of
- * control in three different places: `.00` was a round toggle in the bar,
- * Import was a small arrow on whichever account heading you happened to be
- * looking at, and Export did not exist. None of them is about the SCREEN —
- * the bar is for the screen — and none is pressed more than once in a
- * session. One place for "things about the app" is what the bar has been
- * missing, and it is CalMind's answer to the same question.
- *
- * THE MENU HANGS OFF THE BUTTON, measured, and that is not a detail. CalMind
- * pinned its menu `right: 16` inside a Modal — 16 from the window's edge —
- * and on a window wider than the app's own column the menu flew off to the
- * side, nowhere near the cog that opened it. The measurement is taken and
- * the menu opened INSIDE the callback, because measuring is asynchronous and
- * opening first draws one frame at the fallback position.
- */
-import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+/** Shared app chrome, with the ledger's local/iCloud settings kept app-owned. */
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { addDays, monthLabel } from '@acctmind/core';
 import { CogIcon } from './Icons';
 import * as shared from './icloudfile';
-import { TipBubble, useTip } from './Tip';
 import { SPACE, T, TAP } from './theme';
-import { TOPBAR_CTRL } from './TopBar';
+import { topBarColors } from './TopBar';
+import { AccountMenu, type AccountMenuItem } from './components/SuiteTopBar';
 import { suiteAccount, openSuiteAccount, signOutSuiteAccount } from './suiteaccount';
 
-/** Wide enough for the longest row, narrow enough to hang off a 44pt ring. */
-const MENU_W = 212;
-/**
- * Wider in a browser, where CloudKit JS draws its Apple ID button at a fixed
- * 218 px plus a border; at 212 the button ran off the menu's right edge.
- * 220 + the note's 12 each side + the hairline border.
- */
-const MENU_W_CK = 248;
-
-/** "Sep 21, 2026" — the full month name does not fit between two arrows here. */
 const shortDay = (day: string): string =>
   `${monthLabel(day).slice(0, 3)} ${Number(day.slice(8, 10))}, ${day.slice(0, 4)}`;
 
 export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, offer }: {
-  /** Open the CSV import. Absent on a surface that cannot read a file. */
   onImport?: (() => void) | undefined;
-  /** Write the budget out. Absent nowhere — every surface can hand over text. */
   onExport: () => void;
-  /** Are bare digits read as whole dollars? */
   whole: boolean;
   onWhole: (next: boolean) => void;
-  /** The budget's first day, `YYYY-MM-DD`, or null for none. A ledger setting. */
   start: string | null;
   onStart: (next: string | null) => void;
-  /** What an unset start offers: the latest reconcile, else the 1st of the Budget tab's month. */
   offer: string;
 }) {
-  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState(false);
   const [account] = useState(suiteAccount);
   const slots = shared.signInSlots();
-  const menuW = slots === null ? MENU_W : MENU_W_CK;
-  /** One line about the shared file — see where it is drawn. */
   const [syncNote, setSyncNote] = useState('iCloud: checking…');
-  // Asked each time the menu OPENS rather than held: the container can
-  // appear or go away from outside this app entirely, and a cached answer
-  // would be the stale thing the row exists to replace.
-  // And again on news while it is open: an Apple ID sign-in happens from
-  // INSIDE this menu, and the line said "sign in" until it was reopened.
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -83,88 +34,21 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
     const off = shared.onRemoteChange(ask);
     return () => { alive = false; off(); };
   }, [open]);
-  const [anchor, setAnchor] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-  const btn = useRef<View>(null);
-  const tip = useTip();
-
-  const openMenu = () => {
-    setOptions(false);
-    const node = btn.current as unknown as
-      { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
-    if (node?.measureInWindow) {
-      node.measureInWindow((x, y, w, h) => { setAnchor({ x, y, w, h }); setOpen(true); });
-    } else {
-      // No measurement available: the corner is better than no menu.
-      setAnchor(null);
-      setOpen(true);
-    }
-  };
-
-  return (
-    <>
-      <Pressable
-        ref={btn}
-        onPress={openMenu}
-        onHoverIn={tip.hover.onHoverIn}
-        onHoverOut={tip.hover.onHoverOut}
-        style={account ? styles.accountHit : styles.hit}
-        accessibilityRole="button"
-        accessibilityLabel={account ? `${account.username} — account menu` : 'Settings'}
-        accessibilityState={{ expanded: open }}
-        testID="app-menu-button"
-      >
-        <TipBubble text={account ? 'Account' : 'Settings'} shown={tip.shown} />
-        {account ? <View style={styles.accountPill}><Text style={styles.accountName} numberOfLines={1}>{account.username}</Text><Text style={styles.accountChevron}>⌄</Text></View>
-          : <View style={styles.ring}><CogIcon /></View>}
-      </Pressable>
-
-      {open && (
-        <Modal transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-          <Pressable style={styles.backdrop} onPress={() => setOpen(false)} testID="app-menu-backdrop">
-            {/* The menu itself swallows its own taps; without this the first
-                press on any row closes the menu through the backdrop. */}
-            <Pressable
-              onPress={() => {}}
-              style={[
-                styles.menu,
-                anchor
-                  // Right edges aligned, hanging 6 under the ring. max(8)
-                  // keeps it on screen in a window narrower than the menu.
-                  ? {
-                    top: anchor.y + anchor.h + 6,
-                    left: Math.max(8, anchor.x + anchor.w - menuW),
-                    width: menuW,
-                  }
-                  : { top: insets.top + TAP + 8, right: SPACE.lg, width: menuW },
-              ]}
-            >
-              {account && !options && <>
-                <Pressable style={styles.row} accessibilityRole="button" testID="menu-account" onPress={() => { setOpen(false); openSuiteAccount(account); }}><Text style={styles.rowText}>Account</Text></Pressable>
-                <Pressable style={styles.row} accessibilityRole="button" testID="menu-settings" onPress={() => setOptions(true)}><Text style={styles.rowText}>Settings</Text></Pressable>
-                <Pressable style={styles.row} accessibilityRole="button" testID="menu-signout" onPress={() => { setOpen(false); signOutSuiteAccount(account); }}><Text style={styles.rowText}>Sign out</Text></Pressable>
-              </>}
-              {(!account || options) && <>
-              {/* Absent rather than disabled where a surface cannot read a
-                  file: a row that is present and inert is a row you press
-                  twice before believing it. */}
-              {onImport !== undefined && (
-                <Pressable
-                  style={styles.row}
-                  onPress={() => { setOpen(false); onImport(); }}
-                  accessibilityRole="button"
-                  testID="menu-import"
-                >
-                  <Text style={styles.rowText}>Import from CSV</Text>
-                </Pressable>
-              )}
-              <Pressable
-                style={styles.row}
-                onPress={() => { setOpen(false); onExport(); }}
-                accessibilityRole="button"
-                testID="menu-export"
-              >
-                <Text style={styles.rowText}>Export budget</Text>
-              </Pressable>
+  const ledgerOptions = !account || options;
+  const items: AccountMenuItem[] = ledgerOptions ? [
+    ...(onImport ? [{ key: 'import', label: 'Import from CSV', testID: 'menu-import', onPress: onImport }] : []),
+    { key: 'export', label: 'Export budget', testID: 'menu-export', onPress: onExport },
+  ] : [
+    { key: 'account', label: 'Account', testID: 'menu-account', onPress: () => openSuiteAccount(account) },
+    { key: 'settings', label: 'Settings', testID: 'menu-settings', keepOpen: true, onPress: () => setOptions(true) },
+    { key: 'signout', label: 'Sign out', testID: 'menu-signout', onPress: () => signOutSuiteAccount(account) },
+  ];
+  return <AccountMenu colors={topBarColors} username={account?.username}
+    label={account ? `${account.username} — account menu` : 'Settings'}
+    statusColor={account ? T.accent : undefined} trigger={account ? undefined : <CogIcon />}
+    testID="app-menu-button" backdropTestID="app-menu-backdrop" open={open}
+    onOpenChange={(next) => { if (next) setOptions(false); setOpen(next); }} items={items}
+    content={ledgerOptions ? <>
               {/*
                 A SETTING, not an action, so it keeps the menu OPEN and shows
                 its state in a box. The two above leave for somewhere else
@@ -273,28 +157,11 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
                   </View>
                 )}
               </View>
-              </>}
-            </Pressable>
-          </Pressable>
-        </Modal>
-      )}
-    </>
-  );
+
+    </> : null} />;
 }
 
 const styles = StyleSheet.create({
-  // 44 over 32, the bar's shape everywhere — see TopBar's CircleBtn and the
-  // note there about hitSlop being a no-op on the web.
-  hit: { width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center' },
-  accountHit: { height: TAP, maxWidth: 140, justifyContent: 'center' },
-  accountPill: { height: TOPBAR_CTRL, maxWidth: 140, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: T.cardEdge, backgroundColor: T.card, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  accountName: { color: T.dim, fontSize: 12, flexShrink: 1 },
-  accountChevron: { color: T.dim, fontSize: 14 },
-  ring: {
-    width: TOPBAR_CTRL, height: TOPBAR_CTRL, borderRadius: TOPBAR_CTRL / 2,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
-    backgroundColor: T.card, alignItems: 'center', justifyContent: 'center',
-  },
   // The one row that is not a control: no tap target, no 44, and dimmer
   // than the rows above it so the eye reads it as a statement.
   note: {
@@ -302,31 +169,26 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.cardEdge,
   },
   noteText: { color: T.faint, fontSize: 11, lineHeight: 15 },
-  ck: { marginTop: SPACE.sm, alignItems: 'flex-start' },
-  backdrop: { flex: 1, backgroundColor: '#00000088' },
-  menu: {
-    position: 'absolute', borderRadius: 14,
-    backgroundColor: T.card, borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
-    overflow: 'hidden',
-  },
+  // The web adapter fits Apple's button to this slot without shrinking its tap target.
+  ck: { marginTop: SPACE.sm, alignSelf: 'stretch', alignItems: 'stretch' },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    minHeight: TAP, paddingHorizontal: SPACE.lg, gap: SPACE.md,
+    minHeight: TAP, paddingHorizontal: SPACE.md, gap: SPACE.sm,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.cardEdge,
   },
   last: { borderBottomWidth: 0 },
   startWrap: {
-    paddingLeft: SPACE.lg,
+    paddingLeft: SPACE.md,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.cardEdge,
   },
   startHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: TAP },
   startSteps: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  startSet: { minHeight: TAP, justifyContent: 'center', paddingRight: SPACE.lg },
+  startSet: { minHeight: TAP, justifyContent: 'center', paddingRight: SPACE.md },
   startNone: { color: T.dim, fontSize: 14 },
   startBtn: { width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center' },
   startArrow: { color: T.text, fontSize: 20 },
   startMonth: { color: T.text, fontSize: 16, fontVariant: ['tabular-nums'] },
-  rowText: { color: T.text, fontSize: 16, flexShrink: 1 },
+  rowText: { color: T.text, fontSize: 14, fontWeight: '600', flexShrink: 1 },
   // The ledger's own checkbox, at the same 15 points — see the cleared box
   // on a transaction row. One shape for "this is on" across the app.
   box: {

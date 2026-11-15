@@ -250,7 +250,7 @@ test.describe('shell', () => {
     }
   });
 
-  test('desktop: the top bar keeps every label on one line from 761px up, and drops the planner name when it is short of room', async ({ page }, info) => {
+  test('desktop: the common 64px top bar keeps labels and controls aligned without overflow', async ({ page }, info) => {
     test.skip(isPhone(info.project.name), 'desktop layout');
     await login(page);
     for (const width of [761, 800, 900, 901, 1000, 1360]) {
@@ -261,26 +261,49 @@ test.describe('shell', () => {
         return { selector, shown, rows: shown ? new Set([...el!.getClientRects()].map(rect => Math.round(rect.top))).size : 0, height: shown ? el!.getBoundingClientRect().height : 0 };
       }));
       for (const { selector, shown, rows, height } of lines) {
-        if (selector === '#mode-heading') { expect(shown, `${width}px ${selector}`).toBe(width > 900); }
-        if (shown) { expect(rows, `${width}px ${selector} lines`).toBe(1); expect(height, `${width}px ${selector} height`).toBeLessThanOrEqual(46); }
+        if (selector === '#mode-heading') { expect(shown, `${width}px ${selector}`).toBe(true); }
+        if (shown) { expect(rows, `${width}px ${selector} lines`).toBe(1); expect(height, `${width}px ${selector} height`).toBeLessThanOrEqual(44); }
       }
       expect(await page.locator('.topbar').evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px top bar overflow`).toBe(true);
+      await expect(page.locator('#menu'), `${width}px phone menu is hidden`).toBeHidden();
+      await expect(page.locator('#sidebar-toggle'), `${width}px desktop sidebar control is visible`).toBeVisible();
+      expect(await page.locator('.topbar h1').innerText(), `${width}px desktop title`).toBe('Daily planner');
+      await expect(page.locator('#mode-heading')).toBeVisible();
+      await expect(page.locator('.topbar h1 .mobile-only')).toBeHidden();
       const [bar, brand, picker, account] = await Promise.all(['.topbar', '.sidebar-brand', '.picker-button', '#account-button-bar'].map(s => page.locator(s).boundingBox()));
-      expect(bar!.height, `${width}px top bar`).toBe(46);
+      expect(bar!.height, `${width}px top bar`).toBe(64);
       expect(brand!.height, `${width}px brand row`).toBe(bar!.height);
+      expect((await page.locator('.page').boundingBox())!.y, `${width}px content gap`).toBe(bar!.y + bar!.height + 10);
       expect(picker!.height, `${width}px picker height`).toBe(account!.height);
       expect(picker!.y, `${width}px button alignment`).toBe(account!.y);
     }
   });
 
-  test('phone: top bar with the date, the drawer, no overflow', async ({ page }, info) => {
+  test('phone: account stays in the top bar and dates have a separate toolbar without overflow', async ({ page }, info) => {
     test.skip(!isPhone(info.project.name), 'phone layout');
     await login(page, PARTNER);
     await expect(page.getByRole('button', { name: 'Open menu', exact: true })).toBeVisible();
     await expect(page.locator('#date-pill')).toHaveText(day(today(), { weekday: 'short', month: 'short', day: 'numeric' }));
     // The button says what it opens as well as the date.
     await expect(page.locator('#date-pill')).toHaveAttribute('aria-label', `${day(today(), { weekday: 'short', month: 'short', day: 'numeric' })}. Choose a date`);
-    await expect(page.locator('.account')).toBeHidden();
+    await expect(page.locator('.account')).toBeVisible();
+    await expect(page.locator('#account-button-drawer')).toHaveCount(0);
+    for (const width of [320, 375, 600, 760]) {
+      await page.setViewportSize({ width, height: 812 });
+      const [bar, date, account, picker] = await Promise.all(['.topbar', '.phone-toolbar', '#account-button-bar', '.picker-button'].map(s => page.locator(s).boundingBox()));
+      expect(bar!.height, `${width}px common bar`).toBe(64);
+      expect(date!.y, `${width}px dates below primary bar`).toBeGreaterThanOrEqual(bar!.y + bar!.height);
+      expect(account!.height).toBe(44);
+      expect(picker!.height).toBe(44);
+      expect(picker!.y).toBe(account!.y);
+      expect(await page.locator('.topbar').evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px bar overflow`).toBe(true);
+      await expect(page.locator('#menu'), `${width}px phone menu is visible`).toBeVisible();
+      await expect(page.locator('#sidebar-toggle'), `${width}px desktop sidebar control is hidden`).toBeHidden();
+      await expect(page.locator('#mode-heading')).toBeHidden();
+      await expect(page.locator('.topbar h1 .mobile-only')).toBeVisible();
+      expect(await page.locator('.topbar h1').innerText(), `${width}px phone title`).toBe('PlanMind');
+    }
+    await page.setViewportSize({ width: 375, height: 812 });
     // A closed drawer is out of reach: hidden, and Tab never lands in it.
     await expect(page.locator('#sidebar')).toBeHidden();
     for (let i = 0; i < 14; i++) {
@@ -298,9 +321,8 @@ test.describe('shell', () => {
     await expect(page.locator('#sidebar')).toHaveAttribute('aria-modal', 'true');
     await expect(page.locator('#sidebar')).toBeVisible();
     await expect(page.locator('#drawer-close')).toBeFocused();
-    // The account is one button in the drawer too: the signed-in list's dot before the name, and its menu holds Settings and Sign out.
-    await expect(page.locator('.drawer-account .account-who')).toHaveAttribute('data-c', 'yellow');
-    await expect(page.getByRole('button', { name: PARTNER_NAME, exact: true })).toHaveAttribute('aria-haspopup', 'menu');
+    // The drawer carries navigation only; account actions remain in the primary bar.
+    await expect(page.locator('.drawer-account')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0);
     await page.locator('.date-row').nth(8).click();
     await expect(page.locator('body')).not.toHaveClass(/drawer-open/);

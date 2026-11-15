@@ -400,10 +400,15 @@ function settings_modal_script(): string
 <script>(function () {
   var btn = document.getElementById('setBtn'), back = document.getElementById('setBackdrop');
   if (!btn || !back) { return; }
-  var close = function () { back.classList.remove('open'); };
+  var close = function () {
+    var wasOpen = back.classList.contains('open');
+    back.classList.remove('open');
+    var user = document.getElementById('userBtn'); if (wasOpen && user && user.closest('.ms-app-bar')) { user.focus(); }
+  };
   btn.addEventListener('click', function (e) {
     e.stopPropagation();
     var menu = document.getElementById('userMenu'); if (menu) { menu.hidden = true; }
+    var user = document.getElementById('userBtn'); if (user) { user.setAttribute('aria-expanded', 'false'); }
     back.classList.add('open');
   });
   document.getElementById('setDone').addEventListener('click', close);

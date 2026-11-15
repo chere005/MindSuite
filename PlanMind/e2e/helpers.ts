@@ -131,11 +131,9 @@ export async function addTodo(page: Page, title: string, who?: string) {
   await expect(page.getByRole('button', { name: `Edit ${title}`, exact: true })).toBeVisible();
 }
 
-/** Opens the account menu and chooses an item. On a phone the account is in the drawer, so the drawer opens first. */
+/** Opens the account menu in the common top-right slot and optionally chooses an item. */
 export async function accountMenu(page: Page, item?: 'Settings' | 'Sign out') {
-  const phone = !(await page.locator('#account-button-bar').isVisible());
-  if (phone && !(await page.locator('#sidebar').isVisible())) { await page.getByRole('button', { name: 'Open menu', exact: true }).click(); }
-  const button = page.locator(phone ? '#account-button-drawer' : '#account-button-bar');
+  const button = page.locator('#account-button-bar');
   await button.click();
   await expect(page.getByRole('menu')).toBeVisible();
   if (item) { await page.getByRole('menuitem', { name: item, exact: true }).click(); }

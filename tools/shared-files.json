@@ -2,6 +2,21 @@
   "version": 1,
   "groups": [
     {
+      "id": "app-components-suite-topbar-tsx",
+      "origin": "CalMind/apps/app/src/components/SuiteTopBar.tsx",
+      "copies": ["ChefMind/app/src/components/SuiteTopBar.tsx", "AcctMind/apps/app/src/components/SuiteTopBar.tsx"]
+    },
+    {
+      "id": "suite-topbar-css",
+      "origin": "packages/mind-server/assets/suite-topbar.css",
+      "copies": ["ReadMind/public/suite-topbar.css", "PlanMind/app/styles/suite-topbar.css", "TaskMind/app/styles/suite-topbar.css"]
+    },
+    {
+      "id": "suite-topbar-js",
+      "origin": "packages/mind-server/assets/suite-topbar.js",
+      "copies": ["ReadMind/public/suite-topbar.js", "TaskMind/app/shell/suite-topbar.js"]
+    },
+    {
       "id": "mind-server-lib-atomic-php",
       "origin": "packages/mind-server/lib/atomic.php",
       "copies": ["CalMind/server/lib/atomic.php", "PlanMind/server/lib/atomic.php", "TaskMind/server/lib/atomic.php"]
@@ -354,6 +369,18 @@
     }
   ],
   "external": [
+    {
+      "id": "site-assets-suite-topbar-css",
+      "origin": "packages/mind-server/assets/suite-topbar.css",
+      "repo": "seancheren-site",
+      "path": "public/assets/suite-topbar.css"
+    },
+    {
+      "id": "site-assets-suite-topbar-js",
+      "origin": "packages/mind-server/assets/suite-topbar.js",
+      "repo": "seancheren-site",
+      "path": "public/assets/suite-topbar.js"
+    },
     {
       "id": "site-lib-atomic-php",
       "origin": "packages/mind-server/lib/atomic.php",

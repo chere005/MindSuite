@@ -262,6 +262,7 @@ export function CircleBtn({
   onPressIn,
   color = T.dim,
   size = 26,
+  targetSize = size,
   bg,
   active = false,
   testID,
@@ -272,6 +273,7 @@ export function CircleBtn({
   onPressIn?: () => void; // fires on pointerdown, BEFORE a focused field's blur
   color?: string;
   size?: number;
+  targetSize?: number; // actual target, independent of the visible circular face
   bg?: string; // filled circle (colour swatches)
   active?: boolean; // accent state for icon toggles (Completed etc.)
   testID?: string;
@@ -279,6 +281,14 @@ export function CircleBtn({
    *  aria-label; a glyph like '‹' read aloud is no use to anybody. */
   label?: string;
 }) {
+  const expanded = targetSize > size;
+  const face = [s.circle, { width: size, height: size, borderRadius: size / 2 },
+    bg ? { backgroundColor: bg, borderColor: bg } : null, active && s.circleActive];
+  const icon = DRAWN[glyph] ? (
+    <DrawnGlyph glyph={glyph} size={size * 0.55} color={active ? T.accent : color} />
+  ) : (
+    <Text style={{ color: active ? T.accent : color, fontSize: size * 0.55, lineHeight: size * 0.62, fontWeight: '700' }}>{glyph}</Text>
+  );
   return (
     <Pressable
       accessibilityLabel={label}
@@ -290,20 +300,12 @@ export function CircleBtn({
       onTouchStart={onPressIn}
       hitSlop={8}
       style={({ pressed }) => [
-        s.circle,
-        { width: size, height: size, borderRadius: size / 2 },
-        bg ? { backgroundColor: bg, borderColor: bg } : null,
-        active && s.circleActive,
+        expanded ? { width: targetSize, height: targetSize, alignItems: 'center', justifyContent: 'center' } : face,
         pressed && s.pressed,
       ]}
     >
       <WebHitSlop />
-      {DRAWN[glyph] ? (
-        // The canvas the Text used: fontSize was size * 0.55 at weight 700.
-        <DrawnGlyph glyph={glyph} size={size * 0.55} color={active ? T.accent : color} />
-      ) : (
-        <Text style={{ color: active ? T.accent : color, fontSize: size * 0.55, lineHeight: size * 0.62, fontWeight: '700' }}>{glyph}</Text>
-      )}
+      {expanded ? <View pointerEvents="none" style={face}>{icon}</View> : icon}
     </Pressable>
   );
 }
@@ -410,7 +412,7 @@ export function ConfirmDelete({ onDelete, onPressIn, size = 26, testID, forceArm
  * pixel: the ring is already 32x32, so the button now fills exactly what it
  * draws. hitSlop stays for native, where it still adds.
  */
-export const pickHit = { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' } as const;
+export const pickHit = { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' } as const;
 
 export function Field(props: TextInputProps) {
   return <TextInput placeholderTextColor={T.muted} {...props} style={[s.field, props.style]} />;

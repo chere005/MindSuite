@@ -1,5 +1,8 @@
 import { ROLE_LABELS, displayName, type Screen, type Session } from '../../packages/core/src/taskmind';
 import { setTheme } from '../colors';
+import './suite-topbar.js';
+
+declare global { interface Window { MindSuiteTopBar: { mountAccountMenu(root: ParentNode): () => void }; } }
 
 /** One element with text set as text, never as markup: names and usernames are untrusted. */
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ''): HTMLElementTagNameMap[K] {
@@ -22,7 +25,10 @@ function mark(): SVGSVGElement {
   return svg;
 }
 
+let dropHeader: (() => void) | null = null;
+
 function card(root: HTMLElement, title: string, ...lines: HTMLElement[]) {
+  dropHeader?.(); dropHeader = null;
   const section = h('section', 'card');
   section.setAttribute('aria-labelledby', 'screen-title');
   const heading = h('h1', '', title);
@@ -41,12 +47,42 @@ function link(text: string): HTMLAnchorElement {
 
 /** Signed in as a team member. The workspace views mount here once the data store exists; until then the page says who is in. */
 export function renderSession(root: HTMLElement, session: Session) {
+  dropHeader?.(); dropHeader = null;
   setTheme(session.theme);
   document.title = 'TaskMind';
+  const header = h('header', 'ms-app-bar');
+  header.append(h('div', 'ms-app-brand'));
+  header.firstElementChild!.append(h('h1', 'ms-app-title', 'TaskMind'));
+  const actions = h('div', 'ms-app-actions');
+  const user = h('div', 'ms-app-user');
+  const button = h('button', 'ms-app-account'); button.type = 'button'; button.id = 'userBtn';
+  button.setAttribute('aria-haspopup', 'menu'); button.setAttribute('aria-expanded', 'false'); button.setAttribute('aria-controls', 'userMenu');
+  const name = displayName(session.name, session.me);
+  const face = h('span', 'ms-app-account-face'); face.append(h('span', 'ms-app-account-label', name), h('span', 'ms-app-caret', '▾'));
+  face.lastElementChild!.setAttribute('aria-hidden', 'true'); button.title = name; button.append(face);
+  const menu = h('div', 'ms-app-menu'); menu.id = 'userMenu'; menu.hidden = true;
+  const accountData = document.getElementById('app')?.dataset;
+  const account = accountData?.signoutNext || accountData?.signoutAction;
+  if (account) { const a = h('a', 'ms-app-menu-row', 'Account'); a.href = account; menu.append(a); }
+  const settings = h('button', 'ms-app-menu-row', 'Settings'); settings.type = 'button'; settings.id = 'setBtn'; menu.append(settings);
+  const signout = signOut(session.csrf); signout.className = ''; signout.querySelector('button')!.className = 'ms-app-menu-row'; menu.append(signout);
+  const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+  user.append(button, menu); actions.append(user); header.append(actions);
+  const dialog = h('dialog', 'scaffold-settings'); dialog.setAttribute('aria-labelledby', 'settings-title');
+  const settingsTitle = h('h2', '', 'Settings'); settingsTitle.id = 'settings-title';
+  dialog.append(settingsTitle, h('p', 'dim', 'Theme: ' + session.theme));
+  if (account) { const a = h('a', '', 'Manage account and sign-in'); a.href = account; dialog.append(a); }
+  const done = h('button', 'quiet', 'Done'); done.type = 'button'; done.addEventListener('click', () => dialog.close()); dialog.append(done);
+  settings.addEventListener('click', () => { close(); dialog.showModal(); });
+  dialog.addEventListener('close', () => button.focus());
+  dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+  const main = h('main', 'stage');
+  const section = h('section', 'card');
   const who = h('p', 'who');
-  who.append('Signed in as ', h('strong', '', displayName(session.name, session.me)), ' ');
-  who.append(h('span', 'role', ROLE_LABELS[session.role]));
-  card(root, 'TaskMind', who, h('p', 'dim', 'Projects, tasks and the board open here when the team workspace arrives.'), signOut(session.csrf));
+  who.append('Signed in as ', h('strong', '', name), ' ', h('span', 'role', ROLE_LABELS[session.role]));
+  section.append(who, h('p', 'dim', 'Projects, tasks and the board open here when the team workspace arrives.'));
+  main.append(section); root.replaceChildren(header, main, dialog);
+  dropHeader = window.MindSuiteTopBar.mountAccountMenu(root);
 }
 
 /**

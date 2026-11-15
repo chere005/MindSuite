@@ -12,18 +12,23 @@ const CHOOSE: Record<View, string> = { day: 'Choose a date', week: 'Choose a wee
 const pillLabel = (view: View, date: string) =>
   view === 'week' ? weekRange(date) : view === 'month' ? dayLabel(date, { month: 'long', year: 'numeric' }) : dayLabel(date, { weekday: 'short', month: 'short', day: 'numeric' });
 
-/** Top bar. Desktop: the sidebar button, planner name, status, the list picker, the account menu. Phone: menu, previous, date, next, the picker. */
-export const topBarHtml = (ctx: PanelContext) => `<header class="topbar">
-  <button id="back-view" class="back-button" type="button" hidden>${icons.left}<span id="back-label"></span></button>
-  <button id="menu" class="icon-button mobile-only" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">${icons.menu}</button>
-  <button id="sidebar-toggle" class="icon-button desktop-only" type="button" aria-controls="sidebar" aria-expanded="true" aria-label="Hide sidebar" title="Hide sidebar">${icons.sidebar}</button>
-  <span id="mode-heading" class="eyebrow desktop-only"></span>
-  <div class="phone-nav mobile-only"><button id="pill-prev" class="icon-button" type="button">${icons.left}</button><button id="date-pill" class="date-pill" type="button" aria-haspopup="dialog"></button><input id="pill-date" class="sr-only" type="date" tabindex="-1" aria-hidden="true" min="2000-01-01" max="2099-12-31"><button id="pill-next" class="icon-button" type="button">${icons.right}</button></div>
-  <span class="grow"></span>
-  <span id="sync-status" role="status"></span>
-  <div id="picker-slot" class="picker-slot"></div>
-  <div class="account desktop-only">${accountMenuHtml(ctx, 'bar')}</div>
-</header>`;
+/** The shared app bar keeps identity and account controls in one place; phone dates have their own toolbar. */
+export const topBarHtml = (ctx: PanelContext) => `<header class="topbar ms-app-bar">
+  <div class="ms-app-brand">
+    <button id="back-view" class="back-button ms-app-icon" type="button" hidden><span class="ms-app-icon-face">${icons.left}</span><span id="back-label" class="sr-only"></span></button>
+    <button id="menu" class="icon-button ms-app-icon mobile-only" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><span class="ms-app-icon-face">${icons.menu}</span></button>
+    <button id="sidebar-toggle" class="icon-button ms-app-icon desktop-only" type="button" aria-controls="sidebar" aria-expanded="true" aria-label="Hide sidebar" title="Hide sidebar"><span class="ms-app-icon-face">${icons.sidebar}</span></button>
+    <div class="topbar-heading"><h1 class="ms-app-title"><span id="mode-heading" class="desktop-only"></span><span class="mobile-only">PlanMind</span></h1></div>
+  </div>
+  <div class="ms-app-actions">
+    <span id="sync-status" role="status"></span>
+    <div id="picker-slot" class="picker-slot"></div>
+    <div class="account">${accountMenuHtml(ctx, 'bar')}</div>
+  </div>
+</header>
+<div class="phone-toolbar mobile-only">
+  <div class="phone-nav"><button id="pill-prev" class="icon-button" type="button">${icons.left}</button><button id="date-pill" class="date-pill" type="button" aria-haspopup="dialog"></button><input id="pill-date" class="sr-only" type="date" tabindex="-1" aria-hidden="true" min="2000-01-01" max="2099-12-31"><button id="pill-next" class="icon-button" type="button">${icons.right}</button></div>
+</div>`;
 
 export function mountTopBar(root: HTMLElement, ctx: PanelContext, drawer: Drawer, mods: { picker: PickerModule; dateSheet: DateSheetModule }) {
   const $ = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;

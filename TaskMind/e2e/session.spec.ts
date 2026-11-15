@@ -70,6 +70,70 @@ test.describe('the shell', () => {
     expect(await page.locator('meta[name=viewport]').getAttribute('content')).toContain('user-scalable=no');
   });
 
+  test('the account menu keeps its full touch target and signs out through the existing form', async ({ page }) => {
+    await login(page, 'alex');
+    const bar = page.locator('.ms-app-bar');
+    await expect(bar).toBeVisible();
+    expect((await bar.boundingBox())!.height).toBe(64);
+    expect((await page.locator('#userBtn').boundingBox())!.height).toBe(44);
+    await page.locator('#userBtn').click();
+    await expect(page.locator('#userMenu')).toBeVisible();
+    await expect(page.locator('#userMenu form input[name=csrf]')).toHaveValue(/.+/);
+    await expect(page.locator('#userMenu form input[name=action]')).toHaveValue('logout');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#userMenu')).toBeHidden();
+    await expect(page.locator('#userBtn')).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+
+  test('the account menu opens by arrow key, navigates rows and closes before Tab leaves', async ({ page }) => {
+    await login(page, 'alex');
+    const button = page.locator('#userBtn'), menu = page.getByRole('menu'), items = menu.getByRole('menuitem');
+    await button.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu).toBeVisible();
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(button).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(menu).toBeHidden();
+    await button.click();
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(button).toBeFocused();
+  });
+
+  test('shared Account and Settings links preserve the return to TaskMind', async ({ page }) => {
+    const next = '/account/?next=%2FTaskMind%2F';
+    await page.route('**/TaskMind/', async route => {
+      if (route.request().method() !== 'GET') { await route.continue(); return; }
+      const response = await route.fetch();
+      await route.fulfill({ response, body: (await response.text()).replace('id="app"', `id="app" data-signout-action="/account/" data-signout-next="${next}"`) });
+    });
+    await page.route('**/account/**', route => route.fulfill({ contentType: 'text/html', body: '<main>Account page</main>' }));
+    await login(page, 'alex');
+    // A form's POST redirect is served inside the original navigation; reopen
+    // the signed-in GET so this response fixture supplies the shared metadata.
+    await page.goto(PAGE);
+    await page.locator('#userBtn').click();
+    await expect(page.getByRole('menuitem', { name: 'Account', exact: true })).toHaveAttribute('href', next);
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('link', { name: 'Manage account and sign-in' })).toHaveAttribute('href', next);
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.locator('#userBtn').click();
+    await page.getByRole('menuitem', { name: 'Account', exact: true }).click();
+    await expect(page).toHaveURL(/\/account\/\?next=%2FTaskMind%2F$/);
+  });
+
   test('a person who is not on the team gets the sign-in page with the reason, and no app', async ({ page }) => {
     await login(page, 'outsider');
     await expect(page.getByRole('alert')).toHaveText('TaskMind is for members of its team.');
@@ -79,6 +143,7 @@ test.describe('the shell', () => {
 
   test('signing out ends the session', async ({ page, request }) => {
     await login(page, 'alex');
+    await page.locator('#userBtn').click();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await page.goto(PAGE);

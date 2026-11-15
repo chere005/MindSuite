@@ -1,0 +1,66 @@
+/* MindSuite app chrome. App content, themes and authentication stay with each shell. */
+:root {
+  --ms-bar-height: 64px;
+  --ms-target-size: 44px;
+  --ms-face-size: 32px;
+  --ms-bar-gap: 8px;
+  --ms-menu-width: 216px;
+}
+.ms-app-bar {
+  box-sizing: border-box; display: flex; align-items: center; justify-content: space-between;
+  gap: var(--ms-bar-gap); min-height: calc(var(--ms-bar-height) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) calc(16px + env(safe-area-inset-right, 0px)) 0 calc(16px + env(safe-area-inset-left, 0px));
+  margin: 0 0 10px; border: 0; border-bottom: 1px solid var(--line-soft, var(--line));
+  background: var(--bg); color: var(--text); font-family: inherit;
+}
+.ms-app-bar .ms-app-brand, .ms-app-bar .ms-app-actions { display: flex; align-items: center; gap: var(--ms-bar-gap); min-width: 0; }
+.ms-app-bar .ms-app-brand { flex: 1 1 auto; }
+.ms-app-bar .ms-app-actions { flex: 0 0 auto; }
+.ms-app-bar .ms-app-logo { display: block; flex: 0 0 var(--ms-face-size); width: var(--ms-face-size); height: var(--ms-face-size); border-radius: 8px; }
+.ms-app-bar .ms-app-title { min-width: 0; margin: 0; font-size: 24px; font-weight: 800; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-app-bar .ms-app-title > * { margin: 0; max-width: none; font: inherit; line-height: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-app-bar .ms-app-context { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim, var(--dim)); font-size: 14px; }
+.ms-app-bar .ms-app-icon, .ms-app-bar .ms-app-account {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; min-height: var(--ms-target-size); height: var(--ms-target-size); padding: 0;
+  margin: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-dim, var(--dim));
+  font-family: inherit; line-height: 1; text-decoration: none; cursor: pointer;
+}
+.ms-app-bar .ms-app-icon { width: var(--ms-target-size); }
+.ms-app-bar .ms-app-icon-face {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  width: var(--ms-face-size); height: var(--ms-face-size); border: 1px solid var(--line);
+  border-radius: 50%; background: var(--surface); font-size: 20px;
+}
+.ms-app-bar .ms-app-icon-face svg { display: block; }
+.ms-app-bar .ms-app-icon:hover .ms-app-icon-face { border-color: var(--accent); color: var(--text); }
+.ms-app-bar .ms-app-user { position: relative; flex: 0 0 auto; }
+.ms-app-bar .ms-app-account-face {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--ms-face-size); min-width: var(--ms-face-size); padding: 0 10px;
+  border: 2px solid var(--ms-account-border, var(--accent)); border-radius: 999px;
+  background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600;
+}
+.ms-app-bar .ms-app-account-label { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-app-bar .ms-app-caret { flex: 0 0 auto; font-size: 10px; line-height: 1; }
+.ms-app-bar .ms-app-caret svg { display: block; width: 10px; height: 10px; }
+.ms-app-bar .ms-app-menu {
+  box-sizing: border-box; position: absolute; right: 0; top: calc(100% + 6px); z-index: 90;
+  width: var(--ms-menu-width); min-width: 0; max-width: calc(100vw - 32px); padding: 4px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  color: var(--text); box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  max-height: calc(100dvh - var(--ms-bar-height) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px);
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+}
+.ms-app-bar .ms-app-menu[hidden] { display: none; }
+.ms-app-bar .ms-app-menu form { margin: 0; padding: 0; }
+.ms-app-bar .ms-app-menu .ms-app-menu-row {
+  box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px;
+  margin: 0; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1.2;
+  text-align: left; text-decoration: none; cursor: pointer;
+}
+.ms-app-bar .ms-app-menu .ms-app-menu-row:hover { background: var(--surface-2); }
+.ms-app-bar :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) { .ms-app-bar .ms-app-account-label { max-width: 96px; } }
+@media (max-width: 420px) { .ms-app-bar .ms-app-account-label { max-width: 64px; } }
