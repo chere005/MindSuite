@@ -631,7 +631,11 @@ try {
     // ---- 3. shared, a session
     t('shared, a session: the shelf opens for the account, with Account, Settings, Sign out and no PHP session of ours', function () use ($main, $web) {
         $r = sh($main, 'GET', '/', ["Cookie: {$web('alex')}"]);
-        ok($r['status'] === 200 && str_contains($r['body'], '<span>alex</span>'), "the page opens for alex (got {$r['status']})");
+        ok($r['status'] === 200 && str_contains($r['body'], '<span class="ms-app-account-label">alex</span>'), "the page opens for alex (got {$r['status']})");
+        ok(str_contains($r['body'], '<header class="ms-app-bar">')
+           && preg_match('#<link rel="stylesheet" href="/ReadMind/suite-topbar.css\?v=[a-f0-9]{16}">#', $r['body']) === 1
+           && preg_match('#<script defer src="/ReadMind/suite-topbar.js\?v=[a-f0-9]{16}"></script>#', $r['body']) === 1,
+           'the app bar uses the versioned same-origin shared styles and menu controller');
         ok(preg_match('#href="/account/\?next=%2FReadMind%2F">Account</a>.*?>Settings</button>.*?>Sign out</button>#s', $r['body']) === 1,
            'the username menu uses the shared Account, Settings, Sign out order and returns here');
         ok(!isset($r['cookies']['BMSESS']) && !preg_grep('/^BMSESS|^PHPSESSID/', array_keys($r['cookies'])), 'no PHP session cookie of ours');
@@ -703,7 +707,7 @@ try {
     });
     t('shared: Log out is a post, so a GET ?logout ends nothing', function () use ($main, $web) {
         $r = sh($main, 'GET', '/?logout', ["Cookie: {$web('alex')}"]);
-        ok($r['status'] === 200 && str_contains($r['body'], '<span>alex</span>'), 'still signed in after ?logout');
+        ok($r['status'] === 200 && str_contains($r['body'], '<span class="ms-app-account-label">alex</span>'), 'still signed in after ?logout');
     });
     t('shared: a hold on other apps does not hold ReadMind', function () use ($main, $lib) {
         sl_config($lib, ['mindsuite_auth_hold' => ['prod' => ['calmind', 'planmind'], 'test' => ['readmind']]]);
@@ -779,7 +783,7 @@ try {
         }
         file_put_contents("$oddLib/odd-answer.json", '{"user":"alex","csrf":"' . str_repeat('c', 64) . '"}');
         $r = sh($odd, 'GET', '/');
-        ok($r['status'] === 200 && str_contains($r['body'], '<span>alex</span>'), 'a usable answer opens the shelf (control)');
+        ok($r['status'] === 200 && str_contains($r['body'], '<span class="ms-app-account-label">alex</span>'), 'a usable answer opens the shelf (control)');
         file_put_contents("$oddLib/odd-answer.json", 'null');
         ok(str_contains(sh($odd, 'GET', '/')['body'], 'Sign in with your CalMind account'), 'and a door that says null is the legacy sign-in (control)');
         ok(mock_calls() === $before, 'CalMind was never asked while closed');
