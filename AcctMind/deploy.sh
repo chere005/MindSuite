@@ -129,6 +129,19 @@ case "$TEST_URL" in
   *) echo "guard: the sandbox URL '$TEST_URL' is not on a test. host" >&2; exit 1 ;;
 esac
 
+# One guest request, without following redirects. The shared gate is valid only when its Location stays in this instance.
+verify_page() {
+  page_headers=$(mktemp "${TMPDIR:-/tmp}/acct-page.XXXXXX") || return 1
+  if page_code=$(curl -sS --max-time 20 -D "$page_headers" -o /dev/null -w '%{http_code}' "$1"); then
+    if node "$ROOT/tools/verify-page.mjs" "$1" "$page_code" "$page_headers"; then page_result=0; else page_result=1; fi
+  else
+    echo "guard: could not reach the AcctMind page" >&2
+    page_result=1
+  fi
+  rm -f "$page_headers"
+  return "$page_result"
+}
+
 # ------------------------------------------------------------------- --verify
 if [ "$VERIFY" = "1" ]; then
   for inst in $INSTANCES; do
@@ -137,8 +150,8 @@ if [ "$VERIFY" = "1" ]; then
       prod) url="$PROD_URL" ;;
     esac
     echo "==> [$inst] $url"
-    code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || echo "---")
-    echo "    page:  HTTP $code  (401 is correct — it is asking you to sign in)"
+    code=$(verify_page "$url") || exit 1
+    echo "    page:  HTTP $code  (legacy gate, shared sign-in, or allowed shell)"
     echo "    build: $(curl -s "${url}build.json" | tr -d '\n' || echo unreachable)"
   done
   exit 0
@@ -278,11 +291,7 @@ for inst in $INSTANCES; do
     fi
 
     echo "==> [$inst] proving the page it now serves"
-    code=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || echo "---")
-    if [ "$code" != "401" ] && [ "$code" != "200" ]; then
-      echo "guard: $URL answered $code — expected 401 (sign in) or 200 (already signed in)" >&2
-      exit 1
-    fi
+    code=$(verify_page "$URL") || exit 1
     # ASKED MORE THAN ONCE, deliberately. This proof reads a file rsync has
     # just this second finished writing, and on 2026-09-19 it read one
     # mid-write: build.json came back unparseable, the guard called the whole

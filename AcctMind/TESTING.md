@@ -96,7 +96,7 @@ breaking a COPY of `deploy.sh` with `ssh`, `rsync`, `scp` and `curl` neutered
 on the PATH first. In CalMind, a run that set out to prove the consent gate
 worked — by removing the consent gate — went on to write production. The
 neutering is installed before the first copy is ever executed, and one of the
-checks is that no broken copy reached `ssh` at all.
+checks is that no broken copy reached `ssh` at all. The same command also runs the page-verifier fixtures: legacy 401 and allowed 200, plus only a 303 to the same instance's shared account with AcctMind as its sole return target. External origins, another instance/app/path, missing or duplicate Location/next values, malformed headers and other redirects fail. The real `--verify` branch is driven with local curl replies; no redirect is followed and no real account or network is used.
 
 **`tools/check-peer-service.mjs`** — `NSBonjourServices` is an ALLOW-LIST, and
 that is the entire reason this check exists. A service type missing from it,

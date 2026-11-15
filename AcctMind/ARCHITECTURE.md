@@ -326,7 +326,7 @@ cd apps/app/android && ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew assemb
 cp deploy.conf.sample deploy.conf   # once: set SSH_DEST and SITE_URL
 ./deploy.sh                         # the sandbox AND production, sandbox first
 ./deploy.sh --quick                 # the fast lane for a small fix
-./deploy.sh --verify                # read-only: what is each instance serving?
+./deploy.sh --verify                # read-only: verify each instance's page and report its build
 ```
 
 Both instances, every time — the owner's call, 2026-08-20, and it stays that way

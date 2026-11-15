@@ -15,6 +15,7 @@
 set -e
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+DEPLOY_GUARD_PATH="$PATH"
 
 TMP="${TMPDIR:-/tmp}/acctmind-guards-$$"
 mkdir -p "$TMP/bin"
@@ -151,6 +152,10 @@ else
     bad "without a deploy.conf the real script stops" "$out"
   fi
 fi
+
+# Restore the caller's executables for the isolated verifier fixtures, which install their own curl stub.
+PATH="$DEPLOY_GUARD_PATH" node --test tools/verify-page.test.mjs
+PATH="$DEPLOY_GUARD_PATH" sh tools/test-page-verifier.sh
 
 echo ""
 echo "$PASS passed, $FAIL failed"
