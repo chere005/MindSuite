@@ -6,25 +6,25 @@ import { API, SESSION_KEY, snapshotKey } from './port';
 test('an old web token reopens only the current shared account and keeps the old account cache', async ({ page }, testInfo) => {
   const oldSnapshot = JSON.stringify({ cursor: 1, records: [], dirty: [] });
   await page.addInitScript(({ key, api, oldKey, snapshot }) => {
-    localStorage.setItem(key, JSON.stringify({ token: 'old-bearer', username: 'old-account', serverUrl: api }));
+    localStorage.setItem(key, JSON.stringify({ token: 'old-bearer', username: 'alex', serverUrl: api }));
     localStorage.setItem(oldKey, snapshot);
-  }, { key: SESSION_KEY, api: API, oldKey: snapshotKey('old-account'), snapshot: oldSnapshot });
+  }, { key: SESSION_KEY, api: API, oldKey: snapshotKey('alex'), snapshot: oldSnapshot });
   const authorization: Array<string | undefined> = [];
   await page.route('**/api/index.php', async (route) => {
     authorization.push(route.request().headers().authorization);
     const action = route.request().postDataJSON().action;
-    const body = action === 'whoami' ? { ok: true, username: 'current-account', csrf: 'current-csrf' }
+    const body = action === 'whoami' ? { ok: true, username: 'sam', csrf: 'current-csrf' }
       : action === 'sync' ? { ok: true, cursor: 1, changes: [] }
       : { ok: true, partners: [], requests: [], shared: true, app_signin: true };
     await route.fulfill({ json: body });
   });
   await page.goto('.');
-  await expect(page.getByTestId('topbar-sync').first()).toHaveAttribute('aria-label', /current-account/);
+  await expect(page.getByTestId('topbar-sync').first()).toHaveAttribute('aria-label', /sam/);
   expect(authorization.length).toBeGreaterThan(0);
   expect(authorization.every((value) => value === undefined)).toBe(true);
   expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), SESSION_KEY))
-    .toMatchObject({ token: 'cookie:current-account', username: 'current-account' });
-  expect(await page.evaluate((key) => localStorage.getItem(key), snapshotKey('old-account'))).toBe(oldSnapshot);
+    .toMatchObject({ token: 'cookie:sam', username: 'sam' });
+  expect(await page.evaluate((key) => localStorage.getItem(key), snapshotKey('alex'))).toBe(oldSnapshot);
   await page.getByTestId('topbar-sync').first().click();
   await expect(page.getByTestId('menu-account')).toBeVisible();
   await expect(page.getByText('Settings', { exact: true })).toBeVisible();
@@ -43,9 +43,9 @@ test('an old web token reopens only the current shared account and keeps the old
 
 test('a shared logout cannot reopen a saved web bearer or its cache', async ({ page }) => {
   await page.addInitScript(({ key, api, snapshot }) => {
-    localStorage.setItem(key, JSON.stringify({ token: 'old-bearer', username: 'old-account', serverUrl: api }));
+    localStorage.setItem(key, JSON.stringify({ token: 'old-bearer', username: 'alex', serverUrl: api }));
     localStorage.setItem(snapshot, 'cached-work-is-preserved');
-  }, { key: SESSION_KEY, api: API, snapshot: snapshotKey('old-account') });
+  }, { key: SESSION_KEY, api: API, snapshot: snapshotKey('alex') });
   let syncs = 0;
   await page.route('**/api/index.php', async (route) => {
     if (route.request().postDataJSON().action === 'sync') syncs++;
@@ -55,7 +55,7 @@ test('a shared logout cannot reopen a saved web bearer or its cache', async ({ p
   await page.goto('.');
   await expect(page).toHaveURL(/\/account\//);
   expect(syncs).toBe(0);
-  expect(await page.evaluate((key) => localStorage.getItem(key), snapshotKey('old-account'))).toBe('cached-work-is-preserved');
+  expect(await page.evaluate((key) => localStorage.getItem(key), snapshotKey('alex'))).toBe('cached-work-is-preserved');
 });
 
 
