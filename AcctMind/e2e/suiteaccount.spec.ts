@@ -72,7 +72,7 @@ test('valid shared names work and malformed or cross-origin metadata cannot crea
 
 
 test('the suite bar and menu keep common dimensions on both tabs, including narrow phones', async ({ page }, info) => {
-  await sharedShell(page, { ...account, username: 'long_account_name_12' });
+  await sharedShell(page, { ...account, username: account.username.repeat(5) });
   for (const width of [320, 375, 760, 1200]) {
     await page.setViewportSize({ width, height: 812 });
     for (const tab of ['budget', 'transactions']) {
