@@ -7,10 +7,10 @@
 .account-button:hover,.account-button[aria-expanded=true]{border-color:var(--muted);color:var(--text)}
 .account-chevron{display:inline-flex;color:var(--muted)}
 .account-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:140px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.45);overflow:hidden}
-.account-pop>button,.account-pop .logout button{display:block;width:100%;margin:0;padding:10px 14px;color:var(--text);font-size:14px;text-align:left;border-radius:0;min-height:40px}
-.account-pop>button{border-bottom:1px solid var(--line)}
-.account-pop>button:hover,.account-pop .logout button:hover{background:var(--surface-2)}
-.account-pop button:focus-visible{outline-offset:-3px;background:var(--surface-2)}
+.account-pop>a,.account-pop>button,.account-pop .logout button{display:block;width:100%;margin:0;padding:10px 14px;color:var(--text);font-size:14px;text-align:left;border-radius:0;min-height:40px}
+.account-pop>a,.account-pop>button{border-bottom:1px solid var(--line)}
+.account-pop>a:hover,.account-pop>button:hover,.account-pop .logout button:hover{background:var(--surface-2)}
+.account-pop a:focus-visible,.account-pop button:focus-visible{outline-offset:-3px;background:var(--surface-2)}
 .account-pop .logout{margin:0}
 
 /* Settings */
@@ -35,7 +35,7 @@ dialog.settings::backdrop{background:rgba(0,0,0,.6)}
 /* Drawer: the account row is at the bottom of the screen, so the menu opens upward and stays inside the drawer. */
 .account-menu[data-where=drawer] .account-pop{right:auto;left:0;top:auto;bottom:calc(100% + 6px)}
 @media(max-width:760px){
-.account-pop>button,.account-pop .logout button{min-height:44px}
+.account-pop>a,.account-pop>button,.account-pop .logout button{min-height:44px}
 .themebtn{width:44px;height:44px}
 .settings-done{width:44px;height:44px}
 }

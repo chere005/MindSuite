@@ -977,7 +977,7 @@ fixture prefix, the desktop shell and native getting none), what the check made 
 good cookie, a legacy `401`, a switched-on server that cannot read its store, offline, not JSON), the cookie session's
 calls (the secret learned once, on every write, no `Authorization` header, a changed secret retried once, a cookie that
 now names somebody else never carrying the write), the redirect loop guard, and that the bearer path is byte for byte
-what it was. Each guard was broken on purpose and the file went red (secret header, identity check, bearer header,
+what it was. Saved web bearers are checked against the current shared cookie before cache hydration; shared logout and unknown identity keep cached work closed and preserved. Known legacy-form sessions retain offline opening; native and desktop retain their scoped bearer. `e2e/sharedsession.spec.ts` drives identity replacement, old-cache preservation, no-bearer writes and unknown-mode password refusal in the mounted app. Each guard was broken on purpose and the file went red (secret header, identity check, bearer header,
 double-slash guard, logout wait, the shared branch). ChefMind carries the same file against its own `api.ts`.
 
 `e2e-shared/` (its own config, `playwright.shared.config.ts`, and its own port, 8795 or `CALMIND_E2E_SHARED_PORT`) is the same

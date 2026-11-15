@@ -629,9 +629,11 @@ try {
     });
 
     // ---- 3. shared, a session
-    t('shared, a session: the shelf opens for the account, with the shared Log out and no PHP session of ours', function () use ($main, $web) {
+    t('shared, a session: the shelf opens for the account, with Account, Settings, Sign out and no PHP session of ours', function () use ($main, $web) {
         $r = sh($main, 'GET', '/', ["Cookie: {$web('alex')}"]);
         ok($r['status'] === 200 && str_contains($r['body'], '<span>alex</span>'), "the page opens for alex (got {$r['status']})");
+        ok(preg_match('#href="/account/\?next=%2FReadMind%2F">Account</a>.*?>Settings</button>.*?>Sign out</button>#s', $r['body']) === 1,
+           'the username menu uses the shared Account, Settings, Sign out order and returns here');
         ok(!isset($r['cookies']['BMSESS']) && !preg_grep('/^BMSESS|^PHPSESSID/', array_keys($r['cookies'])), 'no PHP session cookie of ours');
         ok(str_contains(implode(',', $r['headers']['cache-control'] ?? []), 'no-store') && !str_contains($r['body'], 'Sign in with your CalMind'), 'kept out of caches, no form');
         ok(!str_contains($r['body'], '?logout') && preg_match('#<form method="post" action="/account/">\s*<input type="hidden" name="action" value="logout">\s*<input type="hidden" name="next" value="/account/\?next=%2FReadMind%2F">\s*<input type="hidden" name="csrf" value="[a-f0-9]{32,}">#', $r['body']) === 1,

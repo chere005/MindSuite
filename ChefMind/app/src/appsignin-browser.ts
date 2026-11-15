@@ -12,6 +12,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { getRandomBytes } from 'expo-crypto';
 import { APP_SCHEME } from './brand';
 import type { ReturnBrowser } from './appsignin';
+import { manageAccountUrl } from './api';
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -90,4 +91,15 @@ export async function openInBrowser(url: string): Promise<void> {
     return;
   }
   await Linking.openURL(url);
+}
+
+/** The shared account: this tab on the web, the system browser in native and desktop apps. */
+export async function openAccountPage(serverUrl: string): Promise<void> {
+  const to = manageAccountUrl(serverUrl);
+  if (!to) throw new Error('Could not find the account page.');
+  if (to.web && typeof location !== 'undefined') {
+    location.assign(to.url);
+    return;
+  }
+  await openInBrowser(to.url);
 }

@@ -60,7 +60,7 @@ test('a passkey is added, signs in with no username, and the password still work
   await expect(page.getByTestId('passkey-remove')).toHaveCount(1);
 
   // Sign out, then back in with no username and no password typed anywhere.
-  await page.getByText('Log out', { exact: true }).click();
+  await page.getByText('Sign out', { exact: true }).click();
   await expect(page.getByTestId('passkey-signin')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('passkey-signin').click();
   await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
@@ -70,7 +70,7 @@ test('a passkey is added, signs in with no username, and the password still work
   // left at home must not lock anyone out of their own account.
   await page.getByTestId('topbar-sync').click();
   await page.getByText('Settings', { exact: true }).click();
-  await page.getByText('Log out', { exact: true }).click();
+  await page.getByText('Sign out', { exact: true }).click();
   await page.getByPlaceholder('Username').fill(user);
   await page.getByPlaceholder('Password', { exact: true }).fill('e2epassword');
   await page.getByText('Sign in', { exact: true }).click();

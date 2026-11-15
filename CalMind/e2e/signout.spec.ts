@@ -60,7 +60,7 @@ async function refuseToDeleteTheSession(page: Page) {
 
 async function logOut(page: Page, user: string) {
   await page.getByTestId('topbar-sync').click();
-  await page.getByText('Log out', { exact: true }).click();
+  await page.getByText('Sign out', { exact: true }).click();
   // This run is signed out either way — memory is cleared regardless.
   await expect(page.getByText('Sign up', { exact: true })).toBeVisible({ timeout: 10_000 });
 }

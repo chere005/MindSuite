@@ -56,7 +56,7 @@ test('a passkey works against the deployed test server, end to end', async ({ pa
   await page.getByTestId('passkey-add').click();
   await expect(page.getByText('Passkey added')).toBeVisible({ timeout: 30_000 });
 
-  await page.getByText('Log out', { exact: true }).click();
+  await page.getByText('Sign out', { exact: true }).click();
   await expect(page.getByTestId('passkey-signin')).toBeVisible({ timeout: 30_000 });
   await page.getByTestId('passkey-signin').click();
   await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 30_000 });

@@ -90,6 +90,15 @@ export function Login() {
     return false;
   };
   const check = () => probeSharedSignIn(serverUrl).then(apply);
+  // A failed probe cannot authorize a second, bearer-based web login or mark it as a known legacy session.
+  const legacyFormAllowed = async (): Promise<boolean> => {
+    if (!cookieApi(serverUrl)) return true;
+    const p = await probeSharedSignIn(serverUrl);
+    if (await apply(p)) return false;
+    if (p.kind === 'legacy') return true;
+    setError('Could not check your sign-in. Check your connection and try again.');
+    return false;
+  };
   /** Native and desktop: what does the API say it takes? Only a fresh 'form' answer permits password submission. */
   const probeApp = async (): Promise<LoginGate> => {
     const f = await signInFacts(serverUrl);
@@ -155,21 +164,21 @@ export function Login() {
     return run(async () => {
       // The form is for servers that are not on shared sign-in. Ask again before it is used: a check that found
       // nothing (offline at load) must not let a password sign in with a token against a server that is.
-      if (cookieApi(serverUrl) && (await check())) return;
+      if (!(await legacyFormAllowed())) return;
       // Native and desktop: a server that now takes app sign-in switches the card and posts nothing.
       if (browser && (await probeApp()) !== 'form') return;
       if (mode === 'signin') {
         const r = await login(serverUrl, username, password);
-        await signIn({ token: r.token, username: r.username, serverUrl });
+        await signIn({ token: r.token, username: r.username, serverUrl, ...(cookieApi(serverUrl) ? { webLegacy: true as const } : {}) });
       } else if (mode === 'signup') {
         const r = await signup(serverUrl, username, email, password);
-        await signIn({ token: r.token, username: r.username, serverUrl });
+        await signIn({ token: r.token, username: r.username, serverUrl, ...(cookieApi(serverUrl) ? { webLegacy: true as const } : {}) });
       } else if (mode === 'recover') {
         await recover(serverUrl, username);
         setMode('reset');
       } else {
         const r = await reset(serverUrl, username, code, password);
-        await signIn({ token: r.token, username: r.username, serverUrl });
+        await signIn({ token: r.token, username: r.username, serverUrl, ...(cookieApi(serverUrl) ? { webLegacy: true as const } : {}) });
       }
     });
   };
@@ -287,8 +296,9 @@ export function Login() {
               disabled={busy}
               label="Use a passkey"
               onPress={() => run(async () => {
-                if (cookieApi(serverUrl) && (await check())) return;
-                signIn(await signInWithPasskey(serverUrl));
+                if (!(await legacyFormAllowed())) return;
+                const r = await signInWithPasskey(serverUrl);
+                await signIn({ ...r, ...(cookieApi(serverUrl) ? { webLegacy: true as const } : {}) });
               })}
             />
           </View>

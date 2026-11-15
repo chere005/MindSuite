@@ -50,7 +50,7 @@ $web = "$tmp/web";
 register_shutdown_function(static function () use ($tmp) { rrm($tmp); });
 
 copy("$root/server/public/index.php", "$web/index.php");
-file_put_contents("$tmp/shell/app.html", "<!doctype html><title>AcctMind</title><div id=\"root\">ACCTMIND-SHELL</div>");
+file_put_contents("$tmp/shell/app.html", "<!doctype html><head><title>AcctMind</title></head><div id=\"root\">ACCTMIND-SHELL</div>");
 file_put_contents("$web/_expo/bundle.js", "console.log('bundle')");
 
 // Seed one account through the suite's own API, so the store is written the
@@ -221,7 +221,7 @@ $legacyAccounts = "$sx/accounts-legacy";  // the plain servers' legacy data dire
 $sweb = "$sx/web";
 foreach ([$accounts, $legacyAccounts, "$sx/sessions", "$sweb/AcctMind", "$sweb/test/AcctMind"] as $d) { mkdir($d, 0700, true); }
 foreach (["$sweb/AcctMind/index.php", "$sweb/test/AcctMind/index.php"] as $to) { copy("$root/server/public/index.php", $to); }
-file_put_contents("$sx/shell.html", '<!doctype html><title>AcctMind</title><div id="root">ACCTMIND-SHELL-SHARED</div>');
+file_put_contents("$sx/shell.html", '<!doctype html><head><title>AcctMind</title></head><div id="root">ACCTMIND-SHELL-SHARED</div>');
 
 // ---- library copies: the same files, one config each, never the live configuration ----
 $copyLib = function (string $to, string $variant = '') use ($lib): void {
@@ -394,6 +394,12 @@ try {
         && str_contains($stranger['body'], 'name="action" value="logout"') && str_contains($stranger['body'], 'name="next" value="' . htmlspecialchars($nextUrl, ENT_QUOTES) . '"')
         && str_contains($stranger['body'], 'name="csrf" value="' . $session['outsider']['csrf'] . '"') && str_contains($stranger['body'], '>Sign out</button>'),
         'and its one control is a Sign out form posting to the account page, with that session\'s own token and the way back here');
+    $memberPage = http($scratch, 'GET', '/AcctMind/', cookie_header(['MSSESS' => $session['alex']['token']]));
+    preg_match('/<meta name="mindsuite-account" content="([^"]*)">/', $memberPage['body'], $accountMatch);
+    $accountMeta = json_decode(htmlspecialchars_decode($accountMatch[1] ?? '', ENT_QUOTES), true);
+    expect($accountMeta === ['username' => 'alex', 'csrf' => $session['alex']['csrf'], 'accountUrl' => $nextUrl,
+        'logoutAction' => '/account/', 'logoutNext' => $nextUrl], 'the protected web shell carries only its shared identity, CSRF and account destinations for the app menu');
+    expect(!str_contains($memberPage['body'], $session['alex']['token']), 'the shell never exposes the session credential');
     expect(http($scratch, 'HEAD', '/AcctMind/', cookie_header(['MSSESS' => $session['outsider']['token']]))['status'] === 403, 'a HEAD from the stranger is the 403 too');
     expect(http($scratch, 'POST', '/AcctMind/', [...$form, ...cookie_header(['MSSESS' => $session['outsider']['token']]), "X-CSRF-Token: {$session['outsider']['csrf']}"], 'x=1')['status'] === 405, 'and a post from the stranger is still the 405 (this page takes no posts)');
     foreach ([

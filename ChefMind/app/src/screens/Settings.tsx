@@ -8,9 +8,9 @@
 import { useEffect, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { exportFilename, exportStore, exportText, prefsOf, prefsPut, splitNote, type AnyRec, type Rec } from '@calmind/core';
-import { changePassword, deleteAccount, logout, manageAccountUrl, sharedAccount } from '../api';
+import { changePassword, deleteAccount, logout, sharedAccount } from '../api';
 import { signInFacts } from '../appsignin';
-import { inDesktopShell, openInBrowser, returnBrowser } from '../appsignin-browser';
+import { inDesktopShell, openAccountPage, returnBrowser } from '../appsignin-browser';
 import { saveTextFile } from '../savefile';
 import { addPasskey, listPasskeys, passkeyAvailable, removePasskey, type PasskeyRow } from '../passkey';
 import { useStore } from '../store';
@@ -81,10 +81,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
   // The suite's account page: same tab on the web (it comes back here by `next`), the system browser elsewhere.
   const openAccount = () => {
-    const to = session ? manageAccountUrl(session.serverUrl) : null;
-    if (!to) { setErr('could not find the account page'); return; }
-    if (to.web && typeof location !== 'undefined') { location.assign(to.url); return; }
-    void openInBrowser(to.url).catch((e: unknown) => setErr(e instanceof Error ? e.message : 'could not open the account page'));
+    if (!session) return;
+    void openAccountPage(session.serverUrl).catch((e: unknown) => setErr(e instanceof Error ? e.message : 'Could not open the account page.'));
   };
 
   const change = async () => {
@@ -208,7 +206,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           )}
           <Text style={s.who}>{session?.username}</Text>
           {shared ? (
-            <Pill testID="manage-account" label="Manage your account" onPress={openAccount} />
+            <Pill testID="manage-account" label="Account" onPress={openAccount} />
           ) : (
             <>
               <Field value={oldPass} onChangeText={setOldPass} placeholder="Current password" secureTextEntry />
@@ -304,7 +302,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </View>
           <View style={s.row}>
             <Pill
-              label="Log out"
+              label="Sign out"
               onPress={async () => {
                 if (session) void logout(session);
                 await signOut();

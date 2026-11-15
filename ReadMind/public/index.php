@@ -627,6 +627,7 @@ $sfBase  = '?shelf=' . urlencode($shelf) . (($shelf === 'library' && $folder !==
  */
 function books_header(string $titleHtml, bool $withEdit = false): void
 {
+    $so = bm_signout();
     ?>
     <header>
       <div class="hleft">
@@ -646,14 +647,15 @@ function books_header(string $titleHtml, bool $withEdit = false): void
           <div class="usermenu">
             <button type="button" class="who" id="userBtn"><span><?= e(current_user() ?? '') ?></span><span class="caret" aria-hidden="true">&#9662;</span></button>
             <div class="menu" id="userMenu" hidden>
+              <?php if ($so !== null): ?><a href="<?= e($so['next']) ?>">Account</a><?php endif; ?>
               <button type="button" id="setBtn">Settings</button>
-              <?php if (($so = bm_signout()) !== null): ?>
+              <?php if ($so !== null): ?>
               <?php // Signing out is a post to the account page (the shared session is its to end); a GET must not end a session. ?>
               <form method="post" action="<?= e($so['action']) ?>">
                 <input type="hidden" name="action" value="logout">
                 <input type="hidden" name="next" value="<?= e($so['next']) ?>">
                 <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf'] ?? '') ?>">
-                <button type="submit">Log out</button>
+                <button type="submit">Sign out</button>
               </form>
               <?php else: ?>
               <a href="?logout">Log out</a>
@@ -726,7 +728,7 @@ function books_header(string $titleHtml, bool $withEdit = false): void
       background: var(--surface); border: 1px solid var(--line); border-radius: 8px; min-width: 120px;
       box-shadow: 0 8px 20px rgba(0,0,0,0.5); overflow: hidden;
     }
-    /* Settings and Log out, same as the rest of the suite; the button is dressed to be
+    /* Account, Settings and Sign out, same as the rest of the suite; the button is dressed to be
        indistinguishable from the link beside it. */
     .usermenu .menu a, .usermenu .menu button {
       display: block; width: 100%; margin: 0; padding: 0.6rem 0.9rem; color: var(--text);

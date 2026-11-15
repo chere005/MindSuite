@@ -331,6 +331,21 @@ describe('appsignin-browser', () => {
     expect(rn.Linking.openURL).toHaveBeenCalledTimes(1);
   });
 
+  test('Account opens in the same web tab and returns to this app; native uses the system browser', async () => {
+    vi.resetModules();
+    const mod = await import('../src/appsignin-browser');
+    const assign = vi.fn();
+    vi.stubGlobal('location', { href: 'https://seancheren.com/ChefMind/', assign });
+    await mod.openAccountPage(API);
+    expect(assign).toHaveBeenCalledWith('/account/?next=%2FChefMind%2F');
+    vi.stubGlobal('location', undefined);
+    const rn = await import('react-native');
+    vi.mocked(rn.Linking.openURL).mockClear();
+    await mod.openAccountPage(API);
+    expect(rn.Linking.openURL).toHaveBeenCalledWith('https://seancheren.com/account/');
+    await expect(mod.openAccountPage('file:///no-api')).rejects.toThrow('Could not find the account page.');
+  });
+
   test('randomBytes is the platform source', async () => {
     vi.resetModules();
     const mod = await import('../src/appsignin-browser');

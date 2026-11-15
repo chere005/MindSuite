@@ -33,7 +33,7 @@ for (const width of [1440, 1160, 390]) {
 
     const pill = (await page.getByTestId('topbar-sync').first().boundingBox())!;
     await page.getByTestId('topbar-sync').click();
-    const menu = (await page.getByText('Log out', { exact: true }).boundingBox())!;
+    const menu = (await page.getByText('Sign out', { exact: true }).boundingBox())!;
 
     // Its right edge tracks the pill's, rather than the window's.
     expect(

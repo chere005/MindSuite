@@ -6,7 +6,8 @@
  * include 'import from csv', 'export budget', 'whole dollars' (which has a
  * checkbox toggle)", then, immediately: "actually a cog icon, not
  * hamburger". CalMind's is an account pill with a username in it; this app
- * has no account, so the ring holds a cog and means what it looks like.
+ * uses a cog for its local ledger. The protected web app uses the shared site's
+ * username menu for Account, Settings and Sign out.
  *
  * WHY A MENU AT ALL. The three things in it were three different kinds of
  * control in three different places: `.00` was a round toggle in the bar,
@@ -32,6 +33,7 @@ import * as shared from './icloudfile';
 import { TipBubble, useTip } from './Tip';
 import { SPACE, T, TAP } from './theme';
 import { TOPBAR_CTRL } from './TopBar';
+import { suiteAccount, openSuiteAccount, signOutSuiteAccount } from './suiteaccount';
 
 /** Wide enough for the longest row, narrow enough to hang off a 44pt ring. */
 const MENU_W = 212;
@@ -62,6 +64,8 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
 }) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState(false);
+  const [account] = useState(suiteAccount);
   const slots = shared.signInSlots();
   const menuW = slots === null ? MENU_W : MENU_W_CK;
   /** One line about the shared file — see where it is drawn. */
@@ -84,6 +88,7 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
   const tip = useTip();
 
   const openMenu = () => {
+    setOptions(false);
     const node = btn.current as unknown as
       { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
     if (node?.measureInWindow) {
@@ -102,14 +107,15 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
         onPress={openMenu}
         onHoverIn={tip.hover.onHoverIn}
         onHoverOut={tip.hover.onHoverOut}
-        style={styles.hit}
+        style={account ? styles.accountHit : styles.hit}
         accessibilityRole="button"
-        accessibilityLabel="Settings"
+        accessibilityLabel={account ? `${account.username} — account menu` : 'Settings'}
         accessibilityState={{ expanded: open }}
         testID="app-menu-button"
       >
-        <TipBubble text="Settings" shown={tip.shown} />
-        <View style={styles.ring}><CogIcon /></View>
+        <TipBubble text={account ? 'Account' : 'Settings'} shown={tip.shown} />
+        {account ? <View style={styles.accountPill}><Text style={styles.accountName} numberOfLines={1}>{account.username}</Text><Text style={styles.accountChevron}>⌄</Text></View>
+          : <View style={styles.ring}><CogIcon /></View>}
       </Pressable>
 
       {open && (
@@ -132,6 +138,12 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
                   : { top: insets.top + TAP + 8, right: SPACE.lg, width: menuW },
               ]}
             >
+              {account && !options && <>
+                <Pressable style={styles.row} accessibilityRole="button" testID="menu-account" onPress={() => { setOpen(false); openSuiteAccount(account); }}><Text style={styles.rowText}>Account</Text></Pressable>
+                <Pressable style={styles.row} accessibilityRole="button" testID="menu-settings" onPress={() => setOptions(true)}><Text style={styles.rowText}>Settings</Text></Pressable>
+                <Pressable style={styles.row} accessibilityRole="button" testID="menu-signout" onPress={() => { setOpen(false); signOutSuiteAccount(account); }}><Text style={styles.rowText}>Sign out</Text></Pressable>
+              </>}
+              {(!account || options) && <>
               {/* Absent rather than disabled where a surface cannot read a
                   file: a row that is present and inert is a row you press
                   twice before believing it. */}
@@ -261,6 +273,7 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
                   </View>
                 )}
               </View>
+              </>}
             </Pressable>
           </Pressable>
         </Modal>
@@ -273,6 +286,10 @@ const styles = StyleSheet.create({
   // 44 over 32, the bar's shape everywhere — see TopBar's CircleBtn and the
   // note there about hitSlop being a no-op on the web.
   hit: { width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center' },
+  accountHit: { height: TAP, maxWidth: 140, justifyContent: 'center' },
+  accountPill: { height: TOPBAR_CTRL, maxWidth: 140, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: T.cardEdge, backgroundColor: T.card, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  accountName: { color: T.dim, fontSize: 12, flexShrink: 1 },
+  accountChevron: { color: T.dim, fontSize: 14 },
   ring: {
     width: TOPBAR_CTRL, height: TOPBAR_CTRL, borderRadius: TOPBAR_CTRL / 2,
     borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,

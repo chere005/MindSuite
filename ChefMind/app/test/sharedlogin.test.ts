@@ -423,3 +423,44 @@ describe('Manage your account (shared sign-in: the password and the account are 
 });
 
 function tok64() { return 'b'.repeat(64); }
+
+
+describe('restoring the web session uses the shared account', () => {
+  const saved = { token: 'old-bearer-token', username: 'alex', serverUrl: API };
+  test('replaces an old bearer with the current cookie identity before any cached account is opened', async () => {
+    const { api, calls } = await load([WHOAMI_OK('sam')]);
+    expect(await api.restoreWebSession(saved)).toEqual({ token: api.cookieToken('sam'), username: 'sam', serverUrl: API });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].headers.Authorization).toBeUndefined();
+  });
+  test('a shared logout, outage or unknown identity cannot restore a saved bearer', async () => {
+    for (const reply of [SHARED_401, { status: 503, body: { ok: false, shared: true, error: 'unavailable' } }, new TypeError('offline')]) {
+      const { api } = await load([reply]);
+      expect(await api.restoreWebSession(saved)).toBeNull();
+    }
+  });
+  test('an offline cookie session also stays closed until the shared identity can be checked', async () => {
+    const { api } = await load([new TypeError('offline')]);
+    expect(await api.restoreWebSession({ ...saved, token: api.cookieToken('alex') })).toBeNull();
+  });
+  test('a legacy server retains its bearer; a retired cookie does not become a legacy credential', async () => {
+    const first = await load([LEGACY_401]);
+    expect(await first.api.restoreWebSession(saved)).toEqual(saved);
+    const second = await load([LEGACY_401]);
+    expect(await second.api.restoreWebSession({ ...saved, token: second.api.cookieToken('alex') })).toBeNull();
+  });
+  test('a known legacy form session retains its local-first offline cache', async () => {
+    const { api } = await load([new TypeError('offline')]);
+    const legacy = { ...saved, webLegacy: true as const };
+    expect(await api.restoreWebSession(legacy)).toEqual(legacy);
+  });
+  test('native and desktop retain their scoped bearer without an HTTP probe', async () => {
+    vi.stubGlobal('location', undefined);
+    const { api, calls } = await load([]);
+    expect(await api.restoreWebSession(saved)).toEqual(saved);
+    expect(calls).toEqual([]);
+    vi.stubGlobal('location', { href: 'tauri://localhost/' });
+    expect(await api.restoreWebSession(saved)).toEqual(saved);
+    expect(calls).toEqual([]);
+  });
+});

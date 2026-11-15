@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import type { ChoreMark, ChoreRule, ListRecord, Note, ScheduleEvent, Session, Task } from '../../../packages/core/src/planner';
 import { makeContext } from '../../panelContext';
 import { createState, type AppState } from '../../state';
@@ -129,6 +129,9 @@ describe('Week', () => {
 });
 
 describe('Month', () => {
+  // Chores expire after their catch-up Friday; render this fixture before its turns rather than against the real clock.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-01T18:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
   it('draws 42 day boxes with a date button each, one wm-days section, and a Notes block in the last four cells of the sixth row (Thursday on)', () => {
     const { ctx } = open('month');
     const markup = month.html(ctx);

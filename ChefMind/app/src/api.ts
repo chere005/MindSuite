@@ -17,6 +17,8 @@ export type Session = {
   serverUrl: string;
   /** Signed in through the suite's account page (app sign-in); the token is the same calmind-scoped bearer. */
   suite?: boolean;
+  /** A successful legacy form sign-in on the web; permits its local cache to reopen offline. */
+  webLegacy?: true;
 };
 
 /**
@@ -320,6 +322,21 @@ export async function probeSharedSignIn(serverUrl: string): Promise<SharedProbe>
     return { kind: 'unavailable', message: typeof d.error === 'string' && d.error ? d.error : 'sign-in is unavailable right now' };
   }
   return { kind: 'legacy' };
+}
+
+/**
+ * Reopen a saved web session only as the account this browser currently holds. Older web builds persisted bearer
+ * tokens, which otherwise outlived suite logout and could open a different person's cache. Snapshots stay on disk;
+ * callers select the returned username before reading any of them. Native/desktop retain their scoped token.
+ */
+export async function restoreWebSession(saved: Session): Promise<Session | null> {
+  if (!cookieApi(saved.serverUrl)) return saved;
+  const p = await probeSharedSignIn(saved.serverUrl);
+  if (p.kind === 'cookie') return { token: cookieToken(p.username), username: p.username, serverUrl: saved.serverUrl };
+  if (p.kind === 'legacy') return cookieUserOf(saved.token) === null ? saved : null;
+  // A known legacy session remains local-first offline. Unmarked old tokens and shared sessions need a fresh identity.
+  if (p.kind === 'unknown' && saved.webLegacy === true && cookieUserOf(saved.token) === null) return saved;
+  return null;
 }
 
 /** The CSRF secret for this cookie session, learned from whoami. Throws a 401 when the cookie is gone or belongs to somebody else. */

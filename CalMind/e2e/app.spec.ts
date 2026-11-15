@@ -457,7 +457,7 @@ test('a theme picked in Settings repaints the app, syncs, and login stays midnig
   await expect.poll(bodyBg, { timeout: 10_000 }).toBe('rgb(254, 250, 224)');
   // Logging out returns to midnight — the login page has no user to theme.
   await page.getByTestId('topbar-sync').click();
-  await page.getByText('Log out', { exact: true }).click();
+  await page.getByText('Sign out', { exact: true }).click();
   await expect.poll(pageBg, { timeout: 10_000 }).toBe('rgb(17, 17, 17)');
 });
 

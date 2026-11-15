@@ -290,4 +290,15 @@ header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: ' . ($gate !== null ? 'no-store, private' : 'no-cache'));
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
-readfile($shell);
+if ($gate === null) { readfile($shell); }
+else {
+    $cfg = app_config();
+    $accountUrl = mss_account_url($cfg, $_SERVER, acctmind_page_path());
+    $account = ['username' => $gate['user'], 'csrf' => $gate['csrf'], 'accountUrl' => $accountUrl,
+        'logoutAction' => mss_url_prefix($cfg, $_SERVER) . '/account/', 'logoutNext' => $accountUrl];
+    $meta = '<meta name="mindsuite-account" content="' . e(json_encode($account, JSON_THROW_ON_ERROR)) . '">';
+    $html = file_get_contents($shell);
+    $html = str_replace('</head>', $meta . '</head>', $html, $inserted);
+    if ($inserted !== 1) { acctmind_refuse(503, "AcctMind: the app shell is unavailable.\n"); }
+    echo $html;
+}

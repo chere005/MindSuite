@@ -10,7 +10,7 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { watchForUpdate } from './update';
 import { SyncEngine, lastDeleted, normalize, prefsOf, folderApp, recLabel, remoteTick, shareOf, todayStr, undeleted, type AnyRec, type Rec, type Snapshot } from '@calmind/core';
-import { apiPost, type Session, syncTransport, ApiError } from './api';
+import { apiPost, type Session, syncTransport, ApiError, restoreWebSession } from './api';
 import { drainWatchTicks, drainWidgetTicks, onWatchTick, pushWatchIfWidgetMoved, pushWatchList } from './watch';
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
@@ -704,6 +704,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // A session that will not parse is not a session. Drop it rather
           // than meet it again on every launch.
           await AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
+        }
+        if (s) {
+          s = await restoreWebSession(s);
+          // Only session metadata changes. Every unsent snapshot stays on disk, and none is hydrated before identity is known.
+          if (s) await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s)).catch(() => {});
+          else await AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
         }
         if (s) {
           const snap = await AsyncStorage.getItem(snapKey(s.username)).catch(() => null);

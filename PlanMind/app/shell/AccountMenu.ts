@@ -3,7 +3,7 @@ import { esc, icons, type PanelContext } from '../panelContext';
 import { openSettings } from './Settings';
 
 /**
- * The account: one button (a dot in the list's color, the name, a chevron) that opens a small menu with Settings and Sign out,
+ * The account: one button (a dot in the list's color, the name, a chevron) that opens a small menu with Account, Settings and Sign out,
  * the suite's username dropdown (seancheren-site lib/chrome.php) drawn with PlanMind's own markup. It sits in the desktop
  * top bar and, on a phone, in the drawer's account row, so Settings is reachable on both. Each copy has its own `where`
  * (it makes the ids unique). Sign out stays a real CSRF form.
@@ -24,6 +24,7 @@ const logoutForm = (csrf: string) => {
 export const accountMenuHtml = (ctx: PanelContext, where: 'bar' | 'drawer') => `<div class="account-menu" data-where="${where}">
   <button type="button" class="account-button" id="account-button-${where}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-pop-${where}">${accountWho(ctx)}<span class="account-chevron">${icons.chevronDown}</span></button>
   <div class="account-pop" id="account-pop-${where}" role="menu" aria-labelledby="account-button-${where}" hidden>
+    ${signOutAt()?.next ? `<a href="${esc(signOutAt()!.next)}" role="menuitem" tabindex="-1">Account</a>` : ''}
     <button type="button" role="menuitem" tabindex="-1" data-act="settings">Settings</button>
     ${logoutForm(ctx.session.csrf)}
   </div>

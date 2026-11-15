@@ -57,6 +57,8 @@ the real base path. Serving `dist` at `/` instead would pass while the
 deployed app was broken, because the whole point of `experiments.baseUrl` is
 that assets are requested under `/AcctMind/`.
 
+`e2e/suiteaccount.spec.ts` drives the shared web username menu, Account navigation, Settings and the CSRF-protected Sign out POST. The server suite checks that only a gated member receives escaped identity and account metadata, never the session credential. Native and desktop exports carry no metadata and retain their local cog/iCloud controls.
+
 **`server/tools/test.php`** — the doorway, over real HTTP with real cookies,
 against the **real** `seancheren-site` auth library. Not a stub. A mocked
 sign-in here would pass whether or not the doorway works, which is the

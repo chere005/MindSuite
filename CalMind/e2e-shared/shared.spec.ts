@@ -64,7 +64,7 @@ const everyStoredValue = (page: Page) =>
 
 async function logOut(page: Page) {
   await page.getByTestId('topbar-sync').click();
-  await page.getByText('Log out', { exact: true }).click();
+  await page.getByText('Sign out', { exact: true }).click();
 }
 
 test('a fresh browser at /calmind/ goes to /account/ and comes back signed in, holding no token', async ({ page }) => {

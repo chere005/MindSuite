@@ -10,10 +10,13 @@
  * permanent 32pt hole beside the app's name, and with the collapse-all gone
  * too the row is back to what the screen IS plus where it is pointed.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { logout } from './api';
+import { logout, sharedAccount } from './api';
+import { signInFacts } from './appsignin';
+import { openAccountPage } from './appsignin-browser';
+import { Chevron } from './components/Chevron';
 import { meetreqBadgeCount } from '@calmind/core';
 import { useStore } from './store';
 import { themed, T } from './theme';
@@ -72,6 +75,14 @@ export function TopBar({
   // would go, because that is the door the Requests row is behind.
   const requests = useMemo(() => meetreqBadgeCount(recs), [recs]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sharedSeen, setSharedSeen] = useState(false);
+  const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
+  useEffect(() => {
+    if (shared || !session) return;
+    let live = true;
+    void signInFacts(session.serverUrl).then((f) => { if (live && f.kind === 'answer' && f.shared) setSharedSeen(true); });
+    return () => { live = false; };
+  }, [session?.serverUrl, shared]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   /**
@@ -162,7 +173,8 @@ export function TopBar({
             }
             style={[s.whoBtn, { borderColor: look.color }]}
           >
-            <Text style={s.whoLetter}>{(session?.username ?? '?').slice(0, 1).toUpperCase()}</Text>
+            <Text style={s.whoName} numberOfLines={1}>{session?.username}</Text>
+            <Chevron open size={9} />
             {/* The count, not a bare dot: "3 waiting" and "1 waiting" are
                 different enough to answer now or later, and the number is
                 already computed. Absolutely positioned so appearing cannot
@@ -205,13 +217,15 @@ export function TopBar({
                   : { top: insets.top + 52, right: 16 },
               ]}
             >
-              {/* THE ORDER (the owner, 2026-09-16): Settings at the top, always,
-                  always followed by Search — the two rows that are on every
-                  screen of every app, so the hand learns one place for them.
-                  The rows that come and go (Copy as Markdown, Show
-                  completed) sit at the FOOT, above Log out, where their
-                  appearing and disappearing cannot shuffle anything above
-                  them. Search was a circle in the bar until this change. */}
+              {/* Account and Settings stay at the head; screen actions follow and Sign out stays last. */}
+              {shared && (
+                <Pressable testID="menu-account" style={s.menuRow} onPress={() => {
+                  setMenuOpen(false);
+                  if (session) void openAccountPage(session.serverUrl).catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not open the account page.'));
+                }}>
+                  <Text style={s.menuText}>Account</Text>
+                </Pressable>
+              )}
               <Pressable style={s.menuRow} onPress={() => { setMenuOpen(false); setSettingsOpen(true); }}>
                 <Text style={s.menuText}>Settings</Text>
               </Pressable>
@@ -300,7 +314,7 @@ export function TopBar({
                   await signOut();
                 }}
               >
-                <Text style={s.menuText}>Log out</Text>
+                <Text style={s.menuText}>Sign out</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -340,15 +354,15 @@ const s = themed(() => StyleSheet.create({
   // `.backbtn, .titlebtn, .usermenu .who { height: 32px }`.
   // Icon-sized, ringed, with air between the pie and its border (the owner).
   pickerRing: { width: TOPBAR_CTRL, height: TOPBAR_CTRL, borderRadius: TOPBAR_CTRL / 2, borderWidth: 1, borderColor: T.line, backgroundColor: T.surface, alignItems: 'center', justifyContent: 'center' },
-  // The same circle as every other control in the row. borderWidth 2, not 1:
-  // the border IS the status now, and one pixel of colour is not a signal.
+  // A bounded username pill matches the other apps; its border remains the sync status.
   whoBtn: {
-    width: TOPBAR_CTRL, height: TOPBAR_CTRL, borderRadius: TOPBAR_CTRL / 2,
+    minWidth: TOPBAR_CTRL, maxWidth: 140, height: TOPBAR_CTRL, borderRadius: TOPBAR_CTRL / 2,
+    paddingHorizontal: 10, gap: 7, flexDirection: 'row',
     borderWidth: 2, backgroundColor: T.surface,
     alignItems: 'center', justifyContent: 'center',
   },
-  whoLetter: { color: T.accent, fontSize: 15, fontWeight: '700' },
-  // Out of the flex flow entirely: the button is TOPBAR_CTRL square whether
+  whoName: { color: T.dim, fontSize: 12, flexShrink: 1 },
+  // Out of the flex flow entirely: the button keeps its width whether
   // or not anything is waiting, so a request arriving mid-session cannot
   // nudge the top bar. Overhangs the top-right corner, as a badge does.
   whoBadge: {
