@@ -44,21 +44,29 @@ try() { # try <label> <sed expr> <args...>
   if "$copy" "$@" >"$TMP/out" 2>&1; then
     bad "$label — it RAN (exit 0); the guard did not fire"
     sed -n '1,4p' "$TMP/out" | sed 's/^/      /'
-  else
+  elif grep -Eq 'guard:|refusing:|REFUSING:' "$TMP/out" && ! grep -q '\[guardcheck\] would' "$TMP/out"; then
     ok "$label"
+  else
+    bad "$label — it stopped without the expected guard"
+    sed -n '1,8p' "$TMP/out" | sed 's/^/      /'
   fi
   rm -f "$copy"
 }
 
 echo "deploy.sh — destination and consent"
-# ChefMind writes the PRODUCTION document root and has no test instance, so
-# these guards are the only thing between a typo and seancheren.com.
+# Both fixed targets must agree with the selected instance; neither may be supplied by a caller.
 # The bare form must refuse: this one is about argv, so the copy is unmodified.
 try "refuses to run without --yes-prod"  's|^#unchanged$|#unchanged|'
 try "refuses the site root"              's|^WEB_DEST=.*|WEB_DEST="/home/public"|'              --yes-prod
 try "refuses CalMind's own area"         's|^WEB_DEST=.*|WEB_DEST="/home/public/calmind"|'      --yes-prod
 try "refuses CalMind's test area"        's|^WEB_DEST=.*|WEB_DEST="/home/public/test/calmind"|' --yes-prod
 try "refuses a stray destination"        's|^WEB_DEST=.*|WEB_DEST="/home/public/somewhere"|'    --yes-prod
+
+try "TEST refuses the production root"    's|^WEB_DEST=.*|WEB_DEST="/home/public/ChefMind"|'      --test
+try "production refuses the TEST root"    's|^WEB_DEST=.*|WEB_DEST="/home/public/test/ChefMind"|' --yes-prod
+try "TEST refuses CalMind's test area"    's|^WEB_DEST=.*|WEB_DEST="/home/public/test/calmind"|' --test
+try "TEST refuses a production API"       's|^API_URL=.*|API_URL="https://seancheren.com/calmind/api/index.php"|' --test
+try "TEST refuses a production page URL"  's|^SITE_URL=.*|SITE_URL="https://seancheren.com/ChefMind"|' --test
 
 echo "deploy.sh — the API gate"
 # THE ONE PROTECTING THE OWNER'S DATA rather than his web root: ChefMind sends
@@ -255,6 +263,9 @@ if [ -s "$LISTED" ] && [ -z "$MISSED" ]; then
 else
   bad "tsc reads files the key does not:"; printf '%s\n' "$MISSED" | sed 's/^/      /'
 fi
+
+echo "deploy.sh — instance modes (stubbed builds and network)"
+sh tools/test-deploy-targets.sh || exit 1
 
 echo
 echo "────────────────────────────────"

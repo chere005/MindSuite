@@ -26,7 +26,7 @@ packages/core/  The brain, cloned — plus shopping.ts, units.ts, grocery.ts and
                 variant.ts, which have no twins upstream.
 tools/          The web export's head patch, service worker, the deploy-guard
                 prover, the macOS/iOS/Android builds, and the dtp/tdtp lanes.
-deploy.sh       The one deploy: the web client, to production.
+deploy.sh       The web client deploy, to a fixed production or TEST target.
 spec/           The behaviour contract, copied so core's suite runs here.
 ```
 
@@ -35,7 +35,7 @@ App-owned, not shared (not listed in `tools/shared-files.json`, plus the config 
 ## Platforms
 
 The web app at [seancheren.com/ChefMind](https://seancheren.com/ChefMind) is an
-installable PWA, and production is the only instance. iOS and Android come from
+installable PWA. TEST has the same client at `test.seancheren.com/ChefMind`, using that origin's CalMind API. iOS and Android come from
 Expo, the macOS desktop shell is Tauri, and Windows `.msi`/`.exe` are built by
 CI. Which of those this repo can build for itself, and which it cannot, is
 AGENTS.md, "Platforms — what ships where, and how".
@@ -175,14 +175,16 @@ traps set out why at length.
 ## Deploying
 
 ```
-./deploy.sh --dry-run     # preview
-./deploy.sh --yes-prod    # do it
-./deploy.sh --verify      # check what is live
+./deploy.sh --dry-run     # preview production
+./deploy.sh --yes-prod    # deploy production
+./deploy.sh --verify      # check production
+./deploy.sh --test        # deploy TEST only
+./deploy.sh --test --verify # check TEST
 ```
 
-It writes `/home/public/ChefMind` and nothing else. There is no test instance:
-The owner asked for it straight at production, so the gates are the whole rehearsal.
-The SSH login lives in `deploy.conf` (gitignored — see `deploy.conf.sample`).
+Production writes only `/home/public/ChefMind`; `--test` writes only `/home/public/test/ChefMind` and checks TEST's CalMind API. Both use a fresh origin-relative export, refuse an inherited API override, disable dotenv loading and retain all gates. The selected destinations and flags cannot be overridden by `deploy.conf`, which supplies the SSH login (gitignored — see `deploy.conf.sample`). A TEST refresh neither tags a release nor changes a version.
+
+`npm run test:deploy` covers the fixed target guards and exercises dry-run, deploy and verification with stubbed build and network commands.
 
 ## Releasing
 

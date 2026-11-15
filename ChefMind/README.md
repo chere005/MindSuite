@@ -59,7 +59,9 @@ npm run export:web && node tools/patch-web-html.mjs app/dist/index.html
 CALMIND_DATA_DIR=/tmp/chefmind-dev-data php -S 127.0.0.1:8792 e2e-router.php   # then http://127.0.0.1:8792/ChefMind/
 ```
 
-Set `EXPO_PUBLIC_API_URL` to a full `/api/index.php` endpoint before exporting or building to target another server. Leaving it unset preserves the defaults.
+For local or native builds, `EXPO_PUBLIC_API_URL` can select another `/api/index.php` endpoint. Web deployment requires it unset and disables dotenv loading so the client follows the page's origin.
+
+Deploy production with `./deploy.sh --yes-prod`, or TEST only with `./deploy.sh --test`. Each selects a fixed web root and its own CalMind API. `--dry-run` previews transfers; `--verify` checks the selected instance. `deploy.conf` supplies only the SSH login. TEST uses the same source and gates, without changing the release version or any account data.
 
 Needs a sibling `../CalMind` checkout. Phones: `sh tools/build-platforms.sh --ios` or `--android`. Desktop: `npm run desktop`. Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub.
 
