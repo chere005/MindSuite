@@ -3,16 +3,23 @@ import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { php, phpArgs } from './php-runtime.mjs';
 export const root = fileURLToPath(new URL('..', import.meta.url));
 export const password = 'taskmind-test-only';
+/** The site's account library beside a standalone checkout or its containing MindSuite checkout; an explicit test override wins. */
+export function siteLib(checkout = root) {
+  if (process.env.TASKMIND_TEST_SITE_LIB) return process.env.TASKMIND_TEST_SITE_LIB;
+  const candidates = [path.resolve(checkout, '../seancheren-site/lib'), path.resolve(checkout, '../../seancheren-site/lib')];
+  return candidates.find(candidate => existsSync(path.join(candidate, 'auth.php'))) ?? candidates[0];
+}
 // A disposable server: a copy of the site's account library with its own config (three accounts: alex and sam are the seed team,
 // outsider is an account that is not on it), a temporary data directory and session directory. Nothing of the real site is read
 // but the library's code, and nothing leaves localhost.
 export async function fixture(port) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'taskmind-test-'));
   const auth = path.join(dir, 'auth');
-  const source = process.env.TASKMIND_TEST_SITE_LIB || path.resolve(root, '../seancheren-site/lib');
+  const source = siteLib();
   await cp(source, auth, { recursive: true, filter: src => !/config(?:\.[^/\\]*)?\.php$/.test(src) });
   await mkdir(path.join(dir, 'sessions'));
   const hash = spawnSync(php, [...phpArgs, '-r', 'echo password_hash($argv[1], PASSWORD_DEFAULT);', password], { encoding: 'utf8' });
