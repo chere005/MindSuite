@@ -128,12 +128,20 @@ function acctmind_refuse(int $status, string $text): never {
  * Where this doorway is served: its script's own URL path, never anything the visitor chose (the query and a path
  * after the script name are not part of it), so `?next=` on the request moves nothing. It is only the page to come
  * back to; the site's mss_next() still has the last word and falls back to the suite's home for anything that is
- * not a plain path on this origin and instance. Null (no usable script name) leaves the gate its own default.
+ * not a plain path on this origin and instance. The site's instance and prefix helpers remove a sandbox's internal
+ * rewrite prefix on its root-relative alias; the return still comes from the script. Null leaves the gate its default.
  */
 function acctmind_page_path(): ?string {
     $script = $_SERVER['SCRIPT_NAME'] ?? null;
     if (!is_string($script) || !str_starts_with($script, '/')) { return null; }
-    return substr($script, 0, (int) strrpos($script, '/') + 1);
+    $path = substr($script, 0, (int) strrpos($script, '/') + 1);
+    $cfg = app_config();
+    $instance = mss_instance($cfg);
+    if (in_array($instance, ['test', 'dev'], true) && mss_url_prefix($cfg, $_SERVER) === ''
+        && str_starts_with($path, '/' . $instance . '/')) {
+        $path = substr($path, strlen($instance) + 1);
+    }
+    return $path;
 }
 
 /**

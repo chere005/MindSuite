@@ -372,6 +372,19 @@ try {
     expect($mirror['status'] === 303 && $mirror['location'] === '/test/account/?next=%2Ftest%2FAcctMind%2F', 'the /test/ mirror: the account page and the way back are in the mirror (got ' . $mirror['status'] . ' to ' . var_export($mirror['location'], true) . ')');
     $subdomain = http($plain, 'GET', '/AcctMind/', ['Host: test.seancheren.com']);
     expect($subdomain['status'] === 303 && $subdomain['location'] === $nextUrl, 'the test subdomain: root-relative, as the site\'s own pages (got ' . $subdomain['status'] . ' to ' . var_export($subdomain['location'], true) . ')');
+    // NFS rewrites the alias internally: SCRIPT_NAME keeps /test while the visible request has no prefix.
+    file_put_contents("$sx/nfs-rewrite.php", '<?php $_SERVER["SCRIPT_NAME"] = "/test/AcctMind/index.php";');
+    [$servers[], $rewrite] = start_server($sweb, $serverEnv(['ACCTMIND_LIB' => $libMain, 'ACCTMIND_SHELL' => $shell]), 'rewrite', $sx,
+        ['-d', "auto_prepend_file=$sx/nfs-rewrite.php"]);
+    foreach (['/AcctMind/', '/AcctMind/?next=https://evil.example/', '/AcctMind/?next=%2Ftest%2FChefMind%2F', '/AcctMind/index.php/ignored/path'] as $path) {
+        $r = http($rewrite, 'GET', $path, ['Host: test.seancheren.com']);
+        expect($r['status'] === 303 && $r['location'] === $nextUrl && $r['body'] === '',
+            'the TEST alias internal SCRIPT_NAME keeps the visible AcctMind return, ignoring query/PATH_INFO (' . $path . ')');
+    }
+    $r = http($rewrite, 'HEAD', '/AcctMind/', ['Host: test.seancheren.com']);
+    expect($r['status'] === 303 && $r['location'] === $nextUrl, 'the TEST alias HEAD has the same canonical return');
+    $r = http($rewrite, 'GET', '/test/AcctMind/');
+    expect($r['status'] === 303 && $r['location'] === '/test/account/?next=%2Ftest%2FAcctMind%2F', 'the same internal SCRIPT_NAME preserves a visible path-based TEST prefix');
     $configure($on + ['mindsuite_auth_hold' => ['test' => ['acctmind']]]);
     expect(http($plain, 'GET', '/AcctMind/')['location'] === $nextUrl, 'a hold for another instance does not hold this one');
     $configure($on + ['mindsuite_auth_hold' => ['prod' => ['planmind']]]);
@@ -545,7 +558,7 @@ try {
     $legacy('held and the people list missing', $plain);
     $configure($on);
     // Whatever the run logged on purpose, no server that should have been quiet died with a fatal.
-    foreach (['plain', 'scratch', 'older', 'odd'] as $name) {
+    foreach (['plain', 'scratch', 'older', 'odd', 'rewrite'] as $name) {
         expect(!preg_match('~Fatal error|Uncaught|Stack trace~', (string) @file_get_contents("$sx/$name-errors.log") . (string) @file_get_contents("$sx/$name-server.log")), "the $name server logged no fatal error");
     }
 } finally {

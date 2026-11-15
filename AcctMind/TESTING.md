@@ -76,7 +76,7 @@ store), one PHP built-in server per way the library can be:
 | case | what it proves |
 |---|---|
 | off, held (several spellings), malformed holds, another instance only, a library older than the door | the legacy sign-in, exactly as before: the form, the PHP session, `?logout`, a session on disk |
-| on, no session | a 303 to `/account/?next=%2FAcctMind%2F` with nothing behind it, no PHP session, no store written; the return target is the script's own path whatever `?next=`, the path after the script, a forged `Host` or a forwarding header say; the `/test/` mirror and the test subdomain |
+| on, no session | a 303 to `/account/?next=%2FAcctMind%2F` with nothing behind it, no PHP session, no store written; the return target is the script's own path whatever `?next=`, the path after the script, a forged `Host` or a forwarding header say; the `/test/` mirror, the test subdomain, and NFS's internal `/test/AcctMind/index.php` rewrite with a visible `/AcctMind/` path |
 | on, a session | the shell, `no-store, private`, no PHP session; `?logout` signs nobody out; a revoked session is a 303; a missing shell is still a loud 500 |
 | on, who may be here | the owner and the partner (the site config's `people`) open the shell; any other account is a 403 whose one control is a Sign out form posting to `/account/`; a `people` list that is missing or malformed is a 503 for everyone (logged); legacy (off or held) never reads it |
 | on, no second door | a legacy PHP session, a scoped (CalMind) token as bearer or cookie, any `Authorization` header, a made-up cookie: a 303. No post of any kind is served (405 with the session's token, 403 without it or from another origin or site) and none writes a byte |
