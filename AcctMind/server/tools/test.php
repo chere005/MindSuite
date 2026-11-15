@@ -26,9 +26,9 @@ declare(strict_types=1);
  */
 
 $root  = dirname(__DIR__, 2);
-// The suite checked out beside this repo, which is how it is usually laid
-// out. SUITE_LIB overrides it; nothing here assumes a particular machine.
-$lib   = getenv('SUITE_LIB') ?: dirname($root) . '/seancheren-site/lib';
+// The site is beside the standalone app or beside its monorepo. An explicit override must still fail if unusable.
+$siteParent = is_file(dirname($root) . '/tools/shared-files.json') ? dirname($root, 2) : dirname($root);
+$lib   = getenv('SUITE_LIB') ?: $siteParent . '/seancheren-site/lib';
 $port  = (int) (getenv('PORT') ?: free_port());
 
 if (!is_file($lib . '/auth.php')) {
