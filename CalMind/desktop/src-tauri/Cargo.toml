@@ -1,6 +1,6 @@
 [package]
 name = "calmind-desktop"
-version = "1.72.0"
+version = "1.73.0"
 edition = "2021"
 
 [build-dependencies]
