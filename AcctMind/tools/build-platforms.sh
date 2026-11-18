@@ -210,6 +210,13 @@ if [ "$WANT_MAC" = 1 ]; then
   APPBUNDLE=$(ls -d "$ROOT"/desktop/src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -1)
   [ -n "$APPBUNDLE" ] || { echo "the build reported success and produced no .app" >&2; exit 1; }
   echo "    $APPBUNDLE"
+  # Seal the full bundle when the local build only signed the executable.
+  if ! codesign --verify --deep --strict "$APPBUNDLE" 2>/dev/null; then
+    [ -z "${APPLE_SIGNING_IDENTITY:-}" ] &&
+      codesign --force --deep --sign - "$APPBUNDLE" &&
+      codesign --verify --deep --strict "$APPBUNDLE" ||
+      { echo 'the built app signature could not be verified' >&2; exit 1; }
+  fi
   # --no-build: the build above IS the one under test. Without it the smoke
   # compiled the same crate a second time from the same staged export, and
   # the bundle installed below was the smoke's rebuild rather than this one
@@ -270,7 +277,8 @@ if [ "$WANT_MAC" = 1 ]; then
   cp -R "$APPBUNDLE" /Applications/ \
     || { echo "copying the .app into /Applications failed" >&2; exit 1; }
   INSTALLED="/Applications/$(basename "$APPBUNDLE")"
-  [ -d "$INSTALLED" ] || { echo "copy reported success but $INSTALLED is not there" >&2; exit 1; }
+  codesign --verify --deep --strict "$INSTALLED" ||
+    { echo 'the installed app signature could not be verified' >&2; exit 1; }
   echo "    installed: $INSTALLED"
   # PUT HIS SESSION BACK — and ONLY if there was one. An app that was closed
   # when the lane started stays closed: a release must not start conjuring
