@@ -222,6 +222,10 @@ sync_ios_version() {
   esac
   echo "    version: $V (synced into the generated project)"
 }
+ios_signin_modules_present() {
+  grep -Fq 'module: WebBrowserModule.self' "$1" 2>/dev/null &&
+    grep -Fq 'module: CryptoModule.self' "$1" 2>/dev/null
+}
 prebuild_ios() {
   [ -n "$IOS_WS" ] && return 0
   IOS_WS=$(ls -d "$ROOT/$APPDIR"/ios/*.xcworkspace 2>/dev/null | head -1)
@@ -235,6 +239,15 @@ prebuild_ios() {
     IOS_WS=$(ls -d "$ROOT/$APPDIR"/ios/*.xcworkspace 2>/dev/null | head -1)
     [ -n "$IOS_WS" ] || { echo "prebuild produced no xcworkspace" >&2; return 1; }
   fi
+  # The JS bundle loads both sign-in modules at startup. A reused workspace
+  # can compile with stale autolinking and leave the installed app blank.
+  PROVIDER="$ROOT/$APPDIR/ios/Pods/Target Support Files/Pods-$(basename "$IOS_WS" .xcworkspace)/ExpoModulesProvider.swift"
+  if ! ios_signin_modules_present "$PROVIDER"; then
+    echo "    refreshing iOS pods for app sign-in"
+    (cd "$ROOT/$APPDIR/ios" && LANG=en_US.UTF-8 pod install) || return 1
+  fi
+  ios_signin_modules_present "$PROVIDER" ||
+    { echo "ExpoWebBrowser or ExpoCrypto is missing from the generated iOS workspace" >&2; return 1; }
   # NOT an early return on an existing workspace, which is what this function
   # did until 2026-10-01 — and that is the path every release takes, so a sync
   # placed after it would never have run. Even a fresh prebuild goes through
