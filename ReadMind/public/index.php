@@ -1506,11 +1506,7 @@ function books_header(string $titleHtml, bool $withEdit = false): void
     };
 
     let timer = null, seq = 0;
-    const run = () => {
-      const term = q.value.trim();
-      if (term.length < 2) { results.innerHTML = '<p class="hint">Type a title or author to find cover matches.</p>'; return; }
-      results.innerHTML = '<p class="loading">Searching…</p>';
-      const mine = ++seq;
+    const run = (term, mine) => {
       fetch('?action=search&q=' + encodeURIComponent(term))
         .then(r => r.json())
         .then(d => {
@@ -1533,7 +1529,17 @@ function books_header(string $titleHtml, bool $withEdit = false): void
         })
         .catch(() => { if (mine === seq) results.innerHTML = '<p class="hint">Search failed. Check your connection and try again.</p>'; });
     };
-    q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 350); });
+    q.addEventListener('input', () => {
+      clearTimeout(timer);
+      const mine = ++seq;
+      const term = q.value.trim();
+      if (term.length < 2) {
+        results.innerHTML = '<p class="hint">Type a title or author to find cover matches.</p>';
+        return;
+      }
+      results.innerHTML = '<p class="loading">Searching…</p>';
+      timer = setTimeout(() => run(term, mine), 350);
+    });
   }
 
   // ---- Note editor autosave ----

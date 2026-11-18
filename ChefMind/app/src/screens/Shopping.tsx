@@ -34,7 +34,7 @@ import { useSwipeLeft } from '../components/swiperow';
 import { EditExit } from '../components/EditExit';
 import { PickBar } from '../components/PickBar';
 import { useToast } from '../components/Toast';
-import { OCR_UNSUPPORTED, ocrImages, ocrSupported } from '../components/ocr';
+import { OCR_UNSUPPORTED, ocrImages, ocrSupported, pickPhotoUris } from '../components/ocr';
 import { CircleBtn, ConfirmDelete, Field, Pill, Scroll, WebHitSlop } from '../ui';
 
 type Row = Rec<'reminder'>;
@@ -208,11 +208,10 @@ function FlagList({ kind }: { kind: Kind }) {
     // Asked before the picker opens, as the recipe importer does.
     if (!ocrSupported()) { say(OCR_UNSUPPORTED); return; }
     try {
-      const ImagePicker = await import('expo-image-picker');
-      const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.9 });
-      if (picked.canceled || picked.assets.length === 0) return;
-      setScanBusy(`Reading 0/${picked.assets.length}…`);
-      const pages = await ocrImages(picked.assets.map((a) => a.uri), (d, t) => setScanBusy(`Reading ${d}/${t}…`))
+      const photos = await pickPhotoUris();
+      if (photos.length === 0) return;
+      setScanBusy(`Reading 0/${photos.length}…`);
+      const pages = await ocrImages(photos, (d, t) => setScanBusy(`Reading ${d}/${t}…`))
         .catch((err: unknown) => {
           // A partial failure still carries the pages that DID read.
           const carried = (err as { pages?: string[] })?.pages;

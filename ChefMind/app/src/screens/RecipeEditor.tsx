@@ -20,7 +20,7 @@ import { useStore } from '../store';
 import { addToShopping, shopMessage } from '../addToShopping';
 import { themed, T } from '../theme';
 import { CircleBtn, ConfirmDelete, Field, Pill, Scroll, WebHitSlop } from '../ui';
-import { OCR_UNSUPPORTED, ocrImages, ocrSupported } from '../components/ocr';
+import { OCR_UNSUPPORTED, ocrImages, ocrSupported, pickPhotoUris } from '../components/ocr';
 import { UnitBadge } from '../components/IngredientBadge';
 import { RichText } from '../components/RichText';
 import { apiPost } from '../api';
@@ -209,14 +209,13 @@ export function RecipeEditor({ note, onClose, put }: {
       return;
     }
     try {
-      const ImagePicker = await import('expo-image-picker');
-      const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.9 });
-      if (picked.canceled || picked.assets.length === 0) return;
-      setBusy(`Reading 0/${picked.assets.length}…`);
+      const photos = await pickPhotoUris();
+      if (photos.length === 0) return;
+      setBusy(`Reading 0/${photos.length}…`);
       // A partial failure still carries the pages that DID read — take them
       // and say what was lost, rather than throwing the good ones away.
       let partial = '';
-      const pages = await ocrImages(picked.assets.map((a) => a.uri), (d, t) => setBusy(`Reading ${d}/${t}…`))
+      const pages = await ocrImages(photos, (d, t) => setBusy(`Reading ${d}/${t}…`))
         .catch((err: unknown) => {
           const carried = (err as { pages?: string[] })?.pages;
           if (carried?.length) {

@@ -21,6 +21,12 @@ const AWKWARD = resolve(process.cwd(), 'e2e/fixtures/recipe-card-awkward.svg');
 test('the recipe importer reads photos into a formatted note', async ({ page, context }) => {
   test.setTimeout(120_000); // tesseract fetches its engine on first run
 
+  // A picker chunk loaded on demand can arrive after the tap's activation expires.
+  await page.route('**/ImagePicker-*.js', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 5500));
+    await route.continue();
+  });
+
   // Rasterise the fixture with the browser already running.
   const shot = join(tmpdir(), `calmind-recipe-card-${Date.now()}.png`);
   const painter = await context.newPage();

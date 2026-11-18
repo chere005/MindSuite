@@ -12,6 +12,7 @@
  * answer there and a dead end is not.
  */
 import { Platform } from 'react-native';
+import { launchImageLibraryAsync } from 'expo-image-picker';
 import { APP_NAME } from '../brand';
 
 /** The Vision-backed module, iOS only; null everywhere else. */
@@ -39,6 +40,12 @@ export function ocrSupported(): boolean {
 }
 
 export const OCR_UNSUPPORTED = `Reading photos needs iOS or a browser — open ${APP_NAME} there to import a card.`;
+
+export async function pickPhotoUris(): Promise<string[]> {
+  // Open the picker before yielding so the browser still has the tap's user activation.
+  const picked = await launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.9 });
+  return picked.canceled ? [] : picked.assets.map((asset) => asset.uri);
+}
 
 export async function ocrImages(
   uris: string[],
