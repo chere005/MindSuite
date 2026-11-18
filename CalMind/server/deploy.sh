@@ -542,6 +542,10 @@ upload_to() {
     # It lives in dist deliberately (a bare `expo export` clears dist and takes
     # it with it, so a manifest can never outlive the bundle it measured), which
     # is exactly why the exclude has to be here rather than solved by moving it.
+    # rsync -a preserves the export's permissions. Give the web user access
+    # to the public assets even when the caller built with a private umask.
+    find apps/app/dist -type d -exec chmod a+rx {} +
+    find apps/app/dist -type f ! -name '.sources.json' -exec chmod a+r {} +
     rsync -avL $DRY -e "$RSH" --exclude 'api' --exclude '.sources.json' apps/app/dist/ "$SSH_DEST:$WEB_DEST/"
     # index.html must revalidate; the hashed bundles cache forever.
     rsync -avL $DRY -e "$RSH" server/public/web.htaccess "$SSH_DEST:$WEB_DEST/.htaccess"
