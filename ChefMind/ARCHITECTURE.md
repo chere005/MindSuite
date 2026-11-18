@@ -203,8 +203,7 @@ CI's alone, since Tauri does not cross-compile (see "Releases" below).
 
 What the lane does in what order — why the desktop bundle comes before the tag
 and the device builds after the push, why a device build that fails leaves the
-release standing and still ends the lane non-zero, and how a run reports itself
-to seancheren.com/status — is `AGENTS.md`, "The release lane, end to end". It
+release standing and still ends the lane non-zero — is `AGENTS.md`, "The release lane, end to end". It
 is written once, there.
 
 The platform builds live in `tools/build-platforms.sh`, runnable on their own:
