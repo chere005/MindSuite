@@ -41,8 +41,7 @@ async function newNote(page: Page, settle: boolean): Promise<void> {
   await page.getByTestId('tab-notes').click();
   await page.getByTestId('secadd-General').first().click();
   await expect(page.getByTestId('note-title')).toBeVisible();
-  // settle=true waits for the app's own "creation is done" signal (body focus).
-  if (settle) await expect(page.getByTestId('note-body-edit')).toBeFocused();
+  if (settle) await expect(page.getByTestId('note-body-edit')).toBeVisible();
 }
 
 const caret = (page: Page) =>
@@ -84,7 +83,7 @@ async function burst(page: Page, text: string): Promise<void> {
 }
 
 for (const settle of [true, false]) {
-  const phase = settle ? 'after the body focus settled' : 'immediately after the new note opened';
+  const phase = settle ? 'after the body editor mounted' : 'immediately after the new note opened';
 
   test(`fast title: zero-delay keyboard.type ${phase}`, async ({ page }) => {
     await signup(page);
@@ -238,7 +237,7 @@ test('fast title: randomized new-note runs keep every letter in order', async ({
     const how = pick(['zero', 'slow', 'burst', 'mixed']);
     await page.getByTestId('secadd-General').first().click();
     await expect(page.getByTestId('note-title')).toBeVisible();
-    if (rnd() < 0.5) await expect(page.getByTestId('note-body-edit')).toBeFocused();
+    if (rnd() < 0.5) await expect(page.getByTestId('note-body-edit')).toBeVisible();
     if (how === 'burst') {
       await page.getByTestId('note-title').focus();
       await burst(page, want);

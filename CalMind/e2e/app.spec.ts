@@ -173,18 +173,18 @@ test('a reminder row drags to a new spot and the order survives a reload', async
   await expect(page.getByTestId('rem-row').first()).toContainText('alpha', { timeout: 10_000 });
 });
 
-test("a section's + lands in the editor TYPING, not just open", async ({ page }) => {
-  // the owner, twice, both meaning the same thing: making a note should end with
-  // the cursor in it. And since 2026-08-18, a deliberate title touch WINS
-  // afterwards ("tapping the title should switch to editing the title") —
-  // the caret is not stolen back by the body's deferred focus.
+test("a section's + opens the note without automatically focusing an input", async ({ page }) => {
   await signup(page);
   await page.getByTestId('tab-notes').click();
   await page.getByTestId('secadd-General').first().click();
-  // The body edit field itself, focused — not the read view.
-  await expect(page.getByTestId('note-body-edit')).toBeVisible();
-  await expect(page.getByTestId('note-body-edit')).toBeFocused();
-  // The title tap hands the caret over, and the body returns to its view.
+  const body = page.getByTestId('note-body-edit');
+  await expect(body).toBeVisible();
+  // The old autofocus ran 50 ms after the editor mounted.
+  await page.waitForTimeout(150);
+  await expect(body).not.toBeFocused();
+  await expect(page.getByTestId('note-title')).not.toBeFocused();
+  await body.click();
+  await expect(body).toBeFocused();
   await page.getByTestId('note-title').fill('straight to typing');
   await expect(page.getByTestId('note-title')).toBeFocused();
   await expect(page.getByTestId('note-body-view')).toBeVisible();

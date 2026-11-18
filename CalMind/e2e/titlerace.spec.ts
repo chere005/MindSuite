@@ -62,12 +62,7 @@ test('a new note keeps every letter of a title typed into it', async ({ page }) 
   await page.getByTestId('tab-notes').click();
   await page.getByTestId('secadd-General').first().click();
   await expect(page.getByTestId('note-title')).toBeVisible();
-  // Creating a note puts the caret in the BODY 50ms later, deliberately, and
-  // that is the app's own signal that creation has settled. Waiting for it is
-  // what a hand does anyway — nobody reaches the title inside 50ms — and
-  // without it this spec and app.spec's "lands in the editor TYPING" fight
-  // over the same window from opposite sides, one of them always losing.
-  await expect(page.getByTestId('note-body-edit')).toBeFocused();
+  await expect(page.getByTestId('note-body-edit')).toBeVisible();
 
   await page.getByTestId('note-title').click();
   await page.getByTestId('note-title').pressSequentially('Pancakes', { delay: 80 });

@@ -497,16 +497,8 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
   // (the owner, 2026-08-20) — one open/closed flag is all the state left here.
   const [edPickOpen, setEdPickOpen] = useState(false);
 
-  // A note we JUST made should open ready to type, not just open. The scoped
-  // states reset on the render where openId changes, so setting bodyEditing
-  // in the create handler would be wiped — this effect runs after that reset
-  // and wins. The ref names the one note this applies to: opening an existing
-  // note stays read-first.
+  // Mount the body input for a new note so it is ready for a tap.
   const freshEdit = React.useRef<string | null>(null);
-  // autoFocus on a TextInput that mounts mid-transition is unreliable on iOS
-  // — the field appears, the caret does not, and the keyboard never rises.
-  // Focusing through a ref on the next tick is the version that actually
-  // fires on a device; on web it is a harmless no-op over autoFocus.
   const bodyRef = React.useRef<TextInput | null>(null);
   const titleRef = React.useRef<TextInput | null>(null);
   // Where a pill wants the caret once its edit has rendered. A layout effect,
@@ -563,42 +555,23 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     pendingLeaveTimer.current = setTimeout(runPendingLeave, 800);
     Keyboard.dismiss();
   };
-  // The pending body focus, so leaving the note — or a TITLE TAP — can call
-  // it off. The cancel-on-title-focus was tried once and rejected ("no hand
-  // is that fast"); the owner settled it the other way on 2026-08-18: "tapping
-  // the title should switch to editing the title." So a title focus now
-  // cancels the pending steal AND collapses the body back to its view —
-  // which is also what ends the note-focus flake (TODO §2): the two orders
-  // of the old 50ms race now CONVERGE on the same state, title focused and
-  // body viewed, instead of diverging on who won.
-  const freshFocus = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelFreshFocus = () => {
-    if (freshFocus.current) {
-      clearTimeout(freshFocus.current);
-      freshFocus.current = null;
+  // A title tap or navigation can cancel a deferred body focus.
+  const pendingBodyFocus = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelBodyFocus = () => {
+    if (pendingBodyFocus.current) {
+      clearTimeout(pendingBodyFocus.current);
+      pendingBodyFocus.current = null;
     }
   };
   React.useEffect(() => {
     if (openId && freshEdit.current === openId) {
       freshEdit.current = null;
-      // The caret goes to the BODY. The owner said '+ should go directly to
-      // editing the new note' twice, and the default title exists so the note
-      // is not blank in the list — his words about selection were
-      // conditional ('IF you focus the input field'), describing what a TAP
-      // on the title does, not asking for the caret to start there. Putting
-      // it in the title made you dismiss a keyboard to write anything.
-      // The field does not exist until this has rendered, so the focus call
-      // waits a tick rather than racing the mount.
       editAsRecipe.current = false; // a note just made has no marker yet
       setBodyEditing(true);
-      freshFocus.current = setTimeout(() => {
-        freshFocus.current = null;
-        bodyRef.current?.focus();
-      }, 50);
     }
     // Leaving the note before the tick is up must not hand the caret to
     // whatever body is on screen by then.
-    return cancelFreshFocus;
+    return cancelBodyFocus;
   }, [openId, setBodyEditing]);
   // Another screen (the Add tab) created a note — land in its editor, as prod does.
   React.useEffect(() => {
@@ -1138,10 +1111,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
               placeholder={generatedTitle ? open.payload.title : 'Title'}
               placeholderTextColor={T.muted}
               onFocus={() => {
-                // The owner's rule (2026-08-18): the title tap wins. Whichever
-                // side of the 50ms the tap landed on, the state converges —
-                // pending body focus cancelled, body back to its view.
-                cancelFreshFocus();
+                cancelBodyFocus();
                 if (bodyEditing) {
                   collapseBodyAfterHide.current = false;
                   if (titleFocusFrame.current !== null) cancelAnimationFrame(titleFocusFrame.current);
@@ -1187,7 +1157,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
                 // Retire the web modal now: its fade-out focus restoration
                 // must finish before anyone can type in the new fields.
                 if (Platform.OS === 'web') setTypePickerSession((session) => session + 1);
-                cancelFreshFocus();
+                cancelBodyFocus();
                 setBodyEditing(false);
                 setDraft(null);
                 setScale(1);
@@ -1341,13 +1311,10 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
                 collapseBodyAfterHide.current = false;
                 setDraft(open.payload.body);
                 setBodyEditing(true);
-                // The field does not exist until this has rendered — and the
-                // deferred focus rides the SAME ref as the fresh-note one, so
-                // a title tap inside the window calls this off too. A recipe
-                // note opens on its ABOVE bank, which is where prose goes.
-                cancelFreshFocus();
-                freshFocus.current = setTimeout(() => {
-                  freshFocus.current = null;
+                // Wait for the tapped field to mount before focusing it.
+                cancelBodyFocus();
+                pendingBodyFocus.current = setTimeout(() => {
+                  pendingBodyFocus.current = null;
                   bodyRef.current?.focus();
                 }, 50);
               }}
