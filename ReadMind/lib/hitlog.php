@@ -108,15 +108,6 @@ function hit_agent(): string
  */
 function hit_log(?string $app = null, ?string $user = null): void
 {
-    // THE PAGE MUST NOT COUNT ITSELF. The status page probes every endpoint on
-    // this host every 45 seconds; without this, most of the "hits" it reported
-    // would be its own, and the number would rise the more often it was looked
-    // at. The probe announces itself with this header.
-    if (!empty($_SERVER['HTTP_X_STATUS_PROBE'])) { return; }
-    // Nor a live poll. The status page re-fetches itself every 20s to update
-    // in place; a tab left open would otherwise report 180 visits an hour on
-    // its own and drown every real one.
-    if (!empty($_SERVER['HTTP_X_LIVE_POLL'])) { return; }
     // Nor should a preflight or a HEAD: neither renders anything.
     $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
     if ($method === 'OPTIONS' || $method === 'HEAD') { return; }
@@ -165,41 +156,10 @@ function hit_log(?string $app = null, ?string $user = null): void
         hit_agent(),
     ]) . "\n";
     @file_put_contents($file, $line, FILE_APPEND | LOCK_EX);
-    hit_maybe_sweep();
     // Group-readable, like usage.log: the dir belongs to the web user and the
     // SSH login only shares its group, so this is what lets `tail` work.
     @chmod(dirname($file), (((int) @fileperms(dirname($file))) & 0777) | 0010);
     @chmod($file, (((int) @fileperms($file)) & 0777) | 0040);
-}
-
-/**
- * THE SITE KEEPS ITS OWN SCHEDULE — owner request, 2026-08-23: "top priority, fix
- * probing and testing automatically on the live status page".
- *
- * NFSN's scheduled tasks live in a control panel nobody had visited, so the
- * 30-minute sweep and 6-hour sign-in clock existed only as intentions. This
- * piggybacks them on traffic instead: any page hit that finds the
- * reachability cache stale kicks one background sweep. The status page's own
- * probes hit these pages every 45 seconds while it is open, and Claude's
- * checks land here too — so in practice the clock keeps ticking without a
- * scheduler at all, and a genuinely idle site quietly stops probing itself,
- * which is the correct behaviour for a thing nobody is looking at.
- *
- * The touch() BEFORE the exec is the stampede guard: the first stale hit
- * freshens the mtime, so the requests behind it see a young cache and spawn
- * nothing. One sweep, not one per visitor.
- */
-function hit_maybe_sweep(): void
-{
-    $cache = '/home/protected/status/reachability-cache.json';
-    $sweep = '/home/protected/lib/status-sweep.php';
-    if (!is_file($sweep) || PHP_SAPI === 'cli') { return; }
-    $age = is_file($cache) ? time() - (int) @filemtime($cache) : PHP_INT_MAX;
-    if ($age < 1800) { return; }
-    $prev = @json_decode((string) @file_get_contents($cache), true);
-    $logins = (time() - (int) ($prev['logins_checked_at'] ?? 0)) >= 6 * 3600 ? ' --logins' : '';
-    if (is_file($cache)) { @touch($cache); } else { @mkdir(dirname($cache), 0770, true); @touch($cache); }
-    @exec('nohup php ' . escapeshellarg($sweep) . $logins . ' >/dev/null 2>&1 &');
 }
 
 /**

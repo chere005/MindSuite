@@ -13,8 +13,6 @@
 #      failed to deploy is reused, not skipped past, same as the apps.
 #   3. ./deploy.sh all   (prod + test + dev; the lint gate lives in there)
 #   4. tag, push the app tag and main atomically
-#   5. report to seancheren.com/status via CoreMind's report-status.sh —
-#      never fatal, a status page must not stop a release.
 #
 # No devices, no desktop: this is a website. What the apps' lanes spend on
 # platform builds this one spends on deploying three instances.
@@ -33,16 +31,6 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$BRANCH" != "main" ]; then
   echo "refusing: this lane ships main, and HEAD is on '$BRANCH'" >&2
   exit 1
-fi
-
-# ------------------------------------------------------------- the status page
-REPORTER="${MIND_DIR:-$(cd .. && pwd)}/CoreMind/bin/report-status.sh"
-RUN_ID=""
-REPORT_DONE=0
-if [ -f "$REPORTER" ] && [ -z "${MIND_RUN_ID:-}" ]; then
-  KIND=dtp; [ "$FULL" = 1 ] && KIND=tdtp
-  RUN_ID=$(sh "$REPORTER" start "$KIND" ReadMind 2>/dev/null || true)
-  trap 'if [ -n "$RUN_ID" ] && [ "$REPORT_DONE" != 1 ]; then sh "$REPORTER" finish "$RUN_ID" failed 3 "stopped before finishing" >/dev/null 2>&1 || true; fi' EXIT INT TERM
 fi
 
 # ------------------------------------------------------------------- the tree
@@ -91,8 +79,4 @@ git push --atomic origin main "refs/tags/$TAG" || {
   exit 1
 }
 
-REPORT_DONE=1
-if [ -n "$RUN_ID" ]; then
-  sh "$REPORTER" finish "$RUN_ID" ok 0 "$NEW live on prod, test and dev" >/dev/null 2>&1 || true
-fi
 echo "==> dtp done: $NEW is live on prod, test and dev"

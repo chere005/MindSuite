@@ -25,7 +25,7 @@ done
 for APP in CalMind ChefMind AcctMind; do
   sh -n "$APP/tools/preflight.sh"
 done
-for SCRIPT in CoreMind/bin/plan.sh CoreMind/bin/deploy.sh CoreMind/bin/dtp.sh CoreMind/bin/check-drift.sh CoreMind/bin/report-status.sh CoreMind/bin/check-personal-data.sh CoreMind/bin/check-machine-env.sh; do
+for SCRIPT in CoreMind/bin/plan.sh CoreMind/bin/deploy.sh CoreMind/bin/dtp.sh CoreMind/bin/check-drift.sh CoreMind/bin/check-personal-data.sh CoreMind/bin/check-machine-env.sh; do
   sh -n "$SCRIPT"
 done
 git diff --check

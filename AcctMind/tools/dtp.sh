@@ -126,114 +126,8 @@ if ! node "$SHARED_CHECK" --app AcctMind; then
   exit 1
 fi
 
-# ------------------------------------------------------------- the status page
-# A SINGLE-REPO RELEASE IS STILL A RELEASE. The owner, 2026-08-23: "i dont see the
-# tdtp from ChefMind on status". CoreMind's bin/dtp.sh had reported to
-# seancheren.com/status since the page existed; a repo shipping ITSELF did not,
-# so the page went quiet for exactly the runs nobody else knew were coming — and
-# the history graph recorded no purple for them at all.
-#
-# NEVER FATAL. report-status.sh exits 0 on every failure path by design, and the
-# `|| true` here covers the case where CoreMind is not checked out beside this
-# repo at all. A status page must never be the thing that stops a release.
-# A BATCH OWNS ITS OWN CARD. When CoreMind's orchestrator runs this lane as
-# part of `dtp all`, it has already opened one run for the whole plan and
-# passes its id down — reporting again would draw a second card for a job that
-# is one job (the owner, 2026-08-23: "there should be one card per tdtp if multiple
-# jobs are triggered in one batch"). Run alone, MIND_RUN_ID is unset and this
-# lane opens and closes its own, exactly as before.
-REPORTER="${MIND_DIR:-$(cd .. && pwd)}/CoreMind/bin/report-status.sh"
-RUN_ID=""
-REPORT_DONE=0
-# DEFINED OUT HERE, not inside the branch below. It is called at the foot
-# of the lane unconditionally, and under CoreMind's batch MIND_RUN_ID is
-# set so that branch never runs — "beat_stop: command not found" then made
-# a lane that had shipped, tagged, pushed and installed exit non-zero, and
-# the batch read that back as "a platform build did not finish" for every
-# repo in the suite (2026-09-18). The sandbox lanes carried this shape
-# already; this is the copy-across.
-BEAT_PID=""
-PHASE_FILE=""
-# ERREXIT-PROOF, and it was not. The first shape — `[ -n "$BEAT_PID" ] &&
-# { kill …; wait …; }` — puts the brace group LAST in an AND list, which is
-# the one place `set -e` still applies; `wait` on a process just killed
-# returns 143, the lane died right there, AFTER the push and BEFORE the
-# status finish, and the EXIT trap re-entered this function and died the
-# same way — so every standalone lane since the beat arrived (2026-09-06)
-# ended 1 with its card stuck purple at "running". Found by TestAcctMind's
-# first qdtp, 2026-09-15; `|| true` on both, and `if` instead of the list.
-beat_stop() {
-  if [ -n "$BEAT_PID" ]; then
-    kill "$BEAT_PID" >/dev/null 2>&1 || true
-    wait "$BEAT_PID" 2>/dev/null || true
-    BEAT_PID=""
-  fi
-  if [ -n "$PHASE_FILE" ]; then
-    rm -f "$PHASE_FILE"
-    PHASE_FILE=""
-  fi
-  return 0
-}
-# THE LANE'S WAY OUT, on EXIT and on a signal alike, and the one place the
-# card is closed `failed`. EXACTLY ONCE: REPORT_DONE goes to 1 BEFORE the
-# reporter runs, so the EXIT after a signal, a second ^C, and the foot of the
-# lane all find the card already closed.
-lane_stopped() {
-  beat_stop
-  if [ -n "$RUN_ID" ] && [ "$REPORT_DONE" != 1 ]; then
-    REPORT_DONE=1
-    sh "$REPORTER" finish "$RUN_ID" failed 3 "stopped before finishing" >/dev/null 2>&1 || true
-  fi
-  return 0
-}
-
-if [ -f "$REPORTER" ] && [ -z "${MIND_RUN_ID:-}" ]; then
-  KIND=dtp; [ "$FULL" = 1 ] && KIND=tdtp
-  RUN_ID=$(sh "$REPORTER" start "$KIND" AcctMind 2>/dev/null || true)
-  # A lane that dies anywhere — a failed deploy, a refused push, a Ctrl-C —
-  # must not leave this repo purple on the page for ever.
-  #
-  # AND A CTRL-C MUST END IT. This was one trap for EXIT, INT and TERM, and a
-  # signal trap that returns RESUMES the script: ^C during the iOS build killed
-  # xcodebuild, closed the card `failed`, and the lane went straight on into
-  # the Android build and then closed the same card again, `ok` (found
-  # 2026-10-01). So INT and TERM close the card and then die of their own
-  # signal, as an untrapped shell would. A caller then sees "killed by SIGINT"
-  # and stops too; `exit 130` would read to it as a child that handled the ^C,
-  # and it would carry on. tools/heavy-lock.sh's handler ends the same way.
-  trap 'lane_stopped' EXIT
-  trap 'lane_stopped; trap - EXIT INT; kill -s INT $$; exit 130' INT
-  trap 'lane_stopped; trap - EXIT TERM; kill -s TERM $$; exit 143' TERM
-  # A BEAT A MINUTE — the owner, 2026-09-07: "make sure during dtp that status is
-  # updated every minute at least". start/finish alone leave the card frozen at
-  # "running" through a multi-minute build; a beat every 60s keeps the page
-  # showing the run alive, and a hung run then shows as a stamp that stops
-  # moving. Only when this lane OWNS the run — under `dtp all` the parent beats.
-  #
-  # WHAT THE BEAT SAYS comes from a file, not a constant, so that a build
-  # step waiting for the suite's heavy-build lock (tools/heavy-lock.sh)
-  # can say so: the helper writes "waiting for the heavy-build lock, held by
-  # …" into MIND_PHASE_FILE while it waits and puts this line back when it
-  # has the lock. Without it a lane queued behind another session's
-  # xcodebuild read "shipping" on the card for the whole wait. CoreMind's
-  # batch does the same with its own file, and under it this branch never
-  # runs, so the batch's MIND_PHASE_FILE is the one inherited. A file that
-  # cannot be made or is empty only means the beat says "shipping", as
-  # before — never a stopped lane.
-  if [ -n "$RUN_ID" ]; then
-    PHASE_FILE=$(mktemp "${TMPDIR:-/tmp}/acctmind-phase.XXXXXX" 2>/dev/null) || PHASE_FILE=""
-    if [ -n "$PHASE_FILE" ] && printf '%s' "shipping — $KIND" >"$PHASE_FILE" 2>/dev/null; then
-      MIND_PHASE_FILE="$PHASE_FILE"; export MIND_PHASE_FILE
-    fi
-    ( while :; do
-        sleep 60
-        MSG=$(cat "$PHASE_FILE" 2>/dev/null) || MSG=""
-        [ -n "$MSG" ] || MSG="shipping — $KIND"
-        sh "$REPORTER" beat "$RUN_ID" "$MSG" >/dev/null 2>&1 || true
-      done ) &
-    BEAT_PID=$!
-  fi
-fi
+trap 'trap - INT; kill -s INT $$; exit 130' INT
+trap 'trap - TERM; kill -s TERM $$; exit 143' TERM
 
 # ------------------------------------------------------- the tree, then a pull
 # The dirty check runs FIRST and again AFTER the pull. `git pull --autostash`
@@ -527,39 +421,7 @@ if [ -n "$DEVICE_FAILED" ]; then
   echo "    sh tools/build-platforms.sh$DEVICE_FAILED" >&2
 fi
 
-# The page is told how it ended, and with what severity: a live, tagged release
-# whose phone build did not run is not a failure, but it is not a clean 0 either.
-beat_stop
-REPORT_DONE=1
-if [ -n "$RUN_ID" ]; then
-  if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ]; then
-    OWED=""
-    [ -z "$DEVICE_FAILED" ] || OWED="device builds pending:$DEVICE_FAILED"
-    [ -z "$RELEASE_FAILED" ] || OWED="${OWED:+$OWED; }GitHub release not published"
-    sh "$REPORTER" finish "$RUN_ID" ok 2 "$NEW live; $OWED" >/dev/null 2>&1 || true
-  else
-    sh "$REPORTER" finish "$RUN_ID" ok 0 "$NEW live" >/dev/null 2>&1 || true
-  fi
-fi
-
-# AND YET THE LANE ENDS NON-ZERO. Nothing above is undone by this: the release
-# is live, the tag is on the remote, and the status card was closed `ok`
-# severity 2 a few lines up on purpose. What changes is only the one summary a
-# caller reads without being told — a run that skipped a device build for want
-# of a phone handed back a clean 0, so "it all worked" could be read off an
-# exit status that had not checked. CoreMind's bin/dtp.sh has ended non-zero on
-# exactly this since it existed, and catches this one so a batch still ships
-# every repo after it; ChefMind carried it from 2026-08-23 and the other three
-# did not, which meant the SAME condition reported differently per repo.
-#
-# LAST IN THE FILE, deliberately. REPORT_DONE is already 1 and the `finish`
-# call above has run by the time control reaches here, so the exit cannot jump
-# the status report and the EXIT trap's failed-3 fallback stays suppressed.
-#
-# THE GITHUB RELEASE IS THE SAME CASE. A Release run that failed after the tag
-# leaves the release a draft that nobody sees; the deploy is not undone, the
-# card is `ok` severity 2, and the lane ends non-zero so that is not read as a
-# clean ship. The re-run command was printed where it happened.
+# A release or build failure after the push still makes the lane exit non-zero.
 if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ]; then
   [ -z "$DEVICE_FAILED" ] || echo "==> $NEW is live and tagged; the lane ends non-zero for the device builds above"
   [ -z "$RELEASE_FAILED" ] || echo "==> $NEW is live and tagged; the lane ends non-zero because $RELEASE_FAILED (see above)"

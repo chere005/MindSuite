@@ -35,7 +35,7 @@ chmod +x "$TMP/bin/"*
 
 export REAL_RM
 export TMPDIR="$TMP" PATH="$TMP/bin:$PATH" KEEP=0
-export MIND_HEAVY_LOCK="$TMP/lock" MIND_HEAVY_WAIT=0 MIND_PHASE_FILE=''
+export MIND_HEAVY_LOCK="$TMP/lock" MIND_HEAVY_WAIT=0
 OUT="$TMP/calmind-notes-keyboard"
 
 check_exit() {

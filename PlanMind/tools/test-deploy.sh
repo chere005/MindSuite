@@ -1403,14 +1403,6 @@ dtp_case() {   # a bare origin, a clone with tools/dtp.sh and a stub deploy.sh (
 echo "deploy $*" >> "$DEPLOY_LOG"
 [ -z "${STUB_DEPLOY_FAIL:-}" ] || exit 1
 if [ "${STUB_DEPLOY_TERM:-}" = 1 ]; then kill -s TERM "$PPID"; exit 0; fi
-if [ "${STUB_WAIT_BEAT:-}" = 1 ]; then
-  tries=0
-  until grep -q '^beat|' "$STATUS_LOG"; do
-    tries=$((tries + 1))
-    [ "$tries" -lt 50 ] || exit 1
-    sleep .02
-  done
-fi
 EOF
   # the stub build-platforms.sh notes whether the version was already tagged and pushed when it ran
   cat > "$W/tools/build-platforms.sh" <<'EOF'
@@ -1419,19 +1411,12 @@ echo "platforms tag=$(git tag -l PlanMind/5.0.0) pushed=$(git ls-remote --tags o
 [ -z "${STUB_OWE:-}" ] || printf '%s\n' "$STUB_OWE" > "$PLANMIND_OWED_FILE"
 [ -z "${STUB_FAIL:-}" ] || exit 3
 EOF
-  mkdir -p "$D/core/bin"
-  cat > "$D/core/bin/report-status.sh" <<'EOF'
-#!/bin/sh
-printf '%s|%s|%s|%s|%s\n' "$1" "${2:-}" "${3:-}" "${4:-}" "${5:-}" >> "$STATUS_LOG"
-[ "${STUB_REPORT_FAIL:-}" != "$1" ] || exit 1
-if [ "$1" = start ]; then echo planmind-test-run; fi
-EOF
   printf '{"name":"planmind","version":"5.0.0","scripts":{"test":"echo npm-test >> \\"$DEPLOY_LOG\\""}}\n' > "$W/package.json"
   git -C "$W" add -A; git -C "$W" commit -q -m first; git -C "$W" branch -M main; git -C "$W" push -q -u origin main 2>/dev/null
 }
 dtp_all() {   # with the device builds unless --web is passed
   RC=0
-  (cd "$W" && PATH="$D/bin:$PATH" DEPLOY_LOG=$DLOG STATUS_LOG=$D/status COREMIND_REPO=$D/core MIND_RUN_ID=${STUB_PARENT_RUN:-} sh tools/dtp.sh "$@") > "$D/out" 2>&1 || RC=$?
+  (cd "$W" && PATH="$D/bin:$PATH" DEPLOY_LOG=$DLOG sh tools/dtp.sh "$@") > "$D/out" 2>&1 || RC=$?
 }
 dtp() { dtp_all --web "$@"; }
 
@@ -1440,11 +1425,8 @@ t_dtp() {
   check 'dtp in sync with origin succeeds' test "$RC" -eq 0
   check 'dtp deploys production once, with the spot test (--quick)' test "$(cat "$DLOG")" = 'deploy --prod --yes-prod --quick'
   check 'dtp tags and pushes the version' test "$(git -C "$BARE" tag -l PlanMind/5.0.0)" = PlanMind/5.0.0
-  check 'a standalone web lane opens and closes one status card' test "$(cat "$D/status")" = 'start|dtp|PlanMind||
-finish|planmind-test-run|ok|0|PlanMind 5.0.0 web shipped.'
   dtp_case; dtp --full
   check 'tdtp (--full) deploys production with every spec (no --quick)' test "$RC" -eq 0 -a "$(cat "$DLOG")" = 'deploy --prod --yes-prod'
-  check 'full lane reports tdtp' grep -Fxq 'start|tdtp|PlanMind||' "$D/status"
   dtp_case; echo more > "$W/more.txt"; git -C "$W" add -A; git -C "$W" commit -q -m local; dtp
   check 'unpushed local commits do not block dtp' test "$RC" -eq 0 -a "$(wc -l < "$DLOG" | tr -d ' ')" -eq 1
   dtp_case
@@ -1471,7 +1453,6 @@ finish|planmind-test-run|ok|0|PlanMind 5.0.0 web shipped.'
   check 'the version was already tagged and pushed when the device builds started' grep -q '^platforms tag=PlanMind/5.0.0 pushed=1$' "$DLOG"
   check 'and it is tagged and pushed afterwards too' test "$(git -C "$BARE" tag -l PlanMind/5.0.0)" = PlanMind/5.0.0
   check 'a clean run reports nothing owed' not grep -qi 'owed' "$D/out"
-  check 'a full rollout closes status as finished' grep -Fxq 'finish|planmind-test-run|ok|0|PlanMind 5.0.0 web shipped. Device rollout finished.' "$D/status"
   dtp_case; dtp_all --full
   check 'tdtp runs npm test once: in deploy.sh, never again in dtp.sh' test "$RC" -eq 0 -a "$(cut -d' ' -f1 "$DLOG" | tr '\n' ' ')" = 'deploy platforms '
   dtp_case; STUB_FAIL=1 dtp_all
@@ -1479,40 +1460,20 @@ finish|planmind-test-run|ok|0|PlanMind 5.0.0 web shipped.'
   check 'after the push: the version is tagged on origin' test "$(git -C "$BARE" tag -l PlanMind/5.0.0)" = PlanMind/5.0.0
   check 'it says the web shipped' grep -q 'The web shipped (PlanMind 5.0.0 is live, tagged and pushed)' "$D/out"
   check 'and which device build is owed when the build did not say' grep -q 'the device builds (see the output above)' "$D/out"
-  check 'a native failure reports web shipped and rollout incomplete' grep -Fxq 'finish|planmind-test-run|ok|2|PlanMind 5.0.0 web shipped. Device rollout did not finish.' "$D/status"
   dtp_case; STUB_FAIL=1 STUB_OWE='the iOS build and its install on every phone' dtp_all
   check 'a failed device build names what it owes' grep -q -- '  - the iOS build and its install on every phone' "$D/out"
   dtp_case; STUB_OWE='the iOS install on the phone 00000000-0000000000000002 (Phone 2, Person B)' dtp_all
   check 'a skipped phone is owed but does not fail the run' test "$RC" -eq 0
   check 'it is named at the end' grep -q -- '  - the iOS install on the phone 00000000-0000000000000002 (Phone 2, Person B)' "$D/out"
-  check 'an owed phone closes status with a partial rollout and no device identifiers' grep -Fxq 'finish|planmind-test-run|ok|2|PlanMind 5.0.0 web shipped. Some device installs are still owed.' "$D/status"
   dtp_case; STUB_DEPLOY_FAIL=1 dtp_all
   check 'a failed deploy tags nothing, pushes nothing and builds nothing' test "$RC" -ne 0 -a -z "$(git -C "$BARE" tag -l)" -a -z "$(git -C "$W" tag -l)" -a "$(cat "$DLOG")" = 'deploy --prod --yes-prod --quick'
-  check 'a failed deploy closes its status card as failed' test "$(cat "$D/status")" = 'start|dtp|PlanMind||
-finish|planmind-test-run|failed|3|PlanMind 5.0.0 stopped before the web release was verified.'
   dtp_case
   printf '#!/bin/sh\nexit 1\n' > "$BARE/hooks/pre-receive"; chmod +x "$BARE/hooks/pre-receive"
   dtp_all
   check 'a failed push after deploying does not start native builds' test "$RC" -ne 0 -a "$(cat "$DLOG")" = 'deploy --prod --yes-prod --quick'
-  check 'a failed push reports the live web and incomplete tag or push' grep -Fxq 'finish|planmind-test-run|failed|3|PlanMind 5.0.0 web is live. Tagging or pushing did not finish.' "$D/status"
-  dtp_case; STUB_PARENT_RUN=batch-id dtp_all
-  check 'a suite batch ships without opening another status card' test "$RC" -eq 0 -a ! -e "$D/status"
-  dtp_case; STUB_REPORT_FAIL=start dtp_all
-  check 'a reporter startup failure does not block release or finish an absent card' test "$RC" -eq 0 -a "$(cat "$D/status")" = 'start|dtp|PlanMind||'
-  dtp_case; STUB_REPORT_FAIL=finish dtp_all
-  check 'a reporter finish failure does not fail the release' test "$RC" -eq 0 -a "$(grep -c '^finish|' "$D/status")" -eq 1
   dtp_case; STUB_DEPLOY_TERM=1 dtp_all
-  check 'an interrupted deploy exits and closes status exactly once' test "$RC" -ne 0 -a "$(grep -c '^finish|planmind-test-run|failed|3|' "$D/status")" -eq 1 -a -z "$(git -C "$BARE" tag -l)"
-  dtp_case
-  mkdir -p "$D/bin"
-  cat > "$D/bin/sleep" <<'EOF'
-#!/bin/sh
-if [ "$1" = 60 ] && mkdir "$STATUS_LOG.tick" 2>/dev/null; then exit 0; fi
-exec "$STUB_REAL_SLEEP" "$@"
-EOF
-  chmod +x "$D/bin/sleep"
-  STUB_REAL_SLEEP=$(command -v sleep) STUB_WAIT_BEAT=1 dtp
-  check 'a standalone lane sends a heartbeat before closing its status' test "$RC" -eq 0 -a "$(cut -d'|' -f1 "$D/status" | tr '\n' ' ')" = 'start beat finish '
+  check 'an interrupted deploy exits without tagging or building' test "$RC" -gt 128 -a -z "$(git -C "$BARE" tag -l)" -a "$(cat "$DLOG")" = 'deploy --prod --yes-prod --quick'
+
 }
 
 platforms_case() {   # a repo with build-platforms.sh and the lock, shimmed npm, cargo and xcrun, a fake home with iOS DeviceSupport
@@ -1994,10 +1955,7 @@ git push --atomic origin main "refs/tags/$TAG"'
   mutf dtp-web-shipped-not-said t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#The web shipped#Done#'
   mutf dtp-skipped-phone-not-reported t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^  if \[ -n "$_owed" \]; then printf#  if false; then printf#'
   mutf dtp-owed-file-not-passed t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#PLANMIND_OWED_FILE=$OWED_FILE ##'
-  mutf dtp-status-finish-removed t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^    sh "$REPORTER" finish .*#    :#'
-  mutf dtp-status-heartbeat-removed t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^        sh "$REPORTER" beat .*#        :#'
-  mutf dtp-status-duplicates-parent t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^if \[ -f "$REPORTER" \] && .*#if [ -f "$REPORTER" ]; then#'
-  mutf dtp-status-term-resumes-release t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^trap .*TERM$#trap finish TERM#'
+  mutf dtp-term-resumes-release t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^trap .*TERM$#trap cleanup TERM#'
   mutf tdtp-npm-test-twice t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^\# deploy.sh runs the gates itself.*#[ "$FULL" = 0 ] || npm test#'
   # build-platforms.sh: both phones by default, a phone that is away is owed and skipped, anything else fails the run
   mutf platforms-first-phone-only t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" 's#^  \[ -n "${IOS_PHONES:-}" \] || IOS_PHONES=$(machine_phones planmind)#  [ -n "${IOS_PHONES:-}" ] || IOS_PHONES=$(machine_phones planmind | head -1)#'

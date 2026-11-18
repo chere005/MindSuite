@@ -181,15 +181,8 @@ app name, the method, the user and whether the caller was an agent — and no IP
 path, query string, referer or user agent, because the difference between "how
 busy is this" and "who went where" is the whole reason to write the narrower
 thing. Agent traffic gets its own `claudio` lane so a session of shell probes
-does not read as visitors. The status page's own probes and live polls announce
-themselves and are skipped, or the page would mostly be counting itself. The
-file rotates once at 4 MB, and a write that fails is never fatal.
-
-Two behaviours surprise people: the log piggybacks a background status sweep on
-ordinary traffic instead of a scheduler, so an idle site quietly stops probing
-itself; and locally, where `/home/protected` does not exist, the log follows
-`app_config()`'s data directory — which is how a test run avoids writing into
-the repo's own `data/`.
+does not read as visitors. The file rotates once at 4 MB, and a write that
+fails is never fatal. Locally the log follows the app's data directory.
 
 ## Testing
 
@@ -261,9 +254,7 @@ scratch must not block a release the way an unstaged edit must); `git pull
 conflicted autostash pop exits 0; on `--full`, run `php tools/test.php` and
 stop on any failure; bump the MINOR version; `./deploy.sh all`; tag and
 `push --atomic --follow-tags`, deleting the local tag again if the push is
-rejected; and report to seancheren.com/status through CoreMind's
-`bin/report-status.sh`, which is never fatal, because a status page must not
-stop a release.
+rejected.
 
 **The tag IS the version here** — there is no version file. Tags are bare
 `x.y.0`, never `v`-prefixed, and the newest one is the counter; if HEAD is

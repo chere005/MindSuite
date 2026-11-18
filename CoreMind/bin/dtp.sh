@@ -83,101 +83,12 @@ for T in $PLAN; do
 done
 
 
-# ------------------------------------------------------- tell the status page
-# The owner, 2026-08-22: the status page keeps the last 5 runs and paints one that
-# is running right now purple. Reported from HERE rather than from each repo's
-# own lane, because this is the thing that knows the whole plan — a run is
-# "core, then the three web apps", not four unrelated releases.
-#
-# It cannot fail the release: report-status.sh warns and exits 0 on every path.
-# The trap is what makes the purple honest — a lane that dies anywhere below,
-# including on a `set -e` exit nobody wrote a handler for, still closes the run
-# out instead of leaving it running for ever.
-RUN_ID=$(sh bin/report-status.sh start "$(echo "$LANE" | tr 'A-Z' 'a-z')" "$(echo "$PLAN" | sed 's/^ *//')" 2>/dev/null || true)
-# ONE CARD PER BATCH — the owner, 2026-08-23: "there should be one card per tdtp if
-# multiple jobs are triggered in one batch". Every app ships itself now, and
-# each lane opened a run of its own, so a five-repo tdtp drew five cards and
-# the history charts had no single thing to filter by. The parent's id travels
-# down; a lane that sees it reports nothing and lets this run stand for it.
-# The card's target is the whole plan, which is what makes the charts show one
-# plot per repo in the batch.
-export MIND_RUN_ID="$RUN_ID"
-
-# ------------------------------------------------------- the per-minute beat
-# The owner, 2026-08-23: "i want an update per minute during any tdtp or dtp". A
-# suite run takes twenty minutes and reported exactly twice — start and finish
-# — so the page said "running" for all of it and could not say running WHAT.
-#
-# The lane writes its current phase to a file; a background loop pushes that
-# file's contents once a minute. Two pieces rather than one because the lane
-# is a sequence of long-running foreground commands (a full test suite, an
-# rsync, an xcodebuild) and none of them can stop to report; the only thing
-# that can report on a fixed clock is something else running alongside.
-PHASE_FILE="$(pwd)/.status-phase"
-phase() { printf '%s' "$*" > "$PHASE_FILE"; }
-# Exported so a lane waiting deep down for the heavy-build lock
-# (each app's tools/heavy-lock.sh) can say so on this card — otherwise the minute
-# beats would read "CalMind — test run, then deploy…" for however long it
-# waits on another session's xcodebuild. The helper writes it only while it
-# waits and puts this run's phase back after.
-export MIND_PHASE_FILE="$PHASE_FILE"
-phase "starting"
-BEAT_PID=""
-if [ -n "$RUN_ID" ]; then
-  (
-    while :; do
-      sleep 60
-      [ -f "$PHASE_FILE" ] || exit 0
-      sh bin/report-status.sh beat "$RUN_ID" "$(cat "$PHASE_FILE" 2>/dev/null)" >/dev/null 2>&1 || true
-    done
-  ) &
-  BEAT_PID=$!
-fi
-
-stop_beat() {
-  [ -n "$BEAT_PID" ] && kill "$BEAT_PID" >/dev/null 2>&1
-  BEAT_PID=""
-  rm -f "$PHASE_FILE"
-}
-
-report_fail() {
-  # The phase is read BEFORE stop_beat, which removes its file. Until
-  # 2026-10-01 it was read after, so the cat always failed and every failed
-  # card said "Stopped during <the whole plan>" instead of naming the step.
-  STOPPED_IN=$(cat "$PHASE_FILE" 2>/dev/null || echo "$PLAN")
-  stop_beat
-  # EXACTLY ONCE: REPORT_DONE goes to 1 BEFORE the reporter runs, so the EXIT
-  # after a signal, a second ^C while this finish is still pushing, and the
-  # foot of the run all find the card already closed.
-  [ -n "$RUN_ID" ] && [ "$REPORT_DONE" != 1 ] || return 0
-  REPORT_DONE=1
-  sh bin/report-status.sh finish "$RUN_ID" failed 3 \
-    "Stopped during $STOPPED_IN. Nothing after the failure was shipped; what ran before it was." 2>/dev/null || true
-  RUN_ID=""
-  return 0
-}
-# The beat is killed on EVERY exit path, including the ones nobody wrote a
-# handler for: a loop left running after the shell dies would keep a finished
-# run painted purple until the next reboot.
-#
-# AND A CTRL-C MUST END THE BATCH. This was one trap for EXIT, INT and TERM,
-# and a signal trap that returns RESUMES the script: ^C during CalMind's iOS
-# build closed the card `failed`, the loop read the tag at CalMind's HEAD as
-# "shipped, a platform build did not finish", and went straight on to deploy,
-# tag and push AcctMind (found 2026-10-01; under TERM the batch ran to "dtp
-# complete" and exit 0 under a failed card). So INT and TERM close the card
-# and then die of their own signal, as the app lanes' and
-# tools/heavy-lock.sh's handlers do — `exit 130` would read to a caller as a
-# child that handled the ^C, and it would carry on.
-REPORT_DONE=0
-trap 'report_fail' EXIT
-trap 'report_fail; trap - EXIT INT; kill -s INT $$; exit 130' INT
-trap 'report_fail; trap - EXIT TERM; kill -s TERM $$; exit 143' TERM
+trap 'trap - INT; kill -s INT $$; exit 130' INT
+trap 'trap - TERM; kill -s TERM $$; exit 143' TERM
 
 PLATFORM_OK=""; PLATFORM_BAD=""
 for T in $PLAN; do
   echo ""
-  phase "$LANE $T — $(echo "$PLAN" | tr -s ' ' | sed 's/^ //') in this run"
   echo "──────────────────────────────── $LANE $T"
   case "$T" in
     core)
@@ -185,7 +96,6 @@ for T in $PLAN; do
       # having run only the checks below.
       if [ "$FULL" = 1 ]; then
         echo "==> CoreMind's own suite"
-        phase "core — running CoreMind's own suite"
         npm test
         npm run -s typecheck
       fi
@@ -193,8 +103,7 @@ for T in $PLAN; do
       # packages/mind-core and the byte-identical files are listed in
       # tools/shared-files.json. The lane CHECKS both, from the suite root one
       # directory up (check-shared resolves its own root), and `set -e` stops
-      # the run on either — the card closes failed, nothing is tagged.
-      phase "core — checking @mind/core and the shared files"
+      # the run on either — nothing is tagged.
       npm --prefix .. run -s check:mind-core
       node ../tools/check-shared.mjs
       # Nothing above writes a tracked file. A tree that is dirty now was dirty
@@ -235,7 +144,6 @@ for T in $PLAN; do
       ;;
     *)
       R="$PARENT/$T"
-      phase "$T — $([ "$FULL" = 1 ] && echo 'test run, then deploy, tag and push' || echo 'deploy, tag and push')"
       # DOES THE APP SHIP ITSELF? An app carrying its own
       # tools/build-platforms.sh owns every artifact it releases, and this
       # script's job for it is only to run its lane in the right ORDER among
@@ -304,7 +212,7 @@ for T in $PLAN; do
         # last release: HEAD is still that release's bump commit, still
         # tagged, so a lane that died at the drift gate, the dirty check, the
         # tdtp tests or "tag already exists" was read as shipped — the batch
-        # went on shipping the repos after it and closed the card "Shipped".
+        # went on shipping the repos after it.
         SHIPPED=""
         for TG in $(git -C "$R" tag --points-at HEAD --list "$T/*" 2>/dev/null); do
           printf '%s\n' "$TAGS_BEFORE" | grep -qxF "$TG" || SHIPPED="$TG"
@@ -330,7 +238,6 @@ for T in $PLAN; do
       # Rust build or a phone did not cooperate. The run still ends non-zero,
       # so "it all worked" cannot be read off the exit status.
       if [ "$PLATFORMS" = 1 ] && [ "$SELF_SHIPS" = 0 ] && [ "$T" != "MyCalMind" ]; then
-        phase "$T — building the platforms its release does not ship"
         if sh bin/build-platforms.sh "$T"; then
           PLATFORM_OK="$PLATFORM_OK $T"
         else
@@ -349,23 +256,6 @@ if [ "$PLATFORMS" = 1 ]; then
   [ -z "$PLATFORM_OK" ]  || echo "platforms built:$PLATFORM_OK"
 fi
 
-# Close the run out. A platform build that failed is severity 2, not 3: the
-# releases shipped and are live — what did not happen is a desktop or device
-# build, which is a thing to go and look at rather than a thing that is broken
-# for anybody using the apps.
-stop_beat
-REPORT_DONE=1
-if [ -n "$RUN_ID" ]; then
-  SUM="Shipped$PLAN."
-  [ -z "$PLATFORM_OK" ] || SUM="$SUM Platforms built:$PLATFORM_OK."
-  if [ -n "$PLATFORM_BAD" ]; then
-    SUM="$SUM Platform builds FAILED:$PLATFORM_BAD — those releases are live, the builds are not."
-    sh bin/report-status.sh finish "$RUN_ID" ok 2 "$SUM" 2>/dev/null || true
-  else
-    sh bin/report-status.sh finish "$RUN_ID" ok 0 "$SUM" 2>/dev/null || true
-  fi
-  RUN_ID=""
-fi
 trap - EXIT INT TERM
 
 if [ "$PLATFORMS" = 1 ] && [ -n "$PLATFORM_BAD" ]; then

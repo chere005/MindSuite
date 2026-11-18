@@ -20,7 +20,7 @@ The schedule renderer and scroll handling live in `app/panels/day/ScheduleSectio
 
 ## Release tooling and paused state
 
-Standalone release lanes report to the shared status page through CoreMind. The iOS installer uses the marked CoreMind helper to retry once and identify a locked or busy device. Both paths have disposable fixtures in `tools/test-deploy.sh`. Keep local `deploy.conf` and staging credentials private during checkout migration. Release gate output and the count-only migration receipt are in `.local/day-interaction-review/dtp-0.25.0.log` and `.local/day-interaction-review/migration-receipt.log`. The guarded operator apply wrapper is `.local/day-interaction-review/duration-audit.sh` with `duration-apply.php` beside it. It is for the original 0.25.0 cutover. Do not rerun it after a verified receipt.
+The iOS installer uses the marked CoreMind helper to retry once and identify a locked or busy device. The installer has disposable fixtures in `tools/test-deploy.sh`. Keep local `deploy.conf` and staging credentials private during checkout migration. Release gate output and the count-only migration receipt are in `.local/day-interaction-review/dtp-0.25.0.log` and `.local/day-interaction-review/migration-receipt.log`. The guarded operator apply wrapper is `.local/day-interaction-review/duration-audit.sh` with `duration-apply.php` beside it. It is for the original 0.25.0 cutover. Do not rerun it after a verified receipt.
 
 The release lane and apply watcher both exited successfully. Status run `20261110025043` is `ok` at severity 0. The temporary endpoint is gone, and the original v4 backup has mode `0600`. Keep the v5 app paired with the v5 data. The release lane guards against rolling back to a reader that cannot open the v5 store.
 

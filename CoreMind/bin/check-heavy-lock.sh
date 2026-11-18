@@ -329,21 +329,6 @@ case_blind() {
   done
 }
 
-# Under bin/dtp.sh the status card shows the wait, and gets its phase back.
-case_phase() {
-  printf 'lane X' >"$W/phase"
-  MIND_HEAVY_LOCK="$W/lock" "$2" -c '. "$1"; heavy_lock holder || exit 9; echo held >"$2"; sleep 3; heavy_unlock' _ "$1" "$W/held" 2>/dev/null &
-  HP=$!; KIDS="$KIDS $HP"
-  waitfor "$W/held" || why "the holder never took the lock" || return 1
-  MIND_PHASE_FILE="$W/phase" MIND_HEAVY_LOCK="$W/lock" "$2" -c '. "$1"; heavy_lock waiter || exit 9; cat "$MIND_PHASE_FILE" >"$2"; heavy_unlock' _ "$1" "$W/after" 2>/dev/null &
-  WP=$!; KIDS="$KIDS $WP"
-  sleep 1
-  grep -q 'waiting for the heavy-build lock, held by .*holder' "$W/phase" \
-    || why "the phase did not show the wait: $(cat "$W/phase")" || return 1
-  waitpid "$WP" 10 || why "the waiter never got the lock" || return 1
-  [ "$(cat "$W/after")" = "lane X" ] || why "the phase was not put back: $(cat "$W/after")"
-}
-
 # A lock whose taker died between its mkdir and its owner file is taken over
 # after ten seconds of nobody writing one.
 case_ownerless() {
@@ -509,7 +494,6 @@ for SH in $SHELLS; do
   run pass "a background job holding it is not waved through"  case_shared_pid  "$HELPER" "$SH"
   run pass "asking twice without letting go is refused"        case_twice       "$HELPER" "$SH"
   run pass "no lock to create is a loud failure, not a wait"   case_blind       "$HELPER" "$SH"
-  run pass "the status card shows the wait, then gets it back" case_phase       "$HELPER" "$SH"
 done
 run pass "an ownerless lock is taken after 10s (sh)"           case_ownerless   "$HELPER" sh
 

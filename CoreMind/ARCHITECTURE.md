@@ -93,8 +93,7 @@ Targets the owner keeps private are listed, one name per line, in an
 untracked, gitignored `.private-targets` at the checkout root (default: none;
 the file is per machine). They share no file in `tools/shared-files.json`;
 `bin/plan.sh` appends them after the public targets, and `bin/deploy.sh` /
-`bin/dtp.sh` run their own `tools/` lane and report to the status page like the
-rest.
+`bin/dtp.sh` run their own `tools/` lane.
 
 ## The map
 
@@ -102,9 +101,6 @@ rest.
 bin/plan.sh       The release graph (ORDER, downstream_of); sourced, never run.
 bin/deploy.sh     Deploy the suite, or one target and its downstream.
 bin/dtp.sh        The suite orchestrator behind `npm run dtp` / `tdtp`.
-bin/report-status.sh  How a release tells seancheren.com/status about itself:
-                  a start, a beat every minute while a lane runs, a finish.
-                  bin/dtp.sh calls it; it can never fail a release.
 bin/check-drift.sh  Shim over ../tools/check-shared.mjs (see Shared code).
 bin/check-heavy-lock.sh  The proofs of the heavy-build lock
                   (CalMind/tools/heavy-lock.sh): each guarantee shown
@@ -196,7 +192,7 @@ iOS build, the Android build — runs under `heavy_lock` from
 It is a directory made with `mkdir`, which is atomic, at one per-user path
 outside every repo, so two sessions, two checkouts or a lane and a hand-run
 script all queue on the same one. A block that finds it held waits and says
-whose it is, on the terminal and on the status card; a holder that died is
+whose it is, on the terminal; a holder that died is
 taken over; a wait past 30 minutes fails the step rather than hanging the lane.
 Overlap is what turned a 246 s AcctMind lane into a 1574 s one on 2026-09-30,
 the night two sessions built at once (gradle 95 s → 412 s); waiting for the

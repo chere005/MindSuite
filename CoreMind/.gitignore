@@ -5,8 +5,6 @@ node_modules/
 # Claude Code machine-local state; launch.json is repo config and IS tracked
 .claude/*
 !.claude/launch.json
-.status-history.json
-.status-phase
 
 # Private targets: per machine, never tracked (see bin/plan.sh)
 .private-targets

@@ -138,27 +138,6 @@ _hl_log() {
     >>"$HEAVY_LOCK.log" 2>/dev/null || true
 }
 
-# THE STATUS CARD. Under bin/dtp.sh the batch's beat posts whatever
-# MIND_PHASE_FILE says once a minute, so a lane waiting here would otherwise
-# read as "building" on the card while it builds nothing. Written only when the
-# file already exists (the run owns it, and removes it when it ends), and put
-# back exactly as it was once the wait is over.
-_hl_phased=0
-_hl_phase_set() {
-  [ -n "${MIND_PHASE_FILE:-}" ] && [ -f "$MIND_PHASE_FILE" ] || return 0
-  if [ "$_hl_phased" = 0 ]; then
-    _hl_phase0=$(cat "$MIND_PHASE_FILE" 2>/dev/null) || _hl_phase0=""
-    _hl_phased=1
-  fi
-  printf '%s' "$1" >"$MIND_PHASE_FILE" 2>/dev/null || true
-}
-_hl_phase_restore() {
-  [ "$_hl_phased" = 1 ] || return 0
-  _hl_phased=0
-  [ -f "$MIND_PHASE_FILE" ] || return 0
-  printf '%s' "$_hl_phase0" >"$MIND_PHASE_FILE" 2>/dev/null || true
-}
-
 # Breaking a dead holder's lock is check-then-remove, and two waiters doing
 # that at once could each remove what the other had just taken. So it is done
 # under a second, momentary lock, and the owner is read again under it: only a
@@ -185,8 +164,7 @@ _hl_break() {
 }
 
 # THE CALLER'S TRAPS. POSIX traps replace each other rather than stacking, so
-# a lock that simply set its own would delete the lane's — the beat-killer, the
-# status card's failed-3 finish, a temp file's cleanup. So heavy_lock reads
+# a lock that simply set its own would delete the caller's cleanup. So heavy_lock reads
 # what is set, installs a handler that releases the lock and then does exactly
 # what the caller's would have, and heavy_unlock puts the caller's back.
 #
@@ -306,7 +284,6 @@ heavy_lock() {
       fi
       rm -rf "$HEAVY_LOCK"
       echo "heavy_lock: took $HEAVY_LOCK but could not write its owner — not building under a lock that cannot say whose it is" >&2
-      _hl_phase_restore
       return 1
     fi
 
@@ -319,7 +296,6 @@ heavy_lock() {
       if [ "$_hl_blind" -ge 3 ]; then
         echo "heavy_lock: cannot create $HEAVY_LOCK — not building without the heavy-build lock" >&2
         echo "    $_hl_err" >&2
-        _hl_phase_restore
         return 1
       fi
       sleep 1
@@ -350,7 +326,6 @@ EOF
 
     if [ "$_hl_opid" = "$$" ] && [ "$_hl_ostart" = "$_hl_me_start" ]; then
       echo "heavy_lock: the heavy-build lock is already held in this shell's name, for $_hl_ostep — a subshell or background job took it; not waiting for myself" >&2
-      _hl_phase_restore
       return 1
     fi
     if ! _hl_alive "$_hl_opid" "$_hl_ostart"; then
@@ -362,7 +337,6 @@ EOF
       _hl_seen=$_hl_line
       if _hl_ancestor "$_hl_opid"; then
         echo "heavy_lock: the heavy-build lock is held by this run's own parent (pid $_hl_opid, $_hl_orepo: $_hl_ostep) — a heavy block nested inside another would wait for itself" >&2
-        _hl_phase_restore
         return 1
       fi
     fi
@@ -372,19 +346,16 @@ EOF
     if [ "$_hl_waited" -ge "$HEAVY_WAIT" ]; then
       echo "heavy_lock: gave up after ${_hl_waited}s waiting for the heavy-build lock, still held by $_hl_orepo: $_hl_ostep (pid $_hl_opid) since $_hl_ohms — nothing was built; run it again once that has finished" >&2
       _hl_log "gave up after ${_hl_waited}s, held by pid $_hl_opid"
-      _hl_phase_restore
       return 1
     fi
     if [ "$_hl_now" -ge "$_hl_next" ]; then
       echo "==> waiting for the heavy-build lock — held by $_hl_orepo: $_hl_ostep (pid $_hl_opid) since $_hl_ohms; ${_hl_waited}s so far" >&2
-      _hl_phase_set "$_hl_repo: $_hl_step — waiting for the heavy-build lock, held by $_hl_orepo: $_hl_ostep since $_hl_ohms"
       _hl_next=$((_hl_now + 30))
     fi
     sleep 2
   done
 
   _hl_held=1
-  _hl_phase_restore
   _hl_waited=$(($(date +%s) - _hl_t0))
   if [ "$_hl_waited" -gt 0 ] && [ -n "$_hl_seen$_hl_lone" ]; then
     echo "==> heavy-build lock taken after ${_hl_waited}s" >&2

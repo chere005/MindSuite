@@ -783,7 +783,7 @@ function msa_reset_password(array $cfg, string $username, string $newPassword, ?
 /**
  * Delete the signed-in person's own account: the account, its passkeys, every session of it (scoped app tokens included) and
  * the passkey challenges and app sign-in grants pending for those sessions, in ONE write of the store under the store lock; nothing else is touched
- * (another account, the status probes, the importer's records in `import`, which also keep a deleted account's legacy tokens
+ * (another account, the importer's records in `import`, which also keep a deleted account's legacy tokens
  * and passkeys from coming back in a later token scan). The same write records the NAME as deleted (`deleted`: the name and
  * the time, no secret): every app keeps its own data and permissions under that name, so no account may start under it again,
  * by sign-up, import or any other way, until the operator says so (msa_admin_undelete). Needs a full credential (a cookie or

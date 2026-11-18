@@ -14,7 +14,6 @@
 /ReadMind/config.php
 /AcctMind/deploy.conf
 /AcctMind/apps/app/.env.local
-/CoreMind/.status-history.json
 /CoreMind/.status-phase
 /CoreMind/.private-targets
 
@@ -24,7 +23,6 @@ node_modules/
 machine.env
 deploy.conf
 .private-targets
-.status-history.json
 .status-phase
 .DS_Store
 *.log
