@@ -1,6 +1,12 @@
+<!-- AgentSuite:reference:begin -->
+Read and follow the shared baseline at `~/GIT/AgentSuite/AGENTS.md` before working here.
+If the checkout is elsewhere, locate `AgentSuite/AGENTS.md` beside this repository's main checkout.
+The shared `dtp` and `tdtp` definitions, authorization, and installed result apply in every project and worktree; local lane details do not redefine them.
+@~/GIT/AgentSuite/AGENTS.md
+<!-- AgentSuite:reference:end -->
+
 # Working in TaskMind
 
-@../../AgentSuite/AGENTS.md
 
 Private team task app (projects, tasks, subtasks, assignees, list and board, My tasks, comments, GitHub sync) for the owner and the partner now and a full team later. It graduates the interim page at seancheren.com/taskmind/. Read `README.md` for architecture and commands, `docs/GRADUATION.md` for what is ported and what is next.
 

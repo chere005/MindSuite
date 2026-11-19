@@ -1,8 +1,14 @@
+<!-- AgentSuite:reference:begin -->
+Read and follow the shared baseline at `~/GIT/AgentSuite/AGENTS.md` before working here.
+If the checkout is elsewhere, locate `AgentSuite/AGENTS.md` beside this repository's main checkout.
+The shared `dtp` and `tdtp` definitions, authorization, and installed result apply in every project and worktree; local lane details do not redefine them.
+@~/GIT/AgentSuite/AGENTS.md
+<!-- AgentSuite:reference:end -->
+
 # Working in CoreMind
 
 The baseline for all of the owner's repos lives in ~/GIT/AgentSuite/AGENTS.md
 and is imported here; this file holds only what is true of THIS repo.
-@../../AgentSuite/AGENTS.md
 
 ## Rules
 

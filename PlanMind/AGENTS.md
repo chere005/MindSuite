@@ -1,6 +1,12 @@
+<!-- AgentSuite:reference:begin -->
+Read and follow the shared baseline at `~/GIT/AgentSuite/AGENTS.md` before working here.
+If the checkout is elsewhere, locate `AgentSuite/AGENTS.md` beside this repository's main checkout.
+The shared `dtp` and `tdtp` definitions, authorization, and installed result apply in every project and worktree; local lane details do not redefine them.
+@~/GIT/AgentSuite/AGENTS.md
+<!-- AgentSuite:reference:end -->
+
 # Working in PlanMind
 
-@../../AgentSuite/AGENTS.md
 
 Private shared daily planner for the owner and the partner. Read `README.md` for architecture and commands.
 
