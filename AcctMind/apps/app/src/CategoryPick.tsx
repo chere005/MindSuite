@@ -17,18 +17,19 @@
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { INCOME, INCOME_NAME, filterByName, type Category, type Line } from '@acctmind/core';
+import { INCOME, INCOME_NAME, filterByName, type Category, type CategoryChoice } from '@acctmind/core';
 import { Dot } from './Dot';
 import { SPACE, T, TAP } from './theme';
 
 /** What an unfiled transaction reads as — the Budget tab's word for it too. */
 export const NO_CATEGORY = 'No Category';
 
-export function CategoryPick({ categories, lines, value, onPick }: {
+export function CategoryPick({ categories, lines, value, onPick, allowNone = true }: {
   categories: readonly Category[];
-  lines: readonly Line[];
+  lines: readonly CategoryChoice[];
   value: string | null;
   onPick: (id: string | null) => void;
+  allowNone?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const line = lines.find((l) => l.id === value) ?? null;
@@ -36,18 +37,19 @@ export function CategoryPick({ categories, lines, value, onPick }: {
     : line === null ? null
     : { name: line.name, color: categories.find((c) => c.id === line.category)?.color ?? T.faint };
 
+  const label = chosen?.name ?? (allowNone ? NO_CATEGORY : 'Category');
   return (
     <>
       <Pressable
         onPress={() => setOpen(true)}
         style={styles.field}
         accessibilityRole="button"
-        accessibilityLabel={chosen === null ? NO_CATEGORY : chosen.name}
+        accessibilityLabel={label}
         testID="category-button"
       >
         {chosen !== null && <Dot colors={[chosen.color]} size={12} />}
-        <Text style={[styles.value, chosen === null && styles.none]} testID="category-value">
-          {chosen?.name ?? NO_CATEGORY}
+        <Text style={[styles.value, chosen === null && styles.none]} numberOfLines={1} testID="category-value">
+          {label}
         </Text>
         <Text style={styles.chev}>⌄</Text>
       </Pressable>
@@ -56,6 +58,7 @@ export function CategoryPick({ categories, lines, value, onPick }: {
         <CategoryMenu
           categories={categories}
           lines={lines}
+          allowNone={allowNone}
           onPick={onPick}
           onClose={() => setOpen(false)}
         />
@@ -73,18 +76,16 @@ export function CategoryPick({ categories, lines, value, onPick }: {
  * filter, one "No Category" that is never filtered away, one grouping, on
  * both paths. Mounted only while open, so the filter starts empty each time.
  */
-export function CategoryMenu({ categories, lines, onPick, onClose }: {
+export function CategoryMenu({ categories, lines, onPick, onClose, allowNone = true }: {
   categories: readonly Category[];
-  lines: readonly Line[];
+  lines: readonly CategoryChoice[];
   onPick: (id: string | null) => void;
   onClose: () => void;
+  allowNone?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const insets = useSafeAreaInsets();
   const shown = filterByName(lines, query);
-  const income = filterByName([{ name: INCOME_NAME }], query).length > 0;
-  const colorOf = (l: Line) => categories.find((c) => c.id === l.category)?.color ?? T.faint;
-  const groupOf = (l: Line) => categories.find((c) => c.id === l.category)?.name ?? '';
   const pick = (id: string | null) => { onClose(); onPick(id); };
 
   return (
@@ -103,36 +104,29 @@ export function CategoryMenu({ categories, lines, onPick, onClose }: {
             testID="category-filter"
           />
           <ScrollView keyboardShouldPersistTaps="handled">
-            {/* Always offered, and never filtered away: "none" is a real
-                answer, not a category that happens to match nothing. */}
-            <Pressable onPress={() => pick(null)} style={styles.row} testID="category-none">
-              <Text style={[styles.rowText, styles.none]}>{NO_CATEGORY}</Text>
-            </Pressable>
-            {/* Incoming cash — a fixed id, not a line (core's INCOME), so it
-                sits here beside No Category rather than under a heading. It
-                does filter, being a name like any other. */}
-            {income && (
-              <Pressable onPress={() => pick(INCOME)} style={styles.row} testID="category-income">
-                <Dot colors={[T.positive]} size={12} />
-                <Text style={styles.rowText} numberOfLines={1}>{INCOME_NAME}</Text>
+            {/* Keep the option to clear a transaction available during filtering. */}
+            {allowNone && (
+              <Pressable onPress={() => pick(null)} style={styles.row} testID="category-none">
+                <Text style={[styles.rowText, styles.none]}>{NO_CATEGORY}</Text>
               </Pressable>
             )}
-            {shown.map((l) => (
-              <Pressable
-                key={l.id}
-                onPress={() => pick(l.id)}
-                style={styles.row}
-                testID={`category-opt-${l.id}`}
-              >
-                <Dot colors={[colorOf(l)]} size={12} />
-                <Text style={styles.rowText} numberOfLines={1}>{l.name}</Text>
-                {/* Which category it sits in. Two lines can share a name
-                    across categories, and without this the list offers
-                    the same word twice with no way to choose. */}
-                <Text style={styles.rowGroup} numberOfLines={1}>{groupOf(l)}</Text>
-              </Pressable>
-            ))}
-            {shown.length === 0 && !income && (
+            {shown.map((choice) => {
+              const income = choice.id === INCOME;
+              const group = categories.find((c) => c.id === choice.category);
+              return (
+                <Pressable
+                  key={choice.id}
+                  onPress={() => pick(choice.id)}
+                  style={styles.row}
+                  testID={income ? 'category-income' : `category-opt-${choice.id}`}
+                >
+                  <Dot colors={[income ? T.positive : group?.color ?? T.faint]} size={12} />
+                  <Text style={styles.rowText} numberOfLines={1}>{choice.name}</Text>
+                  {group && <Text style={styles.rowGroup} numberOfLines={1}>{group.name}</Text>}
+                </Pressable>
+              );
+            })}
+            {shown.length === 0 && (
               <Text style={styles.nothing} testID="category-nomatch">
                 Nothing matches “{query.trim()}”.
               </Text>

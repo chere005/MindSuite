@@ -30,8 +30,7 @@ function today(): string {
 /**
  * Three lines, each set up to answer a different button differently.
  *
- *   l1 Groceries — a target of $300, $50 assigned, $120 spent. All three
- *                  buttons move it, and to three different numbers.
+ *   l1 Groceries — a target of $300, $50 assigned, $120 spent.
  *   l2 Coffee    — NO target, $25 assigned, $10 spent. The flag must leave
  *                  it exactly where it is; the other two must not.
  *   l3 Rent      — a target of $1000 and $1200 assigned, nothing spent. The
@@ -128,13 +127,21 @@ test('nothing picked, nothing assigned — pressing all three changes nothing', 
   await expect(page.getByTestId('budget-assign-zero')).not.toHaveAttribute('aria-disabled', 'true');
 });
 
-test('= 0 empties what is picked and leaves the rest alone', async ({ page }) => {
-  await onBudget(page);
+test('= 0 adjusts the selected line until available is zero including carryover', async ({ page }) => {
+  const prior = new Date();
+  prior.setDate(1);
+  prior.setMonth(prior.getMonth() - 1);
+  const set = `m:${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}`;
+  const store = JSON.parse(STORE());
+  store.budgets.push({ ...monthBudget('l1', 2000), set, id: `${set}|l1` });
+  await withStore(page, JSON.stringify(store));
+  await page.getByTestId('tab-budget').click();
   await pick(page, 'l1');
   await page.getByTestId('budget-assign-zero').click();
 
-  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$0.00');
-  expect(await assignedIn(page, 'l1')).toBe(0);
+  await expect(page.getByTestId('line-available-l1')).toHaveText('$0.00');
+  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$100.00');
+  expect(await assignedIn(page, 'l1')).toBe(10000);
   // The other two were never picked and must not have moved.
   await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
   expect(await assignedIn(page, 'l3')).toBe(120000);

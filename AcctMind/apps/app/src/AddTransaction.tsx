@@ -14,8 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   amountDigits, amountField, amountInput, amountKeyed, amountSeed, draftOf, emptyDraft,
-  formatAmount, formatDay, isValid, signedCents, today, validateDraft,
-  type AmountMode, type Category, type Draft, type DraftErrors, type Line, type Txn,
+  autoCategory, formatAmount, formatDay, isValid, signedCents, today, validateDraft,
+  type AmountMode, type Category, type CategoryChoice, type CategoryRule, type Draft, type DraftErrors, type Txn,
 } from '@acctmind/core';
 import { CategoryPick } from './CategoryPick';
 import { DayPicker } from './DayPicker';
@@ -41,7 +41,8 @@ type Props = {
   /** The categories, for the picker's grouping and colours. */
   categories: readonly Category[];
   /** Everything a transaction can be filed under — the LINES, since v4. */
-  lines: readonly Line[];
+  lines: readonly CategoryChoice[];
+  rules: readonly CategoryRule[];
   /**
    * How bare digits are read. Owned by the screen behind this one, because it
    * is a setting that outlives any one entry — see TransactionsScreen.
@@ -50,11 +51,12 @@ type Props = {
 };
 
 export function AddTransaction({
-  visible, onSave, onCancel, editing, mode, account, category = null, categories, lines,
+  visible, onSave, onCancel, editing, mode, account, category = null, categories, lines, rules,
 }: Props) {
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(today(), account, category));
   const [errors, setErrors] = useState<DraftErrors>({});
   const [picking, setPicking] = useState(false);
+  const [pickedCategory, setPickedCategory] = useState(false);
   /**
    * What has actually been typed, and the sign held beside it.
    *
@@ -83,6 +85,7 @@ export function AddTransaction({
         ? emptyDraft(today(), account, category)
         : draftOf(editing);
       setDraft(start);
+      setPickedCategory(false);
       setErrors({});
       setPicking(false);
       /*
@@ -147,13 +150,14 @@ export function AddTransaction({
   };
 
   const cents = signedCents(digits, negative, mode);
+  const categoryValue = editing === undefined && !pickedCategory ? autoCategory(draft, rules) : draft.category;
 
   const submit = () => {
     const found = validateDraft(draft);
     setErrors(found);
     // Every bad field at once. A form that reports one at a time costs a
     // round trip per mistake.
-    if (isValid(found)) onSave(draft);
+    if (isValid(found)) onSave({ ...draft, category: categoryValue });
   };
 
   return (
@@ -232,8 +236,11 @@ export function AddTransaction({
               <CategoryPick
                 categories={categories}
                 lines={lines}
-                value={draft.category}
-                onPick={(id) => setDraft((d) => ({ ...d, category: id }))}
+                value={categoryValue}
+                onPick={(id) => {
+                  setPickedCategory(true);
+                  setDraft((d) => ({ ...d, category: id }));
+                }}
               />
             </Field>
 

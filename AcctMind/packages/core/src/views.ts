@@ -56,6 +56,7 @@
 import { RECONCILE_NAME, assignedFor, type AssignMode } from './budget';
 import { isDay } from './day';
 import { touch } from './merge';
+import { putSetting } from './store';
 import type { BudgetAmount, Line, Setting, Txn } from './types';
 
 /* The helpers take the COLLECTION they read, not the whole Store — a screen
@@ -90,6 +91,20 @@ export function monthOf(day: string): string {
  */
 export function budgetId(set: string, line: string): string {
   return `${set}|${line}`;
+}
+
+/** Snooze and assignment have independent records so either can sync alone. */
+export function snoozedLines(store: HasSettings, set: string): Set<string> {
+  const prefix = `snooze:${set}|`;
+  return new Set((store.settings ?? [])
+    .filter((row) => !row.deleted && row.value === '1' && row.id.startsWith(prefix))
+    .map((row) => row.id.slice(prefix.length)));
+}
+
+export function putSnooze(
+  store: HasSettings, set: string, line: string, snoozed: boolean, now: number,
+): Setting[] {
+  return putSetting(store, `snooze:${budgetId(set, line)}`, snoozed ? '1' : '', now);
 }
 
 /**
@@ -250,12 +265,7 @@ export function budgetStart(store: HasSettings): string | null {
  * recreated id is the case `mergeRecords` has to argue about.
  */
 export function putBudgetStart(store: HasSettings, day: string | null, now: number): Setting[] {
-  const all = store.settings ?? [];
-  const had = all.find((r) => r.id === BUDGET_START);
-  const row: Setting = had === undefined
-    ? { id: BUDGET_START, value: day ?? '', created: now, updated: now }
-    : { ...touch(had, now), value: day ?? '' };
-  return had === undefined ? [...all, row] : all.map((r) => (r.id === BUDGET_START ? row : r));
+  return putSetting(store, BUDGET_START, day ?? '', now);
 }
 
 /** The transactions the budget's lines answer for: dated on or after the start. */
@@ -291,9 +301,8 @@ export function suggestedStart(txns: readonly Txn[]): string | null {
  *
  * WHAT IS ALREADY RIGHT IS NOT WRITTEN. A line whose amount is already the
  * one asked for is skipped entirely — no `updated`, no record, no sync
- * traffic. That is what keeps `= 0` over a whole budget from minting a
- * budgets row for every line that had nothing assigned in this month
- * anyway: an unassigned month already reads zero.
+ * traffic. For example, `= 0` creates no budget record if the balance is
+ * already zero.
  *
  * A line whose new amount is not an amount at all — past `MAX_CENTS` — is
  * skipped too, rather than taking the whole press down with it. The other
@@ -306,18 +315,19 @@ export function suggestedStart(txns: readonly Txn[]): string | null {
  * saves it, publishes it to every peer and re-renders the list.
  */
 export function assignMany(
-  store: { lines: readonly Line[]; budgets: readonly BudgetAmount[] },
+  store: HasSettings & { lines: readonly Line[]; budgets: readonly BudgetAmount[] },
   set: string,
-  picks: readonly { line: Line; budgeted: number; spent: number }[],
+  picks: readonly { line: Line; budgeted: number; spent: number; carry?: number }[],
   mode: AssignMode,
   now: number,
 ): { lines: Line[]; budgets: BudgetAmount[] } | null {
   const lines = new Map(store.lines.map((l) => [l.id, l]));
   const budgets = new Map(store.budgets.map((b) => [b.id, b]));
+  const snoozed = snoozedLines(store, set);
   let changed = false;
 
-  for (const { line, budgeted, spent } of picks) {
-    const next = assignedFor(mode, line, budgeted, spent);
+  for (const { line, budgeted, spent, carry } of picks) {
+    const next = assignedFor(mode, { needs: line.needs, snoozed: snoozed.has(line.id) }, budgeted, spent, carry);
     if (next === null || next === budgeted) continue;
     changed = true;
     if (set === ALL_TIME) {
@@ -330,7 +340,8 @@ export function assignMany(
     const id = budgetId(set, line.id);
     const had = budgets.get(id);
     budgets.set(id, {
-      id, set, line: line.id, amount: next, created: had?.created ?? now, updated: now,
+      id, set, line: line.id, amount: next, created: had?.created ?? now,
+      updated: had === undefined ? now : touch(had, now).updated,
     });
   }
 

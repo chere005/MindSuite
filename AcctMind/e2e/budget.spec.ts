@@ -464,7 +464,7 @@ test('a target of zero is not "short" — most lines never set one', async ({ pa
   expect(await colourOf(page, line)).toBe(TONE.funded);
 });
 
-test('Snooze greys the line, and beats being short', async ({ page }) => {
+test('snooze greys the line for the selected month', async ({ page }) => {
   const line = await seed(page);
   await page.getByTestId(`line-needs-tap-${line}`).click();
   await page.getByTestId('pad-amount-op-set').click();
@@ -474,8 +474,11 @@ test('Snooze greys the line, and beats being short', async ({ page }) => {
 
   await page.getByTestId(`line-snooze-${line}`).click();
   expect(await colourOf(page, line)).toBe(TONE.snoozed);
-  const s = await stored(page) as Stored & { lines: { id: string; snoozed: boolean }[] };
-  expect(s.lines.find((l) => l.id === line)?.snoozed).toBe(true);
+
+  await page.getByTestId('budget-month-next').click();
+  expect(await colourOf(page, line)).toBe(TONE.short);
+  await page.getByTestId('budget-month-prev').click();
+  expect(await colourOf(page, line)).toBe(TONE.snoozed);
 
   // And pressing it again wakes it back to exactly what it was.
   await page.getByTestId(`line-snooze-${line}`).click();

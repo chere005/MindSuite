@@ -12,9 +12,10 @@ import { suiteAccount, openSuiteAccount, signOutSuiteAccount } from './suiteacco
 const shortDay = (day: string): string =>
   `${monthLabel(day).slice(0, 3)} ${Number(day.slice(8, 10))}, ${day.slice(0, 4)}`;
 
-export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, offer }: {
+export function AppMenu({ onImport, onExport, onMatch, whole, onWhole, start, onStart, offer }: {
   onImport?: (() => void) | undefined;
   onExport: () => void;
+  onMatch: () => void;
   whole: boolean;
   onWhole: (next: boolean) => void;
   start: string | null;
@@ -38,6 +39,7 @@ export function AppMenu({ onImport, onExport, whole, onWhole, start, onStart, of
   const items: AccountMenuItem[] = ledgerOptions ? [
     ...(onImport ? [{ key: 'import', label: 'Import from CSV', testID: 'menu-import', onPress: onImport }] : []),
     { key: 'export', label: 'Export budget', testID: 'menu-export', onPress: onExport },
+    { key: 'match', label: 'Auto-categorize transactions', testID: 'menu-auto-categorize', onPress: onMatch },
   ] : [
     { key: 'account', label: 'Account', testID: 'menu-account', onPress: () => openSuiteAccount(account) },
     { key: 'settings', label: 'Settings', testID: 'menu-settings', keepOpen: true, onPress: () => setOptions(true) },

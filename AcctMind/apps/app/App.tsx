@@ -18,7 +18,7 @@
  * true. So the add button is gone in that state, by construction rather than
  * by remembering to check.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -30,10 +30,12 @@ import {
   REORDER_GAP, assignMany, budgetCsv, budgetStart, countsFrom, putBudgetStart, suggestedStart, planSync, serialize, undoTo, budgetIn, carriedInto, linesIn, monthOf,
   monthSet, today, tombstone, tombstoneMany, touch,
   txnText, updateTxn, setCleared,
+  categoryChoices, categoryRules, putSnooze, removeCategoryRule, saveCategoryRule,
   type AssignMode, type CsvRow, type Draft, type ImportMode, type Line, type Store, type Txn,
 } from '@acctmind/core';
 import * as Clipboard from 'expo-clipboard';
 import { AppMenu } from './src/AppMenu';
+import { AutoCategorize } from './src/AutoCategorize';
 import { Import } from './src/Import';
 import { saveTextFile } from './src/savefile';
 import * as peer from './src/peer';
@@ -98,6 +100,7 @@ export default function App() {
   /** Which manager is open, if either. */
   const [managing, setManaging] = useState<'accounts' | 'categories' | null>(null);
   const [importing, setImporting] = useState(false);
+  const [matching, setMatching] = useState(false);
   /**
    * The budget line being added or edited, if any.
    *
@@ -478,10 +481,15 @@ export default function App() {
     </CircleBtn>
   );
 
+  const ledger = phase.k === 'ready' ? phase.store : null;
+  const choices = useMemo(() => ledger === null ? [] : categoryChoices(ledger.lines, ledger.txns), [ledger]);
+  const rules = useMemo(() => ledger === null ? [] : categoryRules(ledger), [ledger]);
+
   const appMenu = (
     <AppMenu
       onImport={() => setImporting(true)}
       onExport={onExportBudget}
+      onMatch={() => setMatching(true)}
       whole={prefs.amountMode === 'whole'}
       onWhole={(next) => setPref('amountMode', next ? 'whole' : 'cents')}
       /* A LEDGER setting, not a pref: it commits into the store and syncs,
@@ -552,6 +560,7 @@ export default function App() {
                 categories={live(phase.store.categories)}
                 lines={live(phase.store.lines)}
                 budgets={phase.store.budgets}
+                settings={phase.store.settings}
                 start={budgetStart(phase.store)}
                 budgetMonth={prefs.budgetMonth}
                 onBudgetMonth={(m: string) => setPref('budgetMonth', m)}
@@ -600,9 +609,10 @@ export default function App() {
                 }}
                 onSnoozeLine={(line, next) => {
                   if (phase.k !== 'ready') return;
-                  commit(phase, putLine(
-                    phase.store, touch({ ...line, snoozed: next }, Date.now()),
-                  ));
+                  commit(phase, {
+                    ...phase.store,
+                    settings: putSnooze(phase.store, monthSet(prefs.budgetMonth), line.id, next, Date.now()),
+                  });
                 }}
                 onDeleteLine={(line) => {
                   if (phase.k !== 'ready') return;
@@ -704,7 +714,7 @@ export default function App() {
               collapsed={prefs.collapsed}
               onCollapsed={(ids) => setPref('collapsed', [...ids])}
               onManage={() => setManaging('accounts')}
-              lines={live(phase.store.lines)}
+              lines={choices}
               categories={live(phase.store.categories)}
               /*
                * Reconcile: say what the account actually holds, and the
@@ -770,6 +780,16 @@ export default function App() {
                 ));
               }}
             />
+            {matching && (
+              <AutoCategorize
+                categories={live(phase.store.categories)}
+                lines={choices}
+                rules={rules}
+                onSave={(match, category) => commit(phase, saveCategoryRule(phase.store, match, category, Date.now()))}
+                onRemove={(match) => commit(phase, removeCategoryRule(phase.store, match, Date.now()))}
+                onClose={() => setMatching(false)}
+              />
+            )}
             <Manage
               visible={managing !== null}
               label={managing === 'categories' ? 'Categories' : 'Accounts'}
@@ -930,7 +950,8 @@ export default function App() {
               account={addingTo}
               category={addingIn}
               categories={live(phase.store.categories)}
-              lines={live(phase.store.lines)}
+              lines={choices}
+              rules={rules}
               onSave={onSave}
               onCancel={() => { setAdding(false); setEditing(null); }}
             />

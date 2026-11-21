@@ -32,8 +32,8 @@ import {
 import {
   LONG_PRESS_MS, availableOf, budgetIn, carriedInto, countsFrom, dropTarget, foldLevel,
   formatAmount, lineTone, linesIn, monthOf, monthSet, slotEntries, toggleSelected, total,
-  unassigned, unfiledSince,
-  type AssignMode, type BudgetAmount, type Category, type Line, type LineTone, type Txn,
+  snoozedLines, unassigned, unfiledSince,
+  type AssignMode, type BudgetAmount, type Category, type Line, type LineTone, type Setting, type Txn,
 } from '@acctmind/core';
 import { Dot } from './Dot';
 import {
@@ -126,7 +126,7 @@ const KEEP_FOCUS = {
 } as unknown as Record<string, unknown>;
 
 export function BudgetScreen({
-  txns, categories, lines, budgets, start, collapsed, onCollapsed, onManage, onAddLine,
+  txns, categories, lines, budgets, settings, start, collapsed, onCollapsed, onManage, onAddLine,
   onEditAmount, onRenameLine, onRenameCategory, onDeleteLine, onSnoozeLine,
   onDeleteCategory, onMoveLine, onAssignMany,
   budgetMonth, onBudgetMonth, menu, undo,
@@ -135,6 +135,7 @@ export function BudgetScreen({
   categories: readonly Category[];
   lines: readonly Line[];
   budgets: readonly BudgetAmount[];
+  settings: readonly Setting[] | undefined;
   /** The budget's first day, or null. Nothing dated before it counts against a line. */
   start: string | null;
   /**
@@ -204,7 +205,7 @@ export function BudgetScreen({
    * writes it. Nothing about the arithmetic is here.
    */
   onAssignMany: (
-    picks: readonly { line: Line; budgeted: number; spent: number }[],
+    picks: readonly { line: Line; budgeted: number; spent: number; carry: number }[],
     mode: AssignMode,
   ) => void;
 }) {
@@ -255,6 +256,7 @@ export function BudgetScreen({
    * in, which is a change to one control rather than to anybody's data.
    */
   const set = monthSet(budgetMonth);
+  const snoozed = snoozedLines({ settings }, set);
   /* This month's rows, from the budget's first day on — nothing dated
      before the start counts against a line (core's `countsFrom`). */
   const inScope = useMemo(
@@ -472,7 +474,7 @@ export function BudgetScreen({
     .map((id) => lines.find((l) => l.id === id))
     .filter((l): l is Line => l !== undefined);
   const assignPicked = (mode: AssignMode) => onAssignMany(
-    pickedLines().map((l) => ({ line: l, budgeted: budgetOf(l), spent: spentOn(l.id) })),
+    pickedLines().map((l) => ({ line: l, budgeted: budgetOf(l), spent: spentOn(l.id), carry: carryOf(l) })),
     mode,
   );
 
@@ -599,6 +601,7 @@ export function BudgetScreen({
             spentOn={spentOn}
             budgetOf={budgetOf}
             carryOf={carryOf}
+            snoozed={snoozed}
             set={set}
             onEditAmount={onEditAmount}
             onRenameLine={onRenameLine}
@@ -707,17 +710,8 @@ export function BudgetScreen({
         money columns would be one more number to read past. What sits in
         `detail`'s place is the three buttons.
 
-        `= 0`, `= ⚑`, `= $` — the flag and the green dollar are marks the
-        column heads already wear, so each button says which column it is
-        levelling assigned against without a word on it. `= 0` is the one
-        with no column: it is the number itself.
-
-        THE GREEN $ IS AVAILABLE'S, not Spent's red one, and it was an up
-        arrow until the owner said otherwise ("= up arrow should actually just be
-        = green $"). It reads right: the press sets assigned to match what
-        moved, which is the same thing as taking the line's AVAILABLE to
-        nothing, and available is the column a person is looking at when
-        they reach for it.
+        The flag funds the target, the green dollar matches this month's
+        spending, and zero levels the available balance.
       */}
       <PickBar
         prefix="budget-picked"
@@ -728,7 +722,7 @@ export function BudgetScreen({
           <>
             <AssignBtn
               onPress={() => assignPicked('zero')}
-              label="Assign nothing"
+              label="Set available to zero"
               off={picked.length === 0}
               testID="budget-assign-zero"
             >
@@ -804,7 +798,7 @@ function AssignBtn({ onPress, label, testID, off, children }: {
  */
 function CategorySection({
   category, rows, shut, onToggle, onFoldAll, onAdd, edit, naming, setNaming,
-  spentOn, budgetOf, carryOf, set,
+  spentOn, budgetOf, carryOf, snoozed, set,
   onEditAmount, onRenameLine, onRenameCategory, onDeleteLine, onSnoozeLine,
   onDeleteCategory, picked, onPick, drag, canDrag, headIdx, emptyIdx, flatIdxOf,
 }: {
@@ -823,6 +817,7 @@ function CategorySection({
   budgetOf: (line: Line) => number;
   /** What this line carried in from earlier months. 0 outside Month. */
   carryOf: (line: Line) => number;
+  snoozed: ReadonlySet<string>;
   /** Which set an amount edit lands in. Passed through to the pad. */
   set: string;
   onEditAmount: (pick: LinePick, field: LineField, at: Anchor) => void;
@@ -1014,6 +1009,7 @@ function CategorySection({
             spent={spentOn(l.id)}
             budgeted={budgetOf(l)}
             carry={carryOf(l)}
+            snoozed={snoozed.has(l.id)}
             set={set}
             edit={edit}
             picked={picked.includes(l.id)}
@@ -1039,7 +1035,7 @@ function CategorySection({
 }
 
 function LineRow({
-  line, spent, budgeted, carry, set, edit, picked = false, onPick, naming, onName, onNamed,
+  line, spent, budgeted, carry, set, edit, picked = false, snoozed = false, onPick, naming, onName, onNamed,
   onEditAmount, onDelete, onSnooze, grip, lifted, dy, fixed = false,
 }: {
   line: Line;
@@ -1060,6 +1056,7 @@ function LineRow({
    * AVAILABLE, which is the number it is actually part of.
    */
   carry: number;
+  snoozed?: boolean;
   /** Which set the pad should write a change into. */
   set: string;
   edit: boolean;
@@ -1088,7 +1085,7 @@ function LineRow({
   // for the Mac and the phone to disagree about what a yellow line means.
   // The line is handed over wearing THIS SET's amount, so a month where the
   // groceries are unfunded reads red there and nowhere else.
-  const tone = lineTone({ ...line, budget: budgeted }, spent, carry);
+  const tone = lineTone({ needs: line.needs, snoozed, budget: budgeted }, spent, carry);
   return (
     <Animated.View
       style={[
@@ -1211,15 +1208,15 @@ function LineRow({
       */}
       {fixed ? <View style={styles.snoozeCol} /> : (
       <Pressable
-        onPress={() => onSnooze(!line.snoozed)}
+        onPress={() => onSnooze(!snoozed)}
         style={styles.snoozeCol}
         accessibilityRole="checkbox"
-        accessibilityState={{ checked: line.snoozed }}
-        accessibilityLabel={line.snoozed ? `Wake ${line.name}` : `Snooze ${line.name}`}
+        accessibilityState={{ checked: snoozed }}
+        accessibilityLabel={snoozed ? `Wake ${line.name}` : `Snooze ${line.name}`}
         testID={`line-snooze-${line.id}`}
       >
-        <View style={[styles.box, line.snoozed && styles.boxOn]}>
-          {line.snoozed && <Text style={styles.boxTick}>✓</Text>}
+        <View style={[styles.box, snoozed && styles.boxOn]}>
+          {snoozed && <Text style={styles.boxTick}>✓</Text>}
         </View>
       </Pressable>
       )}

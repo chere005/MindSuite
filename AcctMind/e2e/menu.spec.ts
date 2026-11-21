@@ -16,7 +16,7 @@
  * stepper is on. That join is checked nowhere else.
  */
 import { expect, test } from '@playwright/test';
-import { closeMenu, fresh, monthBudget, openMenu, thisMonthSet, withStore } from './helpers';
+import { addTransaction, closeMenu, fresh, monthBudget, openMenu, storedTxns, thisMonthSet, withStore } from './helpers';
 
 /** The month the Budget tab opens on, `YYYY-MM` — the set key without its `m:`. */
 const month = (): string => thisMonthSet().slice(2);
@@ -84,12 +84,45 @@ test('the cog is on BOTH tabs, and the old controls are gone from the bar', asyn
   await expect(page.getByTestId('app-menu-button')).toBeVisible();
 });
 
-test('the menu holds the three rows, in order', async ({ page }) => {
+test('the menu exposes ledger actions and preferences', async ({ page }) => {
   await fresh(page);
   await openMenu(page);
   await expect(page.getByTestId('menu-import')).toHaveText('Import from CSV');
   await expect(page.getByTestId('menu-export')).toHaveText('Export budget');
+  await expect(page.getByTestId('menu-auto-categorize')).toHaveText('Auto-categorize transactions');
   await expect(page.getByTestId('menu-whole')).toContainText('Whole dollars');
+});
+
+test('matching rules file transactions and the category picker puts used lines first', async ({ page }) => {
+  const store = JSON.parse(STORE());
+  store.lines.push({ ...store.lines[0], id: 'l2', name: 'Coffee' });
+  store.txns[0].category = null;
+  await withStore(page, JSON.stringify(store));
+  await openMenu(page);
+  await page.getByTestId('menu-auto-categorize').click();
+  await page.getByTestId('auto-category-match').fill('coffee');
+  await page.getByTestId('category-button').click();
+  await page.getByTestId('category-opt-l2').click();
+  await page.getByTestId('auto-category-save').click();
+  await expect(page.getByRole('button', { name: 'Remove rule for coffee' })).toBeVisible();
+  await page.getByTestId('auto-category-done').click();
+  await expect(page.getByTestId('auto-category-done')).toBeHidden();
+  await expect(page.getByTestId('txn-category')).toHaveText('Coffee');
+
+  await addTransaction(page, { name: 'Card purchase', description: 'COFFEE stand', amount: '-3.25' });
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Coffee by hand');
+  await expect(page.getByTestId('category-value')).toHaveText('Coffee');
+  await page.getByTestId('category-button').click();
+  await expect(page.getByTestId(/^category-opt-/).first()).toHaveAttribute('data-testid', 'category-opt-l2');
+  await page.getByTestId('category-none').click();
+  await page.getByTestId('amount-input').fill('1.50');
+  await page.getByTestId('save-button').click();
+  await expect(page.getByTestId('save-button')).toBeHidden();
+  expect(await storedTxns(page)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: 'Card purchase', category: 'l2' }),
+    expect.objectContaining({ name: 'Coffee by hand', category: null }),
+  ]));
 });
 
 test('Whole dollars ticks, STAYS open, and holds across a reload', async ({ page }) => {

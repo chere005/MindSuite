@@ -212,12 +212,8 @@ export function stillNeeded(line: { budget: number; needs: number; snoozed: bool
  * sum of the transactions."
  *
  * Three sentences about ASSIGNED, and every one of them is already a rule
- * this file holds — which is why they are here rather than in the bar that
- * draws them. `= flag` is `stillNeeded` added on. The third — an up arrow
- * when he described it, a green `$` since he looked at it — is the budget
- * that leaves nothing available, which is `budgetFor(0, spent)` with no
- * carry. `= 0` is zero. Naming them here means the three buttons cannot
- * disagree with the four columns above them about what a target is.
+ * this file holds. The flag adds `stillNeeded`, the green dollar
+ * matches this month's spending, and `= 0` levels Available after carryover.
  * ------------------------------------------------------------------ */
 
 /** Which of the three the bar pressed. */
@@ -249,8 +245,9 @@ export function assignedFor(
   line: { needs: number; snoozed: boolean },
   budgeted: number,
   spent: number,
+  carry = 0,
 ): number | null {
-  if (mode === 'zero') return 0;
+  if (mode === 'zero') return usable(budgetFor(0, spent, carry));
   if (mode === 'spent') return usable(budgetFor(0, spent));
   return usable(budgeted + stillNeeded({ ...line, budget: budgeted }));
 }

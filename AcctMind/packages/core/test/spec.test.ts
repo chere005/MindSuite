@@ -324,14 +324,14 @@ describe('spec/budget.json', () => {
     roundTripCarried: [number, number, number][];
     unassigned: [number, [number, number, number][], number][];
     ops: [number, AmountOp, number, number | null][];
-    assign: [AssignMode, number, boolean, number, number, number][];
+    assign: [AssignMode, number, boolean, number, number, number, number][];
   }>('budget');
 
   it("the pick bar's three buttons are three sentences about ASSIGNED", () => {
-    for (const [mode, needs, snoozed, budgeted, spent, want] of b.assign) {
+    for (const [mode, needs, snoozed, budgeted, spent, carry, want] of b.assign) {
       expect(
-        assignedFor(mode, { needs, snoozed }, budgeted, spent),
-        `${mode} · needs ${needs}${snoozed ? ' snoozed' : ''} · has ${budgeted} · spent ${spent}`,
+        assignedFor(mode, { needs, snoozed }, budgeted, spent, carry),
+        JSON.stringify([mode, needs, snoozed, budgeted, spent, carry]),
       ).toBe(want);
     }
   });

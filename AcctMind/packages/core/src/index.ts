@@ -14,6 +14,7 @@ export * from './money';
 export * from './budget';
 export * from './day';
 export * from './txn';
+export * from './categorization';
 export * from './csv';
 export * from './store';
 export * from './merge';

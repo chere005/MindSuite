@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ALL_TIME, assignMany, assignedBefore, budgetId, budgetIn, budgetSetIn, budgetStart,
   carriedInto, countsFrom, monthOf, monthSet, putBudget, putBudgetStart, setMonth, suggestedStart,
+  mergeStores, parseStore, putSnooze, serialize, snoozedLines,
   type BudgetAmount, type Line, type Store, type Txn,
 } from '../src/index';
 
@@ -13,6 +14,24 @@ const amount = (set: string, lineId: string, n: number, extra: Partial<BudgetAmo
 });
 const store = (lines: Line[], budgets: BudgetAmount[] = []): Store => ({
   v: 4, txns: [], accounts: [], categories: [], lines, budgets,
+});
+
+it('keeps snooze in the selected month across save, merge, and bulk assignment', () => {
+  const sep = monthSet('2026-09');
+  const oct = monthSet('2026-10');
+  const l = { ...line('l1', 0), snoozed: true, needs: 2000 };
+  const base = store([l]);
+  expect(snoozedLines(base, sep)).toEqual(new Set());
+  const asleep = { ...base, settings: putSnooze(base, sep, l.id, true, 100) };
+  const loaded = parseStore(serialize(asleep));
+  if (!loaded.ok) throw new Error(loaded.error);
+  expect(snoozedLines(loaded.store, sep)).toEqual(new Set([l.id]));
+  expect(snoozedLines(loaded.store, oct)).toEqual(new Set());
+  const pick = { line: l, budgeted: 0, spent: 0 };
+  expect(assignMany(loaded.store, sep, [pick], 'needs', 101)).toBeNull();
+  expect(assignMany(loaded.store, oct, [pick], 'needs', 101)?.budgets[0]?.amount).toBe(2000);
+  const awake = { ...loaded.store, settings: putSnooze(loaded.store, sep, l.id, false, 100) };
+  expect(snoozedLines(mergeStores(asleep, awake), sep)).toEqual(new Set());
 });
 
 describe('set keys', () => {
@@ -262,10 +281,7 @@ describe('assigning to a whole selection at once', () => {
 
   it('skips a line that already holds the answer — no record, no sync', () => {
     const l = line('l1', 0);
-    // `= 0` over a month nobody has assigned in. Every line already reads
-    // zero there, so a bar press that minted a row per line would fill the
-    // store with records saying what it already said.
-    expect(assignMany(store([l]), SEP, [pick(l, 0, -500)], 'zero', 1)).toBeNull();
+    expect(assignMany(store([l]), SEP, [{ ...pick(l, 0, -500), carry: 500 }], 'zero', 1)).toBeNull();
   });
 
   it('keeps the created stamp of a row it overwrites', () => {

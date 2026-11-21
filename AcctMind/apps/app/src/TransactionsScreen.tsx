@@ -12,7 +12,7 @@ import {
   formatAmount, formatDay, parseAmount, pickTap, rowTap,
   selectedTotal, slotEntries,
   signedCents, sortTxns, swipeArms, toggleSelected, total,
-  type Account, type AmountMode, type Category, type Line, type SortMode, type Txn,
+  type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn,
 } from '@acctmind/core';
 import { CategoryMenu, NO_CATEGORY } from './CategoryPick';
 import { Dot } from './Dot';
@@ -96,7 +96,7 @@ type Props = {
    * The budget lines, for the category column. Names only — a transaction
    * points at a LINE (v4), so this is what turns that id into a word.
    */
-  lines: readonly Line[];
+  lines: readonly CategoryChoice[];
   /** The headings the lines sit under — the row's dropdown groups by them. */
   categories: readonly Category[];
   /**
@@ -562,7 +562,7 @@ function Section({
   /** The row whose delete is parked, if any. One at a time, like openId. */
   lineName: (id: string | null) => string;
   /** What the row's category dropdown offers. */
-  lines: readonly Line[];
+  lines: readonly CategoryChoice[];
   categories: readonly Category[];
   /** The account, and which of its two figures, open as a field — if any. */
   reconciling: { account: string; what: Reconciled } | null;
@@ -841,7 +841,7 @@ function Row({
   parked: boolean;
   /** What this row is filed against, already resolved to a word. */
   lineName: string;
-  lines: readonly Line[];
+  lines: readonly CategoryChoice[];
   categories: readonly Category[];
   /** Put away a parked delete — a tap on any row does it. */
   onDismiss: () => void;

@@ -17,6 +17,7 @@ import { parseAmount } from './money';
 import { addDays, isDay } from './day';
 import { newId, REORDER_GAP } from './txn';
 import { tombstone, touch } from './merge';
+import { autoCategory, categoryRules } from './categorization';
 import type { Store, Txn } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -587,23 +588,23 @@ export function applyImport(
   const byDate = [...plan.adding].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const base = kept.reduce((m, t) => Math.max(m, t.order), 0);
 
-  const added: Txn[] = byDate.map((row, i) => ({
-    id: id(),
-    name: wellsFargoName(row.description),
-    description: row.description,
-    amount: row.amount,
-    date: row.date,
-    account,
-    category: null,
-    order: base + (i + 1) * REORDER_GAP,
-    created: now,
-    updated: now,
-    // Spread, never `cleared: row.cleared` — an uncleared row carries NO key
-    // at all (see Txn.cleared), so writing `false` would make every imported
-    // row differ from one written by hand and give the merge something to
-    // disagree about.
-    ...(row.cleared ? { cleared: true as const } : {}),
-  }));
+  const rules = categoryRules(store);
+  const added: Txn[] = byDate.map((row, i) => {
+    const name = wellsFargoName(row.description);
+    return {
+      id: id(),
+      name,
+      description: row.description,
+      amount: row.amount,
+      date: row.date,
+      account,
+      category: autoCategory({ name, description: row.description, category: null }, rules),
+      order: base + (i + 1) * REORDER_GAP,
+      created: now,
+      updated: now,
+      ...(row.cleared ? { cleared: true } : {}),
+    };
+  });
 
   return { ...store, txns: [...kept, ...added] };
 }

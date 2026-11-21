@@ -1,0 +1,17 @@
+{
+  "matches": [
+    ["GROCERY SHOP", "", null, "food"],
+    ["Purchase", "Card: Grocery Shop #515", null, "food"],
+    ["Shop", "refund", "rent", "rent"],
+    ["Book Shop", "store", null, "books"],
+    ["Workshop", "", null, "food"],
+    ["Reconcile", "shop", null, null],
+    ["Coffee", "", null, null]
+  ],
+  "frequency": {
+    "lines": ["rent", "food", "books"],
+    "filed": ["books", "food", "books", "food", "food", null],
+    "deleted": ["rent", "rent", "rent", "rent"],
+    "order": ["food", "books", "income", "rent"]
+  }
+}

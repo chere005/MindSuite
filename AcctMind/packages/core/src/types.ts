@@ -86,13 +86,7 @@ export type Line = Record_ & {
    * that painted every one of them yellow would be a screen nobody reads.
    */
   needs: number;
-  /**
-   * Snoozed: this line is not asking for money right now.
-   *
-   * A target you are deliberately not funding this month is different from
-   * one you have forgotten, and without somewhere to say so the only way to
-   * quiet a line is to delete the target and lose it.
-   */
+  /** Legacy line-wide snooze. Monthly snoozes live in ledger settings. */
   snoozed: boolean;
   order: number;
 };

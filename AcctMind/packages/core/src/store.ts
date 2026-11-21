@@ -338,6 +338,17 @@ export function normalizeSetting(row: unknown): Setting | null {
   return { ...base, value };
 }
 
+/** Update one ledger setting with the same clock rules as other records. */
+export function putSetting(
+  store: { settings?: readonly Setting[] | undefined }, id: string, value: string, now: number,
+): Setting[] {
+  const settings = store.settings ?? [];
+  const had = settings.find((r) => r.id === id);
+  if (had === undefined) return [...settings, { id, value, created: now, updated: now }];
+  const row = touch({ id, value, created: had.created, updated: had.updated }, now);
+  return settings.map((r) => r.id === id ? row : r);
+}
+
 export function normalizeLine(row: unknown): Line | null {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return null;
   const r = row as Record<string, unknown>;
