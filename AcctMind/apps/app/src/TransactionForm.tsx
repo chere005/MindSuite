@@ -6,7 +6,7 @@
  * decides that itself. `useTxnForm` owns the state and `submit`; the two
  * callers only choose where the fields and the buttons sit.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   amountDigits, amountField, amountInput, amountKeyed, amountSeed, draftOf, emptyDraft,
@@ -21,7 +21,7 @@ import { SPACE, T, TAP } from './theme';
 export type TxnFormProps = {
   /** Is the form on screen? A false-to-true change reseeds it. */
   active: boolean;
-  onSave: (draft: Draft, cleared: boolean) => void;
+  onSave: (draft: Draft, cleared: boolean, changed: ReadonlySet<keyof Draft | 'cleared'>) => void;
   editing?: Txn | undefined;
   account: string;
   category?: string | null | undefined;
@@ -39,6 +39,8 @@ export function useTxnForm({
   const seed = (): Draft => (editing === undefined ? emptyDraft(today(), account, category) : draftOf(editing));
   const [draft, setDraft] = useState<Draft>(seed);
   const [cleared, setCleared] = useState(editing?.cleared === true);
+  /** What the form started as, so a save can say which fields the person changed. */
+  const baseline = useRef({ draft: seed(), cleared: editing?.cleared === true });
   const [errors, setErrors] = useState<DraftErrors>({});
   const [picking, setPicking] = useState(false);
   const [pickedCategory, setPickedCategory] = useState(false);
@@ -70,6 +72,7 @@ export function useTxnForm({
         ? emptyDraft(today(), account, category)
         : draftOf(editing);
       setDraft(start);
+      baseline.current = { draft: start, cleared: editing?.cleared === true };
       setPickedCategory(false);
       setErrors({});
       setPicking(false);
@@ -142,7 +145,13 @@ export function useTxnForm({
     setErrors(found);
     // Every bad field at once. A form that reports one at a time costs a
     // round trip per mistake.
-    if (isValid(found)) onSave({ ...draft, category: categoryValue }, cleared);
+    if (isValid(found)) {
+      const out: Draft = { ...draft, category: categoryValue };
+      const changed = new Set<keyof Draft | 'cleared'>();
+      for (const k of Object.keys(out) as (keyof Draft)[]) if (out[k] !== baseline.current.draft[k]) changed.add(k);
+      if (cleared !== baseline.current.cleared) changed.add('cleared');
+      onSave(out, cleared, changed);
+    }
   };
 
 

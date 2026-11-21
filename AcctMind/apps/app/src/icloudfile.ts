@@ -62,3 +62,5 @@ export function syncInfo(): SyncInfo {
   const t = fileTimes();
   return { source: 'file', readAt: t.readAt, savedAt: t.savedAt, writtenAt: null, signedIn: false };
 }
+
+export function confirmRead(): void {}

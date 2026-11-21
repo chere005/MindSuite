@@ -495,7 +495,7 @@ function TransactionsBody({
               >
                 <Text style={styles.filtersOn}>Clear filters</Text>
               </Pressable>
-            ) : <Text style={styles.emptyBody}>Tap + on an account to add the first one.</Text>}
+            ) : readOnly ? null : <Text style={styles.emptyBody}>Tap + on an account to add the first one.</Text>}
           </View>
         )}
 

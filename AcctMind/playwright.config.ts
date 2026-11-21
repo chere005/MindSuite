@@ -29,7 +29,10 @@ export default defineConfig({
     // 880 wide, not Desktop Chrome's 1280: the wide (desktop-size) layout starts
     // at 900 px, and every spec but wide.spec.ts drives the phone layout.
     // wide.spec.ts sets its own viewports.
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 880, height: 720 } } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 880, height: 720 },
+      // acct.example.com is this server under a name that is not a development host,
+      // so wide.spec.ts can drive the real-host (always read-only) behaviour.
+      launchOptions: { args: ['--host-resolver-rules=MAP acct.example.com 127.0.0.1'] } } },
     // The phone shape, because tap targets and the safe area only go wrong
     // when the viewport is small.
     { name: 'mobile', use: { ...devices['iPhone 15'] } },

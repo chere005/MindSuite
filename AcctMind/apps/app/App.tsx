@@ -25,7 +25,7 @@ import { StatusBar } from 'expo-status-bar';
 import {
   addTxn, applyDraft, applyOp, availableOf, budgetFor, budgetIn, duplicateTxn, emptyStore, ensureAccount,
   live, makeTxn, moveLineTo, moveTxnTo,
-  applyImport, clearedTotal, ensureCategory, newId, nextColor, planImport, RECONCILE_NAME,
+  applyImport, clearedTotal, parseStore, ensureCategory, newId, nextColor, planImport, RECONCILE_NAME,
   reconcileAdjustment, total, putAccount, putBudget, putCategory, putLine, removeCategoryDeep,
   REORDER_GAP, assignMany, budgetCsv, budgetStart, putBudgetStart, suggestedStart, planSync, serialize, undoTo, linesIn, monthlyBudgetAmounts,
   monthSet, setMonth, today, tombstone, tombstoneMany, touch,
@@ -50,7 +50,7 @@ import { CircleBtn } from './src/TopBar';
 import { UndoIcon } from './src/Icons';
 import { Tabs, type Tab } from './src/Tabs';
 import { TransactionsScreen, type RowAction } from './src/TransactionsScreen';
-import { load, save } from './src/persist';
+import { clearCopyCache, load, loadCopyCache, save, saveCopyCache } from './src/persist';
 import { DEFAULTS, loadPrefs, savePrefs, type Prefs } from './src/prefs';
 import { SPACE, T, TAP } from './src/theme';
 import { useWide } from './src/components/WideFrame';
@@ -216,7 +216,53 @@ export default function App() {
    * being merged, and the ref is the ledger as it stands at that instant —
    * see the note on storeRef for the data loss reading state would cause.
    */
+  /**
+   * THE READ-ONLY COPY: what a plain browser on a real host shows. It is the
+   * CloudKit copy and nothing else: never merged with the browser's own saved
+   * ledger and never saved into it. The last copy read is cached under its own
+   * key, only so it can be shown again when iCloud cannot be reached.
+   */
+  const [copyMeta, setCopyMeta] = useState<{ unreadable: string | null; cachedAt: number | null }>(
+    { unreadable: null, cachedAt: null },
+  );
+  const showCopy = useCallback((store: Store, dropped = 0) => {
+    storeRef.current = store;
+    setUndo(null);
+    setPhase({ k: 'ready', store, dropped });
+  }, []);
+  const readCopy = useCallback(async () => {
+    const text = await shared.pull();
+    const seen = shared.syncInfo();
+    if (text === null) {
+      if (!seen.signedIn && seen.engine === 'ready') {
+        // Signed out: nothing of the last account's copy stays on screen or on disk.
+        void clearCopyCache();
+        setCopyMeta({ unreadable: null, cachedAt: null });
+        showCopy(emptyStore());
+      } else if (seen.signedIn && !seen.unreachable) {
+        // Signed in and iCloud answered: the phone has written no copy.
+        void clearCopyCache();
+        setCopyMeta({ unreadable: null, cachedAt: null });
+        showCopy(emptyStore());
+      }
+      // Unreachable or still connecting: keep showing the cached copy, if any.
+      return;
+    }
+    const parsed = parseStore(text);
+    if (!parsed.ok) {
+      // Not stamped as read, and the last good copy stays on screen.
+      setCopyMeta((m) => ({ ...m, unreadable: parsed.error }));
+      return;
+    }
+    shared.confirmRead();
+    const written = shared.syncInfo().writtenAt;
+    setCopyMeta({ unreadable: null, cachedAt: written ?? Date.now() });
+    showCopy(parsed.store, parsed.dropped);
+    void saveCopyCache({ text, writtenAt: written, cachedAt: Date.now() });
+  }, [showCopy]);
+
   const reconcileShared = useCallback(async () => {
+    if (shared.access().source === 'copy') { await readCopy(); return; }
     const local = storeRef.current;
     if (local === null) return;
     if (!(await shared.available())) return;
@@ -230,7 +276,7 @@ export default function App() {
       save(plan.store).catch((e: unknown) => setSaveError(String(e)));
     }
     if (plan.publish !== null) void shared.push(plan.publish);
-  }, []);
+  }, [readCopy]);
 
   /**
    * And when another device writes it.
@@ -244,7 +290,21 @@ export default function App() {
 
   useEffect(() => {
     let running = true;
-    load().then(async (loaded) => {
+    void (async () => {
+      // Who may edit is decided by where the ledger came from, which a plain
+      // browser only knows once CloudKit has answered.
+      await shared.settled();
+      if (!running) return;
+      if (shared.access().source === 'copy') {
+        const cached = await loadCopyCache();
+        if (!running) return;
+        const parsed = cached === null ? null : parseStore(cached.text);
+        setCopyMeta({ unreadable: null, cachedAt: cached === null ? null : cached.writtenAt ?? cached.cachedAt });
+        showCopy(parsed !== null && parsed.ok ? parsed.store : emptyStore(), parsed !== null && parsed.ok ? parsed.dropped : 0);
+        await readCopy();
+        return;
+      }
+      const loaded = await load();
       let r = loaded;
       if (!running) return;
       if (!r.ok) {
@@ -264,10 +324,6 @@ export default function App() {
        * blocked store nothing is written at all, which is the whole reason
        * that branch returns above.
        */
-      // Who may edit is decided by where the ledger came from, which a plain
-      // browser only knows once CloudKit has answered. Seeding is a WRITE.
-      await shared.settled();
-      if (!running) return;
       const now = Date.now();
       // And ALWAYS at least one category, for the same reason: the Budget
       // tab's only way to make a line is the + beside a category, so a store
@@ -276,7 +332,7 @@ export default function App() {
       // successful read — a damaged store is never written to.
       // A read-only view (the phone's copy through CloudKit) never creates a
       // record, not even these defaults: it shows only what the copy holds.
-      const seeded = shared.access().readOnly ? r.store : ensureCategory(
+      const seeded = ensureCategory(
         ensureAccount(r.store, `acct-${newId()}`, now),
         `cat-${newId()}`,
         now,
@@ -302,9 +358,9 @@ export default function App() {
       // local-first app must not wait on a disk it does not own before
       // drawing the ledger it does.
       if (running) void reconcileShared();
-    });
+    })();
     return () => { running = false; };
-  }, [reconcileShared]);
+  }, [reconcileShared, readCopy, showCopy, access.source]);
 
 
   /*
@@ -551,7 +607,7 @@ export default function App() {
 
   const banner = readOnly ? (
     <ReadOnlyBanner
-      info={info}
+      info={{ ...info, unreadable: copyMeta.unreadable, cachedAt: copyMeta.cachedAt }}
       onReload={() => { void reconcileShared(); }}
       onSignIn={() => setMenuAsk((n) => n + 1)}
     />
@@ -800,7 +856,7 @@ export default function App() {
                 choices={choices}
                 readOnly={readOnly}
                 banner={banner}
-                info={info}
+                info={{ ...info, unreadable: copyMeta.unreadable, cachedAt: copyMeta.cachedAt }}
                 menu={appMenu}
                 actions={{
                   onImport: openImport,

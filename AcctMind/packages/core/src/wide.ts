@@ -8,7 +8,7 @@
 import { budgetOverspent, lineTone, linesIn, stillNeeded, unassigned, availableOf, type LineTone } from './budget';
 import { autoCategory, type CategoryRule } from './categorization';
 import { isDay, today as todayDay } from './day';
-import { amountInput, parseAmount } from './money';
+import { amountDigits, amountInput, signedCents, type AmountMode } from './money';
 import { filterByName, filterTransactions, isValid, sortTxns, validateDraft, EMPTY_TXN_FILTER, type TxnFilter } from './txn';
 import { monthlyBudgetAmounts, snoozedLines, monthSet } from './views';
 import type { Account, Category, Draft, DraftErrors, Line, Setting, BudgetAmount, Txn } from './types';
@@ -26,9 +26,12 @@ import type { CategoryChoice } from './categorization';
  *   copy  — a plain browser showing the CloudKit copy of the iPhone's ledger.
  *           NEVER written back (`cloudkitweb.push` is a no-op), so an edit made
  *           here would be silently lost. Read-only.
- *   local — a plain browser with no CloudKit at all (a development host, or
- *           CloudKit blocked or unconfigured): the browser's own storage is
+ *   local — a plain browser on a DEVELOPMENT host (where CloudKit's token
+ *           cannot work) that is not signed in: the browser's own storage is
  *           the ledger and the only copy. Editable.
+ *
+ * On a real host a plain browser is ALWAYS `copy`: it shows the CloudKit copy
+ * and nothing else, and stays read-only when CloudKit is unreachable or fails.
  */
 export type LedgerSource = 'file' | 'copy' | 'local';
 
@@ -37,8 +40,6 @@ export type AccessInput = {
   native: boolean;
   /** `window.__TAURI__` is present (the Mac and Windows shells). */
   tauri: boolean;
-  /** What CloudKit JS is doing in this page: not answered yet, running, or unavailable. */
-  cloudKit: 'pending' | 'ready' | 'off';
   signedIn: boolean;
   /** localhost, 127.0.0.1, [::1], *.localhost, *.test: where the API token is not valid. */
   localHost: boolean;
@@ -49,15 +50,14 @@ export type LedgerAccess = { source: LedgerSource; readOnly: boolean };
 /**
  * The ONE answer the UI reads for "may this ledger be edited here".
  *
- * A signed-in browser is always reading the copy. A signed-out browser on a
- * real host is read-only too (it shows the sign-in) until CloudKit turns out
- * to be unavailable; on a development host a signed-out browser has only its
- * own local ledger, which is the case the e2e harness drives.
+ * A plain browser on a real host is read-only whatever CloudKit does (loading,
+ * signed out, failed): it never becomes editable there. A signed-in browser is
+ * reading the copy on any host. Only an unsigned browser on a development host
+ * (the e2e harness, `localhost`) keeps its own editable local ledger.
  */
 export function ledgerAccess(i: AccessInput): LedgerAccess {
   if (i.native || i.tauri) return { source: 'file', readOnly: false };
-  if (i.signedIn) return { source: 'copy', readOnly: true };
-  if (i.cloudKit !== 'off' && !i.localHost) return { source: 'copy', readOnly: true };
+  if (i.signedIn || !i.localHost) return { source: 'copy', readOnly: true };
   return { source: 'local', readOnly: false };
 }
 
@@ -70,13 +70,21 @@ export function isLocalHost(hostname: string): boolean {
 
 export type SyncInfo = {
   source: LedgerSource;
-  /** When the shared file / CloudKit copy was last read by this page, ms. */
+  /** When this page last read the shared file / CloudKit copy successfully, ms. */
   readAt: number | null;
   /** When this page last wrote the shared file, ms. */
   savedAt: number | null;
   /** When the iPhone wrote the CloudKit copy, ms. */
   writtenAt: number | null;
   signedIn: boolean;
+  /** CloudKit JS: not answered yet, running, or unavailable. */
+  engine?: 'pending' | 'ready' | 'off';
+  /** CloudKit could not be reached or the read failed. */
+  unreachable?: boolean;
+  /** When the cached copy on screen was written (or cached), ms, if one is shown. */
+  cachedAt?: number | null;
+  /** Why the copy could not be read as a ledger, when it could not. */
+  unreadable?: string | null;
 };
 
 const clock = (ms: number): string => {
@@ -101,7 +109,9 @@ export function formatWritten(ms: number, now: number): string {
 /** The small status line under the sidebar's title. */
 export function syncLine(info: SyncInfo, now: number): string {
   if (info.source === 'copy') {
-    if (!info.signedIn) return 'iCloud copy · signed out';
+    if (info.unreadable) return 'iPhone copy · could not be read';
+    if (info.unreachable) return 'iCloud · not reachable';
+    if (!info.signedIn) return info.engine === 'pending' ? 'iCloud · connecting…' : 'iCloud copy · signed out';
     if (info.writtenAt !== null) return `iPhone copy · written ${formatWritten(info.writtenAt, now)}`;
     return info.readAt !== null ? 'iPhone copy · none written yet' : 'iPhone copy · reading…';
   }
@@ -112,16 +122,46 @@ export function syncLine(info: SyncInfo, now: number): string {
   return parts.length === 1 ? 'iCloud Drive · not read yet' : parts.join(' · ');
 }
 
-/** The sentence the read-only banner says (without the "Read-only" lead). */
-export function readOnlyMessage(info: SyncInfo, now: number): string {
+export type ReadOnlyBanner = {
+  tone: 'info' | 'warn' | 'error';
+  text: string;
+  /** What the button does: read again, or sign in. */
+  action: 'reload' | 'signin';
+};
+
+/**
+ * What the read-only banner says (after the bold "Read-only"), in priority
+ * order: an unreadable copy, an unreachable iCloud (with the cached copy's time
+ * when one is shown), still connecting, signed out, then the normal line.
+ */
+export function readOnlyBanner(info: SyncInfo, now: number): ReadOnlyBanner {
   const tail = 'Add and edit on your iPhone or in the AcctMind Mac app.';
-  if (!info.signedIn) return "Sign in with your Apple ID to read your iPhone's copy from iCloud.";
-  if (info.writtenAt !== null) {
-    return `Reading your iPhone's copy from iCloud, written ${formatWritten(info.writtenAt, now)}. ${tail}`;
+  if (info.unreadable) {
+    return { tone: 'error', action: 'reload', text: `Your iPhone's copy couldn't be read (${info.unreadable}).` };
   }
-  return info.readAt === null
-    ? `Reading your iPhone's copy from iCloud. ${tail}`
-    : `Signed in, but your iPhone has not written a copy yet. ${tail}`;
+  if (info.unreachable) {
+    const t = info.cachedAt ?? null;
+    return {
+      tone: 'warn', action: 'reload',
+      text: t === null
+        ? "Couldn't reach iCloud, and there is no saved copy to show."
+        : `Couldn't reach iCloud; showing the copy from ${formatWritten(t, now)}.`,
+    };
+  }
+  if (!info.signedIn) {
+    return info.engine === 'pending'
+      ? { tone: 'info', action: 'reload', text: 'Connecting to iCloud…' }
+      : { tone: 'info', action: 'signin', text: "Sign in with your Apple ID to read your iPhone's copy from iCloud." };
+  }
+  if (info.writtenAt !== null) {
+    return { tone: 'info', action: 'reload', text: `Reading your iPhone's copy from iCloud, written ${formatWritten(info.writtenAt, now)}. ${tail}` };
+  }
+  return {
+    tone: 'info', action: 'reload',
+    text: info.readAt === null
+      ? `Reading your iPhone's copy from iCloud. ${tail}`
+      : `Signed in, but your iPhone has not written a copy yet. ${tail}`,
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -164,9 +204,12 @@ export function ledgerFoot(txns: readonly Txn[]): LedgerFoot {
  * share a date keep `sortTxns`'s order, so the running balance is stable.
  */
 export function ledgerTable(
-  txns: readonly Txn[], account: string | null, filter: TxnFilter = EMPTY_TXN_FILTER,
+  txns: readonly Txn[], accounts: readonly Account[], account: string | null, filter: TxnFilter = EMPTY_TXN_FILTER,
 ): { rows: LedgerRow[]; foot: LedgerFoot } {
-  const live = txns.filter((t) => t.deleted !== true);
+  // Only live accounts' rows, as the phone's sections and `accountBalances` do,
+  // so the table's net agrees with the sidebar's total.
+  const open = new Set(accounts.filter((a) => a.deleted !== true).map((a) => a.id));
+  const live = txns.filter((t) => t.deleted !== true && open.has(t.account));
   const scope = account === null ? live : live.filter((t) => t.account === account);
   const sorted = sortTxns(scope, 'date');
   const balance = new Map<string, number>();
@@ -192,63 +235,99 @@ const MONTH_INDEX: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
 
+const dayNumber = (y: number, m: number, d: number): number => Date.UTC(y, m - 1, d) / 86_400_000;
+
 /**
  * A typed date: empty is today; `2026-11-21`, `11/21`, `11/21/26`, `11/21/2026`,
- * `Nov 21` and `Nov 21 2026` are days; anything else is null. A bare month and
- * day take the current year.
+ * `Nov 21` and `Nov 21 2026` are days; anything else is null.
+ *
+ * A two-digit year takes the century that lands NEAREST today (`99` is 1999
+ * and `26` is 2026 in 2026). A bare month and day take the nearest such date
+ * to today, within six months either side (`12/30` typed on Jan 2 is the
+ * previous Dec 30).
  */
 export function parseDayInput(text: string, now: string = todayDay()): string | null {
   const s = text.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
   if (s === '') return now;
   if (isDay(s)) return s;
-  const year = (y: string | undefined): string | null => {
-    if (y === undefined) return now.slice(0, 4);
-    if (y.length === 2) return `20${y}`;
-    return y.length === 4 ? y : null;
-  };
-  let m: number; let d: number; let y: string | null;
+  let m: number; let d: number; let y: string | undefined;
   let hit = /^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2}|\d{4}))?$/.exec(s);
   if (hit) {
-    m = Number(hit[1]); d = Number(hit[2]); y = year(hit[3]);
+    m = Number(hit[1]); d = Number(hit[2]); y = hit[3];
   } else {
     hit = /^([a-z]{3})[a-z]* (\d{1,2})(?: (\d{2}|\d{4}))?$/.exec(s);
     if (!hit) return null;
-    m = MONTH_INDEX[hit[1]!] ?? 0; d = Number(hit[2]); y = year(hit[3]);
+    m = MONTH_INDEX[hit[1]!] ?? 0; d = Number(hit[2]); y = hit[3];
   }
-  if (y === null) return null;
-  const out = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  return isDay(out) ? out : null;
+  const [ny, nm, nd] = now.split('-').map(Number) as [number, number, number];
+  const today = dayNumber(ny, nm, nd);
+  const make = (year: number): string | null => {
+    const out = `${String(year).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return isDay(out) ? out : null;
+  };
+  const nearest = (years: readonly number[]): string | null => {
+    let best: string | null = null;
+    let gap = Infinity;
+    for (const year of years) {
+      const day = make(year);
+      if (day === null) continue;
+      const g = Math.abs(dayNumber(year, m, d) - today);
+      if (g < gap) { gap = g; best = day; }
+    }
+    return best;
+  };
+  if (y === undefined) return nearest([ny - 1, ny, ny + 1]);
+  if (y.length === 4) return make(Number(y));
+  const yy = Number(y);
+  return nearest([1900 + yy, 2000 + yy, 2100 + yy]);
 }
 
 /**
- * A typed amount as the draft's canonical string. Unsigned money is an
- * EXPENSE (the add form starts negative for the same reason: nearly
- * everything in a ledger goes out); `+` marks income, `-` or `−` an expense.
- * Null when it is not an amount.
+ * A typed amount as the draft's canonical string, read the way the editor
+ * reads it: the digits go through `amountDigits` and `signedCents` under the
+ * same entry MODE, so with cents `350` is $3.50 and with whole dollars it is
+ * $350.00, and a typed `.` makes it an ordinary amount in both.
+ *
+ * The sign is the one thing a quick row has no button for. Unsigned money is an
+ * EXPENSE (the editor's minus starts on, for the same reason); `-`, `−` and
+ * accounting brackets `(12.34)` are expenses too; a leading `+` makes it
+ * income. A `+` with brackets, or two signs, is ambiguous and refused. Anything
+ * but digits, one dot, commas and `$` is refused rather than dropped.
  */
-export function quickAmount(text: string): string | null {
-  let s = text.trim().replace(/^−/, '-');
+export function quickAmount(text: string, mode: AmountMode): string | null {
+  let s = text.trim().replace(/^\u2212/, '-');
   if (s === '') return null;
-  let negative = true;
-  if (s.startsWith('+')) { negative = false; s = s.slice(1); }
-  else if (s.startsWith('-')) s = s.slice(1);
-  if (/^\s*[+-]/.test(s)) return null;
-  const cents = parseAmount(s);
-  if (cents === null) return null;
-  return amountInput(negative ? -cents : cents);
+  let income = false;
+  if (s.startsWith('+')) { income = true; s = s.slice(1).trim(); }
+  else if (s.startsWith('-')) s = s.slice(1).trim();
+  if (s.startsWith('(') && s.endsWith(')')) {
+    if (income) return null;
+    s = s.slice(1, -1).trim();
+  }
+  if (!/^[\d.,$\s]+$/.test(s)) return null;
+  const cents = signedCents(amountDigits(s), !income, mode);
+  return cents === null ? null : amountInput(cents);
 }
+
+export type QuickCategory =
+  | { kind: 'auto' }
+  | { kind: 'ok'; id: string }
+  | { kind: 'none'; text: string }
+  | { kind: 'many'; text: string; names: string[] };
 
 /**
  * The category a typed word means: an exact name, else a single substring
- * match, else nothing. Empty means "decide from the name" (the rules).
+ * match. Empty means "decide from the name" (the rules). A word that matches
+ * nothing, or several, is NOT quietly dropped: the caller refuses and says so.
  */
-export function quickCategory(text: string, choices: readonly CategoryChoice[]): string | null | undefined {
+export function quickCategory(text: string, choices: readonly CategoryChoice[]): QuickCategory {
   const q = text.trim();
-  if (q === '') return undefined;
+  if (q === '') return { kind: 'auto' };
   const exact = choices.find((c) => c.name.toLowerCase() === q.toLowerCase());
-  if (exact) return exact.id;
+  if (exact) return { kind: 'ok', id: exact.id };
   const some = filterByName(choices, q);
-  return some.length === 1 ? some[0]!.id : null;
+  if (some.length === 1) return { kind: 'ok', id: some[0]!.id };
+  return some.length === 0 ? { kind: 'none', text: q } : { kind: 'many', text: q, names: some.map((c) => c.name) };
 }
 
 export type QuickFields = { date: string; name: string; category: string; amount: string };
@@ -256,18 +335,24 @@ export type QuickFields = { date: string; name: string; category: string; amount
 /** A quick-entry row read into core's Draft, with core's own validation. */
 export function quickDraft(
   f: QuickFields,
-  ctx: { account: string; choices: readonly CategoryChoice[]; rules: readonly CategoryRule[]; today?: string },
+  ctx: {
+    account: string; choices: readonly CategoryChoice[]; rules: readonly CategoryRule[];
+    mode: AmountMode; today?: string;
+  },
 ): { draft: Draft; errors: DraftErrors } {
   const day = parseDayInput(f.date, ctx.today);
-  const amount = quickAmount(f.amount);
+  const amount = quickAmount(f.amount, ctx.mode);
   const draft: Draft = {
     name: f.name, description: '', amount: amount ?? f.amount.trim(),
     date: day ?? f.date.trim(), account: ctx.account, category: null,
   };
   const typed = quickCategory(f.category, ctx.choices);
-  draft.category = typed === undefined ? autoCategory(draft, ctx.rules) : typed;
+  if (typed.kind === 'auto') draft.category = autoCategory(draft, ctx.rules);
+  else if (typed.kind === 'ok') draft.category = typed.id;
   const errors = validateDraft(draft);
   if (amount === null && draft.amount !== '' && errors.amount === undefined) errors.amount = 'That is not an amount';
+  if (typed.kind === 'none') errors.category = `No category matches "${typed.text}"`;
+  else if (typed.kind === 'many') errors.category = `"${typed.text}" matches ${typed.names.join(', ')}: type more`;
   return { draft, errors };
 }
 

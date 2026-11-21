@@ -58,9 +58,13 @@ else html = html.replace('</head>', '<title>AcctMind</title></head>');
  * The capture phase, and resource failures named separately: a <script> that
  * 404s does not bubble an error to `window` and carries no message — which
  * is exactly what a bundle deployed under the wrong base URL looks like.
+ *
+ * EXCEPT CloudKit JS: it is loaded on demand from Apple's CDN and may be
+ * blocked or offline. That is not a failed start; the read-only view says
+ * "couldn't reach iCloud" instead.
  */
 const TRAP = `<script>(function(){function show(m){try{var d=document.getElementById('acct-fatal')||document.createElement('div');d.id='acct-fatal';d.setAttribute('data-testid','fatal');d.style.cssText='position:fixed;inset:0;z-index:99999;background:#111;color:#f2f2f7;font:13px/1.5 -apple-system,system-ui,sans-serif;padding:24px;white-space:pre-wrap;overflow:auto';d.textContent='AcctMind could not start.\\n\\n'+m;if(!d.parentNode)document.body.appendChild(d)}catch(e){}}
-window.addEventListener('error',function(e){if(e.target&&e.target!==window&&e.target.src){show('Failed to load: '+e.target.src+'\\n\\nIf that path looks like the wrong instance, this export was built for a different base URL.')}else{show(e.message||String(e.error))}},true);
+window.addEventListener('error',function(e){if(e.target&&e.target!==window&&e.target.src){if(e.target.src.indexOf('apple-cloudkit.com')>=0)return;show('Failed to load: '+e.target.src+'\\n\\nIf that path looks like the wrong instance, this export was built for a different base URL.')}else{show(e.message||String(e.error))}},true);
 window.addEventListener('unhandledrejection',function(e){show('Unhandled promise rejection: '+((e.reason&&e.reason.message)||String(e.reason)))});})();</script>`;
 if (!html.includes("id='acct-fatal'") && !html.includes('acct-fatal')) {
   html = html.replace(/<head([^>]*)>/i, (m) => m + TRAP);

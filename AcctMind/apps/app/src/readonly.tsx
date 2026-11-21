@@ -9,7 +9,7 @@
  */
 import { createContext, useContext, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { readOnlyMessage, type SyncInfo } from '@acctmind/core';
+import { readOnlyBanner, type SyncInfo } from '@acctmind/core';
 import { SPACE, T } from './theme';
 
 export type ReadOnlyValue = { readOnly: boolean; banner: ReactNode };
@@ -19,21 +19,22 @@ export const useReadOnly = (): ReadOnlyValue => useContext(ReadOnlyContext);
 export function ReadOnlyBanner({ info, onReload, onSignIn }: {
   info: SyncInfo; onReload: () => void; onSignIn: () => void;
 }) {
-  const signedOut = info.source === 'copy' && !info.signedIn;
+  const b = readOnlyBanner(info, Date.now());
+  const err = b.tone === 'error';
   return (
-    <View style={styles.bar} testID="readonly-banner" accessibilityRole="alert">
-      <Text style={styles.text}>
-        <Text style={styles.lead}>Read-only</Text>
+    <View style={[styles.bar, err && styles.barError]} testID="readonly-banner" accessibilityRole="alert">
+      <Text style={[styles.text, err && styles.textError]} testID="readonly-banner-text">
+        <Text style={[styles.lead, err && styles.leadError]}>Read-only</Text>
         {' · '}
-        {readOnlyMessage(info, Date.now())}
+        {b.text}
       </Text>
       <Pressable
-        onPress={signedOut ? onSignIn : onReload}
-        style={styles.btn}
+        onPress={b.action === 'signin' ? onSignIn : onReload}
+        style={[styles.btn, err && styles.btnError]}
         accessibilityRole="button"
-        testID={signedOut ? 'readonly-signin' : 'readonly-reload'}
+        testID={b.action === 'signin' ? 'readonly-signin' : 'readonly-reload'}
       >
-        <Text style={styles.btnText}>{signedOut ? 'Sign in' : 'Reload'}</Text>
+        <Text style={[styles.btnText, err && styles.leadError]}>{b.action === 'signin' ? 'Sign in' : 'Reload'}</Text>
       </Pressable>
     </View>
   );
@@ -46,6 +47,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(240,180,41,0.16)',
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(240,180,41,0.5)',
   },
+  barError: { backgroundColor: 'rgba(255,69,58,0.16)', borderBottomColor: 'rgba(255,69,58,0.55)' },
+  textError: { color: '#ffb4ae' },
+  leadError: { color: T.danger },
+  btnError: { borderColor: T.danger },
   text: { flex: 1, flexBasis: 240, color: '#f6dc9a', fontSize: 13, lineHeight: 18 },
   lead: { fontWeight: '700', color: T.gold },
   btn: {

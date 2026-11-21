@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import {
-  addTxn, accountBalances, applyDraft, budgetSheet, budgetStart, formatAmount, live, makeTxn, monthSet, newId,
+  addTxn, accountBalances, applyDraft, draftOf, budgetSheet, budgetStart, formatAmount, live, makeTxn, monthSet, newId,
   putBudget, putLine, putSnooze, REORDER_GAP, setCleared, syncLine, tombstone, touch, updateTxn,
   type AmountMode, type CategoryChoice, type CategoryRule, type Draft, type Store, type SyncInfo, type Txn,
 } from '@acctmind/core';
@@ -82,12 +82,19 @@ export function WideApp({
 
   /* ---------------- transactions ---------------- */
   const editing = selTxn !== null && selTxn !== 'new' ? txns.find((t) => t.id === selTxn) ?? null : null;
-  const saveTxn = (draft: Draft, cleared: boolean) => {
+  const saveTxn = (draft: Draft, cleared: boolean, changed: ReadonlySet<keyof Draft | 'cleared'>) => {
     if (readOnly) return;
     const now = Date.now();
     if (editing !== null) {
-      let t = applyDraft(editing, draft, now);
-      if ((t.cleared === true) !== cleared) t = setCleared(t, cleared, now);
+      // Only what the person changed in the form, written onto the record as it
+      // is NOW (`editing` is re-read from the store each render): a Cleared tick
+      // made in the table while this was open must not be reverted by a rename.
+      const patch: Partial<Draft> = {};
+      for (const k of Object.keys(draft) as (keyof Draft)[]) {
+        if (changed.has(k)) (patch as Record<string, unknown>)[k] = draft[k];
+      }
+      let t = applyDraft(editing, { ...draftOf(editing), ...patch }, now);
+      if (changed.has('cleared') && (t.cleared === true) !== cleared) t = setCleared(t, cleared, now);
       commit(updateTxn(store, t));
     } else {
       let t = makeTxn(draft, `txn-${newId()}`, now);
@@ -204,7 +211,7 @@ export function WideApp({
     />
   ) : (
     <WideTransactions
-      txns={txns} accounts={accounts} account={shownAccount} choices={choices} rules={rules}
+      txns={txns} accounts={accounts} account={shownAccount} choices={choices} rules={rules} mode={mode}
       selectedId={selTxn} readOnly={readOnly} banner={banner} quickAccount={firstAccount}
       onSelect={(t) => setSelTxn(t.id)}
       onCleared={(t, v) => { if (!readOnly) commit(updateTxn(store, setCleared(t, v, Date.now()))); }}

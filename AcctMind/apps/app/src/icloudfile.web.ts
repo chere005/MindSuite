@@ -136,7 +136,7 @@ export function onRemoteChange(handler: () => void): () => void {
 export function access(): LedgerAccess {
   const s = ck.state();
   return ledgerAccess({
-    native: false, tauri: bridge() !== null, cloudKit: s.engine, signedIn: s.signedIn,
+    native: false, tauri: bridge() !== null, signedIn: s.signedIn,
     localHost: typeof location !== 'undefined' && isLocalHost(location.hostname),
   });
 }
@@ -152,8 +152,16 @@ export function syncInfo(): SyncInfo {
   const { source } = access();
   if (source === 'copy') {
     const s = ck.state();
-    return { source, readAt: s.readAt, savedAt: null, writtenAt: s.writtenAt, signedIn: s.signedIn };
+    return {
+      source, readAt: s.readAt, savedAt: null, writtenAt: s.writtenAt, signedIn: s.signedIn,
+      engine: s.engine, unreachable: s.engine === 'off' || s.failed,
+    };
   }
   const t = fileTimes();
   return { source, readAt: t.readAt, savedAt: t.savedAt, writtenAt: null, signedIn: false };
+}
+
+/** The page has read what `pull` returned as a ledger (CloudKit stamps its times only now). */
+export function confirmRead(): void {
+  if (bridge() === null) ck.commitRead();
 }

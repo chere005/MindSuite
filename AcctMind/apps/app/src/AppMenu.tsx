@@ -1,5 +1,5 @@
 /** Shared app chrome, with the ledger's local/iCloud settings kept app-owned. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { addDays, monthLabel } from '@acctmind/core';
 import { CogIcon } from './Icons';
@@ -30,8 +30,14 @@ export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, 
   const [options, setOptions] = useState(false);
   const [account] = useState(suiteAccount);
   const slots = shared.signInSlots();
+  // Opens only when the signal CHANGES, never on mount: the menu is rebuilt
+  // with each tab, and a remount must not reopen it.
+  const handled = useRef(openSignal);
   useEffect(() => {
-    if (openSignal > 0) { setOptions(true); setOpen(true); }
+    if (openSignal === handled.current) return;
+    handled.current = openSignal;
+    setOptions(true);
+    setOpen(true);
   }, [openSignal]);
   const [syncNote, setSyncNote] = useState('iCloud: checking…');
   useEffect(() => {

@@ -68,9 +68,11 @@ export function LinePane({
   }
 
   const targetCents = parseAmount(target);
+  // Refuse, don't clamp: a negative target is an error the person sees.
+  const targetError = targetCents === null ? 'That is not an amount' : targetCents < 0 ? 'A target cannot be negative' : null;
   const save = () => {
-    if (name.trim() === '' || targetCents === null) return;
-    onSave({ name: name.trim(), category, target: Math.max(0, targetCents), allocated, snoozed });
+    if (name.trim() === '' || targetCents === null || targetCents < 0) return;
+    onSave({ name: name.trim(), category, target: targetCents, allocated, snoozed });
   };
   const del = () => {
     if (!armed) { setArmed(true); fuse.current = setTimeout(() => setArmed(false), 2500); return; }
@@ -100,7 +102,7 @@ export function LinePane({
           <Text style={styles.label}>Target each month</Text>
           <TextInput value={target} onChangeText={setTarget} style={[styles.input, styles.right]} inputMode="decimal"
             placeholderTextColor={T.faint} testID="line-target-input" />
-          {targetCents === null && <Text style={styles.err}>That is not an amount</Text>}
+          {targetError !== null && <Text style={styles.err} testID="line-target-error">{targetError}</Text>}
         </View>
         <View style={styles.f}>
           <Text style={styles.label}>Allocated</Text>

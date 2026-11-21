@@ -60,6 +60,10 @@ let lastRead: string | null = null;
 /** When the phone wrote the record we last read, and when we read it (ms). */
 let writtenAt: number | null = null;
 let readAt: number | null = null;
+/** The last read reached CloudKit's answer but failed (not 'no record', not signed out). */
+let failed = false;
+/** What the last pull saw, stamped into writtenAt/readAt only once the caller has read it as a ledger. */
+let candidate: { written: number | null } | null = null;
 /** Whether CloudKit JS started at all: pending until the first answer. */
 let engine: 'pending' | 'ready' | 'off' = 'pending';
 
@@ -68,7 +72,7 @@ const fireState = () => stateHandlers.forEach((h) => h());
 
 /** What the page needs to know to decide who may edit, and what to say. */
 export function state() {
-  return { engine, signedIn, writtenAt, readAt };
+  return { engine, signedIn, writtenAt, readAt, failed };
 }
 export function onState(h: () => void): () => void {
   stateHandlers.add(h);
@@ -215,6 +219,7 @@ async function unpack(base64: string): Promise<string> {
 export async function pull(): Promise<string | null> {
   const c = await container();
   if (c === null || !signedIn) return null;
+  const fail = (note: string) => { lastRead = note; failed = true; candidate = null; fireState(); return null; };
   try {
     const res = await c.privateCloudDatabase.fetchRecords([CK_RECORD_NAME]);
     if (res.hasErrors) {
@@ -224,35 +229,45 @@ export async function pull(): Promise<string | null> {
         lastRead = 'signed in · the phone has not written a copy yet';
         writtenAt = null;
         readAt = Date.now();
+        failed = false;
+        candidate = null;
         fireState();
       } else if (code === 'AUTHENTICATION_REQUIRED') {
         signedIn = false;
         lastRead = null;
+        candidate = null;
         fireState();
       } else {
-        lastRead = `signed in · could not read the copy (${code})`;
+        return fail(`signed in · could not read the copy (${code})`);
       }
       return null;
     }
     const rec = res.records[0];
     const field = rec?.fields[CK_FIELD]?.value;
-    if (typeof field !== 'string') {
-      lastRead = 'signed in · the copy has no ledger in it';
-      return null;
-    }
+    if (typeof field !== 'string') return fail('signed in · the copy has no ledger in it');
     const text = await unpack(field);
     const when = rec?.modified?.timestamp;
-    writtenAt = when ?? null;
-    readAt = Date.now();
-    fireState();
+    candidate = { written: when ?? null };
+    failed = false;
     lastRead = when
       ? `reading the phone's copy, written ${new Date(when).toLocaleString()}`
       : "reading the phone's copy";
     return text;
   } catch (e) {
-    lastRead = `signed in · reading the copy failed (${String(e)})`;
-    return null;
+    return fail(`signed in · reading the copy failed (${String(e)})`);
   }
+}
+
+/**
+ * The caller has read what `pull` returned as a ledger: only now is it "read"
+ * and "written at". A copy that would not parse never stamps a time.
+ */
+export function commitRead(): void {
+  if (candidate === null) return;
+  writtenAt = candidate.written;
+  readAt = Date.now();
+  candidate = null;
+  fireState();
 }
 
 /** Never writes. See the header. */

@@ -27,7 +27,7 @@ export function TxnEditor({
   lines: readonly CategoryChoice[];
   rules: readonly CategoryRule[];
   mode: AmountMode;
-  onSave: (draft: Draft, cleared: boolean) => void;
+  onSave: (draft: Draft, cleared: boolean, changed: ReadonlySet<keyof Draft | 'cleared'>) => void;
   onDelete: (txn: Txn) => void;
   onClose: () => void;
 }) {

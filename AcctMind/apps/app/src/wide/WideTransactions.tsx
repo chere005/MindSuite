@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   EMPTY_TXN_FILTER, INCOME, INCOME_NAME, formatAmount, formatDay, ledgerTable, quickDraft, today,
-  type Account, type CategoryChoice, type CategoryRule, type Draft, type Txn,
+  type Account, type AmountMode, type CategoryChoice, type CategoryRule, type Draft, type Txn,
 } from '@acctmind/core';
 import { T } from '../theme';
 import { Btn, SELECTED_ROW } from './shared';
@@ -16,7 +16,7 @@ import { Btn, SELECTED_ROW } from './shared';
 const W = { date: 72, cat: 124, acct: 112, amount: 104, balance: 104, cleared: 56 } as const;
 
 export function WideTransactions({
-  txns, accounts, account, choices, rules, selectedId, readOnly, banner, quickAccount,
+  txns, accounts, account, choices, rules, mode, selectedId, readOnly, banner, quickAccount,
   onSelect, onCleared, onQuickAdd, onNew,
 }: {
   txns: readonly Txn[];
@@ -25,6 +25,8 @@ export function WideTransactions({
   account: string | null;
   choices: readonly CategoryChoice[];
   rules: readonly CategoryRule[];
+  /** The cog's Whole dollars: how bare digits in the Amount cell are read. */
+  mode: AmountMode;
   selectedId: string | null;
   readOnly: boolean;
   banner: React.ReactNode;
@@ -41,7 +43,7 @@ export function WideTransactions({
     () => ({ ...EMPTY_TXN_FILTER, query, status: uncleared ? 'uncleared' as const : 'any' as const }),
     [query, uncleared],
   );
-  const { rows, foot } = useMemo(() => ledgerTable(txns, account, filter), [txns, account, filter]);
+  const { rows, foot } = useMemo(() => ledgerTable(txns, accounts, account, filter), [txns, accounts, account, filter]);
   const one = account !== null;
   const acctName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '';
   const catName = (id: string | null) => id === null ? null : id === INCOME ? INCOME_NAME : choices.find((c) => c.id === id)?.name ?? null;
@@ -79,7 +81,7 @@ export function WideTransactions({
       <ScrollView style={styles.grow} contentContainerStyle={styles.tbody}>
         {!readOnly && (
           <QuickRow
-            account={one ? account : quickAccount} accounts={accounts} choices={choices} rules={rules}
+            account={one ? account : quickAccount} accounts={accounts} choices={choices} rules={rules} mode={mode}
             showAccount={!one} showBalance={one} onAdd={onQuickAdd}
           />
         )}
@@ -135,8 +137,8 @@ export function WideTransactions({
  * core's `quickDraft` (Draft + validateDraft), then focus goes back to the name
  * for the next one. ⌘N (Ctrl+N elsewhere) focuses it.
  */
-function QuickRow({ account, accounts, choices, rules, showAccount, showBalance, onAdd }: {
-  account: string; accounts: readonly Account[]; choices: readonly CategoryChoice[]; rules: readonly CategoryRule[];
+function QuickRow({ account, accounts, choices, rules, mode, showAccount, showBalance, onAdd }: {
+  account: string; accounts: readonly Account[]; choices: readonly CategoryChoice[]; rules: readonly CategoryRule[]; mode: AmountMode;
   showAccount: boolean; showBalance: boolean; onAdd: (draft: Draft) => void;
 }) {
   const [date, setDate] = useState('');
@@ -162,7 +164,7 @@ function QuickRow({ account, accounts, choices, rules, showAccount, showBalance,
   }, [focus]);
 
   const submit = () => {
-    const { draft, errors } = quickDraft({ date, name, category, amount }, { account: acct, choices, rules, today: today() });
+    const { draft, errors } = quickDraft({ date, name, category, amount }, { account: acct, choices, rules, mode, today: today() });
     const first = Object.values(errors)[0];
     if (first !== undefined) { setError(first); return; }
     setError(null);

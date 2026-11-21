@@ -42,3 +42,32 @@ export async function load(): Promise<LoadResult> {
 export async function save(store: Store): Promise<void> {
   await AsyncStorage.setItem(KEY, serialize(store));
 }
+
+/**
+ * The last CloudKit copy a plain browser showed, kept ONLY so it can be shown
+ * again when iCloud cannot be reached. A different key from the ledger's: it
+ * is never the editable ledger and is never merged into it.
+ */
+export const COPY_KEY = 'acctmind.copycache.v1';
+export type CopyCache = { text: string; writtenAt: number | null; cachedAt: number };
+
+export async function loadCopyCache(): Promise<CopyCache | null> {
+  try {
+    const raw = await AsyncStorage.getItem(COPY_KEY);
+    if (raw === null) return null;
+    const v = JSON.parse(raw) as Partial<CopyCache>;
+    return typeof v.text === 'string' && typeof v.cachedAt === 'number'
+      ? { text: v.text, writtenAt: typeof v.writtenAt === 'number' ? v.writtenAt : null, cachedAt: v.cachedAt }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCopyCache(cache: CopyCache): Promise<void> {
+  try { await AsyncStorage.setItem(COPY_KEY, JSON.stringify(cache)); } catch { /* a cache is allowed to fail */ }
+}
+
+export async function clearCopyCache(): Promise<void> {
+  try { await AsyncStorage.removeItem(COPY_KEY); } catch { /* nothing to lose */ }
+}
