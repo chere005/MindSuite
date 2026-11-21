@@ -745,9 +745,13 @@ describe('doneShoppingPlan names a clean pantry row', () => {
   const name = (text: string, pantry: string[] = []) =>
     doneShoppingPlan([{ id: 'x', text, done: true }], pantry)[0]!.name;
   /** The row the plan proposes must cover the line it came from. */
-  const roundTrips = (text: string) => {
+  const roundTrips = (text: string, notCover: string[] = []) => {
     const n = name(text);
     expect(shoppingLines([r('a', [text])], [n]), `${n} covers ${text}`).toEqual([]);
+    // …and the row must not claim a different thing (a false "you have it").
+    for (const other of notCover) {
+      expect(shoppingLines([r('a', [other])], [n]), `${n} must not cover ${other}`).not.toEqual([]);
+    }
     return n;
   };
 
@@ -761,7 +765,7 @@ describe('doneShoppingPlan names a clean pantry row', () => {
 
   it('maps a part to the whole', () => {
     expect(roundTrips('juice of a lemon')).toBe('lemon');
-    expect(roundTrips('2 tbsp lemon juice')).toBe('lemon');
+    expect(roundTrips('zest of an orange')).toBe('orange');
     expect(roundTrips('3 garlic cloves')).toBe('garlic');
   });
 
@@ -783,6 +787,170 @@ describe('doneShoppingPlan names a clean pantry row', () => {
   it('and the same name passes pantryHas where the identities are equal', () => {
     for (const line of ['30 ml chopped parsley', '59 ml fresh basil, torn', '1 red onion', '2 cans (14 oz) canned tomatoes', '1 dozen oranges']) {
       expect(pantryHas([name(line)], line), line).toBe(true);
+    }
+  });
+});
+
+describe('review fixes 1: bottled juice stays juice', () => {
+  const name = (text: string) => doneShoppingPlan([{ id: 'x', text, done: true }], [])[0]!.name;
+  const covered = (text: string, row: string) => shoppingLines([r('a', [text])], [row]).length === 0;
+
+  it('a done bottled-juice row names the juice, never the fruit', () => {
+    expect(name('2 tbsp lemon juice')).toBe('lemon juice');
+    expect(name('1 cup orange juice')).toBe('orange juice');
+    expect(name('1 bottle lemon juice')).toBe('lemon juice');
+    expect(name('1 tsp lemon zest')).toBe('lemon zest');
+    for (const text of ['2 tbsp lemon juice', '1 cup orange juice', '1 bottle lemon juice']) {
+      expect(covered(text, name(text)), text).toBe(true);
+    }
+  });
+
+  it('and that row does not cover the fruit', () => {
+    expect(covered('2 lemons', name('2 tbsp lemon juice'))).toBe(false);
+    expect(covered('2 oranges', name('1 cup orange juice'))).toBe(false);
+    expect(covered('1 orange', name('1 tsp orange zest'))).toBe(false);
+    // only a part-of phrasing names the whole
+    expect(name('juice of 1 lemon')).toBe('lemon');
+    expect(name('zest of an orange')).toBe('orange');
+  });
+});
+
+describe('review fixes 2: a container keeps its identity, except for a named list', () => {
+  it('fresh rows do not cover a can or jar of something with a fresh form', () => {
+    expect(covers(['green chiles'], '1 can diced green chiles')).toBe(false);
+    expect(covers(['jalapenos'], '1 jar jalapenos')).toBe(false);
+    expect(covers(['jalapeños'], '1 jar jalapeños')).toBe(false);
+    expect(covers(['peaches'], '1 can peaches')).toBe(false);
+    expect(covers(['1 can peaches'], '2 peaches')).toBe(false);
+    expect(covers(['canned peaches'], '2 peaches')).toBe(false);
+    expect(covers(['tomatoes'], '2 cans diced tomatoes')).toBe(false);
+    expect(covers(['canned tomatoes'], '2 tomatoes')).toBe(false);
+    // …and the container itself is still the same thing
+    expect(covers(['1 can peaches'], '2 cans peaches')).toBe(true);
+    expect(covers(['1 jar jalapenos'], '3 jars jalapenos')).toBe(true);
+  });
+
+  it('only-ever-preserved things read the can or jar as a unit', () => {
+    for (const thing of ['coconut milk', 'coconut cream', 'salsa', 'chickpeas', 'garbanzo beans', 'black beans',
+      'kidney beans', 'pinto beans', 'cannellini beans', 'white beans', 'refried beans', 'chicken broth', 'beef stock',
+      'tomato paste', 'tomato sauce', 'passata', 'tomato puree', 'evaporated milk', 'sweetened condensed milk',
+      'tuna', 'anchovies', 'olives', 'capers', 'pickles', 'mustard', 'jam']) {
+      expect(covers([thing], `1 can ${thing}`), `can ${thing}`).toBe(true);
+      expect(covers([thing], `1 jar ${thing}`), `jar ${thing}`).toBe(true);
+      expect(covers([`1 can ${thing}`], thing), `row can ${thing}`).toBe(true);
+    }
+    expect(covers(['chipotles in adobo sauce'], '1 can chipotles in adobo sauce')).toBe(true);
+    expect(covers(['1 can chipotles in adobo sauce'], 'chipotles in adobo sauce')).toBe(true);
+    expect(covers(['coconut milk'], '1 can chickpeas')).toBe(false);
+    expect(covers(['black beans'], '1 can pinto beans')).toBe(false);
+  });
+});
+
+describe('review fixes 3: a mixed number in a juice line', () => {
+  const buy = (line: string) => shoppingLines([r('a', [line])]);
+  it('is one quantity, rounded up to whole fruits', () => {
+    expect(buy('juice of 1 1/2 lemons')).toEqual(['2 lemons']);
+    expect(buy('juice of 1 ½ limes')).toEqual(['2 limes']);
+    expect(buy('juice of ½ lime')).toEqual(['1 lime']);
+    expect(buy('juice of 2 1/4 oranges')).toEqual(['3 oranges']);
+    // negatives: a whole count is not inflated
+    expect(buy('juice of 2 lemons')).toEqual(['2 lemons']);
+    expect(buy('juice of 1 lemon')).toEqual(['1 lemon']);
+  });
+});
+
+describe('review fixes 4: size words joined by a hyphen drop like the words', () => {
+  it('extra-large eggs are eggs; bone-in and sun-dried stay whole', () => {
+    expect(covers(['eggs'], '2 extra-large eggs')).toBe(true);
+    expect(covers(['eggs'], '2 medium-large eggs')).toBe(true);
+    expect(covers(['eggs'], '1 extra-small egg')).toBe(true);
+    expect(covers(['extra-large eggs'], '3 eggs')).toBe(true);
+    expect(pantryRowKey('2 extra-large eggs')).toBe(pantryRowKey('eggs'));
+    expect(covers(['chicken thighs'], '6 bone-in chicken thighs')).toBe(false);
+    expect(covers(['tomatoes'], '2 sun-dried tomatoes')).toBe(false);
+    expect(covers(['sun-dried tomatoes'], '2 sun-dried tomatoes')).toBe(true);
+    expect(shoppingLines([r('a', ['2 extra-large eggs'])])).toEqual(['2 extra-large eggs']);
+  });
+});
+
+describe('review fixes 5: fresh is the default only for produce and herbs', () => {
+  it('fresh mozzarella, pasta and yeast are their own things, both ways', () => {
+    for (const thing of ['mozzarella', 'pasta', 'yeast']) {
+      expect(covers([thing], `8 oz fresh ${thing}`), `${thing} vs fresh`).toBe(false);
+      expect(covers([`fresh ${thing}`], `8 oz ${thing}`), `fresh ${thing} vs plain`).toBe(false);
+      expect(covers([`fresh ${thing}`], `8 oz fresh ${thing}`), `fresh ${thing} itself`).toBe(true);
+    }
+  });
+
+  it('produce and herbs still read fresh as the bare name', () => {
+    for (const thing of ['basil', 'parsley', 'ginger', 'green beans', 'tomatoes', 'mushrooms']) {
+      expect(covers([thing], `1 cup fresh ${thing}`), thing).toBe(true);
+      expect(covers([`fresh ${thing}`], `1 cup ${thing}`), thing).toBe(true);
+    }
+    expect(covers(['pepper'], 'fresh ground pepper')).toBe(true);
+    expect(covers(['basil'], 'dried basil')).toBe(false);
+  });
+});
+
+describe('review fixes 6: crushed red pepper is the spice', () => {
+  it('equals red pepper flakes and never the vegetable', () => {
+    expect(covers(['red pepper flakes'], '1 tsp crushed red pepper')).toBe(true);
+    expect(covers(['crushed red pepper'], '1 tsp red pepper flakes')).toBe(true);
+    expect(covers(['crushed red pepper flakes'], '1 tsp red pepper flakes')).toBe(true);
+    expect(covers(['red pepper'], '1 tsp crushed red pepper')).toBe(false);
+    expect(covers(['red peppers'], '1/2 tsp crushed red pepper')).toBe(false);
+    expect(covers(['crushed red pepper'], '2 red peppers')).toBe(false);
+    expect(covers(['red pepper flakes'], '2 red peppers')).toBe(false);
+    // 'crushed' is still just preparation elsewhere
+    expect(covers(['garlic'], '2 cloves crushed garlic')).toBe(true);
+    expect(covers(['pepper'], '1 tsp crushed red pepper')).toBe(false);
+  });
+});
+
+describe('review fixes 7: canned tomato products', () => {
+  it('crushed, whole peeled, passata and puree are never fresh tomatoes', () => {
+    for (const line of ['28 oz crushed tomatoes', '1 (28 oz) can whole peeled tomatoes', '1 whole peeled tomatoes',
+      'crushed tomatoes', '1 jar passata', '1 cup tomato puree']) {
+      expect(covers(['tomatoes'], line), line).toBe(false);
+    }
+    expect(covers(['crushed tomatoes'], '2 tomatoes')).toBe(false);
+    expect(covers(['canned tomatoes'], '28 oz crushed tomatoes')).toBe(true);
+    expect(covers(['crushed tomatoes'], '1 can (28 oz) crushed tomatoes')).toBe(true);
+    expect(covers(['tomatoes'], '2 tomatoes')).toBe(true);
+  });
+
+  it('diced and chopped are canned only when the line is can-sized', () => {
+    expect(covers(['tomatoes'], '400g chopped tomatoes')).toBe(false);
+    expect(covers(['canned tomatoes'], '400g chopped tomatoes')).toBe(true);
+    expect(covers(['tomatoes'], '10 oz diced tomatoes')).toBe(false);
+    expect(covers(['tomatoes'], '1 (14 oz) can diced tomatoes')).toBe(false);
+    expect(covers(['tomatoes'], '2 cans diced tomatoes')).toBe(false);
+    // fresh: a small amount, a cup, or "diced" as a note after the comma
+    expect(covers(['tomatoes'], '2 tomatoes, diced')).toBe(true);
+    expect(covers(['canned tomatoes'], '2 tomatoes, diced')).toBe(false);
+    expect(covers(['tomatoes'], '1 cup diced tomatoes')).toBe(true);
+    expect(covers(['canned tomatoes'], '1 cup diced tomatoes')).toBe(false);
+    expect(covers(['tomatoes'], '8 oz diced tomatoes')).toBe(true);
+    expect(covers(['tomatoes'], '1 lb diced tomatoes')).toBe(true);
+  });
+
+  it('a pantry row "diced tomatoes" with no amount is the canned kind', () => {
+    expect(covers(['diced tomatoes'], '2 tomatoes')).toBe(false);
+    expect(covers(['diced tomatoes'], '1 lb tomatoes')).toBe(false);
+    expect(covers(['diced tomatoes'], '1 can diced tomatoes')).toBe(true);
+    expect(covers(['diced tomatoes'], '400g chopped tomatoes')).toBe(true);
+    expect(covers(['diced tomatoes'], '1 cup diced tomatoes')).toBe(false);
+    expect(pantryHas(['diced tomatoes'], 'tomatoes')).toBe(false);
+  });
+
+  it('doneShoppingPlan names the product by its form', () => {
+    const name = (text: string) => doneShoppingPlan([{ id: 'x', text, done: true }], [])[0]!.name;
+    expect(name('28 oz crushed tomatoes')).toBe('crushed tomatoes');
+    expect(name('400g chopped tomatoes')).toBe('chopped tomatoes');
+    expect(name('2 cans (14 oz) diced tomatoes')).toBe('canned tomatoes');
+    for (const text of ['28 oz crushed tomatoes', '400g chopped tomatoes']) {
+      expect(shoppingLines([r('a', [text])], [name(text)])).toEqual([]);
+      expect(shoppingLines([r('a', ['2 tomatoes'])], [name(text)])).toEqual(['2 tomatoes']);
     }
   });
 });

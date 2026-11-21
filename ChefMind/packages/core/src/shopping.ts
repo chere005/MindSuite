@@ -249,6 +249,9 @@ const ALIASES: Record<string, string> = {
   'parmigiano reggiano': 'parmesan',
   'parmigianoreggiano': 'parmesan',
   'parmesan cheese': 'parmesan',
+  // The spice, which 'red pepper' (the vegetable) is not (the owner, 2026-11-21).
+  'crushed red pepper': 'red pepper flake',
+  'crushed red pepper flake': 'red pepper flake',
   'virgin olive oil': 'olive oil',
   'extravirgin olive oil': 'olive oil',
   'unsalted butter': 'butter',
@@ -267,14 +270,12 @@ const ALIASES: Record<string, string> = {
  */
 const FORM_SENSITIVE = new Set(['ginger', 'coriander', 'mustard', 'turmeric']);
 
-/**
- * Words only the pantry reads past, so they are not in PREP_WORDS (which the
- * Refresh combine also uses, and which must not start merging lines it kept
- * apart before). 'fresh' is what a bare herb or produce name already means,
- * so it is no kind at all; 'dried' and 'canned' ARE kinds and are never
- * dropped (the owner, 2026-11-21: "DO distinguish fresh vs canned or dried").
- */
-const PANTRY_PREP = new Set(['fresh', 'cracked']);
+/** Does this name file as produce or a herb ('fresh basil' is basil), singular
+ *  or plural? Only for these is 'fresh' what the bare name already means. */
+function isProduceName(words: string[]): boolean {
+  const j = words.join(' ');
+  return ingredientAisle(j) === 'Produce' || ingredientAisle(`${j}s`) === 'Produce';
+}
 
 /** Preserved, said as an adjective: the same thing as a can or jar unit. */
 const PRESERVED = new Set(['canned', 'tinned', 'jarred']);
@@ -293,14 +294,20 @@ const ALWAYS_ON_HAND = new Set([
  * no more forgiving than `looseNameKey` about what a thing IS.
  */
 export function pantryKey(name: string): string {
-  const bare = bareName(name).replace(USE_TAIL, '').trim();
+  // 'extra-large' and 'medium-large' are size words joined by a hyphen and
+  // drop like the words do; 'bone-in' and 'sun-dried' are not, and stay whole.
+  const sizeish = (w: string) => PREP_WORDS.has(w.toLowerCase()) || w.toLowerCase() === 'jumbo';
+  const bare = bareName(name).replace(USE_TAIL, '')
+    .replace(/(\p{L}+)-(\p{L}+)/gu, (m, a: string, b: string) => (sizeish(a) && sizeish(b) ? ' ' : m)).trim();
   const words = nameKey(bare).split(' ').filter(Boolean).map((w) => singularOf(w));
   // Only off the FRONT: a word that turns up later is part of the name —
   // 'chocolate drops' is a thing to buy, and eating the 'drops' off it would
   // let a pantry row for chocolate claim it.
   let i = 0;
   while (i < words.length && isAmountWord(words[i] as string)) i++;
-  const kept = words.slice(i).filter((w) => !PREP_WORDS.has(w));
+  // 'crushed' is preparation ('crushed garlic') except in 'crushed red pepper',
+  // which is the spice and a different thing from a red pepper.
+  const kept = words.slice(i).filter((w, at, rest) => !PREP_WORDS.has(w) || (w === 'crushed' && rest[at + 1] === 'red'));
   // Never reduce a name to nothing — `looseNameKey`'s rule, for its reason: a
   // row that says only 'a pinch' says 'a pinch', and a pantry that matched
   // everything emptied to '' would empty the whole list.
@@ -342,13 +349,16 @@ function fruitLine(text: string): { n: number; fruit: string } | null {
   }
   if (rest === null) return null;
   let n: number | null = null;
+  let afterNumber = false;
   const left: string[] = [];
-  for (const tok of rest.split(' ').filter(Boolean)) {
-    if (tok === 'half') { n ??= 0.5; continue; }
-    if (tok === 'a' || tok === 'an' || tok === 'one') { n ??= 1; continue; }
-    if (PART_FILLER.has(tok) || tok === 'of') continue;
+  for (const tok of rest.replace(/(\d)(\p{No})/gu, '$1 $2').split(' ').filter(Boolean)) {
+    if (tok === 'half') { n ??= 0.5; afterNumber = false; continue; }
+    if (tok === 'a' || tok === 'an' || tok === 'one') { n ??= 1; afterNumber = false; continue; }
+    if (PART_FILLER.has(tok) || tok === 'of') { afterNumber = false; continue; }
     const v = qtyValue(tok);
-    if (v !== null) { n ??= v; continue; }
+    // '1 1/2 lemons' is one quantity of two tokens, not two quantities.
+    if (v !== null) { n = afterNumber && n !== null ? n + v : (n ?? v); afterNumber = true; continue; }
+    afterNumber = false;
     left.push(tok);
   }
   const fruit = left.length === 1 ? singularOf(left[0] as string) : '';
@@ -372,7 +382,8 @@ const NUMBER_WORD = /^(?:[\d\p{No}]+(?:[./,]\d+)?|\d+(?:\.\d+)?[a-z]+)$/u;
  *   2. 'fresh coriander' is cilantro, before 'fresh' is read past;
  *   3. a number, and a measure right after one, is not part of a name,
  *      whether or not the parser caught it ('flour 2 cups');
- *   4. 'fresh' and 'cracked' come off, 'dried' never does;
+ *   4. 'cracked' comes off, and 'fresh' where it is the default (produce and
+ *      herbs); 'dried' never does;
  *   5. 'ground' comes off a SPICE only (the aisle classifier decides, so
  *      ground beef keeps it), except the FORM_SENSITIVE four;
  *   6. a kind that is the same box on the shelf ('granulated') comes off;
@@ -392,7 +403,15 @@ function stapleOf(base: string[]): string {
     noNumbers.push(x);
   }
   w = noNumbers.length > 0 ? noNumbers : w;
-  w = keepSome(w, (x) => !PANTRY_PREP.has(x));
+  w = keepSome(w, (x) => x !== 'cracked');
+  // 'fresh' is the default only for produce and herbs; on anything else it is
+  // a kind ('fresh mozzarella', 'fresh pasta', 'fresh yeast'). 'fresh ground'
+  // is how pepper is ground, not a kind of anything.
+  const fresh = w.indexOf('fresh');
+  if (fresh >= 0 && w.length > 1) {
+    const rest = w.filter((_, at) => at !== fresh);
+    if (w[fresh + 1] === 'ground' || isProduceName(rest)) w = rest;
+  }
   if (w.includes('ground') && !w.some((x) => FORM_SENSITIVE.has(x))
     && ingredientAisle(w.join(' ')) === 'Spices & Seasoning') {
     w = keepSome(w, (x) => x !== 'ground');
@@ -403,25 +422,75 @@ function stapleOf(base: string[]): string {
 }
 
 /**
- * A can or a jar is where a thing is SOLD, and it only IS an identity when the
- * thing has a fresh form to be told apart from: '2 cans tomatoes' are not the
- * fresh tomatoes, and 'canned tomatoes' is not '2 tomatoes'. Coconut milk,
- * salsa, chickpeas and black beans are only ever sold preserved, so for them
- * the container is a unit like any other and is read past (the coordinator,
- * 2026-11-21). "Has a fresh form" is: the name without the container word
- * files as Produce. 'tin' is a can, 'jarred' a jar.
+ * A can or a jar is where a thing is SOLD, and by default it keeps its own
+ * identity: '2 cans tomatoes' are not the fresh tomatoes, 'canned tomatoes'
+ * is not '2 tomatoes', and 'a can of peaches' is not a peach. The exception is
+ * a short NAMED list of things that are only ever sold preserved (coconut
+ * milk, salsa, chickpeas, black beans, stock, olives…): for those the can is
+ * a unit like any other and is read past (the coordinator, 2026-11-21). The
+ * list is named rather than inferred from the aisle table, because that
+ * guessed wrong both ways ('diced green chiles' and 'jalapeños' are not
+ * produce to it, and a canned peach is not a peach). 'tin' is a can,
+ * 'jarred' a jar.
  */
 function containerOf(text: string, unit: string | null, name: string): '' | 'can' | 'jar' {
   const c = containerWord(text, unit, name);
   if (c === '') return '';
-  // The name as written (plural, so phrases like 'black beans' still match the
-  // aisle table), minus amounts, container words and prep words.
   const words = nameKey(bareName(name)).split(' ').filter(Boolean);
   let i = 0;
   while (i < words.length && isAmountWord(singularOf(words[i] as string))) i++;
-  const bare = words.slice(i).filter((w) => !PREP_WORDS.has(w) && !PRESERVED.has(w)
-    && !CONTAINER_WORDS.has(w));
-  return ingredientAisle((bare.length > 0 ? bare : words).join(' ')) === 'Produce' ? c : '';
+  const bare = words.slice(i).map((w) => singularOf(w)).filter((w) => !PRESERVED.has(w)
+    && !CONTAINER_WORDS.has(w) && !PREP_WORDS.has(w));
+  return onlyPreserved(bare) ? '' : c;
+}
+
+/** Things only ever sold preserved, named in the plural a cook writes and read
+ *  singular on both sides. Contiguous words, except chipotles in adobo. */
+const PRESERVED_ONLY: string[][] = [
+  'coconut milk', 'coconut cream', 'salsa', 'chickpeas', 'garbanzo beans', 'black beans',
+  'kidney beans', 'pinto beans', 'cannellini beans', 'white beans', 'refried beans',
+  'broth', 'stock', 'tomato paste', 'tomato sauce', 'passata', 'tomato puree',
+  'evaporated milk', 'condensed milk', 'tuna', 'anchovies', 'olives', 'capers', 'pickles',
+  'mustard', 'jam',
+].map((ph) => ph.split(' ').map((w) => singularOf(w)));
+
+function onlyPreserved(words: string[]): boolean {
+  if (words.includes('chipotle') && words.includes('adobo')) return true;
+  return PRESERVED_ONLY.some((ph) => {
+    for (let at = 0; at + ph.length <= words.length; at++) {
+      if (ph.every((w, k) => words[at + k] === w)) return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * Canned tomato PRODUCTS, which are never the fresh tomato: crushed, whole
+ * peeled, and diced or chopped when the line is can-sized — a can/tin/jar
+ * word, 10 oz / 280 g or more (not pounds, which are bought fresh), or no
+ * amount at all, which is how a pantry row says 'diced tomatoes'.
+ * '2 tomatoes, diced' and '1 cup diced tomatoes' are fresh. Passata and
+ * tomato puree are their own words and never equal 'tomato'.
+ */
+function cannedTomato(text: string, unit: string | null, qty: string | null, name: string): boolean {
+  const words = nameKey(bareName(name)).split(' ').filter(Boolean);
+  let i = 0;
+  while (i < words.length && isAmountWord(singularOf(words[i] as string))) i++;
+  const rest = words.slice(i);
+  const core = rest.filter((w) => !PREP_WORDS.has(w) && !PRESERVED.has(w) && !CONTAINER_WORDS.has(w) && w !== 'whole')
+    .map((w) => singularOf(w));
+  if (core.length !== 1 || core[0] !== 'tomato') return false;
+  if (rest.includes('crushed') || rest.includes('peeled')) return true;
+  if (!rest.includes('diced') && !rest.includes('chopped')) return false;
+  if (containerWord(text, unit, name) !== '') return true;
+  const u = unit ? unit.toLowerCase() : null;
+  const q = qty === null ? null : qtyValue(qty);
+  if (u !== null && q !== null && unitDimension(u) === 'mass' && u !== 'lb' && u !== 'lbs') {
+    return (toBase(q, u) ?? 0) >= 280;
+  }
+  const aside = /\(\s*(\d+(?:[.,]\d+)?)\s*-?\s*(oz|ounces?|g|grams?)\b/i.exec(text);
+  if (aside) return (toBase(Number(aside[1]!.replace(',', '.')), aside[2]!.toLowerCase().startsWith('o') ? 'oz' : 'g') ?? 0) >= 280;
+  return qty === null && unit === null;
 }
 
 const CONTAINER_WORDS = new Set(['can', 'cans', 'tin', 'tins', 'jar', 'jars']);
@@ -450,9 +519,10 @@ function identify(text: string): Ident {
   const t = text.trim();
   const p = ingParts(t);
   const name = p.name || t;
-  const c = containerOf(t, p.unit, name);
+  const canned = cannedTomato(t, p.unit, p.qty, name);
+  const c = canned ? 'can' : containerOf(t, p.unit, name);
   const prefixed = (k: string) => (k !== '' && c !== '' ? `${c}:${k}` : k);
-  let base = pantryKey(name);
+  let base = canned ? 'tomato' : pantryKey(name);
   // 'lemon, juiced' is the juice of a lemon, said the other way round.
   const tail = /,\s*(?:finely\s+)?(juiced|zested)\b/i.exec(name);
   if (tail && CITRUS.has(base)) base = `${base} ${tail[1]!.toLowerCase() === 'juiced' ? 'juice' : 'zest'}`;
@@ -864,21 +934,32 @@ function pantryNameOf(text: string): string {
   let i = 0;
   while (i < tokens.length && isAmountWord(singularOf(tokens[i]!.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')))) i++;
   const plain = (tokens.slice(i).length > 0 ? tokens.slice(i) : tokens);
-  const c = containerOf(t, p.unit, name);
+  // A canned tomato product named by its form ('28 oz crushed tomatoes') keeps
+  // that form as its name; one in an actual can is 'canned tomatoes'.
+  const asProduct = cannedTomato(t, p.unit, p.qty, name) && containerWord(t, p.unit, name) === '';
+  const c = asProduct ? '' : containerOf(t, p.unit, name);
   const withContainer = (words: string[]): string => {
     const out = words.join(' ');
     return c === '' || /\b(?:canned|tinned|jarred)\b/i.test(out) ? out : `${c === 'can' ? 'canned' : 'jarred'} ${out}`;
   };
   const covered = (n: string) => coveredBy(shelf([n]), identify(t)) !== null;
   const lower = (w: string) => w.toLowerCase();
-  // Preparation words go; 'ground' goes only where it changes nothing.
-  let tidy = plain.filter((w) => (!PREP_WORDS.has(lower(w)) || lower(w) === 'extra') && !PANTRY_PREP.has(lower(w)));
+  const KEEP_FORM = new Set(['crushed', 'diced', 'chopped', 'peeled']);
+  // Preparation words go ('crushed red pepper' and a canned product's form stay).
+  let tidy = plain.filter((w, at) => (!PREP_WORDS.has(lower(w)) || lower(w) === 'extra'
+    || (asProduct && KEEP_FORM.has(lower(w))) || (lower(w) === 'crushed' && lower(plain[at + 1] ?? '') === 'red')));
   if (tidy.length === 0) tidy = plain;
-  const unground = tidy.filter((w) => lower(w) !== 'ground');
-  if (unground.length > 0 && unground.length < tidy.length
-    && identify(withContainer(unground)).key === identify(withContainer(tidy)).key) tidy = unground;
-  // A part is named as the whole: 'lemon juice' is 'lemon', 'garlic cloves' is 'garlic'.
-  const whole = PART_OF[stapleOf(pantryKey(tidy.join(' ')).split(' ').filter(Boolean))];
+  // 'fresh', 'cracked' and 'ground' go only where they change nothing.
+  for (const drop of ['fresh', 'cracked', 'ground']) {
+    const without = tidy.filter((w) => lower(w) !== drop);
+    if (without.length > 0 && without.length < tidy.length
+      && identify(withContainer(without)).key === identify(withContainer(tidy)).key) tidy = without;
+  }
+  // A part is named as the whole ('garlic cloves' is 'garlic', 'egg yolks' is
+  // 'egg') — but never bottled juice or zest: 'lemon juice' is its own row,
+  // and only 'juice of a lemon' (above) names the fruit.
+  const k = stapleOf(pantryKey(tidy.join(' ')).split(' ').filter(Boolean));
+  const whole = /\b(?:juice|zest)$/.test(k) ? undefined : PART_OF[k];
   let named = withContainer(tidy);
   if (whole !== undefined) {
     named = /^\p{Lu}/u.test(tidy[0] as string) ? whole.charAt(0).toUpperCase() + whole.slice(1) : whole;
