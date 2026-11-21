@@ -25,10 +25,12 @@
  * gesture the Transactions tab already uses, so the two tabs stop disagreeing
  * about what a pencil means.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
-  Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  useWindowDimensions, type GestureResponderEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   LONG_PRESS_MS, assignedFor, availableOf, budgetOverspent, dropTarget, foldLevel,
   formatAmount, lineTone, linesIn, monthlyBudgetAmounts, monthSet, slotEntries, toggleSelected, total,
@@ -68,6 +70,23 @@ export type LinePick = {
 export type LineField = 'needs' | 'budget' | 'available';
 /** Where a tapped amount sits, in window coordinates. */
 export type Anchor = { x: number; y: number; w: number; h: number };
+
+type AssignmentPoint = Pick<Anchor, 'x' | 'y'>;
+type AssignmentTarget = { kind: 'category' | 'line'; id: string; at: AssignmentPoint };
+
+const tapPoint = ({ nativeEvent }: GestureResponderEvent): AssignmentPoint => ({
+  x: nativeEvent.pageX, y: nativeEvent.pageY,
+});
+
+function assignmentContext(open?: (at: AssignmentPoint) => void) {
+  if (Platform.OS !== 'web' || open === undefined) return {};
+  return {
+    onContextMenu: (event: MouseEvent) => {
+      event.preventDefault();
+      open({ x: event.clientX, y: event.clientY });
+    },
+  };
+}
 
 /**
  * The id of the heading that is not a record.
@@ -238,6 +257,7 @@ export function BudgetScreen({
    * at all times, so there is never a selection you cannot see.
    */
   const [picked, setPicked] = useState<readonly string[]>([]);
+  const [assignment, setAssignment] = useState<AssignmentTarget | null>(null);
 
   const leaveEdit = () => { setEdit(false); setNaming(null); };
 
@@ -409,7 +429,12 @@ export function BudgetScreen({
     .map((id) => lines.find((l) => l.id === id))
     .filter((l): l is Line => l !== undefined);
   const amountsFor = (line: Line) => ({ line, budgeted: budgetOf(line), spent: spentOn(line.id), carry: carryOf(line) });
-  const assignPicked = (mode: AssignMode) => onAssignMany(pickedLines().map(amountsFor), mode);
+  const assign = (rows: readonly Line[], mode: AssignMode) => onAssignMany(rows.map(amountsFor), mode);
+  const actionCategory = assignment?.kind === 'category' ? categories.find((c) => c.id === assignment.id) : undefined;
+  const actionLine = assignment?.kind === 'line'
+    ? lines.find((line) => line.id === assignment.id && categories.some((c) => c.id === line.category))
+    : undefined;
+  const actionRows = actionCategory ? linesOf(actionCategory.id) : actionLine ? [actionLine] : [];
   const previewLine = spending?.kind === 'line' ? lines.find((line) => line.id === spending.id) : undefined;
   const previewCategory = spending?.kind === 'category' ? categories.find((c) => c.id === spending.id) : undefined;
   const previewAmounts = previewLine ? amountsFor(previewLine) : undefined;
@@ -562,6 +587,8 @@ export function BudgetScreen({
             onEditAmount={onEditAmount}
             onSpentCategory={() => setSpending({ kind: 'category', id: c.id })}
             onSpentLine={(id) => setSpending({ kind: 'line', id })}
+            onAssignCategory={(at) => setAssignment({ kind: 'category', id: c.id, at })}
+            onAssignLine={(id, at) => setAssignment({ kind: 'line', id, at })}
             onRenameLine={onRenameLine}
             onRenameCategory={onRenameCategory}
             onDeleteLine={onDeleteLine}
@@ -677,35 +704,16 @@ export function BudgetScreen({
         count={picked.length}
         onAll={() => setPicked(visible)}
         onClear={() => setPicked([])}
-        extras={(
-          <>
-            <AssignBtn
-              onPress={() => assignPicked('zero')}
-              label="Set available to zero"
-              off={picked.length === 0}
-              testID="budget-assign-zero"
-            >
-              <Text style={styles.assignZero}>0</Text>
-            </AssignBtn>
-            <AssignBtn
-              onPress={() => assignPicked('needs')}
-              label="Assign up to what is needed"
-              off={picked.length === 0}
-              testID="budget-assign-needs"
-            >
-              <FlagIcon />
-            </AssignBtn>
-            <AssignBtn
-              onPress={() => assignPicked('spent')}
-              label="Assign what was spent"
-              off={picked.length === 0}
-              testID="budget-assign-spent"
-            >
-              <DollarIcon color={T.positive} />
-            </AssignBtn>
-          </>
-        )}
+        extras={<AssignmentButtons prefix="budget-assign" off={picked.length === 0} onAssign={(mode) => assign(pickedLines(), mode)} />}
       />
+      {assignment !== null && actionRows.length > 0 && (
+        <AssignmentMenu
+          name={(actionCategory?.name ?? actionLine?.name) || 'Untitled'}
+          at={assignment.at}
+          onAssign={(mode) => { assign(actionRows, mode); setAssignment(null); }}
+          onClose={() => setAssignment(null)}
+        />
+      )}
       {previewName !== undefined && (
         <SpendingPreview
           name={previewName}
@@ -719,6 +727,63 @@ export function BudgetScreen({
   );
 }
 
+function AssignmentButtons({ prefix, off = false, scoped = false, onAssign }: {
+  prefix: string;
+  off?: boolean;
+  scoped?: boolean;
+  onAssign: (mode: AssignMode) => void;
+}) {
+  return (
+    <>
+      <AssignBtn onPress={() => onAssign('zero')} label="Set available to zero" off={off} wide={scoped} testID={`${prefix}-zero`}>
+        <Text style={styles.assignZero}>0</Text>
+      </AssignBtn>
+      <AssignBtn onPress={() => onAssign('needs')} label="Assign up to what is needed" off={off} wide={scoped} testID={`${prefix}-needs`}>
+        {scoped ? <CheckIcon /> : <FlagIcon />}
+      </AssignBtn>
+      <AssignBtn onPress={() => onAssign('spent')} label="Assign what was spent" off={off} wide={scoped} testID={`${prefix}-spent`}>
+        <DollarIcon color={T.positive} />
+      </AssignBtn>
+      {scoped && (
+        <AssignBtn onPress={() => onAssign('add-needs')} label="Add full Needs to Assigned" wide sign="+" testID={`${prefix}-add-needs`}>
+          <FlagIcon />
+        </AssignBtn>
+      )}
+    </>
+  );
+}
+
+function AssignmentMenu({ name, at, onAssign, onClose }: {
+  name: string;
+  at: AssignmentPoint;
+  onAssign: (mode: AssignMode) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const boxWidth = TAP * 4 + SPACE.xs * 3 + SPACE.md * 2;
+  const boxHeight = TAP + 20 + SPACE.md * 2;
+  const x = Number.isFinite(at.x) ? at.x : width / 2;
+  const y = Number.isFinite(at.y) ? at.y : height / 2;
+  const left = Math.max(insets.left + SPACE.sm, Math.min(width - insets.right - SPACE.sm - boxWidth, x - boxWidth / 2));
+  const bottom = height - insets.bottom - SPACE.sm;
+  const below = y + SPACE.sm;
+  const top = Math.max(insets.top + SPACE.sm, below + boxHeight <= bottom ? below : Math.min(bottom, y - SPACE.sm) - boxHeight);
+  return (
+    <Modal transparent animationType="none" onRequestClose={onClose}>
+      <View style={styles.assignmentOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} testID="assignment-backdrop" accessibilityElementsHidden />
+        <View style={[styles.assignmentMenu, { left, top, width: boxWidth }]} testID="assignment-menu">
+          <Text style={styles.assignmentTitle} numberOfLines={1} accessibilityRole="header">{name}</Text>
+          <View style={styles.assignmentActions}>
+            <AssignmentButtons prefix="scope-assign" scoped onAssign={onAssign} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 /**
  * One of the bar's three: an `=` and the thing being levelled to.
  *
@@ -728,26 +793,28 @@ export function BudgetScreen({
  * without reading. Disabled with nothing picked, for the reason Delete is:
  * a live control that does nothing is the one that gets pressed twice.
  */
-function AssignBtn({ onPress, label, testID, off, children }: {
+function AssignBtn({ onPress, label, testID, off = false, wide = false, sign = '=', children }: {
   onPress: () => void;
   label: string;
   testID: string;
   /** Nothing is picked, so there is nothing for this to assign to. */
-  off: boolean;
+  off?: boolean;
+  wide?: boolean;
+  sign?: '=' | '+';
   children: ReactNode;
 }) {
   return (
     <Pressable
       onPress={onPress}
       disabled={off}
-      style={styles.assignHit}
+      style={[styles.assignHit, wide && styles.assignWide]}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: off }}
       testID={testID}
     >
       <View style={[styles.assign, off && styles.assignOff]}>
-        <Text style={styles.assignEq}>=</Text>
+        <Text style={styles.assignEq}>{sign}</Text>
         {children}
       </View>
     </Pressable>
@@ -768,7 +835,7 @@ function CategorySection({
   category, rows, shut, onToggle, onFoldAll, onAdd, edit, naming, setNaming,
   spentOn, budgetOf, carryOf, snoozed, set,
   onEditAmount, onRenameLine, onRenameCategory, onDeleteLine, onSnoozeLine,
-  onSpentCategory, onSpentLine,
+  onSpentCategory, onSpentLine, onAssignCategory, onAssignLine,
   onDeleteCategory, picked, onPick, drag, canDrag, headIdx, emptyIdx, flatIdxOf,
 }: {
   category: Category;
@@ -792,6 +859,8 @@ function CategorySection({
   onEditAmount: (pick: LinePick, field: LineField, at: Anchor) => void;
   onSpentCategory: () => void;
   onSpentLine: (id: string) => void;
+  onAssignCategory: (at: AssignmentPoint) => void;
+  onAssignLine: (id: string, at: AssignmentPoint) => void;
   onRenameLine: (line: Line, name: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
   onDeleteLine: (line: Line) => void;
@@ -828,18 +897,29 @@ function CategorySection({
         see the screen's `flatRows`. Registered whether the category is open
         or shut, which is what lets a line be dropped into a folded one.
       */}
-      <View style={styles.head} ref={drag.registerRow(headIdx)} collapsable={false}>
-        {/*
-          In edit mode the heading is a FIELD, not a button. The owner,
-          2026-09-15: "in edit mode tapping on a section name allows renaming
-          in place." Outside edit mode it folds, exactly as before — one
-          gesture, two meanings, and the mode is the only thing that decides
-          which, so nobody has to remember a second gesture.
-        */}
-        {edit && naming === category.id ? (
-          <View style={styles.headMain}>
-            <Text style={styles.chev}>⌄</Text>
+      <View
+        style={styles.head}
+        ref={drag.registerRow(headIdx)}
+        collapsable={false}
+        {...assignmentContext(rows.length > 0 && !(edit && naming === category.id) ? onAssignCategory : undefined)}
+      >
+        <View style={styles.headMain}>
+          <Pressable
+            onPress={onToggle}
+            onLongPress={() => onFoldAll(!shut)}
+            delayLongPress={LONG_PRESS_MS}
+            disabled={edit}
+            style={styles.headCaret}
+            accessibilityRole="button"
+            accessibilityLabel={`${shut ? 'Expand' : 'Fold'} ${category.name || 'Untitled'}`}
+            accessibilityState={{ expanded: !shut }}
+            accessibilityHint="Hold to fold or unfold every category"
+            testID={`category-head-${category.id}`}
+          >
+            <Text style={[styles.chev, shut && styles.chevShut]}>⌄</Text>
             <Dot colors={[category.color]} size={11} />
+          </Pressable>
+          {edit && naming === category.id ? (
             <NameField
               value={category.name}
               style={styles.headName}
@@ -849,44 +929,26 @@ function CategorySection({
               }}
               testID={`category-name-input-${category.id}`}
             />
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => (edit ? setNaming(category.id) : onToggle())}
-            // Only outside edit mode, where a press means fold. In edit mode
-            // the heading is a rename target and a hold on it must not
-            // quietly close the whole budget under the field.
-            onLongPress={edit ? undefined : () => onFoldAll(!shut)}
-            delayLongPress={LONG_PRESS_MS}
-            {...(edit ? KEEP_FOCUS : {})}
-            style={styles.headMain}
-            accessibilityRole="button"
-            accessibilityState={edit ? undefined : { expanded: !shut }}
-            accessibilityHint={edit ? undefined : 'Hold to fold or unfold every category'}
-            testID={`category-head-${category.id}`}
-          >
-            <Text style={[styles.chev, shut && styles.chevShut]}>⌄</Text>
-            <Dot colors={[category.color]} size={11} />
-            <Text style={styles.headName} numberOfLines={1}>
-              {category.name === '' ? 'Untitled' : category.name}
-            </Text>
-            {/*
-              ONE number on the heading, not three.
-
-              It carried all three at first and the category's NAME was what
-              gave: three 68-point columns plus the + leave about eighty
-              points on a phone, so `Groceries` drew as `Groc…`. Available is
-              the number a folded category has to answer — "is there any
-              left" — and the other two are one tap away.
-            */}
-            <Money
-              style={styles.headNum}
-              cents={availableOf(budgeted, spent, carried)}
-              testID={`category-available-${category.id}`}
-              tone
-            />
-          </Pressable>
-        )}
+          ) : (
+            <Pressable
+              onPress={edit ? () => setNaming(category.id) : (event) => onAssignCategory(tapPoint(event))}
+              disabled={!edit && rows.length === 0}
+              {...(edit ? KEEP_FOCUS : {})}
+              style={styles.headAction}
+              accessibilityRole="button"
+              accessibilityLabel={`${edit ? 'Rename' : 'Budget actions for'} ${category.name || 'Untitled'}`}
+              testID={`category-action-${category.id}`}
+            >
+              <Text style={styles.headName} numberOfLines={1}>{category.name || 'Untitled'}</Text>
+              <Money
+                style={styles.headNum}
+                cents={availableOf(budgeted, spent, carried)}
+                testID={`category-available-${category.id}`}
+                tone
+              />
+            </Pressable>
+          )}
+        </View>
 
         {edit ? (
           <DoubleTap
@@ -970,7 +1032,9 @@ function CategorySection({
       {!shut && rows.map((l) => {
         const i = flatIdxOf(l.id);
         return (
-        <View key={l.id} ref={drag.registerRow(i)} collapsable={false}>
+        <View key={l.id} ref={drag.registerRow(i)} collapsable={false}
+          {...assignmentContext(edit && naming === l.id ? undefined : (at) => onAssignLine(l.id, at))}
+        >
           {/* One line, at the boundary the row would land on. Nothing else
               moves while a drag is live — a list that rearranges under a
               moving finger is a list you cannot aim at. */}
@@ -987,6 +1051,7 @@ function CategorySection({
             onPick={() => onPick(l.id)}
             naming={naming === l.id}
             onName={() => setNaming(l.id)}
+            onAssignments={(at) => onAssignLine(l.id, at)}
             onNamed={(next) => {
               setNaming(null);
               if (next !== l.name && next !== '') onRenameLine(l, next);
@@ -1008,7 +1073,7 @@ function CategorySection({
 
 function LineRow({
   line, spent, budgeted, carry, set, edit, picked = false, snoozed = false, onPick, naming, onName, onNamed,
-  onEditAmount, onSpent, onDelete, onSnooze, grip, lifted, dy, fixed = false,
+  onEditAmount, onAssignments, onSpent, onDelete, onSnooze, grip, lifted, dy, fixed = false,
 }: {
   line: Line;
   spent: number;
@@ -1039,6 +1104,7 @@ function LineRow({
   onName: () => void;
   onNamed: (next: string) => void;
   onEditAmount: (pick: LinePick, field: LineField, at: Anchor) => void;
+  onAssignments?: (at: AssignmentPoint) => void;
   onSpent: () => void;
   onDelete: () => void;
   onSnooze: (next: boolean) => void;
@@ -1138,11 +1204,11 @@ function LineRow({
         />
       ) : (
         <Pressable
-          onPress={edit ? onName : undefined}
+          onPress={edit ? onName : onAssignments && ((event) => onAssignments(tapPoint(event)))}
           {...(edit ? KEEP_FOCUS : {})}
-          style={styles.nameFill}
-          accessibilityRole={edit ? 'button' : undefined}
-          accessibilityLabel={edit ? `Rename ${line.name}` : undefined}
+          style={[styles.nameFill, !edit && onAssignments && styles.lineAction]}
+          accessibilityRole={edit || onAssignments ? 'button' : undefined}
+          accessibilityLabel={edit ? `Rename ${line.name}` : onAssignments ? `Budget actions for ${line.name || 'Untitled'}` : undefined}
           testID={`line-name-${line.id}`}
         >
           <Text style={styles.rowName} numberOfLines={1}>
@@ -1518,6 +1584,8 @@ const styles = StyleSheet.create({
     paddingRight: SPACE.xs,
   },
   headMain: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flex: 1, minHeight: TAP },
+  headCaret: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, width: TAP, height: TAP },
+  headAction: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TAP },
   chev: { color: T.dim, fontSize: 15, width: 20, height: 20, lineHeight: 20, textAlign: 'center' },
   chevShut: { transform: [{ rotate: '-90deg' }] },
   // Gold, like every section name in the app — see theme.ts.
@@ -1565,6 +1633,7 @@ const styles = StyleSheet.create({
   },
   // The name now has the whole of line one to itself.
   nameFill: { flex: 1, minWidth: 0 },
+  lineAction: { minHeight: TAP, justifyContent: 'center' },
   // A row riding the finger paints over its neighbours, so it has to be
   // opaque — `row` sets the background for exactly that reason.
   rowLifted: { opacity: 0.96 },
@@ -1647,6 +1716,16 @@ const styles = StyleSheet.create({
   // the same 44pt target, because hitSlop is a no-op on the web and a row of
   // buttons that agree about their shape is a row you can aim at.
   assignHit: { minHeight: TAP, justifyContent: 'center', flexShrink: 0 },
+  assignWide: { minWidth: TAP, alignItems: 'center' },
+  assignmentOverlay: { flex: 1 },
+  assignmentMenu: {
+    position: 'absolute', backgroundColor: T.card, borderRadius: 12, padding: SPACE.md,
+    borderColor: T.cardEdge, borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000', shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
+  },
+  assignmentTitle: { color: T.text, fontSize: 15, lineHeight: 20, fontWeight: '600' },
+  assignmentActions: { flexDirection: 'row', justifyContent: 'space-between' },
   // TIGHTER than All and Clear, and that is a measurement rather than a
   // taste: three of these plus All, Clear and Delete overran a 393-point
   // phone by 49 points, and the bar's count is what gives — it gave down to

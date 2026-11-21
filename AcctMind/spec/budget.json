@@ -611,8 +611,13 @@
       1537
     ]
   ],
-  "_assign": "What the pick bar's three buttons set ASSIGNED to. [mode, needs, snoozed, budgeted, spent, carry, want]",
+  "_assign": "What the assignment buttons set ASSIGNED to. [mode, needs, snoozed, budgeted, spent, carry, want]",
   "assign": [
+    ["add-needs", 10000, false, 2000, -3000, 0, 12000],
+    ["add-needs", 10000, false, 12000, 0, 5000, 22000],
+    ["add-needs", 10000, false, 0, -10000, 10000, 10000],
+    ["add-needs", 10000, true, 2000, 0, 0, 2000],
+    ["add-needs", 0, false, 2000, 0, 0, 2000],
     [
       "zero",
       0,

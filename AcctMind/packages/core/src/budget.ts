@@ -204,8 +204,8 @@ export function stillNeeded(
  * matches this month's spending, and `= 0` levels Available after carryover.
  * ------------------------------------------------------------------ */
 
-/** Which of the three the bar pressed. */
-export type AssignMode = 'zero' | 'needs' | 'spent';
+/** The operation to apply to a line's assignment. */
+export type AssignMode = 'zero' | 'needs' | 'spent' | 'add-needs';
 
 /**
  * What one line's ASSIGNED becomes, or null when that is not an amount.
@@ -222,6 +222,9 @@ export type AssignMode = 'zero' | 'needs' | 'spent';
  * than being zeroed by a button nobody pressed for that. `stillNeeded` is
  * the one place that rule lives, so the flag agrees with the yellow.
  *
+ * `add-needs` adds the full target to this month's assignment. A snoozed
+ * target or a line without a positive target adds nothing.
+ *
  * `spent` is NEGATED, and that is the ledger's sign convention rather than a
  * trick: money out is negative, so $30 spent is -3000 and the assignment
  * that matches it is 3000. Filing income against a line therefore assigns a
@@ -237,6 +240,7 @@ export function assignedFor(
 ): number | null {
   if (mode === 'zero') return usable(budgetFor(0, spent, carry));
   if (mode === 'spent') return usable(budgetFor(0, spent));
+  if (mode === 'add-needs') return usable(budgeted + (line.snoozed ? 0 : Math.max(0, line.needs)));
   return usable(budgeted + stillNeeded({ ...line, budget: budgeted }, spent, carry));
 }
 

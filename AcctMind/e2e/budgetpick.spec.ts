@@ -151,6 +151,57 @@ test('= 0 adjusts the selected line until available is zero including carryover'
   expect(await assignedIn(page, 'l3')).toBe(120000);
 });
 
+test('tapping a line opens its assignment actions independently of the selection', async ({ page }) => {
+  await onBudget(page);
+  await pick(page, 'l2');
+  await page.getByTestId('line-name-l1').click();
+  const menu = page.getByTestId('assignment-menu');
+  await expect(menu.getByRole('heading')).toHaveText('Groceries');
+  await expect(page.getByTestId('scope-assign-needs').locator('svg')).toBeVisible();
+  await page.getByTestId('scope-assign-needs').click();
+  await expect(menu).toBeHidden();
+  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$300.00');
+  await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
+  await expect(page.getByTestId('budget-picked-count')).toHaveText('1 selected');
+
+  await page.getByTestId('line-name-l1').click();
+  await expect(page.getByTestId('scope-assign-add-needs')).toHaveText('+');
+  await page.getByTestId('scope-assign-add-needs').click();
+  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$600.00');
+  await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
+});
+
+test('a category action applies to its folded lines and leaves other categories alone', async ({ page }) => {
+  const set = priorSet();
+  const store = JSON.parse(STORE());
+  store.categories.push({ ...store.categories[0], id: 'c2', name: 'Bills' });
+  store.lines.find((line: { id: string }) => line.id === 'l3').category = 'c2';
+  store.budgets.push({ ...monthBudget('l1', 2000), set, id: `${set}|l1` });
+  await withStore(page, JSON.stringify(store));
+  await page.getByTestId('tab-budget').click();
+  await page.getByTestId('category-head-c1').click();
+  await expect(page.getByTestId('line-budgeted-l1')).toBeHidden();
+
+  await page.getByTestId('category-action-c1').click();
+  await expect(page.getByTestId('assignment-menu').getByRole('heading')).toHaveText('Food');
+  await page.getByTestId('scope-assign-zero').click();
+  await expect(page.getByTestId('category-available-c1')).toHaveText('$0.00');
+  expect(await assignedIn(page, 'l1')).toBe(10000);
+  expect(await assignedIn(page, 'l2')).toBe(1000);
+  expect(await assignedIn(page, 'l3')).toBe(120000);
+  await expect(page.getByTestId('budget-picked-count')).toHaveText('0 selected');
+});
+
+test('right-clicking a budget row opens its assignment menu', async ({ page }) => {
+  await onBudget(page);
+  await page.getByTestId('line-spent-l1').click({ button: 'right' });
+  await expect(page.getByTestId('assignment-menu').getByRole('heading')).toHaveText('Groceries');
+  await expect(page.getByTestId('spent-preview-title')).toBeHidden();
+  await page.getByTestId('scope-assign-spent').click();
+  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$120.00');
+  await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
+});
+
 test('Spent explains which transactions and carryover cover a line this month', async ({ page }) => {
   const set = priorSet();
   const store = JSON.parse(STORE());

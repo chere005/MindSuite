@@ -152,7 +152,7 @@ test('a category is a heading, and the money is on the line inside it', async ({
   await openManage(page);
   const id = await makeCategory(page, 'Groceries');
   await page.getByTestId('manage-done').click();
-  await expect(page.getByTestId(`category-head-${id}`)).toContainText('Groceries');
+  await expect(page.getByTestId(`category-action-${id}`)).toContainText('Groceries');
 
   const line = await makeLine(page, id, 'Produce', '250');
 
