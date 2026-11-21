@@ -36,24 +36,23 @@ export function WideFrame({ sidebar, main, detail, onCloseDetail, colors, testID
 }) {
   const { detailBeside } = useWide();
   const hasDetail = detail != null && detail !== false;
+  // The pane keeps ONE place in the tree whether it sits beside the main pane
+  // or over it: only its style changes, so crossing 1180 px never remounts
+  // the form inside it and never loses what was typed there.
   return (
     <View testID={testID} style={[s.row, { backgroundColor: colors.background }]}>
       <View testID="wide-sidebar" style={[s.sidebar, { backgroundColor: colors.sidebar, borderRightColor: colors.line }]}>
         <ScrollView contentContainerStyle={s.sidebarInner}>{sidebar}</ScrollView>
       </View>
       <View testID="wide-main" style={s.main}>{main}</View>
-      {hasDetail && detailBeside && (
-        <View testID="wide-detail" style={[s.detail, { backgroundColor: colors.surface, borderLeftColor: colors.line }]}>
-          {detail}
-        </View>
-      )}
       {hasDetail && !detailBeside && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Pressable testID="wide-detail-backdrop" accessibilityLabel="Close" onPress={onCloseDetail}
-            style={[StyleSheet.absoluteFill, s.backdrop]} />
-          <View testID="wide-detail" style={[s.detail, s.detailOver, { backgroundColor: colors.surface, borderLeftColor: colors.line }]}>
-            {detail}
-          </View>
+        <Pressable key="backdrop" testID="wide-detail-backdrop" accessibilityLabel="Close" onPress={onCloseDetail}
+          style={[StyleSheet.absoluteFill, s.backdrop]} />
+      )}
+      {hasDetail && (
+        <View key="detail" testID="wide-detail"
+          style={[s.detail, !detailBeside && s.detailOver, { backgroundColor: colors.surface, borderLeftColor: colors.line }]}>
+          {detail}
         </View>
       )}
     </View>
