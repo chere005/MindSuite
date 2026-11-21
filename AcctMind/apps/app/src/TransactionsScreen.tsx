@@ -8,16 +8,17 @@ import {
   TextInput, View, type PanResponderInstance,
 } from 'react-native';
 import {
-  INCOME, INCOME_NAME, LONG_PRESS_MS, amountDigits, amountInput, amountSeed, claimsSwipe, clearedTotal, dropTarget, foldLevel,
-  formatAmount, formatDay, parseAmount, pickTap, rowTap,
+  EMPTY_TXN_FILTER, INCOME, INCOME_NAME, LONG_PRESS_MS, amountDigits, amountInput, amountSeed, claimsSwipe,
+  clearedTotal, dropTarget, filterTransactions, foldLevel, formatAmount, formatDay, hasTxnFilter, parseAmount, pickTap, rowTap,
   selectedTotal, slotEntries,
   signedCents, sortTxns, swipeArms, toggleSelected, total,
-  type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn,
+  type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn, type TxnFilter,
 } from '@acctmind/core';
 import { CategoryMenu, NO_CATEGORY } from './CategoryPick';
 import { Dot } from './Dot';
 import { SectionPick } from './SectionPick';
 import { SortPick } from './SortPick';
+import { TransactionFilters } from './TransactionFilters';
 import {
   ClipboardIcon, DuplicateIcon, HammerIcon, PencilIcon, XIcon,
 } from './Icons';
@@ -132,12 +133,22 @@ export function TransactionsScreen({
   // Ordering is core's, not the list's — see spec/sort.json.
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
+  const [filter, setFilter] = useState(EMPTY_TXN_FILTER);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [resultFolds, setResultFolds] = useState<readonly string[]>([]);
+  const filtered = hasTxnFilter(filter);
+  const filterCount = Number(filter.category !== undefined) + Number(filter.status !== 'any')
+    + Number(filter.from !== null || filter.through !== null);
+  const folds = filtered ? resultFolds : collapsed;
+  const setFolds = filtered ? setResultFolds : onCollapsed;
 
   const shown = view === null ? accounts : accounts.filter((a) => a.id === view);
-  const sections = shown.map((a) => ({
-    account: a,
-    rows: sortTxns(txns.filter((t) => t.account === a.id), sort),
-  }));
+  const sections = shown.flatMap((account) => {
+    const all = txns.filter((txn) => txn.account === account.id);
+    const rows = filtered ? filterTransactions(all, filter) : all;
+    if (filtered && rows.length === 0) return [];
+    return [{ account, rows: sortTxns(rows, sort), balance: total(all), clearedBalance: clearedTotal(all) }];
+  });
   const anyRows = sections.some((sec) => sec.rows.length > 0);
 
   /*
@@ -153,7 +164,7 @@ export function TransactionsScreen({
     id === null ? '' : lineNames.get(id) ?? '';
 
   const toggle = (id: string) =>
-    onCollapsed(collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id]);
+    setFolds(folds.includes(id) ? folds.filter((c) => c !== id) : [...folds, id]);
   /**
    * Hold an account's caret, fold or unfold EVERY account — the collapse-all
    * button's job, moved onto the control it was describing (the owner,
@@ -168,7 +179,7 @@ export function TransactionsScreen({
    * would leave a surprise waiting behind the next pick.
    */
   const foldAllAccounts = (wasOpen: boolean) =>
-    onCollapsed(foldLevel(shown.map((a) => a.id), wasOpen));
+    setFolds(foldLevel(sections.map(({ account }) => account.id), wasOpen));
   /**
    * Edit mode, for the whole page.
    *
@@ -233,6 +244,15 @@ export function TransactionsScreen({
    * Return will land on.
    */
   const [reconciling, setReconciling] = useState<{ account: string; what: Reconciled } | null>(null);
+  const applyFilter = (next: TxnFilter) => {
+    if (next === filter) return;
+    setFilter(next);
+    setResultFolds([]);
+    setPicked([]);
+    setSwipedId(null);
+    setInline(null);
+    setReconciling(null);
+  };
 
   // A row that stops existing — deleted here, or deleted on another device
   // mid-gesture — must not leave a parked delete behind attached to nothing.
@@ -248,8 +268,10 @@ export function TransactionsScreen({
    * everything folded All picks nothing, and the count saying 0 is the
    * honest answer — there is nothing on the screen to pick.
    */
-  const visible = sections.filter((sec) => !collapsed.includes(sec.account.id))
+  const visible = sections.filter((sec) => !folds.includes(sec.account.id))
     .flatMap((sec) => sec.rows.map((t) => t.id));
+  const visibleIds = filtered ? new Set(visible) : null;
+  const selection = visibleIds === null ? picked : picked.filter((id) => visibleIds.has(id));
 
   /**
    * EVERY DRAWN ENTRY, in one flat list — so a row can be dragged into
@@ -289,7 +311,7 @@ export function TransactionsScreen({
   const flatRows: FlatEntry[] = [];
   for (const { account, rows } of sections) {
     flatRows.push({ kind: 'head', sectionId: account.id });
-    if (collapsed.includes(account.id)) continue;
+    if (folds.includes(account.id)) continue;
     for (const t of rows) flatRows.push({ kind: 'row', rec: t, sectionId: account.id });
   }
 
@@ -311,11 +333,11 @@ export function TransactionsScreen({
    * one row", which is the question a per-account drag asked; one row in
    * each of two accounts is now a move.
    */
-  const canMove = edit && onMove !== undefined
+  const canMove = edit && !filtered && onMove !== undefined
     && (flatRows.filter((x) => x.kind === 'row').length > 1 || sections.length > 1);
   const deleteSelected = () => {
-    if (onDeleteMany === undefined || picked.length === 0) return;
-    onDeleteMany(picked);
+    if (onDeleteMany === undefined || selection.length === 0) return;
+    onDeleteMany(selection);
     setPicked([]);
   };
 
@@ -365,7 +387,13 @@ export function TransactionsScreen({
             label="Accounts"
             sections={accounts.map((a) => ({ id: a.id, name: a.name, color: a.color }))}
             value={view}
-            onPick={setView}
+            onPick={(id) => {
+              setView(id);
+              if (filtered) {
+                setPicked([]);
+                setSwipedId(null);
+              }
+            }}
             visible={picking}
             onOpen={() => setPicking(true)}
             onClose={() => setPicking(false)}
@@ -376,25 +404,44 @@ export function TransactionsScreen({
         menu={menu}
       />
 
-      {/* Under the divider: how the list is ordered.
-          The running total used to sit at the left of this row; the owner moved
-          it onto each account's own heading (2026-09-15), beside the name.
-          The selection's count and sum sat here next, and went down to the
-          pick bar at the foot on 2026-09-21 — a count an inch from the All
-          and Clear that change it, rather than at the opposite end of the
-          screen from them. */}
       <BarRow>
-        <View />
-        {/*
-          The LIST's controls, beside the sort that was already here.
-
-          Only the sort is left here (the owner, 2026-09-18): `.00` went back up
-          to the bar once the import button came down to the account line,
-          and collapse-all went altogether. The row still earns its place —
-          the bar is what the screen IS and this row is what the list is
-          doing.
-        */}
+        <View style={styles.search}>
+          <TextInput
+            accessibilityLabel="Search transactions"
+            value={filter.query}
+            onChangeText={(query) => applyFilter({ ...filter, query })}
+            placeholder="Search transactions"
+            placeholderTextColor={T.dim}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            style={styles.searchInput}
+            testID="txn-search"
+          />
+          {filter.query !== '' && (
+            <Pressable
+              onPress={() => applyFilter({ ...filter, query: '' })}
+              style={styles.clearSearch}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              testID="txn-search-clear"
+            >
+              <XIcon color={T.dim} size={13} />
+            </Pressable>
+          )}
+        </View>
         <View style={styles.barTools}>
+          <Pressable
+            onPress={() => { setSwipedId(null); setFilterOpen(true); }}
+            style={styles.filters}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: filterOpen }}
+            testID="txn-filters"
+          >
+            <Text style={[styles.filtersText, filterCount > 0 && styles.filtersOn]}>
+              {filterCount > 0 ? `Filters (${filterCount})` : 'Filters'}
+            </Text>
+          </Pressable>
           <SortPick
             mode={sort}
             onPick={onSort}
@@ -416,21 +463,33 @@ export function TransactionsScreen({
         // the responder over (see rowdrag), which is the load-bearing half;
         // this is so the list does not slide under a finger that is aiming.
         scrollEnabled={anyRows && !dragging}
+        keyboardShouldPersistTaps="handled"
         testID="txn-scroll"
       >
         {!anyRows && (
           <View style={styles.empty} testID="empty-state">
-            <Text style={styles.emptyTitle}>No transactions yet</Text>
-            <Text style={styles.emptyBody}>Tap + on an account to add the first one.</Text>
+            <Text style={styles.emptyTitle}>{filtered ? 'No matching transactions' : 'No transactions yet'}</Text>
+            {filtered ? (
+              <Pressable
+                onPress={() => applyFilter(EMPTY_TXN_FILTER)}
+                style={styles.filters}
+                accessibilityRole="button"
+                testID="txn-filters-clear"
+              >
+                <Text style={styles.filtersOn}>Clear filters</Text>
+              </Pressable>
+            ) : <Text style={styles.emptyBody}>Tap + on an account to add the first one.</Text>}
           </View>
         )}
 
-        {sections.map(({ account, rows }) => (
+        {sections.map(({ account, rows, balance, clearedBalance }) => (
           <Section
             key={account.id}
             account={account}
             rows={rows}
-            shut={collapsed.includes(account.id)}
+            balance={balance}
+            clearedBalance={clearedBalance}
+            shut={folds.includes(account.id)}
             onToggle={() => toggle(account.id)}
             onFoldAll={foldAllAccounts}
             onAdd={() => onAdd(account.id)}
@@ -514,12 +573,21 @@ export function TransactionsScreen({
       */}
       <PickBar
         prefix="picked"
-        count={picked.length}
-        detail={picked.length > 0 ? formatAmount(selectedTotal(txns, picked)) : undefined}
+        count={selection.length}
+        detail={selection.length > 0 ? formatAmount(selectedTotal(txns, selection)) : undefined}
         onAll={() => setPicked(visible)}
         onClear={() => setPicked([])}
         onDelete={deleteSelected}
       />
+      {filterOpen && (
+        <TransactionFilters
+          value={filter}
+          categories={categories}
+          choices={categoryOptions}
+          onApply={(next) => { applyFilter(next); setFilterOpen(false); }}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
     </View>
   );
 }
@@ -533,13 +601,15 @@ export function TransactionsScreen({
  * number of hooks whenever an account appeared or was filtered away.
  */
 function Section({
-  account, rows, shut, onToggle, onFoldAll, onAdd, edit, onEdited, picked, onPick,
+  account, rows, balance, clearedBalance, shut, onToggle, onFoldAll, onAdd, edit, onEdited, picked, onPick,
   inline, setInline, amountMode, onInline, onDate, onCleared, lineName, lines, categories,
   swipedId, setSwipedId, onAction, drag, canMove, headIdx, flatIdxOf,
   reconciling, onReconcileOpen, onReconcile,
 }: {
   account: Account;
   rows: readonly Txn[];
+  balance: number;
+  clearedBalance: number;
   shut: boolean;
   onToggle: () => void;
   /** Fold or unfold every account; the argument is this caret's own state. */
@@ -640,22 +710,22 @@ function Section({
         */}
         {reconciling?.account === account.id && reconciling.what === 'total' ? (
           <ReconcileField
-            value={total(rows)}
+            value={balance}
             onDone={(stated) => onReconcile(account.id, stated, 'total')}
             testID={`account-reconcile-input-${account.id}`}
           />
         ) : (
           <Text
-            style={[styles.headSum, total(rows) > 0 && styles.totalUp]}
+            style={[styles.headSum, balance > 0 && styles.totalUp]}
             // ONE LINE, always. Without it a wide figure — `-$1,528.21` is
             // enough on a phone — broke after its minus sign and drew the
             // sign over the amount in a head one line tall. A balance is not
             // a sentence; the NAME is what gives when the row runs out.
             numberOfLines={1}
             testID={`account-total-${account.id}`}
-            accessibilityLabel={`Total ${formatAmount(total(rows))}`}
+            accessibilityLabel={`Total ${formatAmount(balance)}`}
           >
-            {formatAmount(total(rows))}
+            {formatAmount(balance)}
           </Text>
         )}
         <Pressable
@@ -694,19 +764,19 @@ function Section({
         <View
           style={styles.headCleared}
           testID={`account-cleared-${account.id}`}
-          accessibilityLabel={`Cleared ${formatAmount(clearedTotal(rows))}`}
+          accessibilityLabel={`Cleared ${formatAmount(clearedBalance)}`}
         >
           <Text style={styles.headClearedLabel}>Cleared</Text>
           {reconciling?.account === account.id && reconciling.what === 'cleared' ? (
             <ReconcileField
-              value={clearedTotal(rows)}
+              value={clearedBalance}
               onDone={(stated) => onReconcile(account.id, stated, 'cleared')}
               style={styles.headClearedNum}
               testID={`account-reconcile-cleared-input-${account.id}`}
             />
           ) : (
             <Text style={styles.headClearedNum} numberOfLines={1}>
-              {formatAmount(clearedTotal(rows))}
+              {formatAmount(clearedBalance)}
             </Text>
           )}
         </View>
@@ -1481,6 +1551,15 @@ const BESIDE_HAMMER = HEAD_GAP - HAMMER_PAD;
 const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: T.bg },
   barTools: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  search: {
+    flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: T.card, borderRadius: 8,
+  },
+  searchInput: { flex: 1, minWidth: 0, minHeight: TAP, paddingHorizontal: SPACE.sm, color: T.text, fontSize: 15 },
+  clearSearch: { width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center' },
+  filters: { minHeight: TAP, justifyContent: 'center', paddingHorizontal: SPACE.sm },
+  filtersText: { color: T.text, fontSize: 15, fontWeight: '600' },
+  filtersOn: { color: T.accent, fontWeight: '600' },
   totalUp: { color: T.positive },
   share: { alignItems: 'center', justifyContent: 'center' },
   shareArrow: { color: T.text, fontSize: 17, lineHeight: 18, fontWeight: '600' },

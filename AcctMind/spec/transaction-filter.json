@@ -1,0 +1,28 @@
+{
+  "transactions": [
+    { "id": "a", "name": "Market", "description": "Co-op debit", "date": "2026-11-06", "category": "groceries", "cleared": true },
+    { "id": "b", "name": "Co-op payment", "description": "", "date": "2026-11-07", "category": null },
+    { "id": "c", "name": "Market return", "description": "", "date": "2026-11-08", "category": "groceries" },
+    { "id": "deleted", "name": "Market", "description": "Co-op debit", "date": "2026-11-06", "category": "groceries", "cleared": true, "deleted": true }
+  ],
+  "cases": [
+    [{}, ["a", "b", "c"]],
+    [{ "query": "  CO-OP  " }, ["a", "b"]],
+    [{ "query": "market" }, ["a", "c"]],
+    [{ "query": "missing" }, []],
+    [{ "category": null }, ["b"]],
+    [{ "category": "groceries", "status": "uncleared" }, ["c"]],
+    [{ "status": "cleared" }, ["a"]],
+    [{ "from": "2026-11-07" }, ["b", "c"]],
+    [{ "through": "2026-11-07" }, ["a", "b"]],
+    [{ "query": "co-op", "category": "groceries", "status": "cleared", "from": "2026-11-06", "through": "2026-11-06" }, ["a"]]
+  ],
+  "ranges": [
+    [null, null, true],
+    ["2026-11-06", null, true],
+    [null, "2026-11-06", true],
+    ["2026-11-06", "2026-11-06", true],
+    ["2026-11-07", "2026-11-06", false],
+    ["2026-11-31", null, false]
+  ]
+}

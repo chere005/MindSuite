@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays, addMonths, amountDigits, amountField, amountKeyed, amountSeed, applyOp, assignedFor, availableOf, budgetFor, dayOf,
   type AssignMode,
-  importKey, lineTone, parseDelimited, reconcileAdjustment, stillNeeded, usDate,
+  EMPTY_TXN_FILTER, filterTransactions, hasTxnFilter, importKey, lineTone, parseDelimited,
+  reconcileAdjustment, stillNeeded, usDate, validTxnDateRange, type TxnFilter,
   wellsFargoName,
   dayToDate, entryCents, formatAmount, formatDay, isDay, monthGrid, monthLabel,
   parseAmount, signedCents, sortTxns, unassigned,
@@ -26,6 +27,32 @@ const spec = <T,>(name: string): T =>
 /** Keys beginning with `_` are prose for a human reading the file. */
 const groups = <T,>(o: Record<string, unknown>): [string, T][] =>
   Object.entries(o).filter(([k]) => !k.startsWith('_')) as [string, T][];
+
+describe('spec/transaction-filter.json', () => {
+  const fixtures = spec<{
+    transactions: Pick<Txn, 'id' | 'name' | 'description' | 'date' | 'category' | 'cleared' | 'deleted'>[];
+    cases: [Partial<TxnFilter>, string[]][];
+    ranges: [string | null, string | null, boolean][];
+  }>('transaction-filter');
+
+  it('filters live transactions by text, category, date and cleared status', () => {
+    const txns = fixtures.transactions.map((txn) => ({
+      ...txn, account: 'checking', amount: -500, order: 0, created: 1, updated: 1,
+    }));
+    for (const [fields, expected] of fixtures.cases) {
+      const filter = { ...EMPTY_TXN_FILTER, ...fields };
+      expect(filterTransactions(txns, filter).map(({ id }) => id), JSON.stringify(fields)).toEqual(expected);
+    }
+    expect(hasTxnFilter({ ...EMPTY_TXN_FILTER, query: '  ' })).toBe(false);
+    expect(hasTxnFilter({ ...EMPTY_TXN_FILTER, category: null })).toBe(true);
+  });
+
+  it('accepts open-ended and same-day ranges and checks calendar dates', () => {
+    for (const [from, through, expected] of fixtures.ranges) {
+      expect(validTxnDateRange({ from, through })).toBe(expected);
+    }
+  });
+});
 
 describe('spec/money.json', () => {
   const m = spec<{

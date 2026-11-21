@@ -76,11 +76,12 @@ export function CategoryPick({ categories, lines, value, onPick, allowNone = tru
  * filter, one "No Category" that is never filtered away, one grouping, on
  * both paths. Mounted only while open, so the filter starts empty each time.
  */
-export function CategoryMenu({ categories, lines, onPick, onClose, allowNone = true }: {
+export function CategoryMenu({ categories, lines, onPick, onClose, onPickAny, allowNone = true }: {
   categories: readonly Category[];
   lines: readonly CategoryChoice[];
   onPick: (id: string | null) => void;
   onClose: () => void;
+  onPickAny?: () => void;
   allowNone?: boolean;
 }) {
   const [query, setQuery] = useState('');
@@ -104,6 +105,11 @@ export function CategoryMenu({ categories, lines, onPick, onClose, allowNone = t
             testID="category-filter"
           />
           <ScrollView keyboardShouldPersistTaps="handled">
+            {onPickAny && (
+              <Pressable onPress={() => { onClose(); onPickAny(); }} style={styles.row} testID="category-any">
+                <Text style={styles.rowText}>Any category</Text>
+              </Pressable>
+            )}
             {/* Keep the option to clear a transaction available during filtering. */}
             {allowNone && (
               <Pressable onPress={() => pick(null)} style={styles.row} testID="category-none">

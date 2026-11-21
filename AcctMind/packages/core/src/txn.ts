@@ -474,6 +474,41 @@ export function filterByName<R extends { name: string }>(rows: readonly R[], que
   return rows.filter((r) => r.name.toLowerCase().includes(q));
 }
 
+export type TxnFilter = {
+  query: string;
+  /** undefined includes every category, null selects unfiled transactions. */
+  category: string | null | undefined;
+  status: 'any' | 'cleared' | 'uncleared';
+  from: string | null;
+  through: string | null;
+};
+
+export const EMPTY_TXN_FILTER: TxnFilter = {
+  query: '', category: undefined, status: 'any', from: null, through: null,
+};
+
+export function hasTxnFilter({ query, category, status, from, through }: TxnFilter): boolean {
+  return query.trim() !== '' || category !== undefined || status !== 'any' || from !== null || through !== null;
+}
+
+export function validTxnDateRange({ from, through }: Pick<TxnFilter, 'from' | 'through'>): boolean {
+  return (from === null || isDay(from)) && (through === null || isDay(through))
+    && (from === null || through === null || from <= through);
+}
+
+/** All selected criteria apply together. The date endpoints are inclusive. */
+export function filterTransactions(txns: readonly Txn[], filter: TxnFilter): Txn[] {
+  const { category, status, from, through } = filter;
+  const query = filter.query.trim().toLowerCase();
+  const wantCleared = status === 'cleared';
+  return txns.filter((txn) => !txn.deleted
+    && (category === undefined || txn.category === category)
+    && (status === 'any' || (txn.cleared === true) === wantCleared)
+    && (from === null || txn.date >= from)
+    && (through === null || txn.date <= through)
+    && (query === '' || txn.name.toLowerCase().includes(query) || txn.description.toLowerCase().includes(query)));
+}
+
 /* ------------------------------------------------------------------ *
  * The swipe
  *
