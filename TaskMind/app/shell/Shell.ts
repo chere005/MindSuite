@@ -19,8 +19,8 @@ function mark(): SVGSVGElement {
   const tile = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
   tile.setAttribute('width', '96'); tile.setAttribute('height', '96'); tile.setAttribute('rx', '20'); tile.setAttribute('fill', '#111111');
   const stroke = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  stroke.setAttribute('d', 'M 14 26 L 46 26 L 30 26 L 30 70 L 60 70 L 60 44 L 71 57 L 82 44 L 82 70');
-  for (const [name, value] of Object.entries({ fill: 'none', stroke: '#a78bfa', 'stroke-width': '9', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) stroke.setAttribute(name, value);
+  stroke.setAttribute('d', 'M 14 26 H 46 M 30 26 V 70 M 56 70 V 44 L 68 57 L 80 44 V 70');
+  for (const [name, value] of Object.entries({ fill: 'none', stroke: '#d58dee', 'stroke-width': '9', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) stroke.setAttribute(name, value);
   svg.append(tile, stroke);
   return svg;
 }
