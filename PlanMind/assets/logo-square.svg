@@ -7,5 +7,5 @@
   -->
   <rect width="96" height="96" fill="#111111"/>
   <path d="M 18 70 L 18 26 L 30 26 A 15 15 0 0 1 30 56 L 18 56 M 58 70 L 58 40 L 68 54 L 78 40 L 78 70"
-        fill="none" stroke="#f472b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+        fill="none" stroke="#fb82a1" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
