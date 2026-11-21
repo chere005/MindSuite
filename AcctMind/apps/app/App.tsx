@@ -100,6 +100,7 @@ export default function App() {
   /** Which manager is open, if either. */
   const [managing, setManaging] = useState<'accounts' | 'categories' | null>(null);
   const [importing, setImporting] = useState(false);
+  const openImport = useCallback(() => setImporting(true), []);
   const [matching, setMatching] = useState(false);
   /**
    * The budget line being added or edited, if any.
@@ -487,7 +488,7 @@ export default function App() {
 
   const appMenu = (
     <AppMenu
-      onImport={() => setImporting(true)}
+      onImport={openImport}
       onExport={onExportBudget}
       onMatch={() => setMatching(true)}
       whole={prefs.amountMode === 'whole'}
@@ -767,6 +768,7 @@ export default function App() {
               visible={importing}
               store={phase.store}
               accounts={live(phase.store.accounts)}
+              onOpen={openImport}
               onClose={() => setImporting(false)}
               onImport={(account: string, rows: readonly CsvRow[], mode: ImportMode) => {
                 if (phase.k !== 'ready') return;

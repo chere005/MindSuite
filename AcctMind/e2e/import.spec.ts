@@ -45,6 +45,58 @@ const FIRST = csv(
   `"${ZELLE}","3500.00","Posted"`,
 );
 
+async function dropFiles(page: Page, ...files: { name: string; text: string }[]): Promise<void> {
+  const prevented = await page.evaluate((files) => {
+    const dataTransfer = new DataTransfer();
+    for (const { name, text } of files) dataTransfer.items.add(new File([text], name));
+    const drag = { dataTransfer, bubbles: true, cancelable: true };
+    return ['dragover', 'drop'].map((type) => {
+      const event = new DragEvent(type, drag);
+      document.body.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  }, files);
+  expect(prevented).toEqual([true, true]);
+}
+
+test('dropping a CSV on the budget opens its import preview before writing anything', async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId('tab-budget').click();
+  await dropFiles(page, { name: 'statement.CSV', text: FIRST });
+  await expect(page.getByTestId('import-title')).toBeVisible();
+  await expect(page.getByTestId('import-filename')).toHaveText('statement.CSV');
+  await expect(page.getByTestId('import-plan')).toHaveText('3 new');
+  expect(await live(page)).toHaveLength(0);
+
+  await dropFiles(page, { name: 'short.csv', text: csv(`"${APPLE}","-8.93","Posted"`) });
+  await expect(page.getByTestId('import-filename')).toHaveText('short.csv');
+  await expect(page.getByTestId('import-plan')).toHaveText('1 new');
+  await page.getByTestId('import-add').click();
+  await expect(page.getByTestId('import-title')).toBeHidden();
+  expect((await live(page)).map(({ name }) => name)).toEqual(['Apple']);
+
+  await openMenu(page);
+  await page.getByTestId('menu-import').click();
+  await expect(page.getByTestId('import-title')).toBeVisible();
+  await expect(page.getByTestId('import-plan')).toBeHidden();
+});
+
+test('file drops leave a draft intact and ignore unsupported or ambiguous drops', async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('name-input').fill('Unsaved draft');
+  await dropFiles(page, { name: 'notes.txt', text: 'Notes' });
+  await dropFiles(page, { name: 'one.csv', text: FIRST }, { name: 'two.csv', text: FIRST });
+  await expect(page.getByTestId('import-title')).toBeHidden();
+
+  await dropFiles(page, { name: 'statement.csv', text: FIRST });
+  await expect(page.getByTestId('import-plan')).toHaveText('3 new');
+  await page.getByTestId('import-close').click();
+  await expect(page.getByTestId('import-title')).toBeHidden();
+  await expect(page.getByTestId('name-input')).toHaveValue('Unsaved draft');
+  expect(await live(page)).toHaveLength(0);
+});
+
 test('a second export of the same days settles, clears and removes', async ({ page }) => {
   await fresh(page);
   await load(page, FIRST);

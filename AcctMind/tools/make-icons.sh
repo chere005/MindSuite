@@ -42,10 +42,12 @@ render() {
 $(cat "$src")
 HTML
   "$CHROME" --headless --disable-gpu --no-sandbox --hide-scrollbars \
+    --user-data-dir="$TMP/chrome" \
     --force-device-scale-factor=1 \
     --default-background-color=00000000 \
     --screenshot="$TMP/out.png" --window-size="$size,$size" \
-    "file://$TMP/page.html" > /dev/null 2>&1
+    "file://$TMP/page.html" > "$TMP/chrome.log" 2>&1 \
+    || { cat "$TMP/chrome.log" >&2; exit 1; }
   [ -f "$TMP/out.png" ] || { echo "Chrome produced nothing at ${size}px" >&2; exit 1; }
   mv "$TMP/out.png" "$dest"
   printf '  %-46s %s\n' "$dest" "${size}x${size}"
@@ -58,7 +60,8 @@ render 1024 "$ROOT/apps/app/assets/adaptive-icon.png"  "$SQ"
 
 echo "==> picture cuts (rounded — nothing masks these)"
 render 512  "$ROOT/assets/logo-512.png"
-render 48   "$ROOT/apps/app/assets/favicon.png"
+# A tiny headless window can stall on macOS. Downsample the rounded cut.
+sips -z 48 48 "$ROOT/assets/logo-512.png" --out "$ROOT/apps/app/assets/favicon.png" > /dev/null
 
 echo "==> desktop icon set (icns / ico / png)"
 npx --yes @tauri-apps/cli icon "$ROOT/assets/icon.png" -o "$ROOT/desktop/src-tauri/icons" > /dev/null 2>&1

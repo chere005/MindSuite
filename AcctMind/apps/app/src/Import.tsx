@@ -25,64 +25,101 @@
  * wants a phone file picker, the dependency goes in then and this screen
  * grows one branch.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   formatAmount, planImport, readCsv, wellsFargoName,
-  type Account, type CsvProblem, type CsvRow, type ImportMode, type ImportPlan, type Store,
+  type Account, type CsvRead, type CsvRow, type ImportMode, type ImportPlan, type Store,
 } from '@acctmind/core';
 import { SPACE, T, TAP } from './theme';
 
-/** What the file turned into, before anyone has agreed to file it. */
-type Loaded = {
-  rows: readonly CsvRow[];
-  problems: readonly CsvProblem[];
-  /** Read fine and left out on purpose — voided rows. Reported apart from
-   *  `problems`, because "we skipped these" and "these are broken" are not
-   *  the same sentence and one of them is alarming. */
-  skipped: readonly CsvProblem[];
-};
+type Preview =
+  | { kind: 'reading' | 'failed'; name: string }
+  | { kind: 'parsed'; name: string | null; data: CsvRead };
 
-export function Import({ visible, store, accounts, onClose, onImport }: {
+export function Import({ visible, store, accounts, onOpen, onClose, onImport }: {
   visible: boolean;
   store: Store;
   accounts: readonly Account[];
+  onOpen: () => void;
   onClose: () => void;
   onImport: (account: string, rows: readonly CsvRow[], mode: ImportMode) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [account, setAccount] = useState<string | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [selectedAccount, setAccount] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
-  const [error, setError] = useState<string | null>(null);
   /** `replace` is armed by a first press, like the budget's delete. */
   const [armed, setArmed] = useState(false);
   /** …and so is the ordinary import, but ONLY when it would remove a row. */
   const [armedAdd, setArmedAdd] = useState(false);
+  const latestRead = useRef(0);
 
-  // Opening is a fresh screen. A file left over from last time, sitting under
-  // a button that says Import, is the shape of a mistake nobody can see.
-  useEffect(() => {
-    if (!visible) return;
-    setLoaded(null);
+  const close = () => {
+    latestRead.current++;
+    setPreview(null);
     setPasted('');
-    setError(null);
     setArmed(false);
     setArmedAdd(false);
-    setAccount((a) => a ?? accounts[0]?.id ?? null);
-  }, [visible, accounts]);
+    onClose();
+  };
 
-  const take = (text: string) => {
-    const read = readCsv(text);
-    setError(read.rows.length === 0 ? 'No transactions found in that file.' : null);
-    setLoaded({ rows: read.rows, problems: read.problems, skipped: read.skipped });
+  const takeFile = useCallback((file: File) => {
+    const read = ++latestRead.current;
+    setArmed(false);
+    setArmedAdd(false);
+    setPreview({ kind: 'reading', name: file.name });
+    onOpen();
+    void file.text().then(
+      (text) => {
+        if (latestRead.current === read) setPreview({ kind: 'parsed', name: file.name, data: readCsv(text) });
+      },
+      () => {
+        if (latestRead.current === read) setPreview({ kind: 'failed', name: file.name });
+      },
+    );
+  }, [onOpen]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const dragOver = (event: DragEvent) => {
+      const transfer = event.dataTransfer;
+      if (!transfer?.types.includes('Files')) return;
+      event.preventDefault();
+      transfer.dropEffect = 'copy';
+    };
+    const drop = (event: DragEvent) => {
+      const transfer = event.dataTransfer;
+      if (!transfer?.types.includes('Files')) return;
+      // Stop the browser from navigating to the file, including unsupported drops.
+      event.preventDefault();
+      const file = transfer.files[0];
+      if (transfer.files.length === 1 && file && (/\.csv$/i.test(file.name) || file.type === 'text/csv')) {
+        takeFile(file);
+      }
+    };
+    document.addEventListener('dragover', dragOver, true);
+    document.addEventListener('drop', drop, true);
+    return () => {
+      latestRead.current++;
+      document.removeEventListener('dragover', dragOver, true);
+      document.removeEventListener('drop', drop, true);
+    };
+  }, [takeFile]);
+
+  const takePaste = () => {
+    setPreview({ kind: 'parsed', name: null, data: readCsv(pasted) });
     setArmed(false);
     setArmedAdd(false);
   };
 
+  const account = accounts.find((a) => a.id === selectedAccount)?.id ?? accounts[0]?.id ?? null;
+  const loaded = preview?.kind === 'parsed' ? preview.data : null;
+  const error = preview?.kind === 'failed' ? 'Could not read that CSV file.'
+    : loaded?.rows.length === 0 ? 'No transactions found in that file.' : null;
   const plan = loaded === null || account === null
     ? null
     : planImport(store, account, loaded.rows, 'add');
@@ -90,12 +127,15 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
     ? null
     : planImport(store, account, loaded.rows, 'replace');
 
+  // Mount the web dialog on open so a drop can put it above other dialogs.
+  if (Platform.OS === 'web' && !visible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={close}>
       <View style={[styles.fill, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.bar}>
           <Text style={styles.title} testID="import-title">Import CSV</Text>
-          <Pressable onPress={onClose} style={styles.barBtn} testID="import-close">
+          <Pressable onPress={close} style={styles.barBtn} testID="import-close">
             <Text style={styles.barBtnText}>Done</Text>
           </Pressable>
         </View>
@@ -113,7 +153,7 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
           {Platform.OS === 'web' ? (
             <View style={styles.pick}>
               {/* eslint-disable-next-line */}
-              {createFileInput(take)}
+              {createFileInput(takeFile)}
             </View>
           ) : (
             <>
@@ -128,7 +168,7 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
                 testID="import-paste"
               />
               <Pressable
-                onPress={() => take(pasted)}
+                onPress={takePaste}
                 style={styles.btn}
                 accessibilityRole="button"
                 testID="import-read-paste"
@@ -138,6 +178,11 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
             </>
           )}
 
+          {preview?.name && (
+            <Text style={styles.note} testID="import-filename">
+              {preview.kind === 'reading' ? `Reading ${preview.name}…` : preview.name}
+            </Text>
+          )}
           {error !== null && <Text style={styles.error} testID="import-error">{error}</Text>}
 
           {loaded !== null && loaded.rows.length > 0 && (
@@ -262,7 +307,7 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
                   if (account === null || plan === null || loaded === null) return;
                   if (plan.missing.length > 0 && !armedAdd) { setArmedAdd(true); return; }
                   onImport(account, loaded.rows, 'add');
-                  onClose();
+                  close();
                 }}
                 style={[styles.btn, armedAdd ? styles.btnDanger : styles.btnGo]}
                 accessibilityRole="button"
@@ -287,7 +332,7 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
                   if (account === null || replacing === null || loaded === null) return;
                   if (!armed) { setArmed(true); return; }
                   onImport(account, loaded.rows, 'replace');
-                  onClose();
+                  close();
                 }}
                 style={[styles.btn, armed && styles.btnDanger]}
                 accessibilityRole="button"
@@ -316,7 +361,7 @@ export function Import({ visible, store, accounts, onClose, onImport }: {
  * idea what an input is — hence the cast, kept in one place rather than
  * sprinkled through the screen.
  */
-function createFileInput(take: (text: string) => void): React.ReactNode {
+function createFileInput(take: (file: File) => void): React.ReactNode {
   const Input = 'input' as unknown as React.ElementType;
   return (
     <Input
@@ -327,7 +372,7 @@ function createFileInput(take: (text: string) => void): React.ReactNode {
       onChange={(e: { target: { files: { 0?: File } | null } }) => {
         const file = e.target.files?.[0];
         if (file === undefined) return;
-        void file.text().then(take);
+        take(file);
       }}
     />
   );
