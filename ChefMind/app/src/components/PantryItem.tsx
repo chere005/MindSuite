@@ -25,9 +25,11 @@ export type PantryItemProps = {
   onClose: () => void;
   /** A tapped "used by" recipe. The host closes this and opens the recipe. */
   onOpenRecipe?: (noteId: string) => void;
+  /** Desktop pane: fill the height, with the bar pinned to the foot. */
+  fill?: boolean;
 };
 
-export function PantryItem({ rowId, onClose, onOpenRecipe }: PantryItemProps) {
+export function PantryItem({ rowId, onClose, onOpenRecipe, fill = false }: PantryItemProps) {
   const { recs, mutate } = useStore();
   const toast = useToast();
   const row = listOf(recs, 'pantry')?.rows.find((r) => r.id === rowId);
@@ -64,12 +66,12 @@ export function PantryItem({ rowId, onClose, onOpenRecipe }: PantryItemProps) {
   };
 
   return (
-    <View style={s.root} testID="pantry-item">
+    <View style={[s.root, fill && s.rootFill]} testID="pantry-item">
       <View style={s.head}>
         <Text testID="pantry-item-name" style={s.h1}>{text}</Text>
         <Text style={s.sub}>{aisle}</Text>
       </View>
-      <Scroll style={s.body} contentContainerStyle={s.bodyIn}>
+      <Scroll style={[s.body, fill && s.bodyFill]} contentContainerStyle={s.bodyIn}>
         <Text style={s.sec}>{used.length === 0 ? 'Not used by your recipes' : `Used by ${used.length} of your recipes`}</Text>
         {used.map((u) => (
           <Pressable key={u.id} testID="pantry-used" accessibilityRole="button" onPress={() => onOpenRecipe?.(u.id)} style={s.used}>
@@ -99,6 +101,8 @@ export function PantryItem({ rowId, onClose, onOpenRecipe }: PantryItemProps) {
 
 const s = themed(() => StyleSheet.create({
   root: { flexShrink: 1, minHeight: 0 },
+  rootFill: { flexGrow: 1, flexBasis: 0 },
+  bodyFill: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   head: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   h1: { color: T.text, fontSize: 22, fontWeight: '800' },
   sub: { color: T.dim, fontSize: 14, marginTop: 2 },

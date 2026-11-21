@@ -10,10 +10,13 @@ import { Login } from './src/screens/Login';
 import { Notes } from './src/screens/Notes';
 import { Pantry, Shopping } from './src/screens/Shopping';
 import { Search } from './src/screens/Search';
+import { useWide } from './src/components/WideFrame';
+import { ChefWide } from './src/wide/ChefWide';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
 
 function Root() {
   const { ready, session } = useStore();
+  const { wide } = useWide();
   // Signing in lands on NOTES. Upstream it is the calendar — "what's on today"
   // shouldn't depend on which icon you opened — and there is no calendar here.
   // Notes is where the recipes are, which is what this app is for.
@@ -57,6 +60,7 @@ function Root() {
   return (
     <NavCtx.Provider value={{ canBack, goBack, openSearch: () => setSearchOpen(true), openTab: setTab, openNote: (id) => { setNoteToOpen(id); setTab('notes'); } }}>
     <View style={s.page}>
+      {wide ? <ChefWide tab={tab} onTab={setTab} /> : (<>
       {/* Phone-first column, centred on a wide window — the suite's page shape. */}
       <View style={s.centre}>
         <View style={s.body}>
@@ -66,7 +70,8 @@ function Root() {
         </View>
       </View>
       <TabBar tab={tab} onTab={setTab} />
-      {searchOpen && (
+      </>)}
+      {!wide && searchOpen && (
         <Search
           onClose={() => setSearchOpen(false)}
           onOpen={(hit) => {

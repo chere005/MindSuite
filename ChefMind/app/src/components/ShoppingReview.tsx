@@ -26,9 +26,11 @@ export type ShoppingReviewProps = {
   /** Called after the lines were written (and the toast shown). The host
    *  decides where to go next — the phone switches to the Shopping tab. */
   onAdded: (result: Extract<ShopResult, { ok: true }>) => void;
+  /** Desktop pane: fill the height, with the bar pinned to the foot. */
+  fill?: boolean;
 };
 
-export function ShoppingReview({ sources, onCancel, onAdded }: ShoppingReviewProps) {
+export function ShoppingReview({ sources, onCancel, onAdded, fill = false }: ShoppingReviewProps) {
   const { recs, mutate } = useStore();
   const toast = useToast();
   const [off, setOff] = useState<ReadonlySet<number>>(new Set());
@@ -61,14 +63,14 @@ export function ShoppingReview({ sources, onCancel, onAdded }: ShoppingReviewPro
   };
 
   return (
-    <View style={s.root} testID="review">
+    <View style={[s.root, fill && s.rootFill]} testID="review">
       <View style={s.head}>
         <Text style={s.h1}>Make a shopping list</Text>
         <Text testID="review-summary" style={s.sub}>
           {sum.ingredients} {sum.ingredients === 1 ? 'ingredient' : 'ingredients'} from {sum.recipes} {sum.recipes === 1 ? 'recipe' : 'recipes'}
         </Text>
       </View>
-      <Scroll style={s.body} contentContainerStyle={s.bodyIn}>
+      <Scroll style={[s.body, fill && s.bodyFill]} contentContainerStyle={s.bodyIn}>
         <Text style={s.sec}>To buy · {plan.toBuy.length}</Text>
         {plan.toBuy.length === 0 ? (
           <Text style={s.note}>Nothing to buy: the pantry covers all of it.</Text>
@@ -117,6 +119,8 @@ export function ShoppingReview({ sources, onCancel, onAdded }: ShoppingReviewPro
 
 const s = themed(() => StyleSheet.create({
   root: { flexShrink: 1, minHeight: 0 },
+  rootFill: { flexGrow: 1, flexBasis: 0 },
+  bodyFill: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   head: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   h1: { color: T.text, fontSize: 20, fontWeight: '800' },
   sub: { color: T.dim, fontSize: 14, marginTop: 2 },

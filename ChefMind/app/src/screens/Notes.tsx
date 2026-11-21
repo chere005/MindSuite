@@ -166,12 +166,23 @@ function NoteBody({ body, recipe, onLine }: { body: string; recipe: boolean; onL
   );
 }
 
-export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | null; onOpenConsumed?: () => void }) {
+/** Desktop layout: the wide frame mounts Notes for its EDITOR only (the list is
+ *  the frame's own table), so a missing open note renders nothing, closing the
+ *  editor calls `onExit`, and Cook is the frame's, not a sheet. */
+export type NotesWide = { onExit: () => void; onCook: (noteId: string, variantId: string | null) => void };
+
+export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: string | null; onOpenConsumed?: () => void; wide?: NotesWide }) {
   const { recs, mutate, sharedRecs, sharedPartnerLabel, syncState, persistFailed } = useStore();
   const nav = useNav();
   const { view, visible: visibleFolders, visibleShared, sharedView, sharedPartner } = useFolderView('notes');
   const setNotePrefs = (lastView: string) => mutate((e) => e.put(prefsPut(recs, 'notes', { lastView })));
   const [openId, setOpenId] = useState<string | null>(null);
+  const wideOpened = useRef(false);
+  useEffect(() => {
+    if (!wide) return;
+    if (openId) wideOpened.current = true;
+    else if (wideOpened.current) { wideOpened.current = false; wide.onExit(); }
+  }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   /** The folder picker's card, raised from the username menu's Folders row. */
   const [pickOpen, setPickOpen] = useState(false);
   const [sel, setSel] = useNoteScoped(openId, { start: 0, end: 0 });
@@ -452,7 +463,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
   React.useEffect(() => {
     if (openNoteId) {
       freshEdit.current = openNoteId;
-      cameFromTab.current = true;
+      cameFromTab.current = !wide;
       setOpenId(openNoteId);
       onOpenConsumed?.();
     }
@@ -832,6 +843,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     </>
   );
 
+  if (wide && !openId) return null;
   if (sharedView && sharedPartner) {
     return <SharedNotes viewKey={sharedView} partner={sharedPartner} />;
   }
@@ -1061,7 +1073,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
               )}
               {scale !== 1 && <Text style={s.scaleNote}>Scaled — 1× to edit</Text>}
               <View style={s.cookBtn}>
-                <Pill testID="note-cook" compact primary label="Cook" onPress={() => setCookFor({ ids: [open.id], first: open.id, variantId })} />
+                <Pill testID="note-cook" compact primary label="Cook" onPress={() => (wide ? wide.onCook(open.id, variantId) : setCookFor({ ids: [open.id], first: open.id, variantId }))} />
               </View>
             </View>
           )}

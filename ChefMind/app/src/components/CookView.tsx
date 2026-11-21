@@ -37,11 +37,16 @@ export type CookViewProps = {
   /** Wraps the Finish panel. The phone passes a sheet; a pane can pass its own
    *  or omit it, in which case the panel renders inline above the bar. */
   wrapFinish?: (panel: React.ReactNode, close: () => void) => React.ReactNode;
+  /** Desktop layout: Gather on the left, the steps large on the right, a text
+   *  "‹ <closeLabel>" link instead of the round back, and Esc leaves (or, with
+   *  Finish open, closes Finish first). */
+  wide?: boolean;
+  closeLabel?: string;
 };
 
 type Tab = { step: number; gathered: Set<number>; variantId: string | null };
 
-export function CookView({ notes, initialId, initialVariantId = null, onClose, wrapFinish }: CookViewProps) {
+export function CookView({ notes, initialId, initialVariantId = null, onClose, wrapFinish, wide = false, closeLabel = 'Recipes' }: CookViewProps) {
   const awake = useScreenAwake();
   const [active, setActive] = useState(() => Math.max(0, notes.findIndex((n) => n.id === initialId)));
   const [tabs, setTabs] = useState<Record<string, Tab>>({});
@@ -80,6 +85,16 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
     return () => document.removeEventListener('keydown', onKey, true);
   }, []);
 
+  // Desktop: Esc closes Finish if it is open, otherwise leaves Cook.
+  const escRef = useRef<() => void>(() => {});
+  escRef.current = () => { if (finishOpen) setFinishOpen(false); else onClose(); };
+  useEffect(() => {
+    if (!wide || Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) escRef.current(); };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+  }, [wide]);
+
   // Keep the current step on screen.
   const scroller = useRef<ScrollView>(null);
   const ys = useRef<number[]>([]);
@@ -93,13 +108,19 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
   const last = step >= steps.length - 1;
   const variants = note.payload.variants ?? [];
   const finishPanel = (
-    <CookFinish ingredients={allIngredients} onCancel={() => setFinishOpen(false)} onFinished={() => { setFinishOpen(false); onClose(); }} />
+    <CookFinish tall={wide} ingredients={allIngredients} onCancel={() => setFinishOpen(false)} onFinished={() => { setFinishOpen(false); onClose(); }} />
   );
 
   return (
     <View style={s.root} testID="cook">
       <View style={s.top}>
-        <CircleBtn testID="cook-close" glyph="‹" size={32} targetSize={44} label="Close Cook" onPress={onClose} />
+        {wide ? (
+          <Pressable testID="cook-close" accessibilityRole="button" accessibilityLabel="Close Cook" onPress={onClose} style={s.backLink}>
+            <Text style={s.backLinkText}>‹ {closeLabel}</Text>
+          </Pressable>
+        ) : (
+          <CircleBtn testID="cook-close" glyph="‹" size={32} targetSize={44} label="Close Cook" onPress={onClose} />
+        )}
         <Text style={s.topTitle} numberOfLines={1}>Cook</Text>
         {awake && <Text testID="cook-awake" style={s.awake}>Screen stays on</Text>}
         <View style={s.grow} />
@@ -113,6 +134,53 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
         ))}
       </ScrollView>
 
+      {wide ? (
+        <View style={s.wideBody}>
+          <Scroll style={s.wideLeft} contentContainerStyle={s.bodyIn}>
+        <Text style={s.title}>{note.payload.title}</Text>
+        {variants.length > 0 && (
+          <View style={s.variants}>
+            {[{ id: null as string | null, name: 'Whole recipe' }, ...variants].map((v) => (
+              <Pressable key={v.id ?? 'all'} testID={`cook-variant-${v.name}`} accessibilityRole="button" onPress={() => setTab(note.id, (x) => ({ ...x, variantId: v.id, step: 0, gathered: new Set() }))} style={[s.chip, t.variantId === v.id && s.chipOn]}>
+                <Text style={[s.chipText, t.variantId === v.id && s.chipTextOn]}>{v.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <Pressable testID="cook-gather-head" accessibilityRole="button" onPress={() => setGatherOpen((o) => !o)} style={s.gatherHead}>
+          <Text style={s.sec}>Gather · {gather.filter((g, i) => !g.heading && t.gathered.has(i)).length} of {ingCount}</Text>
+          <Text style={s.caret}>{gatherOpen ? '▾' : '▸'}</Text>
+        </Pressable>
+        {gatherOpen && gather.map((g, i) => g.heading ? (
+          <Text key={i} style={s.gHeading}>{g.text}</Text>
+        ) : (
+          <View key={i} style={s.gRow}>
+            <TickBox testID="cook-gather" on={t.gathered.has(i)} label={g.text} onPress={() => setTab(note.id, (x) => {
+              const next = new Set(x.gathered);
+              if (next.has(i)) next.delete(i); else next.add(i);
+              return { ...x, gathered: next };
+            })} />
+            <Text style={[s.gText, t.gathered.has(i) && s.gDone]}>{g.text}</Text>
+          </View>
+        ))}
+
+          </Scroll>
+          <Scroll ref={scroller} style={s.wideRight} contentContainerStyle={s.wideRightIn}>
+        <Text style={[s.sec, s.stepsSec]}>{steps.length === 0 ? 'No steps written yet' : `Step ${step + 1} of ${steps.length}`}</Text>
+        {steps.map((st, i) => (
+          <View key={i} onLayout={(e) => { ys.current[i] = e.nativeEvent.layout.y; }}>
+            {st.heading && <Text style={s.stepHeading}>{st.heading}</Text>}
+            <Pressable testID={`cook-step-${i}`} accessibilityRole="button" accessibilityState={{ selected: i === step }} onPress={() => setTab(note.id, (x) => ({ ...x, step: i }))} style={[s.step, i === step && s.stepOn]}>
+              <Text style={[s.stepN, wide && s.stepNWide, i === step && s.stepNOn]}>{st.n}</Text>
+              <Text style={[s.stepText, wide && s.stepTextWide, i !== step && s.stepDim]}>{st.text}</Text>
+            </Pressable>
+          </View>
+        ))}
+        {Platform.OS === 'web' && steps.length > 0 && <Text style={s.hint}>Space for next, Shift+Space for back</Text>}
+          </Scroll>
+        </View>
+      ) : (
       <Scroll ref={scroller} style={s.body} contentContainerStyle={s.bodyIn}>
         <Text style={s.title}>{note.payload.title}</Text>
         {variants.length > 0 && (
@@ -147,13 +215,14 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
           <View key={i} onLayout={(e) => { ys.current[i] = e.nativeEvent.layout.y; }}>
             {st.heading && <Text style={s.stepHeading}>{st.heading}</Text>}
             <Pressable testID={`cook-step-${i}`} accessibilityRole="button" accessibilityState={{ selected: i === step }} onPress={() => setTab(note.id, (x) => ({ ...x, step: i }))} style={[s.step, i === step && s.stepOn]}>
-              <Text style={[s.stepN, i === step && s.stepNOn]}>{st.n}</Text>
-              <Text style={[s.stepText, i !== step && s.stepDim]}>{st.text}</Text>
+              <Text style={[s.stepN, wide && s.stepNWide, i === step && s.stepNOn]}>{st.n}</Text>
+              <Text style={[s.stepText, wide && s.stepTextWide, i !== step && s.stepDim]}>{st.text}</Text>
             </Pressable>
           </View>
         ))}
         {Platform.OS === 'web' && steps.length > 0 && <Text style={s.hint}>Space for next, Shift+Space for back</Text>}
       </Scroll>
+      )}
 
       <View style={s.bar}>
         <Pill testID="cook-back" label="Back" disabled={step === 0} onPress={() => go(-1)} />
@@ -174,10 +243,12 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
  *
  * PANE-READY: renders inline, no Modal.
  */
-export function CookFinish({ ingredients, onCancel, onFinished }: {
+export function CookFinish({ ingredients, onCancel, onFinished, tall = false }: {
   ingredients: readonly string[];
   onCancel: () => void;
   onFinished: () => void;
+  /** Desktop panel: let the list use the height. */
+  tall?: boolean;
 }) {
   const { recs, mutate } = useStore();
   const toast = useToast();
@@ -201,7 +272,7 @@ export function CookFinish({ ingredients, onCancel, onFinished }: {
     <View style={s.fin} testID="cook-finish">
       <Text style={s.finH}>When you finish</Text>
       <Text style={s.finSub}>Anything run out? Ticked items leave the pantry.</Text>
-      <Scroll style={s.finBody}>
+      <Scroll style={[s.finBody, tall && s.finBodyTall]}>
         {used.length === 0 && <Text style={s.finNote}>None of your pantry items are used by this.</Text>}
         {used.map((u) => (
           <View key={u} style={s.gRow}>
@@ -265,12 +336,21 @@ const s = themed(() => StyleSheet.create({
   stepNOn: { color: T.accent },
   stepText: { color: T.text, fontSize: 22, lineHeight: 31, flex: 1 },
   stepDim: { color: T.muted },
+  backLink: { paddingVertical: 8, paddingRight: 6 },
+  backLinkText: { color: T.accent, fontSize: 15, fontWeight: '700' },
+  wideBody: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  wideLeft: { width: 340, flexGrow: 0, flexShrink: 0, borderRightWidth: 1, borderRightColor: T.line },
+  wideRight: { flex: 1, minWidth: 0 },
+  wideRightIn: { paddingHorizontal: 32, paddingTop: 20, paddingBottom: 40, maxWidth: 860 },
+  stepTextWide: { fontSize: 28, lineHeight: 40 },
+  stepNWide: { fontSize: 28, width: 40 },
   hint: { color: T.muted, fontSize: 12, marginTop: 14, textAlign: 'center' },
   bar: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: T.line, backgroundColor: T.surface },
   fin: { padding: 16, flexShrink: 1, minHeight: 0 },
   finH: { color: T.text, fontSize: 20, fontWeight: '800' },
   finSub: { color: T.dim, fontSize: 14, marginTop: 2, marginBottom: 8 },
   finBody: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },
+  finBodyTall: { maxHeight: 560 },
   finNote: { color: T.dim, fontSize: 13, marginTop: 8, lineHeight: 18 },
   finBar: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
 }));

@@ -25,9 +25,11 @@ export type DoneShoppingProps = {
   onCancel: () => void;
   /** After the write: how many went to the pantry and how many rows left the list. */
   onDone: (r: { put: number; removed: number }) => void;
+  /** Desktop pane: fill the height, with the bar pinned to the foot. */
+  fill?: boolean;
 };
 
-export function DoneShopping({ onCancel, onDone }: DoneShoppingProps) {
+export function DoneShopping({ onCancel, onDone, fill = false }: DoneShoppingProps) {
   const { recs, mutate } = useStore();
   const toast = useToast();
   const plan = useMemo(() => doneShoppingPlan(doneRows(recs), pantryTexts(recs)), [recs]);
@@ -52,12 +54,12 @@ export function DoneShopping({ onCancel, onDone }: DoneShoppingProps) {
   };
 
   return (
-    <View style={s.root} testID="done-shopping">
+    <View style={[s.root, fill && s.rootFill]} testID="done-shopping">
       <View style={s.head}>
         <Text style={s.h1}>Done shopping</Text>
         <Text style={s.sub}>What's in your cart goes into the pantry and leaves this list.</Text>
       </View>
-      <Scroll style={s.body} contentContainerStyle={s.bodyIn}>
+      <Scroll style={[s.body, fill && s.bodyFill]} contentContainerStyle={s.bodyIn}>
         {plan.length === 0 && <Text style={s.note}>Nothing is ticked yet. Tick items as they go in the cart.</Text>}
         {plan.map((p) => {
           const v = on(p.id, p.defaultOn);
@@ -94,6 +96,8 @@ export function DoneShopping({ onCancel, onDone }: DoneShoppingProps) {
 
 const s = themed(() => StyleSheet.create({
   root: { flexShrink: 1, minHeight: 0 },
+  rootFill: { flexGrow: 1, flexBasis: 0 },
+  bodyFill: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   head: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   h1: { color: T.text, fontSize: 20, fontWeight: '800' },
   sub: { color: T.dim, fontSize: 14, marginTop: 2 },
