@@ -33,16 +33,17 @@ import { PageIcon, TickCircleIcon } from '../components/KindIcons';
 import { NavCtx, type Tab } from '../nav';
 import { Notes } from '../screens/Notes';
 import { Settings } from '../screens/Settings';
-import { ingredientsOf, pantryTexts } from '../addToShopping';
+import { pantryTexts } from '../addToShopping';
 import { listOf } from '../chefflows';
-import { recipeFacts, recipeFolders, recipeRows } from '../wideflows';
+import { newCook, newReview, useChefSession } from '../session';
+import { hitSection, isTextTarget, recipeFacts, recipeFolders, recipeRows } from '../wideflows';
 import { wideColors } from './parts';
 import { WideRecipes } from './WideRecipes';
 import { RecipeDetail } from './RecipeDetail';
 import { PickedPane } from './PickedPane';
 import { ShoppingRowDetail, WidePantry, WideShopping } from './WideLists';
 
-type View_ = 'list' | 'review' | 'edit';
+type View_ = 'list' | 'edit';
 
 export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   const { recs, mutate, session, signOut, undoLastDelete } = useStore();
@@ -54,13 +55,12 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
   const [canMake, setCanMake] = useState(false);
-  const [picked, setPicked] = useState<string[]>([]);
+  // Picks, Review and Cook are the session's, shared with the phone layout.
+  const { picked, setPicked, review, setReview, cook, setCook, setCookState } = useChefSession();
   const [view, setView] = useState<View_>('list');
   const [openId, setOpenId] = useState<string | null>(null);
   const [variantFor, setVariantFor] = useState<{ id: string; variantId: string | null } | null>(null);
-  const [reviewIds, setReviewIds] = useState<string[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
-  const [cook, setCook] = useState<{ ids: string[]; first?: string; variantId?: string | null } | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
   const [rowId, setRowId] = useState<string | null>(null);
   const [itemId, setItemId] = useState<string | null>(null);
@@ -78,11 +78,7 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const shopCount = listOf(recs, 'shopping')?.rows.length ?? 0;
   const pantryCount = listOf(recs, 'pantry')?.rows.length ?? 0;
   const pickedNotes = picked.map(noteById).filter((n): n is Rec<'note'> => !!n);
-  const reviewNotes = reviewIds.map(noteById).filter((n): n is Rec<'note'> => !!n);
-  const reviewSources = useMemo(
-    () => reviewNotes.map((n) => ({ title: n.payload.title as string | null, ingredients: ingredientsOf(n) })),
-    [reviewNotes.map((n) => n.id + n.payload.body).join('|')], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  const reviewNotes = (review?.ids ?? []).map(noteById).filter((n): n is Rec<'note'> => !!n);
   const hits = useMemo(
     () => (query.trim() === '' ? [] : searchRecords(recs, query, { kinds: ['reminder', 'note'], sort: 'relevance', desc: false })),
     [recs, query],
@@ -90,19 +86,20 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
 
   /* ── Moves ── */
   const go = (t: Tab, fid: string | null = null) => {
-    setQuery(''); setView('list'); setFolderId(fid); onTab(t);
+    setQuery(''); setView('list'); setReview(null); setFolderId(fid); onTab(t);
   };
   const openRecipe = (id: string) => { setQuery(''); setView('list'); setFolderId(null); setCanMake(false); setOpenId(id); onTab('notes'); };
   const togglePick = (id: string) => setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
-  const startCook = (ids: string[], first?: string, variantId?: string | null) => { setView('list'); setCook({ ids, first, variantId }); };
+  const startCook = (ids: string[], first?: string, variantId?: string | null) => { setView('list'); setCook(newCook(ids, first, variantId ?? null)); };
   const startReview = () => {
     if (picked.length === 0) { toast('Tick the recipes you are making first.'); return; }
-    setReviewIds(picked.slice()); setView('review');
+    setReview(newReview(recs, pickedNotes));
   };
   const removeFromReview = (id: string) => {
-    const next = reviewIds.filter((x) => x !== id);
+    const next = reviewNotes.filter((n) => n.id !== id);
     setPicked((cur) => cur.filter((x) => x !== id));
-    if (next.length === 0) { setReviewIds([]); setView('list'); } else setReviewIds(next);
+    // A different set of recipes is a different plan: freeze it afresh.
+    setReview(next.length === 0 ? null : newReview(recs, next));
   };
   const newRecipe = () => {
     const fid = folderId ?? folders[0]?.id;
@@ -117,7 +114,7 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
     setEditId(id); setView('edit'); setOpenId(null);
   };
   const closeDetail = () => {
-    if (tab === 'notes') { if (view === 'review') setPickedPane(false); else setOpenId(null); }
+    if (tab === 'notes') { if (review) setPickedPane(false); else setOpenId(null); }
     else if (tab === 'shopping') { if (doneOpen) setDoneOpen(false); else setRowId(null); }
     else setItemId(null);
   };
@@ -128,7 +125,17 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const escOk = !cook && view !== 'edit';
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined' || !escOk) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) escRef.current(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // In a text field the first Esc leaves the field (a half-typed rename
+      // stays put); only Esc with no field focused closes the pane.
+      if (isTextTarget(e.target) || isTextTarget(document.activeElement)) {
+        const el = (isTextTarget(e.target) ? e.target : document.activeElement) as HTMLElement;
+        el.blur();
+        return;
+      }
+      escRef.current();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [escOk]);
@@ -146,7 +153,9 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
             wide
             notes={cookNotes}
             {...(cook.first !== undefined ? { initialId: cook.first } : {})}
-            initialVariantId={cook.variantId ?? null}
+            initialVariantId={cook.variantId}
+            state={cook.state}
+            onState={setCookState}
             onClose={() => setCook(null)}
             wrapFinish={(panel, close) => (
               <View style={StyleSheet.absoluteFill}>
@@ -172,43 +181,47 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
         <Scroll style={s.fill} contentContainerStyle={s.searchIn}>
           {hits.map((h) => (
             <Pressable key={`${h.kind}-${h.id}`} testID="search-row" accessibilityRole="button" style={s.hit}
-              onPress={() => { if (h.kind === 'note') openRecipe(h.id); else go('shopping'); }}>
+              onPress={() => {
+                if (h.kind === 'note') openRecipe(h.id);
+                else if (hitSection(recs, h.id) === 'pantry') { go('pantry'); setItemId(h.id); }
+                else { go('shopping'); setDoneOpen(false); setRowId(h.id); }
+              }}>
               {h.kind === 'note' ? <PageIcon size={16} /> : <TickCircleIcon size={16} />}
               <Text style={s.hitText} numberOfLines={1}>{h.text}</Text>
-              <Text style={s.hitKind}>{h.kind === 'note' ? 'Recipe' : 'Shopping'}</Text>
+              <Text style={s.hitKind}>{h.kind === 'note' ? 'Recipe' : hitSection(recs, h.id) === 'pantry' ? 'Pantry' : 'Shopping'}</Text>
             </Pressable>
           ))}
         </Scroll>
       </View>
     );
-  } else if (tab === 'shopping') {
-    main = <WideShopping openRowId={rowId} onOpenRow={(id) => { setDoneOpen(false); setRowId(id); }} doneOpen={doneOpen} onDoneShopping={() => { setRowId(null); setDoneOpen(true); }} />;
-  } else if (tab === 'pantry') {
-    main = <WidePantry openItemId={itemId} onOpenItem={setItemId} />;
-  } else if (view === 'review') {
+  } else if (review) {
     main = (
       <View style={s.fill} testID="wide-review">
         <View style={s.backRow}>
-          <Pressable testID="review-back" accessibilityRole="button" onPress={() => setView('list')} style={s.backLink}>
+          <Pressable testID="review-back" accessibilityRole="button" onPress={() => setReview(null)} style={s.backLink}>
             <Text style={s.backText}>‹ Recipes</Text>
           </Pressable>
           {!detailBeside && (
             <Pressable testID="review-picked" accessibilityRole="button" onPress={() => setPickedPane(true)} style={s.backLink}>
-              <Text style={s.backText}>Picked recipes · {reviewIds.length}</Text>
+              <Text style={s.backText}>Picked recipes · {review.ids.length}</Text>
             </Pressable>
           )}
         </View>
         <View style={s.reviewCol}>
           <ShoppingReview
             fill
-            key={reviewIds.join(',')}
-            sources={reviewSources}
-            onCancel={() => setView('list')}
-            onAdded={() => { setPicked([]); setReviewIds([]); setView('list'); go('shopping'); }}
+            review={review}
+            onChange={setReview}
+            onCancel={() => setReview(null)}
+            onAdded={() => { setPicked([]); setReview(null); go('shopping'); }}
           />
         </View>
       </View>
     );
+  } else if (tab === 'shopping') {
+    main = <WideShopping openRowId={rowId} onOpenRow={(id) => { setDoneOpen(false); setRowId(id); }} doneOpen={doneOpen} onDoneShopping={() => { setRowId(null); setDoneOpen(true); }} />;
+  } else if (tab === 'pantry') {
+    main = <WidePantry openItemId={itemId} onOpenItem={setItemId} />;
   } else if (view === 'edit' && editId) {
     main = (
       <View style={s.editWrap} testID="wide-edit">
@@ -249,12 +262,12 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   /* ── Detail pane ── */
   let detail: ReactNode = null;
   if (query.trim() === '') {
-    if (tab === 'notes') {
-      if (view === 'review') {
-        // Beside the Review when there is room; otherwise only on request, so it
-        // never covers the Add button.
-        if (detailBeside || pickedPane) detail = <PickedPane notes={reviewNotes} folderName={folderName} onRemove={removeFromReview} onAnother={() => setView('list')} onClose={() => setPickedPane(false)} />;
-      } else if (view === 'list') {
+    if (review) {
+      // Beside the Review when there is room; otherwise only on request, so it
+      // never covers the Add button.
+      if (detailBeside || pickedPane) detail = <PickedPane review={review} notes={reviewNotes} folderName={folderName} onRemove={removeFromReview} onAnother={() => setReview(null)} onClose={() => setPickedPane(false)} />;
+    } else if (tab === 'notes') {
+      if (view === 'list') {
         const n = noteById(openId);
         if (n) {
           const variantId = variantFor?.id === n.id ? variantFor.variantId : null;

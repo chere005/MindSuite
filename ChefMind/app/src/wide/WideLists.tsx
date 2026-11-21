@@ -18,7 +18,7 @@ import { TickBox } from '../components/chefui';
 import { useToast } from '../components/Toast';
 import { OCR_UNSUPPORTED, ocrImages, ocrSupported, pickPhotoUris } from '../components/ocr';
 import { applyOps, listOf, newRow, toggleCartOp, type ListKind } from '../chefflows';
-import { aisleOfRow, aisleRuns, filterRows, pantrySummary, shoppingSummary } from '../wideflows';
+import { aisleOfRow, aisleRuns, filterRows, pantrySummary, rowSave, shoppingSummary } from '../wideflows';
 import { DetailTop, PaneHead } from './parts';
 
 function useList(kind: ListKind) {
@@ -119,16 +119,19 @@ export function ShoppingRowDetail({ rowId, onClose }: { rowId: string; onClose: 
   const { mutate } = useStore();
   const list = useList('shopping');
   const row = list?.rows.find((r) => r.id === rowId);
-  const [name, setName] = useState(row?.payload.text ?? '');
+  // `typed` stays null until the person changes the text: blurring an
+  // untouched field writes nothing, and the field shows the LIVE record.
+  const [typed, setTyped] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   if (!row) return (
     <View style={s.root}><DetailTop label="Shopping" onClose={onClose} /><Text style={s.detailNote}>That item is gone.</Text></View>
   );
   const save = () => {
-    const t = name.trim();
-    if (t === '') { mutate((e) => e.del(row.id)); onClose(); return; }
-    if (t !== row.payload.text) mutate((e) => e.put({ ...row, payload: { ...row.payload, text: t } }));
+    const w = rowSave(row, typed);
+    setTyped(null);
+    if (w.kind === 'del') { mutate((e) => e.del(row.id)); onClose(); }
+    else if (w.kind === 'put') mutate((e) => e.put(w.rec));
   };
   const del = () => {
     if (!armed) { setArmed(true); clearTimeout(timer.current); timer.current = setTimeout(() => setArmed(false), 2500); return; }
@@ -139,7 +142,7 @@ export function ShoppingRowDetail({ rowId, onClose }: { rowId: string; onClose: 
     <View style={s.root} testID="shopping-row-detail">
       <DetailTop label={aisleOfRow(row.payload.text)} onClose={onClose} />
       <View style={s.detailBody}>
-        <Field testID="shopping-row-name" value={name} onChangeText={setName} onBlur={save} onSubmitEditing={save} style={s.detailField} />
+        <Field testID="shopping-row-name" value={typed ?? row.payload.text} onChangeText={setTyped} onBlur={save} onSubmitEditing={save} style={s.detailField} />
         <Text style={s.detailNote}>{row.payload.done ? 'In your cart.' : 'Not in your cart yet.'} The aisle comes from the name.</Text>
         <View style={s.detailBar}>
           <Pill testID="shopping-row-delete" label={armed ? 'Delete?' : 'Delete'} onPress={del} />

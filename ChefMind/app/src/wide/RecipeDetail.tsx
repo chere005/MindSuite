@@ -11,7 +11,7 @@ import { Pill, Scroll } from '../ui';
 import { okColor } from '../components/chefui';
 import { pantryTexts } from '../addToShopping';
 import { cookSteps, readRecipe } from '../chefflows';
-import { ingredientStates, stillToBuyHeading } from '../wideflows';
+import { buyCount, ingredientStates, stillToBuyHeading } from '../wideflows';
 import { DetailTop } from './parts';
 
 export function RecipeDetail({ note, folderName, variantId, onVariant, onCook, onEdit, onClose }: {
@@ -59,7 +59,7 @@ export function RecipeDetail({ note, folderName, variantId, onVariant, onCook, o
         {!recipe && <Text style={s.plain}>{note.payload.body.trim() === '' ? 'Nothing written yet.' : note.payload.body}</Text>}
         {recipe && (
           <>
-            <Text style={s.sec}>{stillToBuyHeading(states)}</Text>
+            <Text style={s.sec}>{stillToBuyHeading(buyCount(parts?.ingredients ?? [], pantry), states.filter((x) => !x.heading).length)}</Text>
             {states.map((x, i) => x.heading ? (
               <Text key={i} style={s.sub}>{x.text}</Text>
             ) : (

@@ -9,19 +9,22 @@
  *
  * PANE-READY: renders inline, no Modal. `PhoneSheet` wraps it on the phone.
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
 import { Pill, Scroll } from '../ui';
 import { useToast } from './Toast';
-import { addLinesToShopping, pantryTexts, shopMessage, type ShopResult } from '../addToShopping';
-import { groupByAisle, mergeNotes, planFor, reviewLines, reviewSummary } from '../chefflows';
+import { addLinesToShopping, shopMessage, type ShopResult } from '../addToShopping';
+import { groupByAisle, mergeNotes, openRows, reviewSummary } from '../chefflows';
+import { flipIn, reviewWriteLines, type ReviewSession } from '../session';
 import { TickBox } from './chefui';
 
 export type ShoppingReviewProps = {
-  /** The recipes being shopped: a title and its ingredient lines each. */
-  sources: { title: string | null; ingredients: string[] }[];
+  /** The open Review: its frozen plan and the choices made so far. The host
+   *  owns it (the session), so it survives a layout change. */
+  review: ReviewSession;
+  onChange: (next: ReviewSession) => void;
   onCancel: () => void;
   /** Called after the lines were written (and the toast shown). The host
    *  decides where to go next — the phone switches to the Shopping tab. */
@@ -30,22 +33,21 @@ export type ShoppingReviewProps = {
   fill?: boolean;
 };
 
-export function ShoppingReview({ sources, onCancel, onAdded, fill = false }: ShoppingReviewProps) {
+export function ShoppingReview({ review, onChange, onCancel, onAdded, fill = false }: ShoppingReviewProps) {
   const { recs, mutate } = useStore();
   const toast = useToast();
-  const [off, setOff] = useState<ReadonlySet<number>>(new Set());
-  const [anyway, setAnyway] = useState<ReadonlySet<number>>(new Set());
-  const pantry = useMemo(() => pantryTexts(recs), [recs]);
-  const plan = useMemo(() => planFor(recs, sources, pantry), [recs, sources, pantry]);
+  const { plan, sources } = review;
+  const off = new Set(review.off);
+  const anyway = new Set(review.anyway);
+  // "Adds to" names only rows still to buy: a row ticked into the cart since
+  // this opened is no longer a place a line folds into.
+  const open = useMemo(() => new Set(openRows(recs).map((r) => r.payload.text)), [recs]);
   const merges = useMemo(() => mergeNotes(plan), [plan]);
   const groups = useMemo(() => groupByAisle(plan.toBuy), [plan]);
   const sum = reviewSummary(sources);
-  const lines = reviewLines(plan, { off, anyway });
-  const flip = (set: ReadonlySet<number>, set2: (s: ReadonlySet<number>) => void, i: number) => {
-    const next = new Set(set);
-    if (next.has(i)) next.delete(i); else next.add(i);
-    set2(next);
-  };
+  const lines = reviewWriteLines(review);
+  const flipOff = (i: number) => onChange({ ...review, off: flipIn(review.off, i) });
+  const flipAnyway = (i: number) => onChange({ ...review, anyway: flipIn(review.anyway, i) });
 
   const add = () => {
     if (lines.length === 0) return;
@@ -81,10 +83,11 @@ export function ShoppingReview({ sources, onCancel, onAdded, fill = false }: Sho
           <View key={g.aisle}>
             <Text style={s.aisle}>{g.aisle}</Text>
             {g.rows.map(({ row, index }) => {
-              const into = merges.get(row.text);
+              const target = merges.get(row.text);
+              const into = target !== undefined && open.has(target) ? target : undefined;
               return (
                 <View key={index} style={s.row}>
-                  <TickBox testID={`review-buy-${index}`} on={!off.has(index)} label={`Buy ${row.text}`} onPress={() => flip(off, setOff, index)} />
+                  <TickBox testID={`review-buy-${index}`} on={!off.has(index)} label={`Buy ${row.text}`} onPress={() => flipOff(index)} />
                   <View style={s.rowText}>
                     <Text style={[s.text, off.has(index) && s.textOff]}>{row.text}</Text>
                     {row.from.length > 0 && <Text style={s.from}>{row.from.join(' · ')}</Text>}
@@ -105,7 +108,7 @@ export function ShoppingReview({ sources, onCancel, onAdded, fill = false }: Sho
               {r.from.length > 0 && <Text style={s.from}>{r.from.join(' · ')}</Text>}
               <Text style={s.match}>Matches “{r.match}”</Text>
             </View>
-            <Pill testID={`review-anyway-${i}`} compact primary={anyway.has(i)} label={anyway.has(i) ? 'Buying ✓' : 'Buy anyway'} onPress={() => flip(anyway, setAnyway, i)} />
+            <Pill testID={`review-anyway-${i}`} compact primary={anyway.has(i)} label={anyway.has(i) ? 'Buying ✓' : 'Buy anyway'} onPress={() => flipAnyway(i)} />
           </View>
         ))}
       </Scroll>

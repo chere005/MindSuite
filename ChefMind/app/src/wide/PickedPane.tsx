@@ -2,19 +2,20 @@
  * The detail pane beside the Review: the recipes being shopped, each with
  * Remove, and where the ingredients went.
  */
-import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { Rec } from '@calmind/core';
-import { useStore } from '../store';
 import { themed, T } from '../theme';
 import { Pill, Scroll } from '../ui';
 import { okColor } from '../components/chefui';
-import { ingredientsOf, pantryTexts } from '../addToShopping';
-import { planFor, reviewSummary } from '../chefflows';
+import { reviewSummary } from '../chefflows';
+import type { ReviewSession } from '../session';
 import { whereWent } from '../wideflows';
 import { DetailTop } from './parts';
 
-export function PickedPane({ notes, folderName, onRemove, onAnother, onClose }: {
+export function PickedPane({ review, notes, folderName, onRemove, onAnother, onClose }: {
+  /** The open Review: "Where the N went" reads ITS frozen plan, the same one the
+   *  Review lists, so the two cannot disagree. */
+  review: ReviewSession;
   notes: Rec<'note'>[];
   folderName: (folderId: string) => string;
   onRemove: (id: string) => void;
@@ -22,10 +23,7 @@ export function PickedPane({ notes, folderName, onRemove, onAnother, onClose }: 
   /** Hide the pane (it is only closable when it opens over the Review). */
   onClose: () => void;
 }) {
-  const { recs } = useStore();
-  const sources = useMemo(() => notes.map((n) => ({ title: n.payload.title as string | null, ingredients: ingredientsOf(n) })), [notes]);
-  const plan = useMemo(() => planFor(recs, sources, pantryTexts(recs)), [recs, sources]);
-  const w = whereWent(plan, reviewSummary(sources).ingredients);
+  const w = whereWent(review.plan, reviewSummary(review.sources).ingredients);
   return (
     <View style={s.root} testID="picked-pane">
       <DetailTop label="Picked recipes" onClose={onClose} />

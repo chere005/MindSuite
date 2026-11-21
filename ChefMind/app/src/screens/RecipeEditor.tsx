@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { importedRecipeTitle, ingredientParts, isSubheader, orderIngredients, parseIngredient, recipeBody, recipeFromHtml, recipeFromPages, type Rec } from '@calmind/core';
 import { useStore } from '../store';
 import { ShoppingReview } from '../components/ShoppingReview';
+import { newReviewFrom, type ReviewSession } from '../session';
 import { CookView, phoneFinish } from '../components/CookView';
 import { PhoneSheet } from '../components/chefui';
 import { useNav } from '../nav';
@@ -55,7 +56,7 @@ export function RecipeEditor({ note, onClose, put }: {
   put?: (rec: Rec<'note'>) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { mutate, session } = useStore();
+  const { recs, mutate, session } = useStore();
   const toast = useToast();
   const putNote = put ?? ((rec: Rec<'note'>) => mutate((e) => e.put(rec)));
   const parsed = recipeFromPages([note.payload.body]);
@@ -323,12 +324,12 @@ export function RecipeEditor({ note, onClose, put }: {
    * The pantry filter, where the rows land and what to say when nothing was
    * added belong to `addToShopping`, which the Recipes tab shares.
    */
-  const [reviewing, setReviewing] = useState(false);
+  const [reviewing, setReviewing] = useState<ReviewSession | null>(null);
   const [cooking, setCooking] = useState(false);
   const nav = useNav();
   const shop = () => {
     if (ingredients.length === 0) { toast('That recipe lists no ingredients.'); return; }
-    setReviewing(true);
+    setReviewing(newReviewFrom(recs, [note.id], reviewSources));
   };
   // Cook reads what is ON THE PAGE, the way Shop does: the same parts, put
   // back into the marker body Cook's reader already understands.
@@ -526,11 +527,12 @@ export function RecipeEditor({ note, onClose, put }: {
             effect), and the back chevron at the top is the way out. */}
       </Scroll>
       {reviewing && (
-        <PhoneSheet onClose={() => setReviewing(false)}>
+        <PhoneSheet onClose={() => setReviewing(null)}>
           <ShoppingReview
-            sources={reviewSources}
-            onCancel={() => setReviewing(false)}
-            onAdded={() => { setReviewing(false); finish(); nav.openTab?.('shopping'); }}
+            review={reviewing}
+            onChange={setReviewing}
+            onCancel={() => setReviewing(null)}
+            onAdded={() => { setReviewing(null); finish(); nav.openTab?.('shopping'); }}
           />
         </PhoneSheet>
       )}

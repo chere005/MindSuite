@@ -22,6 +22,7 @@ import { themed, T } from '../theme';
 import { CircleBtn, Pill, Scroll } from '../ui';
 import { useToast } from './Toast';
 import { pantryTexts } from '../addToShopping';
+import { newCookState, type CookState, type CookTabState } from '../session';
 import { applyOps, cookKey, cookSteps, finishCookingOps, gatherItems, readRecipe, stepTo } from '../chefflows';
 import { useScreenAwake } from '../keepawake';
 import { PhoneSheet, TickBox, okColor } from './chefui';
@@ -42,19 +43,27 @@ export type CookViewProps = {
    *  Finish open, closes Finish first). */
   wide?: boolean;
   closeLabel?: string;
+  /** The Cook's own state (tab, step, ticks), held by the host so it survives a
+   *  layout change. Omit both and the view keeps it itself. */
+  state?: CookState;
+  onState?: (fn: (s: CookState) => CookState) => void;
 };
 
-type Tab = { step: number; gathered: Set<number>; variantId: string | null };
+type Tab = CookTabState;
 
-export function CookView({ notes, initialId, initialVariantId = null, onClose, wrapFinish, wide = false, closeLabel = 'Recipes' }: CookViewProps) {
+export function CookView({ notes, initialId, initialVariantId = null, onClose, wrapFinish, wide = false, closeLabel = 'Recipes', state, onState }: CookViewProps) {
   const awake = useScreenAwake();
-  const [active, setActive] = useState(() => Math.max(0, notes.findIndex((n) => n.id === initialId)));
-  const [tabs, setTabs] = useState<Record<string, Tab>>({});
+  const [local, setLocal] = useState<CookState>(() => newCookState(Math.max(0, notes.findIndex((n) => n.id === initialId))));
+  const cs = state ?? local;
+  const setCs = onState ?? ((fn: (s: CookState) => CookState) => setLocal(fn));
+  const { active, tabs, finishOpen } = cs;
+  const setActive = (i: number) => setCs((x) => ({ ...x, active: i }));
+  const setFinishOpen = (v: boolean) => setCs((x) => ({ ...x, finishOpen: v }));
   const [gatherOpen, setGatherOpen] = useState(true);
-  const [finishOpen, setFinishOpen] = useState(false);
   const note = notes[active] ?? notes[0];
-  const tab = (id: string): Tab => tabs[id] ?? { step: 0, gathered: new Set(), variantId: id === (initialId ?? notes[0]?.id) ? initialVariantId : null };
-  const setTab = (id: string, fn: (t: Tab) => Tab) => setTabs((all) => ({ ...all, [id]: fn(all[id] ?? tab(id)) }));
+  const tabDefault = (id: string): Tab => ({ step: 0, gathered: [], variantId: id === (initialId ?? notes[0]?.id) ? initialVariantId : null });
+  const tab = (id: string): Tab => tabs[id] ?? tabDefault(id);
+  const setTab = (id: string, fn: (t: Tab) => Tab) => setCs((x) => ({ ...x, tabs: { ...x.tabs, [id]: fn(x.tabs[id] ?? tabDefault(id)) } }));
 
   const recipeOf = (n: Rec<'note'>) => readRecipe(n, tab(n.id).variantId);
   const cur = note ? recipeOf(note) : { ingredients: [], steps: [] };
@@ -103,12 +112,28 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
     if (y !== undefined) scroller.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
   }, [step, note?.id]);
 
-  if (!note || !t) return null;
+  if (!note || !t) {
+    return (
+      <View style={s.root} testID="cook-empty">
+        <View style={s.top}>
+          {wide ? (
+            <Pressable testID="cook-close" accessibilityRole="button" accessibilityLabel="Close Cook" onPress={onClose} style={s.backLink}>
+              <Text style={s.backLinkText}>‹ {closeLabel}</Text>
+            </Pressable>
+          ) : (
+            <CircleBtn testID="cook-close" glyph="‹" size={32} targetSize={44} label="Close Cook" onPress={onClose} />
+          )}
+          <Text style={s.topTitle}>Cook</Text>
+        </View>
+        <Text testID="cook-nothing" style={s.emptyText}>Nothing to cook. The recipes you picked are gone.</Text>
+      </View>
+    );
+  }
   const allIngredients = notes.flatMap((n) => recipeOf(n).ingredients);
   const last = step >= steps.length - 1;
   const variants = note.payload.variants ?? [];
   const finishPanel = (
-    <CookFinish tall={wide} ingredients={allIngredients} onCancel={() => setFinishOpen(false)} onFinished={() => { setFinishOpen(false); onClose(); }} />
+    <CookFinish tall={wide} ticked={cs.ticked} shop={cs.shop} onTicked={(v) => setCs((x) => ({ ...x, ticked: v }))} onShop={(v) => setCs((x) => ({ ...x, shop: v }))} ingredients={allIngredients} onCancel={() => setFinishOpen(false)} onFinished={() => { setFinishOpen(false); onClose(); }} />
   );
 
   return (
@@ -141,7 +166,7 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
         {variants.length > 0 && (
           <View style={s.variants}>
             {[{ id: null as string | null, name: 'Whole recipe' }, ...variants].map((v) => (
-              <Pressable key={v.id ?? 'all'} testID={`cook-variant-${v.name}`} accessibilityRole="button" onPress={() => setTab(note.id, (x) => ({ ...x, variantId: v.id, step: 0, gathered: new Set() }))} style={[s.chip, t.variantId === v.id && s.chipOn]}>
+              <Pressable key={v.id ?? 'all'} testID={`cook-variant-${v.name}`} accessibilityRole="button" onPress={() => setTab(note.id, (x) => ({ ...x, variantId: v.id, step: 0, gathered: [] }))} style={[s.chip, t.variantId === v.id && s.chipOn]}>
                 <Text style={[s.chipText, t.variantId === v.id && s.chipTextOn]}>{v.name}</Text>
               </Pressable>
             ))}
@@ -149,19 +174,17 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
         )}
 
         <Pressable testID="cook-gather-head" accessibilityRole="button" onPress={() => setGatherOpen((o) => !o)} style={s.gatherHead}>
-          <Text style={s.sec}>Gather · {gather.filter((g, i) => !g.heading && t.gathered.has(i)).length} of {ingCount}</Text>
+          <Text style={s.sec}>Gather · {gather.filter((g, i) => !g.heading && t.gathered.includes(i)).length} of {ingCount}</Text>
           <Text style={s.caret}>{gatherOpen ? '▾' : '▸'}</Text>
         </Pressable>
         {gatherOpen && gather.map((g, i) => g.heading ? (
           <Text key={i} style={s.gHeading}>{g.text}</Text>
         ) : (
           <View key={i} style={s.gRow}>
-            <TickBox testID="cook-gather" on={t.gathered.has(i)} label={g.text} onPress={() => setTab(note.id, (x) => {
-              const next = new Set(x.gathered);
-              if (next.has(i)) next.delete(i); else next.add(i);
-              return { ...x, gathered: next };
+            <TickBox testID="cook-gather" on={t.gathered.includes(i)} label={g.text} onPress={() => setTab(note.id, (x) => {
+              return { ...x, gathered: x.gathered.includes(i) ? x.gathered.filter((g) => g !== i) : [...x.gathered, i] };
             })} />
-            <Text style={[s.gText, t.gathered.has(i) && s.gDone]}>{g.text}</Text>
+            <Text style={[s.gText, t.gathered.includes(i) && s.gDone]}>{g.text}</Text>
           </View>
         ))}
 
@@ -186,7 +209,7 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
         {variants.length > 0 && (
           <View style={s.variants}>
             {[{ id: null as string | null, name: 'Whole recipe' }, ...variants].map((v) => (
-              <Pressable key={v.id ?? 'all'} testID={`cook-variant-${v.name}`} accessibilityRole="button" onPress={() => setTab(note.id, (x) => ({ ...x, variantId: v.id, step: 0, gathered: new Set() }))} style={[s.chip, t.variantId === v.id && s.chipOn]}>
+              <Pressable key={v.id ?? 'all'} testID={`cook-variant-${v.name}`} accessibilityRole="button" onPress={() => setTab(note.id, (x) => ({ ...x, variantId: v.id, step: 0, gathered: [] }))} style={[s.chip, t.variantId === v.id && s.chipOn]}>
                 <Text style={[s.chipText, t.variantId === v.id && s.chipTextOn]}>{v.name}</Text>
               </Pressable>
             ))}
@@ -194,19 +217,17 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
         )}
 
         <Pressable testID="cook-gather-head" accessibilityRole="button" onPress={() => setGatherOpen((o) => !o)} style={s.gatherHead}>
-          <Text style={s.sec}>Gather · {gather.filter((g, i) => !g.heading && t.gathered.has(i)).length} of {ingCount}</Text>
+          <Text style={s.sec}>Gather · {gather.filter((g, i) => !g.heading && t.gathered.includes(i)).length} of {ingCount}</Text>
           <Text style={s.caret}>{gatherOpen ? '▾' : '▸'}</Text>
         </Pressable>
         {gatherOpen && gather.map((g, i) => g.heading ? (
           <Text key={i} style={s.gHeading}>{g.text}</Text>
         ) : (
           <View key={i} style={s.gRow}>
-            <TickBox testID="cook-gather" on={t.gathered.has(i)} label={g.text} onPress={() => setTab(note.id, (x) => {
-              const next = new Set(x.gathered);
-              if (next.has(i)) next.delete(i); else next.add(i);
-              return { ...x, gathered: next };
+            <TickBox testID="cook-gather" on={t.gathered.includes(i)} label={g.text} onPress={() => setTab(note.id, (x) => {
+              return { ...x, gathered: x.gathered.includes(i) ? x.gathered.filter((g) => g !== i) : [...x.gathered, i] };
             })} />
-            <Text style={[s.gText, t.gathered.has(i) && s.gDone]}>{g.text}</Text>
+            <Text style={[s.gText, t.gathered.includes(i) && s.gDone]}>{g.text}</Text>
           </View>
         ))}
 
@@ -243,18 +264,28 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
  *
  * PANE-READY: renders inline, no Modal.
  */
-export function CookFinish({ ingredients, onCancel, onFinished, tall = false }: {
+export function CookFinish({ ingredients, onCancel, onFinished, tall = false, ticked: tickedProp, shop: shopProp, onTicked, onShop }: {
   ingredients: readonly string[];
   onCancel: () => void;
   onFinished: () => void;
   /** Desktop panel: let the list use the height. */
   tall?: boolean;
+  /** Held by the Cook session when given, so Finish survives a layout change. */
+  ticked?: string[];
+  shop?: boolean;
+  onTicked?: (v: string[]) => void;
+  onShop?: (v: boolean) => void;
 }) {
   const { recs, mutate } = useStore();
   const toast = useToast();
   const used = useMemo(() => pantryUsedIn(ingredients, pantryTexts(recs)), [ingredients, recs]);
-  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
-  const [shop, setShop] = useState(true);
+  const [localTicked, setLocalTicked] = useState<string[]>([]);
+  const [localShop, setLocalShop] = useState(true);
+  const tickedList = tickedProp ?? localTicked;
+  const setTickedList = onTicked ?? setLocalTicked;
+  const shop = shopProp ?? localShop;
+  const setShop = onShop ?? setLocalShop;
+  const ticked = new Set(tickedList);
   const ran = used.filter((u) => ticked.has(u));
 
   const finish = () => {
@@ -276,17 +307,13 @@ export function CookFinish({ ingredients, onCancel, onFinished, tall = false }: 
         {used.length === 0 && <Text style={s.finNote}>None of your pantry items are used by this.</Text>}
         {used.map((u) => (
           <View key={u} style={s.gRow}>
-            <TickBox testID="cook-ranout" on={ticked.has(u)} label={`${u} ran out`} onPress={() => setTicked((cur) => {
-              const next = new Set(cur);
-              if (next.has(u)) next.delete(u); else next.add(u);
-              return next;
-            })} />
+            <TickBox testID="cook-ranout" on={ticked.has(u)} label={`${u} ran out`} onPress={() => setTickedList(ticked.has(u) ? tickedList.filter((x) => x !== u) : [...tickedList, u])} />
             <Text style={s.gText}>{u}</Text>
           </View>
         ))}
       </Scroll>
       <View style={s.gRow}>
-        <TickBox testID="cook-addshop" on={shop} label="Add them to the shopping list" onPress={() => setShop((v) => !v)} />
+        <TickBox testID="cook-addshop" on={shop} label="Add them to the shopping list" onPress={() => setShop(!shop)} />
         <Text style={s.gText}>Add them to the shopping list</Text>
       </View>
       <Text style={s.finNote}>Only pantry items these recipes use are listed. Ticks on this screen are not saved.</Text>
@@ -344,6 +371,7 @@ const s = themed(() => StyleSheet.create({
   wideRightIn: { paddingHorizontal: 32, paddingTop: 20, paddingBottom: 40, maxWidth: 860 },
   stepTextWide: { fontSize: 28, lineHeight: 40 },
   stepNWide: { fontSize: 28, width: 40 },
+  emptyText: { color: T.dim, fontSize: 16, padding: 24 },
   hint: { color: T.muted, fontSize: 12, marginTop: 14, textAlign: 'center' },
   bar: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: T.line, backgroundColor: T.surface },
   fin: { padding: 16, flexShrink: 1, minHeight: 0 },

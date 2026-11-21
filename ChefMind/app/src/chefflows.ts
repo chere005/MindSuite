@@ -170,7 +170,9 @@ export function toBuyLabel(n: number): string {
 export type Plan = ReturnType<typeof shoppingPlan>;
 
 /** What the Review's two kinds of box say. Indices are into `plan.toBuy` and
- *  `plan.inPantry`, which is stable for as long as the Review is open. */
+ *  `plan.inPantry` OF THE PLAN FROZEN WHEN THE REVIEW OPENED (`newReview` in
+ *  session.tsx). They are meaningless against a plan rebuilt later: the store
+ *  changes under an open Review, and a fresh plan reorders the rows. */
 export type ReviewChoice = { off: ReadonlySet<number>; anyway: ReadonlySet<number> };
 
 /** The lines the Review writes: every ticked "to buy" row, then every
@@ -197,14 +199,20 @@ export function mergeNotes(plan: Plan): Map<string, string> {
   return new Map(plan.merges.map((m) => [m.text, m.into]));
 }
 
+/** The shopping rows still to buy (not ticked into the cart): the only rows a
+ *  new line may merge into. */
+export function openRows(recs: readonly AnyRec[]): Reminder[] {
+  return (listOf(recs, 'shopping')?.rows ?? []).filter((r) => !r.payload.done);
+}
+
 /** The plan for these recipes against this pantry and this list. */
 export function planFor(
   recs: readonly AnyRec[],
   sources: { title: string | null; ingredients: string[] }[],
   pantry: readonly string[],
 ): Plan {
-  const list = listOf(recs, 'shopping');
-  return shoppingPlan(sources, pantry, (list?.rows ?? []).map((r) => r.payload.text));
+  // A row already in the cart is bought: nothing folds into it.
+  return shoppingPlan(sources, pantry, openRows(recs).map((r) => r.payload.text));
 }
 
 /** "22 ingredients from 3 recipes", counting what the cook wrote: real lines,
@@ -240,10 +248,15 @@ export function shoppingWriteOps(
   if (clean.length === 0) return { ok: false, why: 'empty' };
   const list = listOf(recs, 'shopping');
   if (!list) return { ok: false, why: 'notready' };
-  const { kept, added } = mergeInto(list.rows.map((r) => r.payload.text), clean);
+  // Only NOT-done rows are merge targets: folding "2 eggs" into a ticked
+  // "6 eggs" would make "8 eggs", still ticked, and Done shopping would put
+  // the 2 never bought in the pantry. If the only match is done, the line is
+  // added as a new, unticked row.
+  const targets = list.rows.filter((r) => !r.payload.done);
+  const { kept, added } = mergeInto(targets.map((r) => r.payload.text), clean);
   const ops: Op[] = [];
   let merged = 0;
-  list.rows.forEach((row, i) => {
+  targets.forEach((row, i) => {
     const text = kept[i] as string;
     if (text !== row.payload.text) { ops.push({ kind: 'put', rec: { ...row, payload: { ...row.payload, text } } }); merged++; }
   });

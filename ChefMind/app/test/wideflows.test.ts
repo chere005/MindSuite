@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { shoppingPlan, type AnyRec, type Rec } from '@calmind/core';
-import { aisleRuns, filterRows, ingredientStates, pantrySummary, pickedNames, recipeFacts, recipeRows, shoppingSummary, stillToBuyHeading, whereWent } from '../src/wideflows';
+import { aisleRuns, buyCount, filterRows, hitSection, ingredientStates, isTextTarget, pantrySummary, pickedNames, recipeFacts, recipeRows, rowSave, shoppingSummary, stillToBuyHeading, whereWent } from '../src/wideflows';
 
 const note = (id: string, title: string, sec: string, fol: string, ord: string, ing: string[], recipe = true): Rec<'note'> => ({
   id, type: 'note', updated: 1,
@@ -26,21 +26,53 @@ describe('recipe table', () => {
     expect(recipeRows(recs, { folderId: 'f2', canMake: false, facts }).map((n) => n.id)).toEqual(['b', 'c']);
     expect(recipeRows(recs, { folderId: null, canMake: true, facts }).map((n) => n.id)).toEqual(['a', 'b']);
   });
-  test('ingredient tags agree with the still-to-buy count', () => {
-    const lines = ['2 cans (14 oz) canned tomatoes', '1 tsp kosher salt', 'For the sauce:'];
-    const st = ingredientStates(lines, ['kosher salt']);
-    expect(st.map((x) => [x.heading, x.have])).toEqual([[false, false], [false, true], [true, false]]);
-    expect(stillToBuyHeading(st)).toBe('Ingredients · 1 still to buy');
-    expect(stillToBuyHeading(ingredientStates(['1 tsp kosher salt'], ['kosher salt']))).toContain('all in your pantry');
+  test('tags are per line; the pane count is the table count (one function)', () => {
+    const lines = ['1 tsp kosher salt', '2 tsp kosher salt', '2 eggs', 'For the sauce:'];
+    const st = ingredientStates(lines, ['eggs']);
+    // Both salt lines are tagged To buy; eggs are In pantry; the subheader is neither.
+    expect(st.map((x) => [x.heading, x.have])).toEqual([[false, false], [false, false], [false, true], [true, false]]);
+    // The count combines the two salt lines into one row, and is what the table shows.
+    const note1 = note('r', 'R', 's', 'f', 'a', ['1 tsp kosher salt', '2 tsp kosher salt', '2 eggs']);
+    const table = recipeFacts([note1], ['eggs'], new Map()).get('r');
+    expect(table).toEqual({ ingredients: 3, buy: 1 });
+    expect(buyCount(lines, ['eggs'])).toBe(table!.buy);
+    expect(stillToBuyHeading(table!.buy!, 3)).toBe('Ingredients · 1 still to buy');
+    expect(stillToBuyHeading(0, 3)).toBe('Ingredients · 3, all in your pantry');
+  });
+});
+
+describe('search, row saves and Esc', () => {
+  const folder = (id: string, flag: 'shopping' | 'pantry'): AnyRec => ({ id, type: 'folder', updated: 1, payload: { name: flag, color: '#fff', ord: 'a', app: 'reminders', [flag]: true } } as unknown as AnyRec);
+  const rem = (id: string, fol: string, text: string): Rec<'reminder'> => ({ id, type: 'reminder', updated: 1, payload: { text, due: null, time: null, done: false, repeat: null, folderId: fol, sectionId: 's', indent: 0, ord: 'a' } } as unknown as Rec<'reminder'>);
+  test('a reminder is labelled by its folder flag', () => {
+    const recs = [folder('fs', 'shopping'), folder('fp', 'pantry'), rem('a', 'fs', 'milk'), rem('b', 'fp', 'rice')];
+    expect(hitSection(recs, 'a')).toBe('shopping');
+    expect(hitSection(recs, 'b')).toBe('pantry');
+  });
+  test('an untouched field writes nothing; a change builds on the LIVE record', () => {
+    const live = rem('a', 'fs', 'milk (changed elsewhere)');
+    expect(rowSave(live, null)).toEqual({ kind: 'none' });
+    expect(rowSave(live, '  ')).toEqual({ kind: 'del' });
+    expect(rowSave(live, 'milk (changed elsewhere)')).toEqual({ kind: 'none' });
+    const w = rowSave({ ...live, payload: { ...live.payload, done: true } }, '2 milk');
+    expect(w.kind === 'put' && w.rec.payload).toMatchObject({ text: '2 milk', done: true });
+  });
+  test('text fields are recognised', () => {
+    expect(isTextTarget({ tagName: 'INPUT' })).toBe(true);
+    expect(isTextTarget({ tagName: 'textarea' })).toBe(true);
+    expect(isTextTarget({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(isTextTarget({ tagName: 'DIV' })).toBe(false);
+    expect(isTextTarget(null)).toBe(false);
   });
 });
 
 describe('lists', () => {
   test('aisle runs keep stored order inside an aisle', () => {
-    const runs = aisleRuns([{ text: 'milk' }, { text: 'apples' }, { text: 'butter' }]);
-    const dairy = runs.find((r) => r.rows.some((x) => x.text === 'milk'));
-    expect(dairy?.rows.map((x) => x.text)).toContain('butter');
-    expect(runs.flatMap((r) => r.rows).length).toBe(3);
+    const runs = aisleRuns([{ text: 'milk' }, { text: 'apples' }, { text: 'butter' }, { text: 'cream' }]);
+    expect(runs).toEqual([
+      { aisle: 'Produce', rows: [{ text: 'apples' }] },
+      { aisle: 'Dairy & Eggs', rows: [{ text: 'milk' }, { text: 'butter' }, { text: 'cream' }] },
+    ]);
   });
   test('find, summaries and the picked tray', () => {
     expect(filterRows([{ text: 'Soy sauce' }, { text: 'rice' }], ' SOY ').map((r) => r.text)).toEqual(['Soy sauce']);

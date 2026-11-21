@@ -35,7 +35,7 @@ export function recipeFacts(notes: readonly Rec<'note'>[], pantry: readonly stri
     let fact: RecipeFact;
     if (isRecipeNote(n.payload)) {
       const lines = ingredientsOf(n);
-      fact = { ingredients: lines.filter((l) => l.trim() !== '' && !isSubheader(l.trim())).length, buy: recipeStillToBuy(lines, pantry) };
+      fact = { ingredients: lines.filter((l) => l.trim() !== '' && !isSubheader(l.trim())).length, buy: buyCount(lines, pantry) };
     } else {
       fact = { ingredients: 0, buy: null };
     }
@@ -83,9 +83,9 @@ export function recipeRows(
 export type IngredientState = { text: string; heading: boolean; have: boolean };
 
 /**
- * Each ingredient line of a recipe, tagged by core's own shopping rule: a line
- * is "In pantry" when buying just that line would add nothing. The same rule
- * makes the recipe's "N to buy", so the tags and the count cannot disagree.
+ * Each ingredient line of a recipe, tagged by core's shopping rule: a line is
+ * "In pantry" when buying just that line would add nothing. Tags are PER LINE,
+ * so an ingredient repeated in a recipe is tagged on each line.
  */
 export function ingredientStates(ingredients: readonly string[], pantry: readonly string[]): IngredientState[] {
   return ingredients
@@ -96,11 +96,20 @@ export function ingredientStates(ingredients: readonly string[], pantry: readonl
       : { text: t, heading: false, have: recipeStillToBuy([t], pantry) === 0 }));
 }
 
-/** "2 ingredients still to buy" for the recipe pane's heading. */
-export function stillToBuyHeading(states: readonly IngredientState[]): string {
-  const real = states.filter((x) => !x.heading);
-  const buy = real.filter((x) => !x.have).length;
-  return buy === 0 ? `Ingredients · ${real.length}, all in your pantry` : `Ingredients · ${buy} still to buy`;
+/**
+ * The recipe's "N still to buy", for the table AND the pane: core's
+ * `recipeStillToBuy`, which counts what shopping would write, with a repeated
+ * ingredient combined into one row. The per-line tags can show more "To buy"
+ * lines than this number (two lines of salt are two tags and one row); the
+ * count is the same everywhere.
+ */
+export function buyCount(ingredients: readonly string[], pantry: readonly string[]): number {
+  return recipeStillToBuy(ingredients, pantry);
+}
+
+/** "Ingredients · 2 still to buy" for the recipe pane's heading. */
+export function stillToBuyHeading(buy: number, lines: number): string {
+  return buy === 0 ? `Ingredients · ${lines}, all in your pantry` : `Ingredients · ${buy} still to buy`;
 }
 
 /** "Where the 22 went": to buy, covered by the pantry, and combined. */
@@ -147,4 +156,33 @@ export function pantrySummary(total: number): string {
 export function pickedNames(titles: readonly string[], max = 3): string {
   if (titles.length <= max) return titles.join(', ');
   return `${titles.slice(0, max).join(', ')} and ${titles.length - max} more`;
+}
+
+/** Which list a reminder record belongs to, by its folder's flag. */
+export function hitSection(recs: readonly AnyRec[], id: string): 'shopping' | 'pantry' {
+  const row = recs.find((r) => r.id === id && r.type === 'reminder') as Rec<'reminder'> | undefined;
+  const folder = row ? recs.find((r) => r.id === row.payload.folderId && r.type === 'folder') as Rec<'folder'> | undefined : undefined;
+  return folder?.payload.pantry === true ? 'pantry' : 'shopping';
+}
+
+/**
+ * What saving the shopping row's pane does. `typed` is null until the person
+ * changes the text, and then nothing is written: a stale field must never
+ * overwrite a row another device just changed. An emptied field deletes the
+ * row, as on the phone. The put is built on the LIVE record.
+ */
+export type RowSave = { kind: 'none' } | { kind: 'del' } | { kind: 'put'; rec: Rec<'reminder'> };
+export function rowSave(live: Rec<'reminder'>, typed: string | null): RowSave {
+  if (typed === null) return { kind: 'none' };
+  const text = typed.trim();
+  if (text === '') return { kind: 'del' };
+  if (text === live.payload.text) return { kind: 'none' };
+  return { kind: 'put', rec: { ...live, payload: { ...live.payload, text } } };
+}
+
+/** Is this event target somewhere text is typed? */
+export function isTextTarget(t: unknown): boolean {
+  const el = t as { tagName?: string; isContentEditable?: boolean } | null;
+  const tag = el?.tagName?.toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable === true;
 }

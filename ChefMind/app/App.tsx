@@ -11,11 +11,14 @@ import { Notes } from './src/screens/Notes';
 import { Pantry, Shopping } from './src/screens/Shopping';
 import { Search } from './src/screens/Search';
 import { useWide } from './src/components/WideFrame';
+import { PhoneFlows } from './src/components/PhoneFlows';
+import { ChefSessionProvider, pruneIds, useChefSession } from './src/session';
 import { ChefWide } from './src/wide/ChefWide';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
 
 function Root() {
-  const { ready, session } = useStore();
+  const { ready, session, recs } = useStore();
+  const sess = useChefSession();
   const { wide } = useWide();
   // Signing in lands on NOTES. Upstream it is the calendar — "what's on today"
   // shouldn't depend on which icon you opened — and there is no calendar here.
@@ -55,6 +58,12 @@ function Root() {
   // The 🔍 in every top bar opens the one search screen; a tapped result
   // closes it and goes where the thing lives (the owner, 2026-08-19).
   const [searchOpen, setSearchOpen] = useState(false);
+  // Recipes deleted elsewhere (another device, a sync) leave the picks.
+  useEffect(() => {
+    if (!ready) return;
+    const live = new Set(recs.filter((r) => r.type === 'note' && !r.deleted).map((r) => r.id));
+    sess.setPicked((cur) => pruneIds(cur, live));
+  }, [recs, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ready) return <View style={s.page} />;
   if (!session) return <Login />;
   return (
@@ -70,6 +79,7 @@ function Root() {
         </View>
       </View>
       <TabBar tab={tab} onTab={setTab} />
+      <PhoneFlows onShopping={() => setTab('shopping')} />
       </>)}
       {!wide && searchOpen && (
         <Search
@@ -99,6 +109,7 @@ export default function App() {
   const light = THEMES_LIGHT.includes(currentTheme());
   return (
     <StoreProvider>
+      <ChefSessionProvider>
       <SafeAreaProvider>
         <SafeAreaView key={themeGen} testID="page-root" style={s.page} edges={['top', 'bottom', 'left', 'right']}>
           <StatusBar barStyle={light ? 'dark-content' : 'light-content'} backgroundColor={T.bg} />
@@ -111,6 +122,7 @@ export default function App() {
           </ToastProvider>
         </SafeAreaView>
       </SafeAreaProvider>
+      </ChefSessionProvider>
     </StoreProvider>
   );
 }

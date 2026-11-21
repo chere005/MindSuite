@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { mergeIntoList, shoppingPlan, type AnyRec, type Rec } from '@calmind/core';
 import {
   cookKey, cookSteps, doneShoppingOps, finishCookingOps, gatherItems, groupByAisle, listOf, ranOutOps,
-  readRecipe, renameOp, reviewLines, reviewSummary, shoppingWriteOps, stepTo, stillToBuyCounts, toBuyLabel,
+  readRecipe, renameOp, planFor, reviewLines, reviewSummary, shoppingWriteOps, stepTo, stillToBuyCounts, toBuyLabel,
   toggleCartOp, applyOps, type Op,
 } from '../src/chefflows';
 
@@ -184,9 +184,11 @@ describe('cook helpers', () => {
   test('readRecipe reads the recipe block and honours a variant', () => {
     const body = 'Intro\n\n**Ingredients**\n- 1 egg\n**Sweet:**\n- 1 cup sugar\n\n**Directions**\n1. Crack.\n**Sweet:**\n2. Sweeten.';
     const note = { id: 'n', type: 'note', updated: 1, payload: { title: 'T', body, date: null, folderId: 'f', sectionId: 's', ord: 'a', recipe: true, variants: [{ id: 'v', name: 'Plain', sections: ['Sweet:'] }] } } as unknown as Rec<'note'>;
-    expect(readRecipe(note).ingredients).toContain('1 egg');
-    const r = readRecipe(note, 'v');
-    expect(r.steps.length).toBeGreaterThan(0);
+        expect(readRecipe(note, 'v')).toEqual({ ingredients: ['1 egg', 'Sweet:', '1 cup sugar'], steps: ['Crack.', 'Sweet:', 'Sweeten.'] });
+    // The variant leaves the other section out of both lists.
+    const two = { ...note, payload: { ...note.payload, body: 'Intro\n\n**Ingredients**\n- 1 egg\n**Sweet:**\n- 1 cup sugar\n**Savory:**\n- 1 tsp salt\n\n**Directions**\n1. Crack.\n**Sweet:**\n2. Sweeten.\n**Savory:**\n3. Season.' } } as Rec<'note'>;
+    expect(readRecipe(two, 'v')).toEqual({ ingredients: ['1 egg', 'Sweet:', '1 cup sugar'], steps: ['Crack.', 'Sweet:', 'Sweeten.'] });
+    expect(readRecipe(two).steps).toContain('Season.');
   });
 });
 
@@ -207,4 +209,49 @@ describe('to-buy counts', () => {
     expect(cache.size).toBe(0);
   });
   test('labels', () => { expect(toBuyLabel(0)).toBe('Have everything'); expect(toBuyLabel(2)).toBe('2 to buy'); });
+});
+
+describe('a row in the cart is never merged into', () => {
+  const eggsDone = () => store([['6 eggs', true]], []);
+  const eggsOpen = () => store([['6 eggs', false]], []);
+
+  test('Review: a line matching only a done row is a NEW, unticked row', () => {
+    const w = shoppingWriteOps(eggsDone(), ['2 eggs'], mergeIntoList, ids);
+    expect(w.ok && w.merged).toBe(0);
+    expect(w.ok && w.added).toBe(1);
+    expect(w.ok && puts(w.ops)).toEqual(['2 eggs']);
+    const rec = (w.ok ? w.ops : [])[0] as Extract<Op, { kind: 'put' }>;
+    expect((rec.rec as Rec<'reminder'>).payload.done).toBe(false);
+  });
+  test('Review: the same line still merges into a row that is NOT in the cart', () => {
+    const w = shoppingWriteOps(eggsOpen(), ['2 eggs'], mergeIntoList, ids);
+    expect(w.ok && w.merged).toBe(1);
+    expect(w.ok && w.added).toBe(0);
+  });
+  test('Review: with a done and an open match, only the open one takes it', () => {
+    const recs = store([['6 eggs', true], ['4 eggs', false]], []);
+    const w = shoppingWriteOps(recs, ['2 eggs'], mergeIntoList, ids);
+    expect(w.ok && w.merged).toBe(1);
+    const p = (w.ok ? w.ops : [])[0] as Extract<Op, { kind: 'put' }>;
+    expect((p.rec as Rec<'reminder'>).id).toBe('s1');
+  });
+  test("the plan's merge notes name only rows still to buy", () => {
+    expect(planFor(eggsDone(), [{ title: 'T', ingredients: ['2 eggs'] }], []).merges).toEqual([]);
+    expect(planFor(eggsOpen(), [{ title: 'T', ingredients: ['2 eggs'] }], []).merges.map((m) => m.into)).toEqual(['6 eggs']);
+  });
+  test('Ran out: the name goes on as a new row, the done row is untouched', () => {
+    const recs = [...store([['6 eggs', true]], ['eggs'])];
+    const w = ranOutOps(recs, 'p0', mergeIntoList, ids);
+    expect(w.ok && w.added).toBe(1);
+    expect(w.ok && w.merged).toBe(0);
+    expect(w.ok && puts(w.ops)).toEqual(['eggs']);
+    expect(w.ok && dels(w.ops)).toEqual(['p0']);
+  });
+  test('Finish: a ran-out item does not fold into a done row', () => {
+    const recs = store([['6 eggs', true]], ['eggs']);
+    const w = finishCookingOps(recs, ['eggs'], true, mergeIntoList, ids);
+    expect(w.ok && w.added).toBe(1);
+    expect(w.ok && w.merged).toBe(0);
+    expect(w.ok && puts(w.ops)).toEqual(['eggs']);
+  });
 });

@@ -35,9 +35,8 @@ import { SyncDot, syncWord } from '../components/SyncDot';
 import { useToast } from '../components/Toast';
 import { ingredientsOf, pantryTexts } from '../addToShopping';
 import { stillToBuyCounts, toBuyLabel } from '../chefflows';
-import { ShoppingReview } from '../components/ShoppingReview';
-import { CookView, phoneFinish } from '../components/CookView';
-import { PhoneSheet, okColor } from '../components/chefui';
+import { okColor } from '../components/chefui';
+import { newCook, newReview, useChefSession } from '../session';
 import { EditExit } from '../components/EditExit';
 import { RecipeEditor } from './RecipeEditor';
 import { ItemModal } from '../components/ItemModal';
@@ -270,11 +269,8 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
    * duplicate and delete buttons — the things that change a recipe rather
    * than choose one.
    */
-  const [selected, setSelected] = useState<string[]>([]);
-  /** The Review's recipes (Make shopping list), or null. */
-  const [reviewFor, setReviewFor] = useState<{ title: string | null; ingredients: string[] }[] | null>(null);
-  /** Cook's recipes (Cook these / the Cook button), or null. */
-  const [cookFor, setCookFor] = useState<{ ids: string[]; first?: string; variantId?: string | null } | null>(null);
+  // The picks, the Review and the Cook live in the session above both layouts.
+  const { picked: selected, setPicked: setSelected, setReview, setCook } = useChefSession();
   /** The "Can make now" filter: only recipes with nothing left to buy. */
   const [canMake, setCanMake] = useState(false);
   const countCache = useRef(new Map<string, { body: string; key: string; n: number }>());
@@ -678,6 +674,15 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
   });
 
   const open = openId ? (recs.find((r) => r.id === openId) as Rec<'note'> | undefined) : undefined;
+  // Desktop: the recipe being edited was deleted elsewhere. Close the editor
+  // (the frame returns to its table) rather than falling through to the phone
+  // list inside the main pane.
+  const gone = !!wide && !!openId && (!open || !!open.deleted);
+  useEffect(() => {
+    if (!gone) return;
+    toast('That recipe was deleted.');
+    setOpenId(null);
+  }, [gone]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Nobody has named this note yet — it still wears the date it was born with. */
   const generatedTitle = !!open && looksLikeDefaultNoteTitle(open.payload.title);
   // Only OUR bodies scale — the markers are what say the ingredients have
@@ -733,12 +738,12 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
   const makeShoppingList = () => {
     const picked = selectedNotes();
     if (picked.length === 0) { toast('Tick the recipes you are making first.'); return; }
-    setReviewFor(picked.map((n) => ({ title: n.payload.title, ingredients: ingredientsOf(n) })));
+    setReview(newReview(recs, picked));
   };
   const cookThese = () => {
     const picked = selectedNotes();
     if (picked.length === 0) { toast('Tick the recipes you are cooking first.'); return; }
-    setCookFor({ ids: picked.map((n) => n.id) });
+    setCook(newCook(picked.map((n) => n.id)));
   };
 
   /**
@@ -813,37 +818,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
     mutate((e) => e.put({ ...open, payload: { ...open.payload, body: next } }));
   };
 
-  /**
-   * The Review and Cook, each a pane-ready component wrapped in the phone's
-   * sheet. Rendered from BOTH the list and the open recipe, so the Cook button
-   * on a recipe and "Cook these" on the list open the same thing.
-   */
-  const overlays = (
-    <>
-      {reviewFor && (
-        <PhoneSheet onClose={() => setReviewFor(null)}>
-          <ShoppingReview
-            sources={reviewFor}
-            onCancel={() => setReviewFor(null)}
-            onAdded={() => { setReviewFor(null); endEdit(); setSelected([]); nav.openTab?.('shopping'); }}
-          />
-        </PhoneSheet>
-      )}
-      {cookFor && (
-        <PhoneSheet full onClose={() => setCookFor(null)}>
-          <CookView
-            notes={cookFor.ids.map((id) => recs.find((r): r is Rec<'note'> => r.type === 'note' && r.id === id)).filter((n): n is Rec<'note'> => !!n)}
-            initialId={cookFor.first}
-            initialVariantId={cookFor.variantId ?? null}
-            onClose={() => setCookFor(null)}
-            wrapFinish={phoneFinish}
-          />
-        </PhoneSheet>
-      )}
-    </>
-  );
-
-  if (wide && !openId) return null;
+  if (wide && (!openId || gone)) return null;
   if (sharedView && sharedPartner) {
     return <SharedNotes viewKey={sharedView} partner={sharedPartner} />;
   }
@@ -1073,7 +1048,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
               )}
               {scale !== 1 && <Text style={s.scaleNote}>Scaled — 1× to edit</Text>}
               <View style={s.cookBtn}>
-                <Pill testID="note-cook" compact primary label="Cook" onPress={() => (wide ? wide.onCook(open.id, variantId) : setCookFor({ ids: [open.id], first: open.id, variantId }))} />
+                <Pill testID="note-cook" compact primary label="Cook" onPress={() => (wide ? wide.onCook(open.id, variantId) : setCook(newCook([open.id], open.id, variantId)))} />
               </View>
             </View>
           )}
@@ -1374,7 +1349,6 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
         </Modal>
           );
         })()}
-        {overlays}
       </View>
     );
   }
@@ -1652,7 +1626,6 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
           ]}
         />
       )}
-      {overlays}
       {/* Manage variants. A small window, an initially empty list, a + that
           adds one, and a tapped row that opens into its name field and the
           card's own sections as checkboxes. The owner, 2026-08-22. */}
