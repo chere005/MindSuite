@@ -33,6 +33,17 @@ import { ingredientParts, isSubheader, countWord, precleanOcrLine, qtyText, qtyV
 import { amountText, formatBase, toBase, unitDimension, type Dimension } from './units';
 import { ingredientAisle, type Aisle } from './grocery';
 
+/**
+ * `ingredientParts`, with the hyphen put back. The shared parser splits
+ * '6 bone-in chicken thighs' into the word 'bone' and the rest '-in chicken
+ * thighs', and re-joins them with a space: 'bone -in'. Seen on the list, and
+ * on 'sun-dried'. Repaired here, where every name this file reads comes from.
+ */
+function ingParts(text: string): ReturnType<typeof ingredientParts> {
+  const p = ingredientParts(text);
+  return { ...p, name: p.name.replace(/(\p{L}) -(?=\p{L})/gu, '$1-') };
+}
+
 export type ShoppingSource = { title: string | null; ingredients: string[] };
 
 /** One thing to buy, before it is written out. */
@@ -45,6 +56,8 @@ type Entry = {
    *  only unit this entry will ever have. */
   unit: string | null;
   name: string;
+  /** A whole citrus fruit, counted: '1 lemon' and 'juice of 2 lemons' sum. */
+  fruit?: boolean;
   /** The first line exactly as written, which is what an unsummable entry
    *  falls back to rather than a reconstruction. */
   raw: string;
@@ -311,6 +324,38 @@ function partPhrase(words: string[]): string[] {
   return rest.length === 1 && fruit !== undefined && CITRUS.has(fruit) ? [fruit, words[at] as string] : words;
 }
 
+/**
+ * A juice or zest line names the FRUIT to buy: 'juice of a lemon' is '1
+ * lemon', 'zest of 2 limes' is '2 limes', 'the juice of half a lemon' is
+ * '1 lemon' (whole fruits, rounded up), '1 lemon, juiced' is '1 lemon'. A line
+ * that is literally 'lemon juice' is bottled and is not touched. Only the
+ * three citrus fruits PART_OF knows; anything else of another shape is null.
+ */
+function fruitLine(text: string): { n: number; fruit: string } | null {
+  const flat = text.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  let rest: string | null = null;
+  const lead = /^(?:the\s+)?(?:(?:juice|zest)\s+(?:and|&)\s+)?(?:juice|zest)\s+of\s+([^,]+)/.exec(flat);
+  if (lead) rest = lead[1] as string;
+  else {
+    const tail = /^([^,]+),\s*(?:finely\s+)?(?:juiced|zested)\b/.exec(flat);
+    if (tail) rest = tail[1] as string;
+  }
+  if (rest === null) return null;
+  let n: number | null = null;
+  const left: string[] = [];
+  for (const tok of rest.split(' ').filter(Boolean)) {
+    if (tok === 'half') { n ??= 0.5; continue; }
+    if (tok === 'a' || tok === 'an' || tok === 'one') { n ??= 1; continue; }
+    if (PART_FILLER.has(tok) || tok === 'of') continue;
+    const v = qtyValue(tok);
+    if (v !== null) { n ??= v; continue; }
+    left.push(tok);
+  }
+  const fruit = left.length === 1 ? singularOf(left[0] as string) : '';
+  if (!CITRUS.has(fruit)) return null;
+  return { n: Math.max(1, Math.ceil((n ?? 1) - 1e-9)), fruit };
+}
+
 /** Filter, but never to nothing. */
 function keepSome(words: string[], keep: (w: string) => boolean): string[] {
   const out = words.filter(keep);
@@ -403,7 +448,7 @@ type Ident = { key: string; parts: string[] };
 
 function identify(text: string): Ident {
   const t = text.trim();
-  const p = ingredientParts(t);
+  const p = ingParts(t);
   const name = p.name || t;
   const c = containerOf(t, p.unit, name);
   const prefixed = (k: string) => (k !== '' && c !== '' ? `${c}:${k}` : k);
@@ -663,13 +708,21 @@ function buildEntries(
       // isSubheader tests — so it would otherwise arrive as a bare row
       // telling you to purchase a phase of the work.
       if (text === '' || isSubheader(text)) continue;
-      const p = ingredientParts(text);
+      // 'juice of a lemon' is a lemon to buy (strict pass only: Refresh
+      // combines rows somebody already put on the list).
+      const conv = loose ? null : fruitLine(text);
+      const p = conv ? { qty: String(conv.n), unit: null, name: conv.fruit } : ingParts(text);
       // The bracketed metric measure wins over the cook's own, and only in
       // the loose pass: it is a second reading of the SAME line rather than a
       // conversion, so it can never be wrong in the way a density would be.
       const aside = loose ? metricAside(text) : null;
       const unit = (aside?.unit ?? p.unit)?.toLowerCase() ?? null;
-      const name = loose ? bareName(p.name) : p.name.trim();
+      let name = loose ? bareName(p.name) : p.name.trim();
+      // A bare citrus fruit is counted in whole fruits, whichever way a line
+      // spelled it, so '1 lemon' and 'juice of 2 lemons' are one line.
+      const fruit = !loose && unit === null && /^\p{L}+$/u.test(name) && CITRUS.has(singularOf(name.toLowerCase()))
+        ? singularOf(name.toLowerCase()) : null;
+      if (fruit) name = fruit;
       const nk = keyOfName(name);
       const id = identify(text);
       // Water and ice are never bought. Strict pass only: Refresh combines
@@ -696,7 +749,7 @@ function buildEntries(
       const prev = into.get(key);
       if (!prev) {
         into.set(key, {
-          qty, dim, unit, name, raw: text,
+          qty, dim, unit, name, raw: conv ? `${conv.n} ${conv.fruit}` : text, fruit: fruit !== null,
           from: src.title ? [src.title] : [], srcs: new Set([srcIx]), match: rows ? rows.join(', ') : '',
         });
         continue;
@@ -791,21 +844,48 @@ export function pantryUsedIn(ingredients: readonly string[], pantry: readonly st
   return out;
 }
 
-/** The name a pantry row would carry for a bought line: the ingredient with
- *  its quantity, unit and note taken off, in the words the cook wrote. A can
- *  or jar stays one ('canned tomatoes'), because that is its identity. */
+/**
+ * The name a pantry row would carry for a bought line: the ingredient alone,
+ * in the words and case the cook wrote — no amount, unit, preparation word or
+ * comma note ('30 ml chopped parsley' is 'parsley', '59 ml fresh basil, torn'
+ * is 'basil'), a part named as the whole ('juice of a lemon' is 'lemon'), and
+ * every KIND word kept ('red onion', 'dried basil'). A can or jar of a thing
+ * with a fresh form stays one ('canned tomatoes'). Whatever it answers still
+ * covers the line it came from: if the tidy name would not, the plainer one
+ * is used.
+ */
 function pantryNameOf(text: string): string {
-  const p = ingredientParts(text.trim());
-  const name = p.name || text.trim();
-  const bare = bareName(name).replace(USE_TAIL, '').trim();
-  const tokens = bare.split(' ').filter(Boolean);
+  const t = text.trim();
+  const fruit = fruitLine(t);
+  if (fruit) return fruit.fruit;
+  const p = ingParts(t);
+  const name = p.name || t;
+  const tokens = bareName(name).replace(USE_TAIL, '').trim().split(' ').filter(Boolean);
   let i = 0;
   while (i < tokens.length && isAmountWord(singularOf(tokens[i]!.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')))) i++;
-  const rest = tokens.slice(i).join(' ');
-  const out = rest !== '' ? rest : bare;
-  const c = containerOf(text, p.unit, name);
-  if (c === '' || /\b(?:canned|tinned|jarred)\b/i.test(out)) return out;
-  return `${c === 'can' ? 'canned' : 'jarred'} ${out}`;
+  const plain = (tokens.slice(i).length > 0 ? tokens.slice(i) : tokens);
+  const c = containerOf(t, p.unit, name);
+  const withContainer = (words: string[]): string => {
+    const out = words.join(' ');
+    return c === '' || /\b(?:canned|tinned|jarred)\b/i.test(out) ? out : `${c === 'can' ? 'canned' : 'jarred'} ${out}`;
+  };
+  const covered = (n: string) => coveredBy(shelf([n]), identify(t)) !== null;
+  const lower = (w: string) => w.toLowerCase();
+  // Preparation words go; 'ground' goes only where it changes nothing.
+  let tidy = plain.filter((w) => (!PREP_WORDS.has(lower(w)) || lower(w) === 'extra') && !PANTRY_PREP.has(lower(w)));
+  if (tidy.length === 0) tidy = plain;
+  const unground = tidy.filter((w) => lower(w) !== 'ground');
+  if (unground.length > 0 && unground.length < tidy.length
+    && identify(withContainer(unground)).key === identify(withContainer(tidy)).key) tidy = unground;
+  // A part is named as the whole: 'lemon juice' is 'lemon', 'garlic cloves' is 'garlic'.
+  const whole = PART_OF[stapleOf(pantryKey(tidy.join(' ')).split(' ').filter(Boolean))];
+  let named = withContainer(tidy);
+  if (whole !== undefined) {
+    named = /^\p{Lu}/u.test(tidy[0] as string) ? whole.charAt(0).toUpperCase() + whole.slice(1) : whole;
+  }
+  if (covered(named)) return named;
+  const fallback = withContainer(plain);
+  return covered(fallback) ? fallback : plain.join(' ');
 }
 
 /**
@@ -826,7 +906,7 @@ export function doneShoppingPlan(
     if (text === '') continue;
     const id = identify(text);
     if (ALWAYS_ON_HAND.has(id.key)) continue;
-    const p = ingredientParts(text);
+    const p = ingParts(text);
     const aisle = ingredientAisle(p.name || text, p.unit);
     const already = coveredBy(have, id) !== null;
     out.push({ id: r.id, text: r.text, name: pantryNameOf(text), aisle, defaultOn: aisle !== 'Other' && !already, already });
@@ -866,7 +946,7 @@ function render(e: Entry, loose = false): string {
   // hand you a name from a different line than the total. '2 onions' plus '1
   // onion' kept the shorter name and read '3 onion' the first time this ran.
   // The strict pass never rewrites a name and must not start here.
-  return `${amount} ${loose ? countName(e.name, e.qty) : e.name}`.trim();
+  return `${amount} ${loose || e.fruit ? countName(e.name, e.qty) : e.name}`.trim();
 }
 
 /**
@@ -962,7 +1042,7 @@ function scannedNames(raw: string): string[] {
   // where '2 cups flour, sifted' names one with a note — and a note never
   // comes with two commas and no measure in front of it.
   const commas = (l.match(/,/g) ?? []).length;
-  const parts = commas >= 2 && ingredientParts(l).qty === null ? l.split(',') : [l];
+  const parts = commas >= 2 && ingParts(l).qty === null ? l.split(',') : [l];
   const names: string[] = [];
   for (const part of parts) {
     const n = scannedName(part);
@@ -972,7 +1052,7 @@ function scannedNames(raw: string): string[] {
 }
 
 function scannedName(text: string): string | null {
-  const p = ingredientParts(text.trim());
+  const p = ingParts(text.trim());
   let name = bareName(p.name || text).replace(USE_TAIL, '').trim();
   // A till prints in capitals; a pantry row reads better in a cook's case.
   if (/[A-Z]{2}/.test(name) && name === name.toUpperCase()) name = name.toLowerCase();

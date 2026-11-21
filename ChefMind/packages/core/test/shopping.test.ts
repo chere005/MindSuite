@@ -687,3 +687,102 @@ describe('part-of reads "juice of 1 lemon" as lemon juice', () => {
     expect(covers(['lemon'], 'juice of 1 lemon and 1 lime')).toBe(false);
   });
 });
+
+describe('buy the fruit, not its juice', () => {
+  const buy = (...lines: string[]) => shoppingLines([r('a', lines)]);
+
+  it('a juice or zest line names the whole fruit', () => {
+    expect(buy('juice of a lemon')).toEqual(['1 lemon']);
+    expect(buy('juice of 1 lemon')).toEqual(['1 lemon']);
+    expect(buy('juice of 2 limes')).toEqual(['2 limes']);
+    expect(buy('zest of 1 orange')).toEqual(['1 orange']);
+    expect(buy('1 lemon, juiced')).toEqual(['1 lemon']);
+    expect(buy('the juice of half a lemon')).toEqual(['1 lemon']);
+    expect(shoppingRows([r('a', ['juice of 1 lemon'])])[0]).toMatchObject({ name: 'lemon', aisle: 'Produce' });
+  });
+
+  it('juice and zest of one fruit, across recipes, are one line with whole fruits summed', () => {
+    expect(shoppingLines([r('a', ['juice of 1 lemon']), r('b', ['zest of 1 lemon', '2 lemons']), r('c', ['1 lemon, juiced'])]))
+      .toEqual(['5 lemons']);
+    expect(shoppingPlan([r('a', ['juice of 1 lime']), r('b', ['2 limes'])], [], []).toBuy)
+      .toEqual([{ text: '3 limes', name: 'lime', aisle: 'Produce', from: ['a', 'b'] }]);
+    // negative: different fruits stay different lines
+    expect(buy('juice of 1 lemon', 'juice of 1 lime')).toEqual(['1 lemon', '1 lime']);
+  });
+
+  it('bottled juice stays juice, and a mixed line is left as written', () => {
+    expect(buy('2 tbsp lemon juice')).toEqual(['30 ml lemon juice']);
+    expect(buy('1 cup orange juice')).toEqual(['237 ml orange juice']);
+    expect(buy('juice of 1 lemon and 1 lime')).toEqual(['juice of 1 lemon and 1 lime']);
+    expect(buy('1 lemon, sliced')).toEqual(['1 lemon, sliced']);
+  });
+
+  it('the pantry still decides: lemons on hand cover the juice', () => {
+    expect(shoppingLines([r('a', ['juice of 1 lemon'])], ['lemons'])).toEqual([]);
+    expect(shoppingLines([r('a', ['juice of 1 lemon'])], ['lemon juice'])).toEqual([]);
+    expect(shoppingLines([r('a', ['juice of 1 lemon'])], ['limes'])).toEqual(['1 lemon']);
+  });
+});
+
+describe('a hyphen stays attached', () => {
+  it('bone-in and its kind come out of the list whole', () => {
+    expect(shoppingLines([r('a', ['6 bone-in chicken thighs'])])).toEqual(['6 bone-in chicken thighs']);
+    expect(shoppingLines([r('a', ['2 sun-dried tomatoes'])])).toEqual(['2 sun-dried tomatoes']);
+    expect(shoppingLines([r('a', ['1 cup all-purpose flour', '2 tbsp extra-virgin olive oil', '1 tbsp low-sodium soy sauce'])]))
+      .toEqual(['237 ml all-purpose flour', '30 ml extra-virgin olive oil', '15 ml low-sodium soy sauce']);
+    expect(shoppingRows([r('a', ['6 bone-in chicken thighs'])])[0]?.name).toBe('bone-in chicken thighs');
+    // negative: a spaced dash is the cook's own and is left alone
+    expect(shoppingLines([r('a', ['2 cups flour - sifted'])])[0]).toMatch(/ - sifted$/);
+  });
+
+  it('a bone-in pantry row covers the bone-in line, and a plain one does not', () => {
+    expect(covers(['bone-in chicken thighs'], '6 bone-in chicken thighs')).toBe(true);
+    expect(covers(['chicken thighs'], '6 bone-in chicken thighs')).toBe(false);
+  });
+});
+
+describe('doneShoppingPlan names a clean pantry row', () => {
+  const name = (text: string, pantry: string[] = []) =>
+    doneShoppingPlan([{ id: 'x', text, done: true }], pantry)[0]!.name;
+  /** The row the plan proposes must cover the line it came from. */
+  const roundTrips = (text: string) => {
+    const n = name(text);
+    expect(shoppingLines([r('a', [text])], [n]), `${n} covers ${text}`).toEqual([]);
+    return n;
+  };
+
+  it('drops amounts, units, preparation words and comma notes', () => {
+    expect(roundTrips('30 ml chopped parsley')).toBe('parsley');
+    expect(roundTrips('59 ml fresh basil, torn')).toBe('basil');
+    expect(roundTrips('1 dozen oranges')).toBe('oranges');
+    expect(roundTrips('2 cups finely grated Parmesan')).toBe('Parmesan');
+    expect(roundTrips('1 tsp freshly ground black pepper')).toBe('black pepper');
+  });
+
+  it('maps a part to the whole', () => {
+    expect(roundTrips('juice of a lemon')).toBe('lemon');
+    expect(roundTrips('2 tbsp lemon juice')).toBe('lemon');
+    expect(roundTrips('3 garlic cloves')).toBe('garlic');
+  });
+
+  it('keeps kind words, the canned and dried markers, and the cook’s case', () => {
+    expect(roundTrips('1 red onion')).toBe('red onion');
+    expect(roundTrips('2 cans (14 oz) canned tomatoes')).toBe('canned tomatoes');
+    expect(roundTrips('2 cans (14 oz) diced tomatoes')).toBe('canned tomatoes');
+    expect(roundTrips('1 tsp dried basil')).toBe('dried basil');
+    expect(roundTrips('1 lb ground beef')).toBe('ground beef');
+    expect(roundTrips('2 tbsp extra-virgin olive oil')).toBe('extra-virgin olive oil');
+    expect(roundTrips('1 tsp ground ginger')).toBe('ground ginger');
+    expect(roundTrips('Kosher salt')).toBe('Kosher salt');
+    // negatives: the name never loses the kind
+    expect(name('1 red onion')).not.toBe('onion');
+    expect(name('1 tsp dried basil')).not.toBe('basil');
+    expect(pantryHas(['basil'], name('1 tsp dried basil'))).toBe(false);
+  });
+
+  it('and the same name passes pantryHas where the identities are equal', () => {
+    for (const line of ['30 ml chopped parsley', '59 ml fresh basil, torn', '1 red onion', '2 cans (14 oz) canned tomatoes', '1 dozen oranges']) {
+      expect(pantryHas([name(line)], line), line).toBe(true);
+    }
+  });
+});
