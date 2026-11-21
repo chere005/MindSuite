@@ -30,8 +30,8 @@ import {
   Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import {
-  LONG_PRESS_MS, assignedFor, availableOf, budgetIn, carriedInto, countsFrom, dropTarget, foldLevel,
-  formatAmount, lineTone, linesIn, monthOf, monthSet, slotEntries, toggleSelected, total,
+  LONG_PRESS_MS, assignedFor, availableOf, budgetOverspent, dropTarget, foldLevel,
+  formatAmount, lineTone, linesIn, monthlyBudgetAmounts, monthSet, slotEntries, toggleSelected, total,
   snoozedLines, unassigned, unfiledSince,
   type AssignMode, type BudgetAmount, type Category, type Line, type LineTone, type Setting, type Txn,
 } from '@acctmind/core';
@@ -259,102 +259,24 @@ export function BudgetScreen({
    */
   const set = monthSet(budgetMonth);
   const snoozed = snoozedLines({ settings }, set);
-  /* This month's rows, from the budget's first day on — nothing dated
-     before the start counts against a line (core's `countsFrom`). */
-  const inScope = useMemo(
-    () => countsFrom(txns.filter((t) => monthOf(t.date) === budgetMonth), start),
-    [txns, budgetMonth, start],
+  const { held, inScope, amounts } = useMemo(
+    () => monthlyBudgetAmounts({ budgets }, budgetMonth, lines, txns, start),
+    [budgets, budgetMonth, lines, txns, start],
   );
-  /** What this line is budgeted IN THIS SET — never `line.budget` directly. */
-  const budgetOf = (l: Line) => budgetIn({ budgets }, set, l);
-
-  /**
-   * WHAT EACH LINE CARRIES IN — assigned in an earlier month and still there.
-   *
-   * The owner, 2026-09-18: "assignments that aren't spent by the end of the month
-   * carry over." A line's available in September is therefore everything
-   * assigned to it in September and before, plus everything it has ever
-   * spent; this map is that history, and `availableOf` adds the month itself.
-   *
-   * Unconditional since 2026-09-21, and only because the screen is: it was
-   * skipped on All Time and on a named view, neither of which has a calendar
-   * to carry along. `carriedInto` still refuses both for that reason.
-   *
-   * A MAP rather than a filter per line: the spending half has to look at
-   * every transaction older than this month, and doing that once per line
-   * turns the whole ledger into an N×M scan on every keystroke of a rename.
-   */
-  const carried = useMemo(
-    () => carriedInto({ budgets }, budgetMonth, lines, txns, start),
-    [txns, lines, budgets, budgetMonth, start],
-  );
-  const carryOf = (l: Line) => carried.get(l.id) ?? 0;
-
-  const shown = view === null ? categories : categories.filter((c) => c.id === view);
-  const transactionsByLine = useMemo(() => {
-    const byLine = new Map<string, Txn[]>();
-    for (const txn of inScope) {
-      if (txn.category === null) continue;
-      const rows = byLine.get(txn.category);
-      if (rows) rows.push(txn);
-      else byLine.set(txn.category, [txn]);
-    }
-    return byLine;
-  }, [inScope]);
-  const transactionsFor = (id: string) => transactionsByLine.get(id) ?? [];
-  /** What has actually moved through a line. Negative for spending. */
-  const spentOn = (id: string) => total(transactionsFor(id));
-  /** This budget's lines under one category, in the order they are drawn. */
+  const budgetOf = (line: Line) => amounts.get(line.id)?.budget ?? 0;
+  const carryOf = (line: Line) => amounts.get(line.id)?.carry ?? 0;
+  const spentOn = (id: string) => amounts.get(id)?.spent ?? 0;
+  const transactionsFor = (id: string) => amounts.get(id)?.txns ?? [];
   const linesOf = (id: string) => linesIn(lines, id);
+  const shown = view === null ? categories : categories.filter((c) => c.id === view);
 
-  /**
-   * ASSIGNED — every live line's amount in this set, over the WHOLE budget.
-   *
-   * It narrowed with the category picker until 2026-09-18 and must not any
-   * more: Funds Available is now this figure taken off the month's money, and
-   * a pair where one half narrows and the other does not is a subtraction
-   * that stops being true the moment somebody filters. Neither header figure
-   * answers a question about the filter — that is what the category headings
-   * below are for.
-   */
-  const assigned = categories.reduce(
-    (n, c) => n + linesOf(c.id).reduce((m, l) => m + budgetOf(l), 0), 0,
-  );
-  /**
-   * WHAT THE ACCOUNTS HOLD at the end of the month being looked at.
-   *
-   * Every transaction dated up to and including it — not the ones that landed
-   * IN it. The owner, 2026-09-18: "funds available should read as how much is in
-   * the account in the current month", and his September had $484.63 in it
-   * against a month that had moved -$1,682.76. The month's own movement is
-   * what a month SPENT, which is a different question and one the columns
-   * below already answer; what is in the account is everything that ever
-   * happened to it, which is the balance.
-   *
-   * Stepping back a month therefore shows what was in the account THEN, which
-   * is the only reading of "how much is in the account" a past month has.
-   */
-  const held = useMemo(
-    () => total(txns.filter((t) => monthOf(t.date) <= budgetMonth)),
-    [txns, budgetMonth],
-  );
-  /**
-   * AVAILABLE — what the accounts hold, less what is still sitting in lines.
-   *
-   * The owner, 2026-09-18: "change Funds Available to Account, assigned to
-   * Assigned, and to the right of that put available - assigned with label
-   * Available". Then 2026-09-25: "some of that assigned money has already
-   * been counted for from a spent transaction with that category" — spending
-   * is already out of `held`, so only what each line has LEFT comes off, not
-   * what was assigned to it. That rule is core's `unassigned`.
-   *
-   * `shown` is deliberately not consulted, and `txns` is every live
-   * transaction. Filtering the budget to Groceries cannot change how much
-   * money you have.
-   */
-  const available = unassigned(held, categories.flatMap((c) => linesOf(c.id).map((l) => ({
-    carry: carryOf(l), budget: budgetOf(l), spent: spentOn(l.id),
-  }))));
+  // The header covers all active lines, including folded and filtered sections.
+  const balances = categories.flatMap((c) => linesOf(c.id).map((line) => ({
+    budget: budgetOf(line), spent: spentOn(line.id), carry: carryOf(line),
+  })));
+  const assigned = balances.reduce((sum, line) => sum + line.budget, 0);
+  const available = unassigned(held, balances);
+  const overspent = budgetOverspent(balances);
 
   /** Money that belongs to no line at all. Drawn under its own heading. */
   /**
@@ -571,6 +493,11 @@ export function BudgetScreen({
           </Text>
         </View>
       </BarRow>
+      {overspent > 0 && (
+        <Text style={styles.coverage} testID="budget-overspent">
+          {formatAmount(overspent)} overspending to cover
+        </Text>
+      )}
 
       {/* THE MONTH, and nothing beside it.
           
@@ -1578,6 +1505,7 @@ const styles = StyleSheet.create({
   // own grows to fit its content and overflows the bar instead of wrapping.
   // Three figures arrived on 2026-09-18 and the third drew as `Availa` on a
   // phone until this took the bar's width.
+  coverage: { color: T.dim, fontSize: 12, marginHorizontal: SPACE.lg, marginBottom: SPACE.sm },
   totals: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, flexWrap: 'wrap' },
   list: { paddingHorizontal: SPACE.lg, paddingBottom: 48, flexGrow: 1, gap: 18 },
   section: { gap: SPACE.xs },

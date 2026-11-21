@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  addDays, addMonths, amountDigits, amountField, amountKeyed, amountSeed, applyOp, assignedFor, availableOf, budgetFor, dayOf,
+  addDays, addMonths, amountDigits, amountField, amountKeyed, amountSeed, applyOp, assignedFor, availableOf, budgetFor, budgetOverspent, dayOf,
   type AssignMode,
   EMPTY_TXN_FILTER, filterTransactions, hasTxnFilter, importKey, lineTone, parseDelimited,
   reconcileAdjustment, stillNeeded, usDate, validTxnDateRange, type TxnFilter,
@@ -350,6 +350,7 @@ describe('spec/budget.json', () => {
     roundTrip: [number, number][];
     roundTripCarried: [number, number, number][];
     unassigned: [number, [number, number, number][], number][];
+    overspent: [[number, number, number][], number][];
     ops: [number, AmountOp, number, number | null][];
     assign: [AssignMode, number, boolean, number, number, number, number][];
   }>('budget');
@@ -393,10 +394,20 @@ describe('spec/budget.json', () => {
     }
   });
 
-  it("the bar's Available leaves out money already spent from a line", () => {
+  it('reconciles Available and signed line balances to cash held', () => {
     for (const [held, lines, want] of b.unassigned) {
       const shaped = lines.map(([carry, budget, spent]) => ({ carry, budget, spent }));
       expect(unassigned(held, shaped), `${held} / ${JSON.stringify(lines)}`).toBe(want);
+      const increased = [...shaped];
+      if (increased[0]) increased[0] = { ...increased[0], budget: increased[0].budget + 500 };
+      else increased.push({ carry: 0, budget: 500, spent: 0 });
+      expect(unassigned(held, increased)).toBe(want - 500);
+    }
+  });
+
+  it('shows each unfunded expense without offsetting it against other lines', () => {
+    for (const [lines, want] of b.overspent) {
+      expect(budgetOverspent(lines.map(([carry, budget, spent]) => ({ carry, budget, spent })))).toBe(want);
     }
   });
 

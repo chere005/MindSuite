@@ -24,7 +24,7 @@
  * draws any more.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { addTransaction, assignedIn, fresh, setSign, stored } from './helpers';
+import { addTransaction, assignedIn, fresh, monthBudget, setSign, stored, withStore } from './helpers';
 
 type Stored = {
   categories: { id: string; name: string; deleted?: true }[];
@@ -193,6 +193,63 @@ test('money spent from a line is not taken off Available twice', async ({ page }
   await page.getByTestId('budget-month-next').click();
   await expect(page.getByTestId('budget-assigned')).toHaveText('$0.00 Assigned');
   await expect(page.getByTestId('budget-available')).toHaveText('$700.00');
+});
+
+test('assignments move Available dollar for dollar while covering an overspent line', async ({ page }) => {
+  const prior = lastMonthDay();
+  const previousSet = `m:${prior.slice(0, 7)}`;
+  const now = firstOfThisMonth();
+  const stamp = { order: 0, created: 1, updated: 1 };
+  const txn = (id: string, date: string, amount: number, category: string | null) => ({
+    id, name: id, amount, date, category, account: 'a1', ...stamp,
+  });
+  await withStore(page, JSON.stringify({
+    v: 4,
+    accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', ...stamp }],
+    categories: [{ id: 'c1', name: 'Food', color: '#66d695', ...stamp }],
+    lines: [
+      { id: 'l1', name: 'Groceries', category: 'c1', ...stamp },
+      { id: 'l2', name: 'Coffee', category: 'c1', ...stamp },
+    ],
+    txns: [
+      txn('Income', prior, 100000, 'income'),
+      txn('Last month', prior, -1000, 'l1'),
+      txn('Purchase', now, -10000, 'l1'),
+      txn('Refund', now, 1000, 'l1'),
+      txn('Unfiled', now, -2000, null),
+    ],
+    budgets: [
+      { ...monthBudget('l1', 3000), id: `${previousSet}|l1`, set: previousSet },
+      monthBudget('l1', 2000),
+      monthBudget('l2', 4000),
+    ],
+  }));
+  await page.getByTestId('tab-budget').click();
+  await expect(page.getByTestId('budget-account')).toHaveText('$880.00');
+  await expect(page.getByTestId('budget-assigned')).toHaveText('$60.00 Assigned');
+  await expect(page.getByTestId('budget-available')).toHaveText('$890.00');
+  await expect(page.getByTestId('budget-overspent')).toContainText('$50.00');
+  await expect(page.getByTestId('category-available-c1')).toHaveText('-$10.00');
+  await expect(page.getByTestId('line-spent-l1')).toHaveText('-$90.00');
+  await expect(page.getByTestId('line-available-l1')).toHaveText('-$50.00');
+
+  await assign(page, 'l1', '45');
+  await expect(page.getByTestId('line-available-l1')).toHaveText('-$25.00');
+  await expect(page.getByTestId('category-available-c1')).toHaveText('$15.00');
+  await expect(page.getByTestId('budget-available')).toHaveText('$865.00');
+  await expect(page.getByTestId('budget-overspent')).toContainText('$25.00');
+
+  await page.getByTestId('line-spent-tap-l1').click();
+  await expect(page.getByTestId('spent-preview-carryover')).toHaveText('$20.00');
+  await expect(page.getByTestId('spent-preview-assign')).toHaveText('Set Assigned to $70.00');
+  await page.getByTestId('spent-preview-assign').click();
+  await expect(page.getByTestId('spent-preview-available')).toHaveText('$0.00');
+  await page.getByTestId('spent-preview-close').click();
+  await expect(page.getByTestId('budget-account')).toHaveText('$880.00');
+  await expect(page.getByTestId('budget-assigned')).toHaveText('$110.00 Assigned');
+  await expect(page.getByTestId('budget-available')).toHaveText('$840.00');
+  await expect(page.getByTestId('budget-overspent')).toBeHidden();
+  await expect(page.getByTestId('category-available-c1')).toHaveText('$40.00');
 });
 
 test('incoming cash has a category of its own, and it lands in Available', async ({ page }) => {

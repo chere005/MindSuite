@@ -53,10 +53,11 @@
  * including that month, plus everything it has spent. `assignedBefore` is the
  * first half; the ledger is the second, and budget.ts adds them.
  */
-import { RECONCILE_NAME, assignedFor, type AssignMode } from './budget';
+import { RECONCILE_NAME, assignedFor, type AssignMode, type BudgetLineBalance } from './budget';
 import { isDay } from './day';
 import { touch } from './merge';
 import { putSetting } from './store';
+import { total } from './txn';
 import type { BudgetAmount, Line, Setting, Txn } from './types';
 
 /* The helpers take the COLLECTION they read, not the whole Store — a screen
@@ -178,16 +179,12 @@ export function putBudget(
   now: number,
 ): BudgetAmount[] {
   const id = budgetId(set, line);
+  const had = store.budgets.find((b) => b.id === id);
   const row: BudgetAmount = {
-    id,
-    set,
-    line,
-    amount,
-    created: store.budgets.find((b) => b.id === id)?.created ?? now,
-    updated: now,
+    id, set, line, amount, created: had?.created ?? now,
+    updated: had === undefined ? now : touch(had, now).updated,
   };
-  const has = store.budgets.some((b) => b.id === id);
-  return has ? store.budgets.map((b) => (b.id === id ? row : b)) : [...store.budgets, row];
+  return had ? store.budgets.map((b) => (b.id === id ? row : b)) : [...store.budgets, row];
 }
 
 /**
@@ -226,6 +223,32 @@ export function carriedInto(
     if (before !== 0) by.set(l.id, (by.get(l.id) ?? 0) + before);
   }
   return by;
+}
+
+/** The month and line amounts shared by the budget screen and CSV export. */
+export function monthlyBudgetAmounts(
+  store: HasBudgets, month: string, lines: readonly Line[], txns: readonly Txn[], start: string | null,
+) {
+  const ledger = txns.filter((txn) => !txn.deleted);
+  const held = total(ledger.filter((txn) => monthOf(txn.date) <= month));
+  const inScope = countsFrom(ledger.filter((txn) => monthOf(txn.date) === month), start);
+  const carried = carriedInto(store, month, lines, ledger, start);
+  const byLine = new Map<string, Txn[]>();
+  for (const txn of inScope) {
+    if (txn.category === null) continue;
+    const group = byLine.get(txn.category);
+    if (group) group.push(txn);
+    else byLine.set(txn.category, [txn]);
+  }
+  const set = monthSet(month);
+  const amounts = new Map<string, BudgetLineBalance & { txns: readonly Txn[] }>();
+  for (const line of lines) {
+    const rows = byLine.get(line.id) ?? [];
+    amounts.set(line.id, {
+      budget: budgetIn(store, set, line), spent: total(rows), carry: carried.get(line.id) ?? 0, txns: rows,
+    });
+  }
+  return { held, inScope, amounts };
 }
 
 /* ------------------------------------------------------------------ *

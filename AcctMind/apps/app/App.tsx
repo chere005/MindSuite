@@ -23,12 +23,12 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
-  addTxn, applyDraft, availableOf, budgetFor, duplicateTxn, emptyStore, ensureAccount,
+  addTxn, applyDraft, applyOp, availableOf, budgetFor, budgetIn, duplicateTxn, emptyStore, ensureAccount,
   live, makeTxn, moveLineTo, moveTxnTo,
   applyImport, clearedTotal, ensureCategory, newId, nextColor, planImport, RECONCILE_NAME,
   reconcileAdjustment, total, putAccount, putBudget, putCategory, putLine, removeCategoryDeep,
-  REORDER_GAP, assignMany, budgetCsv, budgetStart, countsFrom, putBudgetStart, suggestedStart, planSync, serialize, undoTo, budgetIn, carriedInto, linesIn, monthOf,
-  monthSet, today, tombstone, tombstoneMany, touch,
+  REORDER_GAP, assignMany, budgetCsv, budgetStart, putBudgetStart, suggestedStart, planSync, serialize, undoTo, linesIn, monthlyBudgetAmounts,
+  monthSet, setMonth, today, tombstone, tombstoneMany, touch,
   txnText, updateTxn, setCleared,
   categoryChoices, categoryRules, putSnooze, removeCategoryRule, saveCategoryRule,
   type AssignMode, type CsvRow, type Draft, type ImportMode, type Line, type Store, type Txn,
@@ -131,7 +131,7 @@ export default function App() {
        */
       carry: number;
       /** The value being typed, held as whichever number is STORED. */
-      budget: number; needs: number; at: Anchor;
+      budget: number; needs: number; at: Anchor; changed: boolean;
       /** Which budget set the change lands in — see core/views.ts. */
       set: string;
     } | null
@@ -428,25 +428,19 @@ export default function App() {
    * so the file and the screen cannot disagree about which budget they mean.
    *
    * The shape of the file is core's (`budgetCsv`); the numbers are the same
-   * ones the rows draw, read through the same `budgetIn`/`carriedInto`.
+   * ones the rows draw from `monthlyBudgetAmounts`.
    */
   const onExportBudget = useCallback(() => {
     if (phase.k !== 'ready') return;
     const store = phase.store;
-    const set = monthSet(prefs.budgetMonth);
-    const txns = live(store.txns);
     const lines = live(store.lines);
-    const inScope = countsFrom(txns.filter((t) => monthOf(t.date) === prefs.budgetMonth), budgetStart(store));
-    // The same map the screen draws from, so the file and the rows cannot
-    // disagree about what a line is worth — see core's carriedInto.
-    const carried = carriedInto(store, prefs.budgetMonth, lines, txns, budgetStart(store));
+    const { amounts } = monthlyBudgetAmounts(store, prefs.budgetMonth, lines, store.txns, budgetStart(store));
     const rows = live(store.categories).flatMap((c) =>
       linesIn(lines, c.id).map((l) => {
-        const assigned = budgetIn(store, set, l);
-        const spent = total(inScope.filter((t) => t.category === l.id));
+        const { budget: assigned, spent, carry } = amounts.get(l.id)!;
         return {
           category: c.name, line: l.name, assigned, spent,
-          available: availableOf(assigned, spent, carried.get(l.id) ?? 0),
+          available: availableOf(assigned, spent, carry),
         };
       }));
     const name = `acctmind-budget-${prefs.budgetMonth}.csv`;
@@ -597,7 +591,7 @@ export default function App() {
                 onEditAmount={({ line, spent, budgeted, carry, set }, field, at) =>
                   // `budgeted`, not `line.budget`: the pad opens showing what
                   // the ACTIVE SET holds, which is what is on screen.
-                  setPad({ line, spent, carry, field, budget: budgeted, needs: line.needs, at, set })}
+                  setPad({ line, spent, carry, field, budget: budgeted, needs: line.needs, at, set, changed: false })}
                 onRenameLine={(line, name) => {
                   if (phase.k !== 'ready') return;
                   commit(phase, putLine(phase.store, touch({ ...line, name }, Date.now())));
@@ -889,35 +883,44 @@ export default function App() {
                 : pad.budget}
               onValue={(next) => setPad((p) => (p === null ? p : (
                 p.field === 'needs'
-                  ? { ...p, needs: next }
+                  ? { ...p, needs: next, changed: true }
                   : {
                       ...p,
                       budget: p.field === 'available' ? budgetFor(next, p.spent, p.carry) : next,
+                      changed: true,
                     }
               )))}
               onDone={() => {
                 if (phase.k !== 'ready' || pad === null) return;
-                // TWO PLACES, because they are two different kinds of
-                // number — see core/budget.ts.
-                //
-                // The BUDGET goes in the set's own record and leaves the
-                // line alone, which is the whole promise of "budget changes
-                // are unique to that view only". `needs` is NOT per set — a
-                // target is what the line is FOR, and it does not change
-                // because you are looking at October — so it is written on
-                // the line.
-                //
-                // There was an All Time branch here, writing the budget onto
-                // the line, until 2026-09-21. `pad.set` comes from the Budget
-                // screen and the screen is always on a month now, so the
-                // branch was one nobody could take. The set still exists in
-                // core (`budgetIn` reads it) and holds what earlier versions
-                // wrote there; nothing reaches it from here.
+                const store = phase.store;
+                const line = live(store.lines).find((entry) => entry.id === pad.line.id);
+                if (!pad.changed || !line || !live(store.categories).some((c) => c.id === line.category)) {
+                  setPad(null);
+                  return;
+                }
                 const now = Date.now();
-                commit(phase, {
-                  ...putLine(phase.store, touch({ ...pad.line, needs: pad.needs }, now)),
-                  budgets: putBudget(phase.store, pad.set, pad.line.id, pad.budget, now),
-                });
+                if (pad.field === 'needs') {
+                  if (pad.needs !== line.needs) commit(phase, putLine(store, touch({ ...line, needs: pad.needs }, now)));
+                  setPad(null);
+                  return;
+                }
+                let assigned = pad.budget;
+                const month = setMonth(pad.set);
+                if (pad.field === 'available' && month !== null) {
+                  // A sync can change the spending or carry while the pad is open.
+                  const { amounts } = monthlyBudgetAmounts(store, month, [line], store.txns, budgetStart(store));
+                  const current = amounts.get(line.id)!;
+                  assigned = budgetFor(availableOf(pad.budget, pad.spent, pad.carry), current.spent, current.carry);
+                }
+                const amount = applyOp(0, '=', assigned);
+                if (amount === null) {
+                  setPad(null);
+                  say('Assignment is out of range');
+                  return;
+                }
+                if (amount !== budgetIn(store, pad.set, line)) {
+                  commit(phase, { ...store, budgets: putBudget(store, pad.set, line.id, amount, now) });
+                }
                 setPad(null);
               }}
             />

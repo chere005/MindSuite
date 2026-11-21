@@ -72,29 +72,20 @@ export function budgetFor(available: number, spent: number, carry = 0): number {
   return available - spent - carry;
 }
 
+export type BudgetLineBalance = { carry: number; budget: number; spent: number };
+
 /**
- * The bar's AVAILABLE: what the accounts hold, less what the lines still hold.
- *
- * The owner, 2026-09-25: it was account minus ASSIGNED, "but some of that assigned
- * money has already been counted for from a spent transaction with that
- * category". A $100 assignment with $30 spent has already taken the $30 out
- * of `held`; subtracting the whole $100 as well counted the $30 twice. What
- * is still spoken for is what is still IN the line — `availableOf` — so that
- * is what comes off.
- *
- * FLOORED AT ZERO per line. An overspent line holds nothing, and its
- * overspend has already left the account; letting its negative available
- * through would hand that money back as though it were never spent.
- *
- * `carry` counts, which retires the 2026-09-18 reading that the bar left
- * earlier months out: money carried into a line is still in its envelope,
- * and with spending now netted out, leaving it in would count it as both.
+ * The signed line balances and Available to assign reconcile to cash held.
+ * Each new assignment transfers the same amount from Available to its line,
+ * including money assigned to cover a purchase that already left the account.
  */
-export function unassigned(
-  held: number,
-  lines: readonly { carry: number; budget: number; spent: number }[],
-): number {
-  return lines.reduce((n, l) => n - Math.max(0, availableOf(l.budget, l.spent, l.carry)), held);
+export function unassigned(held: number, lines: readonly BudgetLineBalance[]): number {
+  return lines.reduce((n, l) => n - availableOf(l.budget, l.spent, l.carry), held);
+}
+
+/** Outstanding coverage is the sum of deficits across the lines. */
+export function budgetOverspent(lines: readonly BudgetLineBalance[]): number {
+  return lines.reduce((n, l) => n + Math.max(0, -availableOf(l.budget, l.spent, l.carry)), 0);
 }
 
 /* ------------------------------------------------------------------ *

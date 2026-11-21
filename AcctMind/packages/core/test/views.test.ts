@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALL_TIME, assignMany, assignedBefore, budgetId, budgetIn, budgetSetIn, budgetStart,
-  carriedInto, countsFrom, monthOf, monthSet, putBudget, putBudgetStart, setMonth, suggestedStart,
+  carriedInto, countsFrom, monthOf, monthSet, monthlyBudgetAmounts, putBudget, putBudgetStart, setMonth, suggestedStart,
   mergeStores, parseStore, putSnooze, serialize, snoozedLines,
   type BudgetAmount, type Line, type Store, type Txn,
 } from '../src/index';
@@ -177,6 +177,15 @@ describe('the starting day', () => {
   ]);
   const txns = [txn('2026-08-10', -5000), txn('2026-09-10', -300), txn('2026-09-22', -40)];
 
+  it('uses the same month scope for line amounts and transaction details while cash keeps the full history', () => {
+    const result = monthlyBudgetAmounts(s, '2026-09', s.lines, [
+      ...txns, txn('2026-10-01', 650), { ...txn('2026-09-25', -99), deleted: true },
+    ], '2026-09-21');
+    expect(result.held).toBe(-5340);
+    expect(result.inScope).toEqual([txns[2]]);
+    expect(result.amounts.get('l1')).toEqual({ budget: 900, spent: -40, carry: 0, txns: [txns[2]] });
+  });
+
   it('with none set, everything earlier carries', () => {
     expect(assignedBefore(s, '2026-10', 'l1')).toBe(1000);
     expect(carriedInto(s, '2026-10', s.lines, txns).get('l1')).toBe(1000 - 5340);
@@ -232,6 +241,13 @@ describe('putBudget', () => {
     // The clock moves and the birthday does not — an edit is not a new record.
     expect(again[0]?.updated).toBe(2000);
     expect(again[0]?.created).toBe(1000);
+  });
+
+  it('advances the assignment clock even when the local clock has not advanced', () => {
+    const set = monthSet('2026-09');
+    const first = putBudget(s(), set, 'l1', 250, 1000);
+    const again = putBudget(s(first), set, 'l1', 900, 999);
+    expect(again[0]).toMatchObject({ amount: 900, updated: 1001 });
   });
 
   it('leaves other sets and other lines alone', () => {
