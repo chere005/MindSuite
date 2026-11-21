@@ -15,9 +15,10 @@
  * order.
  */
 import {
-  byRecOrd, mergeIntoList, newId, ordBetween, recipeFromPages, shoppingLines, splitRecipeBody,
+  mergeIntoList, recipeFromPages, shoppingLines, splitRecipeBody,
   type AnyRec, type Rec, type SyncEngine,
 } from '@calmind/core';
+import { applyOps, shoppingWriteOps } from './chefflows';
 
 /** What happened, for a caller to say in its own words. */
 export type ShopResult =
@@ -93,53 +94,25 @@ export function addToShopping(
   if (lines.length === 0) {
     return { ok: false, why: sources.some((s) => s.ingredients.length > 0) ? 'pantry' : 'empty' };
   }
-  const folder = recs.find((r): r is Rec<'folder'> =>
-    r.type === 'folder' && !r.deleted && r.payload.shopping === true);
-  const section = folder
-    ? recs.filter((r): r is Rec<'section'> =>
-      r.type === 'section' && !r.deleted && r.payload.folderId === folder.id).sort(byRecOrd)[0]
-    : undefined;
-  // normalize guarantees both, and a missing one means the store has not
-  // hydrated yet. Saying so beats writing rows into nowhere.
-  if (!folder || !section) return { ok: false, why: 'notready' };
+  return addLinesToShopping(recs, mutate, lines);
+}
 
-  const existing = recs
-    .filter((r): r is Rec<'reminder'> =>
-      r.type === 'reminder' && !r.deleted && r.payload.sectionId === section.id)
-    .sort(byRecOrd);
-
-  // WHICH lines fold into which rows is core's (`mergeIntoList`, tested
-  // there). What is here is the only part it cannot know: that these strings
-  // are records with ids, an order somebody dragged them into, and a place in
-  // a store that has to be written to.
-  const { kept, added } = mergeIntoList(existing.map((r) => r.payload.text), lines);
-  const changed = existing
-    .map((row, i) => ({ row, text: kept[i] as string }))
-    .filter(({ row, text }) => text !== row.payload.text);
-
-  mutate((e) => {
-    for (const { row, text } of changed) {
-      e.put({ ...row, payload: { ...row.payload, text } });
-    }
-    // Each new row's key is made from the one before it, not all from the same
-    // neighbour: ordBetween(last, null) is deterministic, so a loop that asked
-    // it the same question every time would give every row the same key and
-    // the list would come out in id order.
-    let prev = existing.slice(-1)[0]?.payload.ord ?? null;
-    for (const text of added) {
-      prev = ordBetween(prev, null);
-      e.put({
-        id: newId(),
-        type: 'reminder',
-        updated: 0,
-        payload: {
-          text, due: null, time: null, done: false, repeat: null,
-          folderId: folder.id, sectionId: section.id, indent: 0, ord: prev,
-        },
-      });
-    }
-  });
-  return { ok: true, added: added.length, merged: changed.length };
+/**
+ * Add these EXACT lines to the shopping list — the Review's write, and the
+ * tail of `addToShopping`. Nothing is filtered here (the pantry subtraction
+ * already happened, or the cook chose "buy anyway"); lines still COMBINE with
+ * rows already on the list (core's `mergeIntoList`), and what is new lands at
+ * the end. One `mutate`, built by `shoppingWriteOps` so it can be tested.
+ */
+export function addLinesToShopping(
+  recs: readonly AnyRec[],
+  mutate: (fn: (engine: SyncEngine) => void) => void,
+  lines: readonly string[],
+): ShopResult {
+  const w = shoppingWriteOps(recs, lines, mergeIntoList);
+  if (!w.ok) return { ok: false, why: w.why };
+  mutate((e) => applyOps(e, w.ops));
+  return { ok: true, added: w.added, merged: w.merged };
 }
 
 /** What to say about a result, in one sentence. `one` is whether a single

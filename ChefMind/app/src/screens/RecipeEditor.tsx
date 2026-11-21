@@ -8,7 +8,7 @@
  * themselves. Saving writes the fixed nice-looking recipe block back to the
  * note (any non-recipe text rides along after it, still editable there).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 // A Modal renders in its own window, OUTSIDE the app root's SafeAreaView — so
 // its content starts at y=0, under the clock and the Dynamic Island. On the
@@ -17,7 +17,10 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { importedRecipeTitle, ingredientParts, isSubheader, orderIngredients, parseIngredient, recipeBody, recipeFromHtml, recipeFromPages, type Rec } from '@calmind/core';
 import { useStore } from '../store';
-import { addToShopping, shopMessage } from '../addToShopping';
+import { ShoppingReview } from '../components/ShoppingReview';
+import { CookView, phoneFinish } from '../components/CookView';
+import { PhoneSheet } from '../components/chefui';
+import { useNav } from '../nav';
 import { themed, T } from '../theme';
 import { CircleBtn, ConfirmDelete, Field, Pill, Scroll, WebHitSlop } from '../ui';
 import { OCR_UNSUPPORTED, ocrImages, ocrSupported, pickPhotoUris } from '../components/ocr';
@@ -52,7 +55,7 @@ export function RecipeEditor({ note, onClose, put }: {
   put?: (rec: Rec<'note'>) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { mutate, recs, session } = useStore();
+  const { mutate, session } = useStore();
   const toast = useToast();
   const putNote = put ?? ((rec: Rec<'note'>) => mutate((e) => e.put(rec)));
   const parsed = recipeFromPages([note.payload.body]);
@@ -320,9 +323,19 @@ export function RecipeEditor({ note, onClose, put }: {
    * The pantry filter, where the rows land and what to say when nothing was
    * added belong to `addToShopping`, which the Recipes tab shares.
    */
+  const [reviewing, setReviewing] = useState(false);
+  const [cooking, setCooking] = useState(false);
+  const nav = useNav();
   const shop = () => {
-    toast(shopMessage(addToShopping(recs, mutate, [{ title: title || null, ingredients }]), true));
+    if (ingredients.length === 0) { toast('That recipe lists no ingredients.'); return; }
+    setReviewing(true);
   };
+  // Cook reads what is ON THE PAGE, the way Shop does: the same parts, put
+  // back into the marker body Cook's reader already understands.
+  const cookNote = useMemo<Rec<'note'>>(() => ({
+    ...note, payload: { ...note.payload, title: title || note.payload.title, body: recipeBody(ingredients, steps) },
+  }), [note, title, ingredients, steps]);
+  const reviewSources = useMemo(() => [{ title: title || null, ingredients }], [title, ingredients]);
 
   return (
     <Modal animationType="slide" onRequestClose={finish}>
@@ -340,6 +353,7 @@ export function RecipeEditor({ note, onClose, put }: {
               place to go rather than a thing to do. A Pill, because that is
               what this app's labelled buttons are. */}
           <Pill testID="recipe-shop" label="Shop" compact onPress={shop} />
+          <Pill testID="recipe-cook" label="Cook" compact primary onPress={() => setCooking(true)} />
         </View>
         <Text style={s.h1}>Recipe</Text>
         {urlOpen && (
@@ -511,6 +525,20 @@ export function RecipeEditor({ note, onClose, put }: {
         {/* No Save, no Cancel: the recipe saves as it changes (see the autosave
             effect), and the back chevron at the top is the way out. */}
       </Scroll>
+      {reviewing && (
+        <PhoneSheet onClose={() => setReviewing(false)}>
+          <ShoppingReview
+            sources={reviewSources}
+            onCancel={() => setReviewing(false)}
+            onAdded={() => { setReviewing(false); finish(); nav.openTab?.('shopping'); }}
+          />
+        </PhoneSheet>
+      )}
+      {cooking && (
+        <PhoneSheet full onClose={() => setCooking(false)}>
+          <CookView notes={[cookNote]} onClose={() => setCooking(false)} wrapFinish={phoneFinish} />
+        </PhoneSheet>
+      )}
     </Modal>
   );
 }

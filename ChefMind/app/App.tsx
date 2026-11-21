@@ -55,7 +55,7 @@ function Root() {
   if (!ready) return <View style={s.page} />;
   if (!session) return <Login />;
   return (
-    <NavCtx.Provider value={{ canBack, goBack, openSearch: () => setSearchOpen(true) }}>
+    <NavCtx.Provider value={{ canBack, goBack, openSearch: () => setSearchOpen(true), openTab: setTab, openNote: (id) => { setNoteToOpen(id); setTab('notes'); } }}>
     <View style={s.page}>
       {/* Phone-first column, centred on a wide window — the suite's page shape. */}
       <View style={s.centre}>

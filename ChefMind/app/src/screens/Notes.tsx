@@ -12,7 +12,7 @@
  */
 import React, { memo, useEffect, useMemo, useState, useRef } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View, type PanResponderInstance } from 'react-native';
-import { LONG_PRESS_MS, defaultNoteTitle, looksLikeDefaultNoteTitle, deleteSection, renameSection, sectionNameTaken, byRecOrd, findVariant, ingredientParts, isRecipeNote, joinRecipeBody, liveSections, recipeSections, richLines, scaleRecipeBody, splitRecipeBody, variantBody, duplicateItem, prefsPut, moveNote, moveSection, moveSectionEmptyingFolder, newId, nowStr, ordBetween, parseWhenFromText, todayStr, type Rec, type RecipeVariant } from '@calmind/core';
+import { LONG_PRESS_MS, defaultNoteTitle, looksLikeDefaultNoteTitle, deleteSection, renameSection, sectionNameTaken, byRecOrd, findVariant, ingredientParts, isRecipeNote, joinRecipeBody, liveSections, recipeSections, richLines, scaleRecipeBody, splitRecipeBody, variantBody, duplicateItem, prefsPut, moveNote, moveSection, moveSectionEmptyingFolder, newId, nowStr, ordBetween, parseWhenFromText, todayStr, type Rec, type RecipeVariant , recipeStillToBuy } from '@calmind/core';
 import * as Clipboard from 'expo-clipboard';
 import { useStore } from '../store';
 import { UnitBadge } from '../components/IngredientBadge';
@@ -33,7 +33,11 @@ import { PickBar } from '../components/PickBar';
 import { Chevron } from '../components/Chevron';
 import { SyncDot, syncWord } from '../components/SyncDot';
 import { useToast } from '../components/Toast';
-import { addToShopping, ingredientsOf, shopMessage } from '../addToShopping';
+import { ingredientsOf, pantryTexts } from '../addToShopping';
+import { stillToBuyCounts, toBuyLabel } from '../chefflows';
+import { ShoppingReview } from '../components/ShoppingReview';
+import { CookView, phoneFinish } from '../components/CookView';
+import { PhoneSheet, okColor } from '../components/chefui';
 import { EditExit } from '../components/EditExit';
 import { RecipeEditor } from './RecipeEditor';
 import { ItemModal } from '../components/ItemModal';
@@ -256,6 +260,22 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
    * than choose one.
    */
   const [selected, setSelected] = useState<string[]>([]);
+  /** The Review's recipes (Make shopping list), or null. */
+  const [reviewFor, setReviewFor] = useState<{ title: string | null; ingredients: string[] }[] | null>(null);
+  /** Cook's recipes (Cook these / the Cook button), or null. */
+  const [cookFor, setCookFor] = useState<{ ids: string[]; first?: string; variantId?: string | null } | null>(null);
+  /** The "Can make now" filter: only recipes with nothing left to buy. */
+  const [canMake, setCanMake] = useState(false);
+  const countCache = useRef(new Map<string, { body: string; key: string; n: number }>());
+  /**
+   * "2 to buy" per recipe, computed ONCE per change of recipes or pantry —
+   * never per row per render. Cached by (body, pantry), so typing in one
+   * recipe re-reads that recipe only.
+   */
+  const toBuy = useMemo(() => stillToBuyCounts(
+    recs.filter((r): r is Rec<'note'> => r.type === 'note' && !r.deleted && isRecipeNote(r.payload)),
+    pantryTexts(recs), recipeStillToBuy, ingredientsOf, countCache.current,
+  ), [recs]);
   const endEdit = () => setPageEdit(false);
   const toggleSelected = (id: string) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
@@ -443,7 +463,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
   const { folders, sectionsOf, notesOf, selectableIds } = useMemo(() => {
     const folders = visibleFolders;
     const sections = recs.filter((r): r is Rec<'section'> => r.type === 'section').sort(byRecOrd);
-    const notes = recs.filter((r): r is Rec<'note'> => r.type === 'note').sort(byRecOrd);
+    const notes = recs.filter((r): r is Rec<'note'> => r.type === 'note' && (!canMake || toBuy.get(r.id) === 0)).sort(byRecOrd);
     // Grouped once (sorted order kept), so a lookup is a Map hit rather than a
     // filter over every record — it is called per section and per row, per render.
     const secByFolder = new Map<string, Rec<'section'>[]>();
@@ -458,7 +478,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     // shopping list ingredients from recipes nobody can see they picked.
     const selectableIds = folders.flatMap((f) => sectionsOf(f.id).flatMap((sec) => notesOf(sec.id).map((n) => n.id)));
     return { folders, sectionsOf, notesOf, selectableIds };
-  }, [recs, visibleFolders]);
+  }, [recs, visibleFolders, canMake, toBuy]);
 
   /** Every section, so the button can both act and show which way it points. */
   const mySectionIds = folders.flatMap((f) => sectionsOf(f.id).map((x) => x.id));
@@ -696,17 +716,18 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
    * added are one behaviour, and a second copy of it would drift the first
    * time one of the three changed. What is left here is the selection.
    */
-  const addSelectedToShopping = () => {
-    const picked = selected
-      .map((id) => recs.find((r): r is Rec<'note'> => r.type === 'note' && r.id === id && !r.deleted))
-      .filter((n): n is Rec<'note'> => n !== undefined);
-    const result = addToShopping(
-      recs,
-      mutate,
-      picked.map((n) => ({ title: n.payload.title, ingredients: ingredientsOf(n) })),
-    );
-    toast(shopMessage(result, picked.length === 1));
-    if (result.ok) endEdit();
+  const selectedNotes = () => selected
+    .map((id) => recs.find((r): r is Rec<'note'> => r.type === 'note' && r.id === id && !r.deleted))
+    .filter((n): n is Rec<'note'> => n !== undefined);
+  const makeShoppingList = () => {
+    const picked = selectedNotes();
+    if (picked.length === 0) { toast('Tick the recipes you are making first.'); return; }
+    setReviewFor(picked.map((n) => ({ title: n.payload.title, ingredients: ingredientsOf(n) })));
+  };
+  const cookThese = () => {
+    const picked = selectedNotes();
+    if (picked.length === 0) { toast('Tick the recipes you are cooking first.'); return; }
+    setCookFor({ ids: picked.map((n) => n.id) });
   };
 
   /**
@@ -780,6 +801,36 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
     const next = b.slice(0, at) + marker + b.slice(at);
     mutate((e) => e.put({ ...open, payload: { ...open.payload, body: next } }));
   };
+
+  /**
+   * The Review and Cook, each a pane-ready component wrapped in the phone's
+   * sheet. Rendered from BOTH the list and the open recipe, so the Cook button
+   * on a recipe and "Cook these" on the list open the same thing.
+   */
+  const overlays = (
+    <>
+      {reviewFor && (
+        <PhoneSheet onClose={() => setReviewFor(null)}>
+          <ShoppingReview
+            sources={reviewFor}
+            onCancel={() => setReviewFor(null)}
+            onAdded={() => { setReviewFor(null); endEdit(); setSelected([]); nav.openTab?.('shopping'); }}
+          />
+        </PhoneSheet>
+      )}
+      {cookFor && (
+        <PhoneSheet full onClose={() => setCookFor(null)}>
+          <CookView
+            notes={cookFor.ids.map((id) => recs.find((r): r is Rec<'note'> => r.type === 'note' && r.id === id)).filter((n): n is Rec<'note'> => !!n)}
+            initialId={cookFor.first}
+            initialVariantId={cookFor.variantId ?? null}
+            onClose={() => setCookFor(null)}
+            wrapFinish={phoneFinish}
+          />
+        </PhoneSheet>
+      )}
+    </>
+  );
 
   if (sharedView && sharedPartner) {
     return <SharedNotes viewKey={sharedView} partner={sharedPartner} />;
@@ -1009,6 +1060,9 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
                 </>
               )}
               {scale !== 1 && <Text style={s.scaleNote}>Scaled — 1× to edit</Text>}
+              <View style={s.cookBtn}>
+                <Pill testID="note-cook" compact primary label="Cook" onPress={() => setCookFor({ ids: [open.id], first: open.id, variantId })} />
+              </View>
             </View>
           )}
           {/* The dropdown itself, under the row rather than floating over it:
@@ -1308,7 +1362,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
         </Modal>
           );
         })()}
-
+        {overlays}
       </View>
     );
   }
@@ -1331,6 +1385,18 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
         folders={{ dot: <FolderDot app="notes" />, onOpen: () => setPickOpen(true) }}
       />
       <FolderPick app="notes" button={false} open={pickOpen} onClose={() => setPickOpen(false)} />
+      <View style={s.filterRow}>
+        <Pressable
+          testID="recipes-canmake"
+          accessibilityRole="button"
+          accessibilityState={{ selected: canMake }}
+          onPress={() => setCanMake((v) => !v)}
+          style={[s.filterChip, canMake && s.filterChipOn]}
+        >
+          <Text style={[s.filterText, canMake && s.filterTextOn]}>Can make now</Text>
+        </Pressable>
+        {canMake && <Text style={s.filterNote}>Recipes with nothing left to buy</Text>}
+      </View>
       {/* A live drag holds the scroll still — see Habits for the why. */}
       <Scroll contentContainerStyle={s.scrollWrap} scrollEnabled={drag.dragIdx === null && secDrag.dragging === null}>
         {/* The phone's tap-to-exit; the web keeps its document listener.
@@ -1475,6 +1541,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
                       slotHere={drag.slot !== null && fi === drag.slot}
                       dragDy={drag.dragIdx !== null && fi === drag.dragIdx ? drag.dragDy : null}
                       swiped={swipe.swiped === n.id}
+                      toBuy={toBuy.get(n.id)}
                       h={h}
                     />
                   );
@@ -1567,9 +1634,13 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
           onAll={() => setSelected(selectableIds)}
           onClear={() => setSelected([])}
           onDelete={deleteSelected}
-          action={{ label: 'Add', testID: 'recipes-to-shopping', onPress: addSelectedToShopping }}
+          actions={[
+            { label: 'Make shopping list', testID: 'recipes-to-shopping', onPress: makeShoppingList },
+            { label: 'Cook these', testID: 'recipes-cook', onPress: cookThese },
+          ]}
         />
       )}
+      {overlays}
       {/* Manage variants. A small window, an initially empty list, a + that
           adds one, and a tapped row that opens into its name field and the
           card's own sections as checkboxes. The owner, 2026-08-22. */}
@@ -1815,11 +1886,13 @@ type NoteRowProps = {
   /** Non-null only on the row being dragged: its travel. */
   dragDy: number | null;
   swiped: boolean;
+  /** Ingredients still to buy for this recipe, or undefined when it is not a recipe card. */
+  toBuy?: number;
   h: NoteHandlers;
 };
 
 /** One recipe row. Memoised: a pointermove or a tick re-renders only the rows whose props moved. */
-const NoteRow = memo(function NoteRow({ n, idx, pageEdit, picked, slotHere, dragDy, swiped, h }: NoteRowProps) {
+const NoteRow = memo(function NoteRow({ n, idx, pageEdit, picked, slotHere, dragDy, swiped, toBuy, h }: NoteRowProps) {
   return (
     <View>
       {slotHere && <View style={s.dropLine} />}
@@ -1855,7 +1928,12 @@ const NoteRow = memo(function NoteRow({ n, idx, pageEdit, picked, slotHere, drag
           delayLongPress={350}
           style={s.rowBody}
         >
-          <Text style={s.rowTitle} numberOfLines={1}>{n.payload.title}</Text>
+          <View style={s.rowTitleCol}>
+            <Text style={[s.rowTitle, { flex: 0 }]} numberOfLines={1}>{n.payload.title}</Text>
+            {toBuy !== undefined && (
+              <Text testID="note-tobuy" style={[s.toBuy, toBuy === 0 && s.toBuyOk]}>{toBuyLabel(toBuy)}</Text>
+            )}
+          </View>
           {/* The chevron means "tap to open", which is true in edit mode too —
               it only goes away for a SWIPED row, where a tap puts the delete
               back rather than opening anything. */}
@@ -1887,6 +1965,15 @@ const NoteRow = memo(function NoteRow({ n, idx, pageEdit, picked, slotHere, drag
 
 const s = themed(() => StyleSheet.create({
   page: { flex: 1, backgroundColor: T.bg },
+  rowTitleCol: { flex: 1 },
+  toBuy: { color: T.dim, fontSize: 13, marginTop: 1 },
+  toBuyOk: { color: okColor(), fontWeight: '600' },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: T.line },
+  filterChipOn: { backgroundColor: T.accentSoft, borderColor: T.accent },
+  filterText: { color: T.dim, fontSize: 14, fontWeight: '600' },
+  filterTextOn: { color: T.accent },
+  filterNote: { color: T.muted, fontSize: 13 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   // flexGrow so the edit backdrop below the list has leftover height to take.
   // 8pt below the divider on every tab. Measured before touching it: 6 on
@@ -2101,7 +2188,8 @@ const s = themed(() => StyleSheet.create({
   // time, looking up from a pan and back.
   rtNum: { color: T.dim, fontSize: 16, lineHeight: 24, marginRight: 8, minWidth: 20 },
   rtStep: { marginTop: 6 },
-  scaleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  scaleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 },
+  cookBtn: { marginLeft: 'auto' },
   scalePill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: T.line },
   scalePillOn: { borderColor: T.accent, backgroundColor: T.accent + '22' },
   scaleText: { color: T.dim, fontSize: 14 },

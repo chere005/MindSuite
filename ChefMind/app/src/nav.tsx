@@ -1,5 +1,5 @@
 /**
- * The icon-only bottom tab bar: Recipes · Pantry · Shopping. The active tab
+ * The icon-only bottom tab bar: Recipes · Shopping · Pantry — the order you use them in (pick, buy, put away). The active tab
  * wears a fixed circle behind its icon — a highlight that can never move the
  * tabs' spacing. The bar's contents cap at the same width as the page column,
  * so on a wide window the tabs stay under the content instead of flying to
@@ -43,7 +43,7 @@ export type Tab = 'notes' | 'pantry' | 'shopping';
 // still say 'notes', because renaming those would be a migration of his data
 // to change a label.
 const TAB_LABEL: Record<Tab, string> = {
-  notes: 'Recipes', pantry: 'Pantry', shopping: 'Shopping',
+  notes: 'Recipes', shopping: 'Shopping', pantry: 'Pantry',
 };
 
 // No icon field: the bar draws its own SVG glyphs by key (see below), and
@@ -51,8 +51,8 @@ const TAB_LABEL: Record<Tab, string> = {
 // a list of icons beside a bar that draws none is a thing to be misread.
 const TABS: { key: Tab }[] = [
   { key: 'notes' },
-  { key: 'pantry' },
   { key: 'shopping' },
+  { key: 'pantry' },
 ];
 
 export function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
@@ -106,7 +106,7 @@ const s = themed(() => StyleSheet.create({
  * a refresh restores.
  */
 import { createContext, useContext } from 'react';
-export const NavCtx = createContext<{ canBack: boolean; goBack: () => void; openSearch: () => void; openNote?: (id: string) => void }>({
+export const NavCtx = createContext<{ canBack: boolean; goBack: () => void; openSearch: () => void; openNote?: (id: string) => void; openTab?: (t: Tab) => void }>({
   canBack: false,
   goBack: () => {},
   openSearch: () => {},

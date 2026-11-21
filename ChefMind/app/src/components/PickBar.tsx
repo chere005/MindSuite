@@ -39,7 +39,7 @@ import { themed, T } from '../theme';
 import { WebHitSlop } from '../ui';
 
 export function PickBar({
-  prefix, count, onAll, onClear, onDelete, action,
+  prefix, count, onAll, onClear, onDelete, action, actions,
 }: {
   /** Names the testIDs, so each screen's controls stay findable by name. */
   prefix: string;
@@ -51,6 +51,13 @@ export function PickBar({
   /** What the selection is FOR, when the screen has such a thing. Omitted on
    *  the lists, where selecting is for deleting and Delete is already here. */
   action?: { label: string; testID: string; onPress: () => void };
+  /**
+   * Two or more things the selection is for (Recipes: Cook these, Make
+   * shopping list). They do not fit beside the count, All, Clear and Delete at
+   * phone width, so they take a row of their own under it; the first listed
+   * is the primary, drawn last (nearest the thumb's right edge).
+   */
+  actions?: { label: string; testID: string; onPress: () => void }[];
 }) {
   /**
    * Two presses, and the first one turns it red — the suite's delete gesture,
@@ -77,6 +84,7 @@ export function PickBar({
   };
 
   return (
+    <View style={actions ? s.barCol : undefined}>
     <View style={s.bar}>
       <Text style={s.count} numberOfLines={1}>{count} selected</Text>
       {/* Two buttons, not one toggle: "select none" and "select all" are
@@ -134,6 +142,16 @@ export function PickBar({
         </Pressable>
       )}
     </View>
+    {actions && (
+      <View style={s.actionsRow}>
+        {actions.slice().reverse().map((a, i, all) => (
+          <Pressable key={a.testID} testID={a.testID} accessibilityRole="button" onPress={a.onPress} style={i === all.length - 1 ? s.go : s.goQuiet}>
+            <Text style={i === all.length - 1 ? s.goText : s.goQuietText} numberOfLines={1}>{a.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    )}
+    </View>
   );
 }
 
@@ -171,6 +189,10 @@ const s = themed(() => StyleSheet.create({
   delArmed: { backgroundColor: T.danger, borderColor: T.danger },
   delText: { color: T.muted, fontSize: 14, fontWeight: '600' },
   delTextArmed: { color: '#fff' },
+  barCol: { backgroundColor: T.surface },
+  actionsRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 12, paddingBottom: 10 },
+  goQuiet: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: T.accent },
+  goQuietText: { color: T.accent, fontSize: 14, fontWeight: '700' },
   go: { flexShrink: 0, backgroundColor: T.accent, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9 },
   goText: { color: T.accentInk, fontSize: 14, fontWeight: '700' },
 }));

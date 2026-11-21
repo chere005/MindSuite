@@ -36,6 +36,11 @@ import { PickBar } from '../components/PickBar';
 import { useToast } from '../components/Toast';
 import { OCR_UNSUPPORTED, ocrImages, ocrSupported, pickPhotoUris } from '../components/ocr';
 import { CircleBtn, ConfirmDelete, Field, Pill, Scroll, WebHitSlop } from '../ui';
+import { useNav } from '../nav';
+import { PhoneSheet, TickBox } from '../components/chefui';
+import { DoneShopping } from '../components/DoneShopping';
+import { PantryItem } from '../components/PantryItem';
+import { toggleCartOp, applyOps } from '../chefflows';
 
 type Row = Rec<'reminder'>;
 
@@ -99,6 +104,10 @@ function FlagList({ kind }: { kind: Kind }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const swipe = useSwipeLeft();
+  const nav = useNav();
+  /** Done shopping's sheet (shopping) and the open pantry item (pantry). */
+  const [doneOpen, setDoneOpen] = useState(false);
+  const [itemId, setItemId] = useState<string | null>(null);
   /**
    * A hold JUST HAPPENED, so the click it ends with is not a tap.
    *
@@ -326,6 +335,9 @@ function FlagList({ kind }: { kind: Kind }) {
     },
     del: (id) => mutate((e) => e.del(id)),
     swipeDel: (id) => { swipe.clear(); mutate((e) => e.del(id)); },
+    // The tick on a shopping row: "in my cart". Sets the reminder's `done`.
+    cart: (r) => mutate((e) => applyOps(e, [toggleCartOp(r)])),
+    openItem: (id) => setItemId(id),
   };
   const h = useMemo<RowHandlers>(() => {
     const regs = new Map<number, (ref: View | null) => void>();
@@ -349,8 +361,10 @@ function FlagList({ kind }: { kind: Kind }) {
         if (l.justHeld.current) { l.justHeld.current = false; return; }
         if (l.swipe.justSwiped()) return;
         if (l.swipe.swiped) { l.swipe.clear(); return; }
-        // A tap EDITS, in edit mode as much as out of it — the dot beside it
-        // is what picks, so the row keeps one meaning (the owner, 2026-09-16).
+        // On the pantry a tap OPENS the item (rename lives inside it); on
+        // shopping a tap EDITS the line, in edit mode as much as out of it —
+        // the dot beside it is what picks, so the row keeps one meaning.
+        if (kind === 'pantry') { l.openItem(r.id); return; }
         l.startEdit(r);
       },
       setEditText: (t) => live.current.setEditText(t),
@@ -358,8 +372,9 @@ function FlagList({ kind }: { kind: Kind }) {
       dup: (id) => live.current.dup(id),
       del: (id) => live.current.del(id),
       swipeDel: (id) => live.current.swipeDel(id),
+      cart: (r) => live.current.cart(r),
     };
-  }, []);
+  }, [kind]);
 
   return (
     <View style={s.page}>
@@ -412,6 +427,8 @@ function FlagList({ kind }: { kind: Kind }) {
                     r={r}
                     idx={i}
                     prefix={copy.prefix}
+                    kind={kind}
+                    selectMode={pageEdit || selected.length > 0}
                     pageEdit={pageEdit}
                     picked={selectedSet.has(r.id)}
                     slotHere={drag.slot === i}
@@ -481,7 +498,28 @@ function FlagList({ kind }: { kind: Kind }) {
           onAll={selectAll}
           onClear={() => setSelected([])}
           onDelete={deleteSelected}
+          actions={kind === 'shopping' ? [{ label: 'Done shopping', testID: 'shopping-done', onPress: () => {
+            if (!rows.some((r) => r.payload.done)) { toast('Tick items as they go in the cart first.'); return; }
+            setDoneOpen(true);
+          } }] : undefined}
         />
+      )}
+      {doneOpen && (
+        <PhoneSheet onClose={() => setDoneOpen(false)}>
+          <DoneShopping
+            onCancel={() => setDoneOpen(false)}
+            onDone={() => { setDoneOpen(false); setSelected([]); }}
+          />
+        </PhoneSheet>
+      )}
+      {itemId && (
+        <PhoneSheet onClose={() => setItemId(null)}>
+          <PantryItem
+            rowId={itemId}
+            onClose={() => setItemId(null)}
+            onOpenRecipe={(id) => { setItemId(null); nav.openNote?.(id); }}
+          />
+        </PhoneSheet>
       )}
     </View>
   );
@@ -499,6 +537,8 @@ type LiveRow = {
   dup: (id: string) => void;
   del: (id: string) => void;
   swipeDel: (id: string) => void;
+  cart: (r: Row) => void;
+  openItem: (id: string) => void;
 };
 
 /** Stable handlers a row reaches its screen through (see `live` in FlagList). */
@@ -514,12 +554,16 @@ type RowHandlers = {
   dup: (id: string) => void;
   del: (id: string) => void;
   swipeDel: (id: string) => void;
+  cart: (r: Row) => void;
 };
 
 type ShopRowProps = {
   r: Row;
   idx: number;
   prefix: string;
+  kind: Kind;
+  /** Selection circles are showing (edit mode, or something is picked). */
+  selectMode: boolean;
   pageEdit: boolean;
   picked: boolean;
   /** The drag's drop line sits above this row. */
@@ -533,7 +577,7 @@ type ShopRowProps = {
 };
 
 /** One list row. Memoised: a pointermove or a tick re-renders only the rows whose props moved. */
-const ShopRow = memo(function ShopRow({ r, idx, prefix, pageEdit, picked, slotHere, dragDy, editing, editText, swiped, h }: ShopRowProps) {
+const ShopRow = memo(function ShopRow({ r, idx, prefix, kind, selectMode, pageEdit, picked, slotHere, dragDy, editing, editText, swiped, h }: ShopRowProps) {
   return (
     <View>
       {slotHere && <View style={s.dropLine} />}
@@ -552,22 +596,30 @@ const ShopRow = memo(function ShopRow({ r, idx, prefix, pageEdit, picked, slotHe
           <WebHitSlop slop={6} />
           <Text style={s.gripText}>≡</Text>
         </View>
-        <Pressable
-          testID={`${prefix}-pick`}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: picked }}
-          accessibilityLabel={`Select ${r.payload.text}`}
-          onPress={() => h.onPick(r.id)}
-          onLongPress={h.onHold}
-          delayLongPress={350}
-          hitSlop={8}
-          style={s.boxWrap}
-        >
-          <WebHitSlop slop={8} />
-          <View style={[s.box, s.boxCircle, picked && s.boxOn]}>
-            {picked && <Text style={s.boxTick}>✓</Text>}
-          </View>
-        </Pressable>
+        {selectMode ? (
+          <Pressable
+            testID={`${prefix}-pick`}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: picked }}
+            accessibilityLabel={`Select ${r.payload.text}`}
+            onPress={() => h.onPick(r.id)}
+            onLongPress={h.onHold}
+            delayLongPress={350}
+            hitSlop={8}
+            style={s.boxWrap}
+          >
+            <WebHitSlop slop={8} />
+            <View style={[s.box, s.boxCircle, picked && s.boxOn]}>
+              {picked && <Text style={s.boxTick}>✓</Text>}
+            </View>
+          </Pressable>
+        ) : kind === 'shopping' ? (
+          // A tick here means "in my cart" (sets `done`). The pantry has none:
+          // a pantry row is something you HAVE, not something to tick.
+          <TickBox testID="shopping-cart" on={r.payload.done} label={`${r.payload.text} in my cart`} onPress={() => h.cart(r)} />
+        ) : (
+          <View style={s.noTick} />
+        )}
         {editing ? (
           <Field
             testID={`${prefix}-edit-field`}
@@ -587,7 +639,7 @@ const ShopRow = memo(function ShopRow({ r, idx, prefix, pageEdit, picked, slotHe
             onLongPress={h.onHold}
             delayLongPress={350}
           >
-            <Text style={s.rowText}>{r.payload.text}</Text>
+            <Text style={[s.rowText, kind === 'shopping' && r.payload.done && s.rowDone]}>{r.payload.text}</Text>
           </Pressable>
         )}
         {/* Duplicate and delete, the pair Recipes puts in edit mode beside its grip. */}
@@ -641,6 +693,8 @@ const s = themed(() => StyleSheet.create({
   rowText: { color: T.text, fontSize: 16 },
   // Struck through and dimmed, kept in place: a bought item that JUMPS to the
   // bottom takes your eye off the shelf you are standing at.
+  rowDone: { color: T.muted, textDecorationLine: 'line-through' },
+  noTick: { width: 4 },
   editField: { flex: 1 },
   dropLine: { height: 2, backgroundColor: T.accent, borderRadius: 1, marginVertical: 2 },
   editBackdropFill: { flexGrow: 1, minHeight: 160 },
