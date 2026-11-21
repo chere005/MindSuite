@@ -81,6 +81,12 @@ function oneQty(raw: string): string {
 // followed by either kind of fraction ('2 1/2', '1 ½'). Longest forms first,
 // so '2 1/2 cups' can't be read as a bare 2 with '1/2' left in the name.
 const NUM = String.raw`\d+\s+and\s+\d\/\d|\d+\s+\d\/\d|\d+\s+[½¼¾⅓⅔⅛⅜⅝⅞⅙⅚]|\d\/\d|\d+(?:[.,]\d+)?|[½¼¾⅓⅔⅛⅜⅝⅞⅙⅚]`;
+/** The word after the quantity — a unit, or the first word of the name. Any
+ *  Latin letter (jalapeños, crème fraîche) and hyphenated compounds
+ *  (bone-in, sun-dried, all-purpose) stay ONE word; cut at the first
+ *  non-ASCII letter or hyphen, the name came back as 'jalape ños' and
+ *  'bone -in'. */
+const WORD = '[a-zA-Z\\u00C0-\\u024F]+(?:-[a-zA-Z\\u00C0-\\u024F]+)*';
 // …and a RANGE of two of them, written with a dash or the word 'to'. A range
 // is a pattern worth seeing: without it '2-3 cloves garlic' parsed as the
 // bare 2 and left '-3 cloves garlic' as the ingredient's name, so the unit
@@ -88,7 +94,7 @@ const NUM = String.raw`\d+\s+and\s+\d\/\d|\d+\s+\d\/\d|\d+\s+[½¼¾⅓⅔⅛⅜
 // The separator may be a dash, the word 'to', or a slash — '200/250 g' is a
 // range on a real card. A slash between SINGLE digits is a fraction instead
 // ('3/4 cup'), and NUM already claims that shape before this ever sees it.
-const LEAD = new RegExp(`^(${NUM})(?:(\\s*-\\s*|\\s+to\\s+|\\s*/\\s*)(${NUM}))?\\s*([a-zA-Z]+)?\\s*(.*)$`);
+const LEAD = new RegExp(`^(${NUM})(?:(\\s*-\\s*|\\s+to\\s+|\\s*/\\s*)(${NUM}))?\\s*(${WORD})?\\s*(.*)$`);
 
 /** '2tbsp olive oil' → '2 tbsp olive oil'; '1/2 CUP milk' → '½ cup milk';
  *  '2-3 cloves garlic' keeps its range and finds its unit. */

@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseWhenFromText, repeatStep, repeatDates, repeatNext, sortByDate, normalizeEndDate, eventSpanLabel, eventDayLabel } from '../src/index';
 import type { Repeat } from '../src/index';
+import { ingredientParts } from '../src/recipe';
 
 const vectors = <T>(name: string): T =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`../spec/${name}.json`, import.meta.url)), 'utf8'));
@@ -62,5 +63,16 @@ describe('spec/span.json — event end date kept only when later, and its chip',
   }
   for (const c of s.dayLabel) {
     it(`dayLabel: ${c.name}`, () => expect(eventDayLabel(c.date, c.time, c.endDate, c.end, c.day, c.clock24)).toBe(c.expect));
+  }
+});
+
+type IngredientCase = { name: string; input: string; qty: string | null; unit: string | null; ingredient: string };
+
+describe('spec/ingredient.json — the ingredient line keeps whole words whole', () => {
+  for (const c of vectors<IngredientCase[]>('ingredient')) {
+    it(c.name, () => {
+      const p = ingredientParts(c.input);
+      expect({ qty: p.qty, unit: p.unit, ingredient: p.name }).toEqual({ qty: c.qty, unit: c.unit, ingredient: c.ingredient });
+    });
   }
 });

@@ -1,0 +1,11 @@
+[
+  { "name": "an accented letter stays inside its word", "input": "2 jalapeños", "qty": "2", "unit": null, "ingredient": "jalapeños" },
+  { "name": "an accented word after a unit stays whole", "input": "2 tbsp crème fraîche", "qty": "2", "unit": "tbsp", "ingredient": "crème fraîche" },
+  { "name": "an accented word that follows a plain one stays whole", "input": "2 jalapeño peppers", "qty": "2", "unit": null, "ingredient": "jalapeño peppers" },
+  { "name": "a hyphenated word that is not a unit keeps its hyphen", "input": "6 bone-in chicken thighs", "qty": "6", "unit": null, "ingredient": "bone-in chicken thighs" },
+  { "name": "sun-dried keeps its hyphen", "input": "2 sun-dried tomatoes", "qty": "2", "unit": null, "ingredient": "sun-dried tomatoes" },
+  { "name": "all-purpose keeps its hyphen after a unit", "input": "1 cup all-purpose flour", "qty": "1", "unit": "cup", "ingredient": "all-purpose flour" },
+  { "name": "extra-large keeps its hyphen", "input": "2 extra-large eggs", "qty": "2", "unit": null, "ingredient": "extra-large eggs" },
+  { "name": "a range still finds its unit", "input": "2-3 cloves garlic", "qty": "2-3", "unit": "cloves", "ingredient": "garlic" },
+  { "name": "a plain unit and name are unchanged", "input": "1 tbsp olive oil", "qty": "1", "unit": "tbsp", "ingredient": "olive oil" }
+]

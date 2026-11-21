@@ -33,17 +33,6 @@ import { ingredientParts, isSubheader, countWord, precleanOcrLine, qtyText, qtyV
 import { amountText, formatBase, toBase, unitDimension, type Dimension } from './units';
 import { ingredientAisle, type Aisle } from './grocery';
 
-/**
- * `ingredientParts`, with the hyphen put back. The shared parser splits
- * '6 bone-in chicken thighs' into the word 'bone' and the rest '-in chicken
- * thighs', and re-joins them with a space: 'bone -in'. Seen on the list, and
- * on 'sun-dried'. Repaired here, where every name this file reads comes from.
- */
-function ingParts(text: string): ReturnType<typeof ingredientParts> {
-  const p = ingredientParts(text);
-  return { ...p, name: p.name.replace(/(\p{L}) -(?=\p{L})/gu, '$1-') };
-}
-
 export type ShoppingSource = { title: string | null; ingredients: string[] };
 
 /** One thing to buy, before it is written out. */
@@ -517,7 +506,7 @@ type Ident = { key: string; parts: string[] };
 
 function identify(text: string): Ident {
   const t = text.trim();
-  const p = ingParts(t);
+  const p = ingredientParts(t);
   const name = p.name || t;
   const canned = cannedTomato(t, p.unit, p.qty, name);
   const c = canned ? 'can' : containerOf(t, p.unit, name);
@@ -781,7 +770,7 @@ function buildEntries(
       // 'juice of a lemon' is a lemon to buy (strict pass only: Refresh
       // combines rows somebody already put on the list).
       const conv = loose ? null : fruitLine(text);
-      const p = conv ? { qty: String(conv.n), unit: null, name: conv.fruit } : ingParts(text);
+      const p = conv ? { qty: String(conv.n), unit: null, name: conv.fruit } : ingredientParts(text);
       // The bracketed metric measure wins over the cook's own, and only in
       // the loose pass: it is a second reading of the SAME line rather than a
       // conversion, so it can never be wrong in the way a density would be.
@@ -928,7 +917,7 @@ function pantryNameOf(text: string): string {
   const t = text.trim();
   const fruit = fruitLine(t);
   if (fruit) return fruit.fruit;
-  const p = ingParts(t);
+  const p = ingredientParts(t);
   const name = p.name || t;
   const tokens = bareName(name).replace(USE_TAIL, '').trim().split(' ').filter(Boolean);
   let i = 0;
@@ -987,7 +976,7 @@ export function doneShoppingPlan(
     if (text === '') continue;
     const id = identify(text);
     if (ALWAYS_ON_HAND.has(id.key)) continue;
-    const p = ingParts(text);
+    const p = ingredientParts(text);
     const aisle = ingredientAisle(p.name || text, p.unit);
     const already = coveredBy(have, id) !== null;
     out.push({ id: r.id, text: r.text, name: pantryNameOf(text), aisle, defaultOn: aisle !== 'Other' && !already, already });
@@ -1123,7 +1112,7 @@ function scannedNames(raw: string): string[] {
   // where '2 cups flour, sifted' names one with a note — and a note never
   // comes with two commas and no measure in front of it.
   const commas = (l.match(/,/g) ?? []).length;
-  const parts = commas >= 2 && ingParts(l).qty === null ? l.split(',') : [l];
+  const parts = commas >= 2 && ingredientParts(l).qty === null ? l.split(',') : [l];
   const names: string[] = [];
   for (const part of parts) {
     const n = scannedName(part);
@@ -1133,7 +1122,7 @@ function scannedNames(raw: string): string[] {
 }
 
 function scannedName(text: string): string | null {
-  const p = ingParts(text.trim());
+  const p = ingredientParts(text.trim());
   let name = bareName(p.name || text).replace(USE_TAIL, '').trim();
   // A till prints in capitals; a pantry row reads better in a cook's case.
   if (/[A-Z]{2}/.test(name) && name === name.toUpperCase()) name = name.toLowerCase();
