@@ -54,7 +54,20 @@ export type ItemEditorProps = {
   dest0?: string | null;
   onClose: () => void;
   onSaved?: (id: string, kind: ItemKind) => void;
+  /**
+   * Unsaved form values, held by whoever owns the editor's window so they
+   * survive the window changing shape (the phone's modal ⇄ the wide layout's
+   * detail pane) when the browser is resized across 900 px.
+   */
+  draft?: DraftRef;
 };
+
+export type ItemDraft = {
+  kind: ItemKind; text: string; date: string | null; time: string | null; timeField: string;
+  dateTouched: boolean; timeTouched: boolean; showTime: boolean; end: string | null; endField: string;
+  showEnd: boolean; endDate: string | null; repeat: Repeat | null; showRepeat: boolean; dest: string | null;
+};
+export type DraftRef = { current: ItemDraft | null };
 
 /** The phone's edit window: the form below, in a centred card over a dimmed page. */
 export function ItemModal(props: ItemEditorProps) {
@@ -85,6 +98,7 @@ export function ItemEditor({
   onClose,
   onSaved,
   inline = false,
+  draft,
 }: ItemEditorProps & {
   /** In the wide layout's detail pane rather than the phone's window. */
   inline?: boolean;
@@ -92,7 +106,8 @@ export function ItemEditor({
   const { recs, mutate, sharedRecs, sharedPut, sharedPartner, sharedPartnerLabel } = useStore();
   const clock24 = useClock24();
   const today = todayStr();
-  const [kind, setKind] = useState<ItemKind>(kind0);
+  const d0 = draft?.current ?? null;
+  const [kind, setKind] = useState<ItemKind>(d0?.kind ?? kind0);
   const lastFiled = useRef<{ text: string; at: number } | null>(null);
 
   const init = useMemo(() => {
@@ -124,28 +139,29 @@ export function ItemEditor({
    */
   const sharedRec = mode === 'edit' && !!rec && !recs.some((r) => r.id === rec.id) && sharedRecs.some((r) => r.id === rec.id);
 
-  const [text, setText] = useState(init.text);
-  const [date, setDate] = useState<string | null>(init.date);
+  const [text, setText] = useState(d0?.text ?? init.text);
+  const [date, setDate] = useState<string | null>(d0 ? d0.date : init.date);
   // One picker, told which day it edits — the start date or an event's end
   // day (below) — so a multi-day span can be built here as on the Add screen.
   const [pick, setPick] = useState<'date' | 'endDate' | null>(null);
-  const [time, setTime] = useState<string | null>(init.time);
-  const [timeField, setTimeField] = useState('');
+  const [time, setTime] = useState<string | null>(d0 ? d0.time : init.time);
+  const [timeField, setTimeField] = useState(d0?.timeField ?? '');
   // Manual-beats-parsed (the owner, 2026-08-18): what the hand chose IN THIS
   // SHEET outranks anything typed into the line, and a token that lost
   // stays in the text — it was not used. Defaults and incumbents rank
   // below both, so "typing a date overrides a default selected date".
-  const [dateTouched, setDateTouched] = useState(false);
-  const [timeTouched, setTimeTouched] = useState(false);
-  const [showTime, setShowTime] = useState(init.time !== null);
-  const [end, setEnd] = useState<string | null>(init.end);
-  const [endField, setEndField] = useState('');
-  const [showEnd, setShowEnd] = useState(init.end !== null);
+  const [dateTouched, setDateTouched] = useState(d0?.dateTouched ?? false);
+  const [timeTouched, setTimeTouched] = useState(d0?.timeTouched ?? false);
+  const [showTime, setShowTime] = useState(d0 ? d0.showTime : init.time !== null);
+  const [end, setEnd] = useState<string | null>(d0 ? d0.end : init.end);
+  const [endField, setEndField] = useState(d0?.endField ?? '');
+  const [showEnd, setShowEnd] = useState(d0 ? d0.showEnd : init.end !== null);
   // The end DAY of a span (events only) — null = ends the same day.
-  const [endDate, setEndDate] = useState<string | null>(init.endDate);
-  const [repeat, setRepeat] = useState<Repeat | null>(init.repeat);
-  const [showRepeat, setShowRepeat] = useState(init.repeat !== null);
-  const [dest, setDest] = useState<string | null>(init.dest);
+  const [endDate, setEndDate] = useState<string | null>(d0 ? d0.endDate : init.endDate);
+  const [repeat, setRepeat] = useState<Repeat | null>(d0 ? d0.repeat : init.repeat);
+  const [showRepeat, setShowRepeat] = useState(d0 ? d0.showRepeat : init.repeat !== null);
+  const [dest, setDest] = useState<string | null>(d0 ? d0.dest : init.dest);
+  if (draft) draft.current = { kind, text, date, time, timeField, dateTouched, timeTouched, showTime, end, endField, showEnd, endDate, repeat, showRepeat, dest };
   const [err, setErr] = useState('');
   // A reminder whose day has passed rides forward to today; the detail pane
   // says so, as the wireframe's header does.
@@ -336,6 +352,15 @@ export function ItemEditor({
       return;
     }
     const id = mode === 'edit' && rec ? rec.id : newId();
+    // WHAT THE FORM CHANGED, onto what the record is NOW. `rec` is the copy
+    // taken when this form opened; the list beside the wide layout's pane (or a
+    // sync pull) may have ticked it, re-ordered it, indented it or rolled a
+    // repeat's due date since. A field the hand left alone is therefore read
+    // back from the live record, and done / indent / ord always are — saving
+    // must never put an old copy over a newer edit.
+    const live = mode === 'edit' && rec ? (sharedRec ? sharedRecs : recs).find((r) => r.id === rec.id && r.type === rec.type) : undefined;
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const keep = <V,>(fin: V, ini: V, lv: V): V => (live && same(fin, ini) ? lv : fin);
     // Un-hiding the destination is a preference of MINE; a partner's list
     // has no show/hide box of that kind here.
     if (mode === 'create' && resolvedDest && !toShared) {
@@ -350,31 +375,49 @@ export function ItemEditor({
     // would drift.
     let out: ItemRec;
     if (kind === 'event') {
+      const lp = live?.type === 'event' ? live.payload : null;
       const payload: Rec<'event'>['payload'] = {
-        text: title, date: finalDate ?? today, time: finalTime, end: finalEnd, endDate: finalEndDate, repeat: finalRepeat,
-        calendarId: resolvedDest.id,
-        ord: mode === 'edit' && rec ? (rec.payload as { ord: string }).ord : ordBetween(null, null),
+        text: lp ? keep(title, init.text, lp.text) : title,
+        date: lp ? keep(finalDate ?? today, init.date ?? today, lp.date) : finalDate ?? today,
+        time: lp ? keep(finalTime, init.time, lp.time ?? null) : finalTime,
+        end: lp ? keep(finalEnd, init.end, lp.end ?? null) : finalEnd,
+        endDate: lp ? keep(finalEndDate, init.endDate, lp.endDate ?? null) : finalEndDate,
+        repeat: lp ? keep(finalRepeat, init.repeat, lp.repeat ?? null) : finalRepeat,
+        calendarId: lp ? keep<string>(resolvedDest.id, init.dest as string, lp.calendarId) : resolvedDest.id,
+        ord: lp ? lp.ord : mode === 'edit' && rec ? (rec.payload as { ord: string }).ord : ordBetween(null, null),
       };
       out = { id, type: 'event', updated: 0, payload };
     } else {
       const sec = resolvedDest as Rec<'section'>;
       if (kind === 'reminder') {
-        const prev = mode === 'edit' && rec?.type === 'reminder' ? rec.payload : null;
+        const lp = live?.type === 'reminder' ? live.payload : null;
+        const prev = lp ?? (mode === 'edit' && rec?.type === 'reminder' ? rec.payload : null);
+        const homeKept = !!lp && same(sec.id, init.dest);
         out = {
           id, type: 'reminder', updated: 0,
           payload: {
-            text: title, due: finalDate, time: finalTime, done: prev?.done ?? false, repeat: finalRepeat,
-            folderId: sec.payload.folderId, sectionId: sec.id,
+            text: lp ? keep(title, init.text, lp.text) : title,
+            due: lp ? keep(finalDate, init.date, lp.due) : finalDate,
+            time: lp ? keep(finalTime, init.time, lp.time ?? null) : finalTime,
+            done: prev?.done ?? false,
+            repeat: lp ? keep(finalRepeat, init.repeat, lp.repeat ?? null) : finalRepeat,
+            folderId: homeKept ? lp!.folderId : sec.payload.folderId,
+            sectionId: homeKept ? lp!.sectionId : sec.id,
             indent: prev?.indent ?? 0, ord: prev?.ord ?? ordBetween(null, null),
           },
         };
       } else {
-        const prev = mode === 'edit' && rec?.type === 'note' ? rec.payload : null;
+        const lp = live?.type === 'note' ? live.payload : null;
+        const prev = lp ?? (mode === 'edit' && rec?.type === 'note' ? rec.payload : null);
+        const homeKept = !!lp && same(sec.id, init.dest);
         out = {
           id, type: 'note', updated: 0,
           payload: {
-            title, body: prev?.body ?? '', date: finalDate,
-            folderId: sec.payload.folderId, sectionId: sec.id, ord: prev?.ord ?? ordBetween(null, null),
+            title: lp ? keep(title, init.text, lp.title) : title,
+            body: prev?.body ?? '',
+            date: lp ? keep(finalDate, init.date, lp.date ?? null) : finalDate,
+            folderId: homeKept ? lp!.folderId : sec.payload.folderId,
+            sectionId: homeKept ? lp!.sectionId : sec.id, ord: prev?.ord ?? ordBetween(null, null),
           },
         };
       }

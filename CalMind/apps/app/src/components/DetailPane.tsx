@@ -15,11 +15,10 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { themed, T } from '../theme';
 import { Pill, Scroll } from '../ui';
-import { ItemEditor, ItemModal, type ItemEditorProps } from './ItemModal';
-import { useWide } from './WideFrame';
+import { ItemEditor, ItemModal, type DraftRef, type ItemEditorProps } from './ItemModal';
 
 export type DetailItem =
-  | { key: string; type: 'edit'; props: ItemEditorProps; onClose: () => void }
+  | { key: string; type: 'edit'; props: ItemEditorProps; draft: DraftRef; onClose: () => void }
   | { key: string; type: 'readonly'; view: ReadOnlyView; onClose: () => void };
 
 export type ReadOnlyView = {
@@ -36,27 +35,55 @@ type Ctx = { item: DetailItem | null; open: (item: DetailItem) => void; close: (
 const DetailCtx = createContext<Ctx>({ item: null, open: () => {}, close: () => {} });
 export const useDetail = () => useContext(DetailCtx);
 
+/**
+ * True for the commit in which the window crosses WIDE_MIN_WIDTH. Root swaps
+ * the whole frame then, so the screens (and their <ItemSheet>s) unmount and
+ * mount again; the open item must outlive that, so a sheet that unmounts in
+ * such a commit leaves it open. App sets and clears this.
+ */
+export const layoutCrossing = { now: false };
+
+/**
+ * The ONE open item lives here, above both frames — which is what lets it
+ * survive the window being resized across 900 px: it is drawn by the wide
+ * frame's detail pane or, below 900, by <PhoneItemHost>, from the same record
+ * and the same draft of unsaved values.
+ */
 export function DetailProvider({ children }: { children: React.ReactNode }) {
   const [item, setItem] = useState<DetailItem | null>(null);
+  const cur = useRef<DetailItem | null>(null);
   const value = React.useMemo<Ctx>(() => ({
     item,
-    open: (next) => setItem(next),
-    // Only the item that is still open may close itself: a screen switching
-    // from one row to another unmounts the old sheet AFTER the new one opened.
-    close: (key) => setItem((cur) => (cur && cur.key === key ? null : cur)),
+    open: (next) => {
+      const old = cur.current;
+      cur.current = next;
+      setItem(next);
+      // Something else was open — an editor, a read-only view, possibly from
+      // another sheet. Its owner keeps "which item is open" in its own state,
+      // and that state has to be told, or its next open of the SAME item sets
+      // nothing and the control goes dead.
+      if (old && old.key !== next.key) old.onClose();
+    },
+    // Only the item that is still open may close itself.
+    close: (key) => {
+      if (cur.current && cur.current.key === key) {
+        cur.current = null;
+        setItem(null);
+      }
+    },
   }), [item]);
   return <DetailCtx.Provider value={value}>{children}</DetailCtx.Provider>;
 }
 
 let seq = 0;
 
-/** The editor: a modal on the phone, the detail pane on a wide window. */
+/**
+ * An item's editor. Draws nothing itself: it hands the item to the provider
+ * (drawn as the phone's modal or the wide layout's pane) and keeps the
+ * caller's own "which item is open" state the single source of truth, as the
+ * old modal did.
+ */
 export function ItemSheet(props: ItemEditorProps) {
-  const { wide } = useWide();
-  return wide ? <WideEditSheet {...props} /> : <ItemModal {...props} />;
-}
-
-function WideEditSheet(props: ItemEditorProps) {
   const detail = useDetail();
   const latest = useRef(props);
   latest.current = props;
@@ -64,14 +91,15 @@ function WideEditSheet(props: ItemEditorProps) {
   const { open, close } = detail;
   useEffect(() => {
     const key = `${ident}#${++seq}`;
-    // Stable wrappers: the pane may keep this item open across the caller's
-    // re-renders, and the callbacks must always reach the latest closures.
-    const onClose = () => latest.current.onClose();
+    // Stable wrappers: the item may stay open across the caller's re-renders
+    // (or its remount), and must always reach the latest closures. onClose
+    // also closes the item itself, so a caller that is gone still closes it.
+    const onClose = () => { latest.current.onClose(); close(key); };
     open({
-      key, type: 'edit', onClose,
+      key, type: 'edit', onClose, draft: { current: null },
       props: { ...latest.current, onClose, onSaved: (id, kind) => latest.current.onSaved?.(id, kind) },
     });
-    return () => close(key);
+    return () => { if (!layoutCrossing.now) close(key); };
   }, [ident]);
   return null;
 }
@@ -85,16 +113,25 @@ export function ReadOnlySheet({ view, onClose }: { view: ReadOnlyView; onClose: 
   const ident = JSON.stringify([view.heading, view.title, view.rows]);
   useEffect(() => {
     const key = `ro:${ident}#${++seq}`;
-    open({ key, type: 'readonly', view: latest.current.view, onClose: () => latest.current.onClose() });
-    return () => close(key);
+    open({ key, type: 'readonly', view: latest.current.view, onClose: () => { latest.current.onClose(); close(key); } });
+    return () => { if (!layoutCrossing.now) close(key); };
   }, [ident]);
   return null;
+}
+
+/** Below 900 px: the open item as the phone's modal, as it always was. */
+export function PhoneItemHost() {
+  const { item } = useDetail();
+  // A read-only view is a wide-layout thing: if the window shrank under one, let it go.
+  useEffect(() => { if (item?.type === 'readonly') item.onClose(); }, [item]);
+  if (item?.type !== 'edit') return null;
+  return <ItemModal key={item.key} {...item.props} draft={item.draft} />;
 }
 
 /** What WideFrame's detail slot draws. */
 export function DetailBody({ item }: { item: DetailItem }) {
   if (item.type === 'edit') {
-    return <ItemEditor key={item.key} {...item.props} inline />;
+    return <ItemEditor key={item.key} {...item.props} draft={item.draft} inline />;
   }
   const { view } = item;
   return (

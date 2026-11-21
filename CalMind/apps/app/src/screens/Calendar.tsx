@@ -597,7 +597,9 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
         });
       }
       for (const { rec: r, overdue, late } of mine.reminders) {
-        if (r.payload.done && !(showDone && !late)) continue;
+        // The tick grace holds a just-ticked row for its two seconds, so it
+        // can be unticked — the day panel's own rule.
+        if (r.payload.done && !(showDone && !late) && !grace.held(r.id)) continue;
         out.push({
           key: `r${r.id}`, kind: 'reminder', text: r.payload.text, time: r.payload.time ? timeLabel(r.payload.time, clock24) : null,
           color: folderColor.get(r.payload.folderId) ?? T.dim, done: r.payload.done, overdue,
@@ -611,8 +613,13 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           onPress: () => openEdit(d, 'reminder', r), onTick: () => shTick.tick(r),
         });
       }
-      for (const n of [...mine.notes, ...theirs.notes]) {
+      for (const n of mine.notes) {
         out.push({ key: `n${n.id}`, kind: 'note', text: n.payload.title, color: T.dim, onPress: () => onNoteCreated?.(n.id) });
+      }
+      // A partner's note is not in the Notes tab's store: it opens in the edit
+      // sheet, as the phone's day panel opens it.
+      for (const n of theirs.notes) {
+        out.push({ key: `sn${n.id}`, kind: 'note', text: n.payload.title, color: T.dim, onPress: () => openEdit(d, 'note', n) });
       }
       for (const n of chefDatesOn(recs, chefRecs, d)) {
         out.push({ key: `c${n.id}`, kind: 'recipe', text: n.payload.title, color: T.accent, onPress: () => openRecipe(d, n) });

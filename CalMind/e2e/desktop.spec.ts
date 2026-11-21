@@ -91,9 +91,13 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   await page.keyboard.press('Escape');
   await expect(pane).toHaveCount(0);
 
-  // Habits keeps its in-screen editor in the main pane, and earns the whole week.
+  // Switching section closes an open item (the editor belongs to the screen it
+  // was opened from); Habits then keeps its in-screen editor in the main pane
+  // and earns the whole week.
+  await page.getByTestId('cell-line').filter({ hasText: 'Dentist checkup' }).first().click();
+  await expect(pane).toBeVisible();
   await page.getByTestId('tab-habits').click();
-  await expect(pane).toHaveCount(0);
+  await expect(pane, 'switching section closes the pane').toHaveCount(0);
   await page.getByTestId('habit-add-Habits').first().click();
   await page.getByTestId('habit-name-field').fill('stretch');
   await page.getByTestId('habit-save').click();

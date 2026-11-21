@@ -14,15 +14,23 @@ import { Habits } from './src/screens/Habits';
 import { Add } from './src/screens/Add';
 import { QuickTick } from './src/screens/QuickTick';
 import { Search } from './src/screens/Search';
-import { DetailProvider } from './src/components/DetailPane';
-import { WideShell } from './src/components/WideShell';
+import { DetailProvider, PhoneItemHost, layoutCrossing, useDetail } from './src/components/DetailPane';
+import { WideShell, focusSidebarSearch } from './src/components/WideShell';
 import { useWide } from './src/components/WideFrame';
+import { inlineCarry } from './src/carry';
 import { Request } from './src/screens/Request';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
 
 function Root() {
   const { ready, session } = useStore();
   const { wide } = useWide();
+  const detail = useDetail();
+  // The commit in which the window crosses 900 px swaps the whole frame and
+  // remounts the screens; the open item (drawn from DetailProvider) outlives
+  // that. See layoutCrossing.
+  const prevWide = React.useRef(wide);
+  layoutCrossing.now = prevWide.current !== wide;
+  useEffect(() => { prevWide.current = wide; layoutCrossing.now = false; });
   // Signing in lands on the Calendar, as the suite does — "what's on today"
   // shouldn't depend on which icon you opened.
   // The tab survives a refresh, and every switch feeds the back stack.
@@ -48,6 +56,17 @@ function Root() {
     setTabState(t);
     if (typeof localStorage !== 'undefined') localStorage.setItem('calmind.tab', t);
   };
+  // Switching section closes whatever item is open (the editor belongs to the
+  // screen it was opened from), and so does signing out.
+  const lastTab = React.useRef(tab);
+  useEffect(() => {
+    if (lastTab.current !== tab) { detail.item?.onClose(); inlineCarry.id = null; }
+    lastTab.current = tab;
+  }, [tab]);
+  useEffect(() => { if (!session) detail.item?.onClose(); }, [session]);
+  // The phone's full-screen Search is never drawn on a wide window, so a
+  // flag left set would pop it when the window shrinks.
+  useEffect(() => { if (wide) setSearchOpen(false); }, [wide]);
   const goBack = () => {
     const prev = backStack.current.pop();
     setCanBack(backStack.current.length > 0);
@@ -101,11 +120,11 @@ function Root() {
     else setTab(hit.kind === 'reminder' ? 'reminders' : 'calendar');
   };
   return (
-    <DetailProvider>
     <NavCtx.Provider value={{
       canBack,
       goBack,
-      openSearch: () => setSearchOpen(true),
+      // On a wide window Search IS the sidebar's field: focus it.
+      openSearch: () => (wide ? focusSidebarSearch() : setSearchOpen(true)),
       openNote: goNote,
     }}>
     {wide ? (
@@ -122,11 +141,11 @@ function Root() {
         </View>
       </View>
       <TabBar tab={tab} onTab={setTab} />
+      <PhoneItemHost />
       {searchOpen && <Search onClose={() => setSearchOpen(false)} onOpen={openHit} />}
     </View>
     )}
     </NavCtx.Provider>
-    </DetailProvider>
   );
 }
 
@@ -146,7 +165,9 @@ export default function App() {
               safe area, so a centred notice is centred in the PAGE rather than
               in the screen the status bar is part of. */}
           <ToastProvider>
-            <Root />
+            <DetailProvider>
+              <Root />
+            </DetailProvider>
           </ToastProvider>
         </SafeAreaView>
       </SafeAreaProvider>

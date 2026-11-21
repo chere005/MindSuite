@@ -26,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import { LONG_PRESS_MS, byRecOrd, ordGap, deleteSection, duplicateItem, editReminderLine, moveReminderBlock, moveSection, moveSectionEmptyingFolder, newId, nowStr, ordBetween, parseWhenFromText, reminderLine, reminderToggle, remindersMarkdown, renameSection, repeatLabel, sectionNameTaken, sortByDate, timeLabel, todayStr, type Rec } from '@calmind/core';
 import { useStore } from '../store';
+import { inlineCarry } from '../carry';
 import { useClock24 } from '../useClock24';
 import { themed, T } from '../theme';
 import { TopBar } from '../chrome';
@@ -68,8 +69,11 @@ export function Reminders() {
   };
   const [adding, setAdding] = useState<string | null>(null); // sectionId with the open add row
   const [addText, setAddText] = useState('');
-  const [editing, setEditing] = useState<string | null>(null); // reminder id in inline edit
-  const [editText, setEditText] = useState('');
+  const [editing, setEditing] = useState<string | null>(inlineCarry.id); // reminder id in inline edit
+  const [editText, setEditText] = useState(inlineCarry.id ? inlineCarry.text : '');
+  // Held outside the screen so a remount (the window crossing 900 px) keeps it.
+  inlineCarry.id = editing;
+  inlineCarry.text = editText;
   const holdCluster = React.useRef(false);
   const rowApi = React.useRef<RowApi>(null as unknown as RowApi);
   const swipe = useSwipeLeft();

@@ -63,7 +63,7 @@ export function WideMonth({ cells, ym, day, today, weekMode, lines, onDay, panHa
                 {shown.map((l) => (
                   <View key={l.key} style={s.line}>
                     {l.kind === 'reminder' ? (
-                      <Pressable testID="cell-tick" onPress={l.onTick} hitSlop={4}>
+                      <Pressable testID="cell-tick" accessibilityRole="button" accessibilityLabel="Tick" onPress={l.onTick} style={s.tickHit}>
                         <TickBoxGlyph size={12} color={l.overdue ? T.overdue : l.color} done={l.done} />
                       </Pressable>
                     ) : l.kind === 'event' || l.kind === 'sub' ? (
@@ -102,6 +102,9 @@ const s = themed(() => StyleSheet.create({
   numOther: { color: T.muted, opacity: 0.75 },
   todayWrap: { backgroundColor: T.accent, borderRadius: 11, minWidth: 22, height: 22, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center' },
   todayNum: { color: T.accentInk, fontSize: 13, fontWeight: '700' },
+  // A real 24px target round the 12px glyph (hitSlop does nothing on web); the
+  // negative margin gives the padding back so the line keeps its layout.
+  tickHit: { padding: 6, margin: -6 },
   line: { flexDirection: 'row', alignItems: 'center', gap: 5, height: LINE_H },
   lineBody: { flex: 1, minWidth: 0 },
   lineText: { color: T.text, fontSize: 12 },

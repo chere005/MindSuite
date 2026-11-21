@@ -10,7 +10,7 @@
  * function the Add tab uses.
  */
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { prefsPut, type Rec, type SearchHit } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
@@ -24,6 +24,13 @@ import { useFolderView } from './FolderPick';
 import { DetailBody, useDetail } from './DetailPane';
 import { useToast } from './Toast';
 import { SidebarItem, SidebarLabel, SidebarTitle, WideFrame, type WideColors } from './WideFrame';
+
+/** The sidebar's search field, so the account menu's Search can focus it. */
+const searchField: { current: TextInput | null } = { current: null };
+export function focusSidebarSearch() {
+  // After the account menu has closed and handed focus back to its button.
+  setTimeout(() => searchField.current?.focus(), 60);
+}
 
 type Section = Exclude<Tab, 'add'>;
 const SECTIONS: { key: Section; label: string }[] = [
@@ -115,6 +122,7 @@ function Sidebar({ tab, onTab, query, setQuery, colors }: {
       <SidebarTitle title="CalMind" colors={colors} />
       <Field
         testID="wide-search"
+        {...({ ref: (el: TextInput | null) => { searchField.current = el; } } as object)}
         accessibilityLabel="Search"
         value={query}
         onChangeText={setQuery}
