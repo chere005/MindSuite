@@ -219,7 +219,7 @@ test('every control in the top bar is one height', async ({ page }) => {
     // title is the one child that is text rather than a control, and the
     // absolutely-positioned web hit-slop skirts take no layout space.
     const controls = await page.getByTestId('nav-back').evaluate((back) => {
-      const bar = back.parentElement!.parentElement!; // hleft -> topbar
+      const bar = back.parentElement!; // SuiteTopBar's row: back, title, controls
       const out: { name: string; h: number; w: number; round: boolean }[] = [];
       const visit = (el: Element) => {
         const cs = getComputedStyle(el);
@@ -247,17 +247,21 @@ test('every control in the top bar is one height', async ({ page }) => {
 
     expect(controls.length, `${tab}: the bar has controls to measure`).toBeGreaterThanOrEqual(2);
     for (const c of controls) {
-      expect(c.h, `${tab}: "${c.name}" is the bar's one height`).toBe(32);
+      // The bar's controls are 44px TARGETS around the 32px face (SuiteTopBar's
+      // TOP_BAR_TARGET / TOP_BAR_FACE, 2026-11-12: "a real 44px target on web
+      // and native around the common 32px face"). The spec measures the
+      // target, which is what a tap or a click lands on.
+      expect(c.h, `${tab}: "${c.name}" is the bar's one height`).toBe(44);
       // The round ones are circles, not ovals — a 32-high 26-wide "circle"
       // is what a half-applied fix looks like.
-      if (c.round) expect(c.w, `${tab}: "${c.name}" is a circle, not an oval`).toBe(32);
+      if (c.round) expect(c.w, `${tab}: "${c.name}" is a circle, not an oval`).toBe(44);
     }
     // The username is a control here, not a bare label — it is the way in to
     // Settings, and the owner asked for it to match the icons beside it.
     const who = await page.getByTestId('topbar-sync').first().evaluate(
       (el) => Math.round(el.closest('[role="button"]')!.getBoundingClientRect().height),
     );
-    expect(who, `${tab}: the username pill matches the icons beside it`).toBe(32);
+    expect(who, `${tab}: the username pill matches the icons beside it`).toBe(44);
   }
 });
 

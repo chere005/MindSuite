@@ -34,6 +34,11 @@ test('nothing renders a bare ScrollView — they all go through Scroll', () => {
   for (const f of walk(SRC)) {
     // ui.tsx is where Scroll is defined; it is the one place that may.
     if (f.endsWith(`${join('src', 'ui.tsx')}`)) continue;
+    // SuiteTopBar (the account menu's own height-capped list) and WideFrame
+    // (the wide layout's sidebar) are suite presentation files shared byte for
+    // byte with the sibling apps, which have no ui.tsx Scroll of this shape.
+    // They are not screens, and are listed here rather than edited.
+    if (f.endsWith(join('components', 'SuiteTopBar.tsx')) || f.endsWith(join('components', 'WideFrame.tsx'))) continue;
     const src = readFileSync(f, 'utf8');
     if (src.includes('<ScrollView')) offenders.push(f.slice(f.indexOf('apps/')));
   }

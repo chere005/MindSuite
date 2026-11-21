@@ -57,6 +57,14 @@ test('no spec reaches for a testID the app never renders', () => {
   for (const m of appSrc.matchAll(/testID=\{([^}]*)\}/g)) {
     for (const lit of m[1]!.matchAll(/['"]([^'"]+)['"]/g)) literals.add(lit[1]!);
   }
+  // …and names handed to a shared component as an object property
+  // (`{ key: 'search', testID: 'menu-search' }`, the account menu's items) or
+  // as a parameter default (`testID = 'topbar-sync'`): the component renders
+  // them through `testID={item.testID}`, so the literal is a name the app can
+  // render.
+  for (const m of appSrc.matchAll(/testID\s*[:=]\s*['"]([^'"]+)['"]/g)) {
+    literals.add(m[1]!);
+  }
   // …and the plain-DOM spelling, which the head patch uses because it is
   // inline script rather than TSX. Same thing to a spec, written differently.
   for (const m of appSrc.matchAll(/setAttribute\(\s*['"]data-testid['"]\s*,\s*['"]([^'"]+)['"]/g)) {

@@ -53,11 +53,19 @@ for (const width of [1440, 1160, 390, 320]) {
 
     const bar = (await page.getByTestId('suite-topbar').boundingBox())!;
     const pill = (await page.getByTestId('topbar-sync').first().boundingBox())!;
-    const back = (await page.getByTestId('nav-back').boundingBox())!;
+    // From 900px the app is the wide layout, where the sidebar replaces the
+    // tab history and the bar's Back is not drawn; the bar, the picker and the
+    // username pill are the same at every width.
+    if (width >= 900) {
+      await expect(page.getByTestId('wide-sidebar')).toBeVisible();
+      await expect(page.getByTestId('nav-back'), 'no Back on the wide bar').toHaveCount(0);
+    } else {
+      const back = (await page.getByTestId('nav-back').boundingBox())!;
+      expect(back.width).toBe(44);
+      expect(back.height).toBe(44);
+    }
     const picker = (await page.getByTestId('pick-reminders').boundingBox())!;
     expect(bar.height).toBe(64);
-    expect(back.width).toBe(44);
-    expect(back.height).toBe(44);
     expect(picker.width).toBe(44);
     expect(picker.height).toBe(44);
     expect(pill.height).toBe(44);
