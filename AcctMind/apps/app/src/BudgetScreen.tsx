@@ -217,7 +217,7 @@ export function BudgetScreen({
    */
   onMoveLine: (line: Line, category: string, beforeId: string | null) => void;
   /**
-   * Assign to every picked line at once — the bar's three buttons.
+   * Assign to every picked line at once.
    *
    * The screen hands down WHAT each line holds and what has moved through
    * it, because only the screen knows which set is being read; core's
@@ -247,7 +247,7 @@ export function BudgetScreen({
    * The lines picked out — the ledger's selection, on this tab (the owner,
    * 2026-09-21: "add the same selector for budget categories").
    *
-   * LINES, not categories, and the three buttons are why: Needs, Assigned
+   * LINES, not categories, because the assignment actions use Needs, Assigned
    * and Spent are columns a LINE has. A heading shows their sums, so
    * "assign this heading what it needs" is a sentence about the rows under
    * it either way — and picking the rows says which ones, where picking the
@@ -416,7 +416,7 @@ export function BudgetScreen({
   const visible = shown.flatMap((c) => linesOf(c.id).map((l) => l.id));
 
   /**
-   * The three buttons, resolved against the LINES rather than against what
+   * The assignment buttons, resolved against the LINES rather than against what
    * is drawn.
    *
    * A picked line can be filtered out from under the selection by the
@@ -694,10 +694,10 @@ export function BudgetScreen({
         The ledger's selection is picked in order to add it up; this one is
         picked in order to ASSIGN to it, and a fifth figure beside four
         money columns would be one more number to read past. What sits in
-        `detail`'s place is the three buttons.
+        `detail`'s place is the assignment buttons.
 
-        The flag funds the target, the green dollar matches this month's
-        spending, and zero levels the available balance.
+        The equals flag funds the target, the plus flag adds the full target,
+        the green dollar matches spending, and zero levels the available balance.
       */}
       <PickBar
         prefix="budget-picked"
@@ -739,13 +739,13 @@ function AssignmentButtons({ prefix, off = false, scoped = false, onAssign }: {
         <Text style={styles.assignZero}>0</Text>
       </AssignBtn>
       <AssignBtn onPress={() => onAssign('needs')} label="Assign up to what is needed" off={off} wide={scoped} testID={`${prefix}-needs`}>
-        {scoped ? <CheckIcon /> : <FlagIcon />}
+        <FlagIcon />
       </AssignBtn>
       <AssignBtn onPress={() => onAssign('spent')} label="Assign what was spent" off={off} wide={scoped} testID={`${prefix}-spent`}>
         <DollarIcon color={T.positive} />
       </AssignBtn>
-      {scoped && (
-        <AssignBtn onPress={() => onAssign('add-needs')} label="Add full Needs to Assigned" wide sign="+" testID={`${prefix}-add-needs`}>
+      {!scoped && (
+        <AssignBtn onPress={() => onAssign('add-needs')} label="Add full Needs to Assigned" off={off} sign="+" testID={`${prefix}-add-needs`}>
           <FlagIcon />
         </AssignBtn>
       )}
@@ -761,7 +761,7 @@ function AssignmentMenu({ name, at, onAssign, onClose }: {
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const boxWidth = TAP * 4 + SPACE.xs * 3 + SPACE.md * 2;
+  const boxWidth = TAP * 3 + SPACE.xs * 2 + SPACE.md * 2;
   const boxHeight = TAP + 20 + SPACE.md * 2;
   const x = Number.isFinite(at.x) ? at.x : width / 2;
   const y = Number.isFinite(at.y) ? at.y : height / 2;
@@ -785,7 +785,7 @@ function AssignmentMenu({ name, at, onAssign, onClose }: {
 }
 
 /**
- * One of the bar's three: an `=` and the thing being levelled to.
+ * One assignment action: an operator and the amount it uses.
  *
  * Drawn as All and Clear are drawn — the same pill inside the same 44pt
  * target — because it is the same kind of control at the same size, and a
@@ -1712,7 +1712,7 @@ const styles = StyleSheet.create({
   boxTick: { color: T.bg, fontSize: 10, lineHeight: 12 },
   // A picked line gets a tinted ground, the ledger's `rowPicked` exactly.
   rowPicked: { backgroundColor: T.card },
-  // The bar's three, drawn as All and Clear are drawn: the same pill inside
+  // Assignment actions use the same pill as All and Clear inside
   // the same 44pt target, because hitSlop is a no-op on the web and a row of
   // buttons that agree about their shape is a row you can aim at.
   assignHit: { minHeight: TAP, justifyContent: 'center', flexShrink: 0 },

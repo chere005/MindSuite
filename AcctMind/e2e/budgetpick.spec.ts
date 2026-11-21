@@ -101,7 +101,7 @@ test('All reaches into a FOLDED category', async ({ page }) => {
   await expect(page.getByTestId('budget-picked-count')).toHaveText('3 selected');
 });
 
-test('nothing picked, nothing assigned — pressing all three changes nothing', async ({ page }) => {
+test('nothing picked, nothing assigned — pressing the action buttons changes nothing', async ({ page }) => {
   /*
    * Delete's rule, for Delete's reason: a live control that does nothing is
    * the one that gets pressed twice.
@@ -113,7 +113,7 @@ test('nothing picked, nothing assigned — pressing all three changes nothing', 
    * on an empty selection anyway. What must be true is that nothing moves.
    */
   await onBudget(page);
-  for (const id of ['zero', 'needs', 'spent']) {
+  for (const id of ['zero', 'needs', 'spent', 'add-needs']) {
     await page.getByTestId(`budget-assign-${id}`).click({ force: true });
   }
   await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$50.00');
@@ -123,6 +123,7 @@ test('nothing picked, nothing assigned — pressing all three changes nothing', 
 
   // And the aria the screen reader reads says the same.
   await expect(page.getByTestId('budget-assign-zero')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('budget-assign-add-needs')).toHaveAttribute('aria-disabled', 'true');
   await pick(page, 'l1');
   await expect(page.getByTestId('budget-assign-zero')).not.toHaveAttribute('aria-disabled', 'true');
 });
@@ -157,17 +158,29 @@ test('tapping a line opens its assignment actions independently of the selection
   await page.getByTestId('line-name-l1').click();
   const menu = page.getByTestId('assignment-menu');
   await expect(menu.getByRole('heading')).toHaveText('Groceries');
-  await expect(page.getByTestId('scope-assign-needs').locator('svg')).toBeVisible();
+  const scopedNeeds = page.getByTestId('scope-assign-needs');
+  await expect(scopedNeeds).toHaveText('=');
+  const flag = page.getByTestId('col-needs').locator('svg path').first();
+  const stroke = await flag.getAttribute('stroke');
+  const attribute = stroke === null ? 'fill' : 'stroke';
+  await expect(scopedNeeds.locator('svg path').first()).toHaveAttribute(attribute, (await flag.getAttribute(attribute))!);
+  await expect(menu.getByTestId('scope-assign-add-needs')).toHaveCount(0);
   await page.getByTestId('scope-assign-needs').click();
   await expect(menu).toBeHidden();
   await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$300.00');
   await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
   await expect(page.getByTestId('budget-picked-count')).toHaveText('1 selected');
+});
 
-  await page.getByTestId('line-name-l1').click();
-  await expect(page.getByTestId('scope-assign-add-needs')).toHaveText('+');
-  await page.getByTestId('scope-assign-add-needs').click();
-  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$600.00');
+test('+flag on the selection bar adds the full target to each selected line', async ({ page }) => {
+  await onBudget(page);
+  await pick(page, 'l1');
+  await pick(page, 'l3');
+  const addNeeds = page.getByTestId('budget-assign-add-needs');
+  await expect(addNeeds).toHaveText('+');
+  await addNeeds.click();
+  await expect(page.getByTestId('line-budgeted-l1')).toHaveText('$350.00');
+  await expect(page.getByTestId('line-budgeted-l3')).toHaveText('$2,200.00');
   await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
 });
 
@@ -333,7 +346,7 @@ test('the No Category row has no selector, because there is no record', async ({
   await expect(page.getByTestId('budget-picked-count')).toHaveText('1 selected');
 });
 
-test('the count is still READABLE with the three buttons beside it', async ({ page }) => {
+test('the count and all four assignment buttons fit on a narrow screen', async ({ page }) => {
   /*
    * The bar carried three more controls than the ledger's and on a
    * 393-point phone it overran: the fixed widths and gaps came to 374, the
@@ -346,6 +359,7 @@ test('the count is still READABLE with the three buttons beside it', async ({ pa
    * Pinned at TWELVE selected, the widest count a budget realistically
    * shows — every digit is tabular, so 12 and 99 are the same width.
    */
+  await page.setViewportSize({ width: 360, height: 800 });
   await withStore(page, JSON.stringify({
     v: 4,
     accounts: [{ id: 'a1', name: 'Account', color: '#4c8bf0', order: 0, created: 1, updated: 1 }],
@@ -373,14 +387,13 @@ test('the count is still READABLE with the three buttons beside it', async ({ pa
     return { drawn: el.getBoundingClientRect().width, wanted: w };
   });
   expect(drawn).toBeGreaterThanOrEqual(wanted - 0.5);
-  // And nothing was pushed off the end to pay for it — the last control in
-  // the row is the third assign button now that Delete has gone.
+  // The fourth assignment button fits beside the count.
   const bar = (await page.getByTestId('budget-picked-bar').boundingBox())!;
-  const last = (await page.getByTestId('budget-assign-spent').boundingBox())!;
+  const last = (await page.getByTestId('budget-assign-add-needs').boundingBox())!;
   expect(last.x + last.width).toBeLessThanOrEqual(bar.x + bar.width + 0.5);
 });
 
-test("the bar's three buttons wear the marks of the columns they level", async ({ page }) => {
+test("the bar's assignment buttons wear the marks of their respective columns", async ({ page }) => {
   /*
    * The owner named two of them by their column mark — "= flag icon", then "= up
    * arrow should actually just be = green $" — so the flag here has to be
@@ -396,6 +409,7 @@ test("the bar's three buttons wear the marks of the columns they level", async (
     .evaluate((el) => el.getAttribute('stroke') ?? el.getAttribute('fill'));
 
   expect(await ink('budget-assign-needs')).toBe(await ink('col-needs'));
+  expect(await ink('budget-assign-add-needs')).toBe(await ink('col-needs'));
   expect(await ink('budget-assign-spent')).toBe(await ink('col-available'));
   // And NOT the red one, which is the mistake the pair of dollars invites.
   expect(await ink('budget-assign-spent')).not.toBe(await ink('col-spent'));
