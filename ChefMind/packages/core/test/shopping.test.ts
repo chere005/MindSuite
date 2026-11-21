@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mergeIntoList, pantryKey, shoppingLines, shoppingRows } from '../src/shopping';
+import {
+  doneShoppingPlan, mergeIntoList, pantryHas, pantryKey, pantryRowKey, pantryUsedBy, pantryUsedIn,
+  recipeStillToBuy, shoppingLines, shoppingPlan, shoppingRows,
+} from '../src';
 
 const r = (title: string, ingredients: string[]) => ({ title, ingredients });
 
@@ -170,7 +173,6 @@ describe('the pantry', () => {
     expect(shoppingLines([r('a', [
       '1/4 cup granulated sugar',
       '2 cups (500 grams) all purpose flour',
-      'kosher salt',
       'sea salt, to taste',
     ])], ['sugar', 'flour', 'salt'])).toEqual([]);
     // …and the cupboard holding the KIND holds the staple too.
@@ -207,8 +209,11 @@ describe('the pantry', () => {
     // wine is not red wine, and one list cannot tell those apart.
     expect(shoppingLines([r('a', ['1 cup white wine'])], ['wine']))
       .toEqual(['237 ml white wine']);
-    expect(shoppingLines([r('a', ['freshly ground black pepper'])], ['pepper']))
-      .toEqual(['freshly ground black pepper']);
+    // (2026-11-21: 'freshly ground black pepper' used to stay here; it is
+    // preparation and a bare pepper row covers it. A KIND of pepper still
+    // does not.)
+    expect(shoppingLines([r('a', ['1 tsp red pepper flakes'])], ['pepper']))
+      .toEqual(['4.93 ml red pepper flakes']);
   });
 
   it('takes a vague word off the FRONT only', () => {
@@ -292,5 +297,393 @@ describe('rows carry the aisle to shop them in', () => {
     // the spice rack.
     const rows = shoppingRows([r('a', ['3 cloves garlic', '2 cans tomatoes'])]);
     expect(rows.map((x) => x.aisle)).toEqual(['Produce', 'Cans & Jars']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The owner, 2026-11-21: pantry matching. Every rule has a positive case and a
+// negative one beside it.
+// ---------------------------------------------------------------------------
+
+/** Lines of one recipe left to buy, as the text of each, given a pantry. */
+const left = (lines: string[], pantry: string[]) => shoppingLines([r('t', lines)], pantry);
+/** True when the pantry covers the line (nothing left to buy). */
+const covers = (pantry: string[], line: string) => left([line], pantry).length === 0;
+
+describe('pantry rule 1: units never count', () => {
+  it('whether the parser caught them or not', () => {
+    for (const line of ['2 cups flour', '1 tbsp flour', '200 g flour', '8 oz flour', '1 lb flour',
+      'a pinch of flour', 'flour 2 cups', '2 dl flour', '1 (14 oz) flour']) {
+      expect(covers(['flour'], line), line).toBe(true);
+    }
+    // …and in the pantry row too.
+    expect(covers(['2 lb flour'], '1 cup flour')).toBe(true);
+    expect(pantryRowKey('500 g flour')).toBe(pantryRowKey('flour'));
+    // negative: a different thing with the same unit is still different.
+    expect(covers(['flour'], '2 cups sugar')).toBe(false);
+  });
+
+  it('a can, tin or jar is the exception: it means preserved', () => {
+    const canned = ['canned tomatoes', '1 can tomatoes', '2 tins tomatoes', '1 (14 oz) can diced tomatoes',
+      '1 400g tin chopped tomatoes', 'tomatoes, canned'];
+    const keys = new Set(canned.map(pantryRowKey));
+    expect([...keys]).toEqual(['can:tomato']);
+    expect(pantryRowKey('1 jar tomatoes')).toBe(pantryRowKey('jarred tomatoes'));
+    expect(pantryRowKey('1 jar tomatoes')).toBe('jar:tomato');
+    expect(pantryRowKey('1 jar tomatoes')).not.toBe(pantryRowKey('1 can tomatoes'));
+    // negative: none of them is the fresh tomato.
+    for (const c of canned) {
+      expect(pantryRowKey(c), c).not.toBe(pantryRowKey('tomatoes'));
+      expect(covers(['tomatoes'], c), c).toBe(false);
+    }
+    expect(covers(['tomatoes'], 'canned tomatoes')).toBe(false);
+    expect(covers(['canned tomatoes'], '2 tins tomatoes')).toBe(true);
+    expect(covers(['2 cans tomatoes'], '1 can (28 oz) crushed tomatoes')).toBe(true);
+    expect(covers(['canned tomatoes'], 'tomatoes')).toBe(false);
+    expect(pantryHas(['1 can tomatoes'], '3 cans tomatoes')).toBe(true);
+  });
+});
+
+describe('pantry rule 2: fresh, canned and dried are different things', () => {
+  it('fresh is what a bare name means; dried is a kind and never dropped', () => {
+    expect(covers(['basil'], 'fresh basil')).toBe(true);
+    expect(covers(['fresh basil'], '1 cup basil')).toBe(true);
+    expect(covers(['basil'], '1 tsp dried basil')).toBe(false);
+    expect(covers(['dried basil'], 'basil')).toBe(false);
+    expect(covers(['dried basil'], '2 tsp dried basil')).toBe(true);
+    expect(covers(['dried oregano'], 'fresh oregano')).toBe(false);
+  });
+});
+
+describe('pantry rule 3: preparation words never count', () => {
+  it('fresh ground pepper in any wording matches pepper and black pepper', () => {
+    for (const line of ['fresh ground pepper', 'freshly ground black pepper', 'coarsely ground pepper',
+      '1/2 tsp cracked black pepper', 'ground black pepper']) {
+      expect(covers(['pepper'], line), line).toBe(true);
+      expect(covers(['black pepper'], line), line).toBe(true);
+    }
+    // negative: no pepper in the pantry, no match.
+    expect(covers(['salt'], 'freshly ground black pepper')).toBe(false);
+  });
+
+  it('ground comes off a spice only: ground beef keeps it', () => {
+    expect(covers(['cumin'], '1 tsp ground cumin')).toBe(true);
+    expect(covers(['ground cinnamon'], 'cinnamon')).toBe(true);
+    expect(covers(['ground beef'], '1 lb beef')).toBe(false);
+    expect(covers(['beef'], '1 lb ground beef')).toBe(false);
+    expect(covers(['ground beef'], '1 lb ground beef')).toBe(true);
+    expect(covers(['turkey'], '1 lb ground turkey')).toBe(false);
+  });
+});
+
+describe('pantry rule 4: form-sensitive spices keep ground', () => {
+  it('ground ginger, coriander, mustard and turmeric are not the bare names', () => {
+    expect(covers(['ginger'], '1 tsp ground ginger')).toBe(false);
+    expect(covers(['ground ginger'], '1 tsp ginger')).toBe(false);
+    expect(covers(['ground ginger'], '1/2 tsp ground ginger')).toBe(true);
+    expect(covers(['cilantro'], '1 tsp ground coriander')).toBe(false);
+    expect(covers(['coriander'], '1 tsp ground coriander')).toBe(false);
+    expect(covers(['mustard'], '1 tsp ground mustard')).toBe(false);
+    expect(covers(['turmeric'], '1 tsp ground turmeric')).toBe(false);
+    expect(covers(['ground turmeric'], '1 tsp ground turmeric')).toBe(true);
+    // contrast: a spice that is not on the list drops it.
+    expect(covers(['nutmeg'], '1/4 tsp ground nutmeg')).toBe(true);
+  });
+});
+
+describe('pantry rule 5: kind words count', () => {
+  it('a kind of pepper never matches pepper or black pepper', () => {
+    for (const line of ['red pepper', '1 tsp red pepper flakes', '1 tsp crushed red pepper', 'cayenne pepper',
+      'white pepper', '1 bell pepper', '2 jalapeño peppers']) {
+      expect(covers(['pepper'], line), line).toBe(false);
+      expect(covers(['black pepper'], line), line).toBe(false);
+    }
+    // …and each matches itself.
+    expect(covers(['red pepper'], 'red pepper')).toBe(true);
+    expect(covers(['red pepper flakes'], '1 tsp red pepper flakes')).toBe(true);
+    expect(covers(['bell pepper'], '1 bell pepper')).toBe(true);
+    expect(covers(['white pepper'], '1/2 tsp white pepper')).toBe(true);
+  });
+
+  it('kosher salt matches only kosher salt; bare salt matches salt', () => {
+    expect(covers(['salt'], 'kosher salt')).toBe(false);
+    expect(covers(['salt'], '1 tsp kosher salt')).toBe(false);
+    expect(covers(['kosher salt'], 'salt')).toBe(false);
+    expect(covers(['kosher salt'], '2 tsp kosher salt')).toBe(true);
+    expect(covers(['salt'], '1 tsp salt')).toBe(true);
+    // the other variety words keep their reading
+    expect(covers(['salt'], 'sea salt, to taste')).toBe(true);
+    expect(covers(['sugar'], '1/4 cup granulated sugar')).toBe(true);
+  });
+});
+
+describe('pantry rule 6: named aliases, both ways', () => {
+  const same = (a: string, b: string) => {
+    expect(covers([a], `1 tsp ${b}`), `${a} covers ${b}`).toBe(true);
+    expect(covers([b], `1 tsp ${a}`), `${b} covers ${a}`).toBe(true);
+    expect(pantryRowKey(a)).toBe(pantryRowKey(b));
+  };
+
+  it('pepper, black pepper, peppercorns, black peppercorns', () => {
+    same('pepper', 'black pepper');
+    same('pepper', 'peppercorns');
+    same('pepper', 'black peppercorns');
+    same('black pepper', 'peppercorns');
+    expect(covers(['pepper'], 'white peppercorns')).toBe(false);
+  });
+
+  it('the one-to-one pairs', () => {
+    same('scallions', 'green onions');
+    same('cilantro', 'fresh coriander');
+    same('chicken stock', 'chicken broth');
+    same('parmesan', 'parmigiano-reggiano');
+    same('parmesan', 'parmigiano reggiano');
+    same('olive oil', 'extra virgin olive oil');
+    same('olive oil', 'extra-virgin olive oil');
+    same('butter', 'unsalted butter');
+    same('butter', 'salted butter');
+    same('unsalted butter', 'salted butter');
+    // negatives: near neighbours are not the pair
+    expect(covers(['onions'], '2 green onions')).toBe(false);
+    expect(covers(['cilantro'], 'coriander seeds')).toBe(false);
+    expect(covers(['chicken broth'], 'beef stock')).toBe(false);
+    expect(covers(['olive oil'], 'light olive oil')).toBe(false);
+    expect(covers(['cheddar'], 'parmesan')).toBe(false);
+    expect(covers(['peanut butter'], 'butter')).toBe(false);
+  });
+
+  it('milk grades are milk; buttermilk, coconut milk and almond milk are not', () => {
+    same('milk', 'whole milk');
+    same('milk', 'skim milk');
+    same('milk', '2% milk');
+    expect(covers(['milk'], '1 cup buttermilk')).toBe(false);
+    expect(covers(['milk'], '1 can coconut milk')).toBe(false);
+    expect(covers(['milk'], '1 cup almond milk')).toBe(false);
+    expect(covers(['buttermilk'], 'milk')).toBe(false);
+    expect(covers(['coconut milk'], '1 cup milk')).toBe(false);
+  });
+
+  it('salt and pepper to taste needs both, and pepper means black pepper', () => {
+    expect(covers(['salt', 'black pepper'], 'Salt and freshly ground pepper to taste')).toBe(true);
+    expect(covers(['salt', 'red pepper'], 'Salt and pepper to taste')).toBe(false);
+  });
+});
+
+describe('pantry rule 7: part-of, one direction', () => {
+  it('juice, zest and a garlic clove are covered by the whole', () => {
+    expect(covers(['lemon'], '2 tbsp lemon juice')).toBe(true);
+    expect(covers(['lemons'], '1 tsp lemon zest')).toBe(true);
+    expect(covers(['lime'], '1 tbsp lime juice')).toBe(true);
+    expect(covers(['lime'], 'lime zest')).toBe(true);
+    expect(covers(['oranges'], '1/2 cup orange juice')).toBe(true);
+    expect(covers(['orange'], '1 tsp orange zest')).toBe(true);
+    expect(covers(['garlic'], '3 garlic cloves, minced')).toBe(true);
+    expect(covers(['garlic'], '1 clove garlic')).toBe(true);
+    expect(covers(['egg'], '2 egg yolks')).toBe(true);
+  });
+
+  it('never the other way', () => {
+    expect(covers(['lemon juice'], '1 lemon')).toBe(false);
+    expect(covers(['lemon juice'], '1 lemon, sliced')).toBe(false);
+    expect(covers(['lime juice'], '2 limes')).toBe(false);
+    expect(covers(['orange zest'], '1 orange')).toBe(false);
+    expect(covers(['garlic clove'], 'garlic')).toBe(false);
+    // …and a lime does not cover lemon juice
+    expect(covers(['lime'], 'lemon juice')).toBe(false);
+    // two pantry rows are not one ingredient just because one is part of the other
+    expect(pantryHas(['lemon'], 'lemon juice')).toBe(false);
+    expect(pantryHas(['lemon juice'], 'lemon')).toBe(false);
+  });
+});
+
+describe('pantry rule 8: water and ice are never bought', () => {
+  it('shoppingLines and shoppingRows leave them out', () => {
+    const lines = ['2 cups water', '1 cup ice', '2 cups boiling water', '1/2 cup warm water',
+      '1 cup cold water', 'ice', '1 cup flour'];
+    expect(shoppingLines([r('a', lines)])).toEqual(['237 ml flour']);
+    expect(shoppingRows([r('a', lines)]).map((x) => x.text)).toEqual(['237 ml flour']);
+    // negatives: other things with water or ice in the name are bought
+    expect(shoppingLines([r('a', ['1 cup coconut water', '1 pint ice cream', '1 tbsp rose water'])]))
+      .toEqual(['237 ml coconut water', '473 ml ice cream', '15 ml rose water']);
+  });
+});
+
+describe('shoppingPlan', () => {
+  const sources = [
+    r('Cake', ['2 cups flour', '1 cup sugar', '1 tsp salt', '3 eggs']),
+    r('Bread', ['3 cups flour', '1 tsp salt', 'water']),
+  ];
+
+  it('says what to buy, from which recipes, and how many lines collapsed', () => {
+    const plan = shoppingPlan(sources, ['salt'], []);
+    expect(plan.toBuy).toEqual([
+      { text: '1.18 l flour', name: 'flour', aisle: 'Dry Goods', from: ['Cake', 'Bread'] },
+      { text: '237 ml sugar', name: 'sugar', aisle: 'Dry Goods', from: ['Cake'] },
+      { text: '3 eggs', name: 'eggs', aisle: 'Dairy & Eggs', from: ['Cake'] },
+    ]);
+    expect(plan.combined).toBe(1);
+    // the same order shoppingLines gives
+    expect(plan.toBuy.map((x) => x.text)).toEqual(shoppingLines(sources, ['salt']));
+  });
+
+  it('says what the pantry covered, by which row', () => {
+    const plan = shoppingPlan(sources, ['Kosher salt', '1 kg salt'], []);
+    expect(plan.inPantry).toEqual([{ text: '9.86 ml salt', from: ['Cake', 'Bread'], match: '1 kg salt' }]);
+    // negative: the water was never a candidate, in either list
+    expect(plan.toBuy.some((x) => /water/.test(x.text))).toBe(false);
+    expect(plan.inPantry.some((x) => /water/.test(x.text))).toBe(false);
+  });
+
+  it('lists the lines that would fold into a row already on the list', () => {
+    const plan = shoppingPlan(sources, ['salt'], ['500 ml flour', '2 onions']);
+    expect(plan.merges).toEqual([{ text: '1.18 l flour', into: '500 ml flour', result: '1.68 l flour' }]);
+    // negative: nothing on the list, nothing to merge
+    expect(shoppingPlan(sources, ['salt'], []).merges).toEqual([]);
+    expect(shoppingPlan(sources, ['salt'], ['2 onions']).merges).toEqual([]);
+  });
+
+  it('counts a collapse only when TWO recipes asked', () => {
+    expect(shoppingPlan([r('a', ['1 onion', '1 onion'])], [], []).combined).toBe(0);
+    // the strict reading keeps 'onion' and 'onions' apart, as it always has
+    expect(shoppingPlan([r('a', ['1 onion']), r('b', ['2 onions'])], [], []).combined).toBe(0);
+    expect(shoppingPlan([r('a', ['1 onion']), r('b', ['1 onion'])], [], []).combined).toBe(1);
+    expect(shoppingPlan([r('a', ['1 onion']), r('b', ['1 carrot'])], [], []).combined).toBe(0);
+  });
+
+  it('is empty for nothing', () => {
+    expect(shoppingPlan([], [], [])).toEqual({ toBuy: [], inPantry: [], merges: [], combined: 0 });
+  });
+});
+
+describe('recipeStillToBuy', () => {
+  const dinner = ['2 tbsp extra-virgin olive oil', '1 lb ground beef', '1 can (14 oz) diced tomatoes',
+    'Salt and freshly ground black pepper', '2 cups water'];
+  it('counts the lines this recipe would add', () => {
+    expect(recipeStillToBuy(dinner, [])).toBe(4);
+    expect(recipeStillToBuy(dinner, ['olive oil', 'salt', 'pepper'])).toBe(2);
+    expect(recipeStillToBuy(dinner, ['olive oil', 'salt', 'pepper', 'ground beef', 'canned tomatoes'])).toBe(0);
+    // negatives: beef is not ground beef, tomatoes are not canned tomatoes
+    expect(recipeStillToBuy(dinner, ['olive oil', 'salt', 'pepper', 'beef', 'tomatoes'])).toBe(2);
+    expect(recipeStillToBuy([], [])).toBe(0);
+  });
+});
+
+describe('pantryUsedBy', () => {
+  const recipes = [
+    { id: '1', title: 'Pasta', ingredients: ['1 lb spaghetti', 'For the sauce:', '2 cloves garlic, minced', '1 tsp freshly ground black pepper'] },
+    { id: '2', title: 'Lemonade', ingredients: ['1/2 cup lemon juice', '1 cup sugar'] },
+    { id: '3', title: 'Burgers', ingredients: ['1 lb ground beef'] },
+  ];
+  it('finds the recipes that use a pantry row, and the line', () => {
+    expect(pantryUsedBy('Garlic', recipes)).toEqual([{ id: '1', title: 'Pasta', line: '2 cloves garlic, minced' }]);
+    expect(pantryUsedBy('black pepper', recipes)).toEqual([{ id: '1', title: 'Pasta', line: '1 tsp freshly ground black pepper' }]);
+    expect(pantryUsedBy('2 lemons', recipes)).toEqual([{ id: '2', title: 'Lemonade', line: '1/2 cup lemon juice' }]);
+    expect(pantryUsedBy('sugar', recipes).map((x) => x.id)).toEqual(['2']);
+  });
+  it('and not the ones it does not cover', () => {
+    expect(pantryUsedBy('beef', recipes)).toEqual([]);
+    expect(pantryUsedBy('lemon juice', [{ id: '9', title: 'x', ingredients: ['1 lemon'] }])).toEqual([]);
+    expect(pantryUsedBy('red pepper', recipes)).toEqual([]);
+    expect(pantryUsedBy('flour', recipes)).toEqual([]);
+  });
+});
+
+describe('pantryUsedIn', () => {
+  it('returns the pantry rows a recipe uses, in pantry order', () => {
+    const pantry = ['Butter', 'flour', '1 kg sugar', 'black pepper', 'cinnamon', 'lemons'];
+    expect(pantryUsedIn(['2 tbsp unsalted butter', '1 tsp lemon zest', 'freshly ground pepper', '1 cup sugar'], pantry))
+      .toEqual(['Butter', '1 kg sugar', 'black pepper', 'lemons']);
+    // negatives
+    expect(pantryUsedIn(['1 cup almond flour', '1 tsp red pepper flakes'], pantry)).toEqual([]);
+    expect(pantryUsedIn([], pantry)).toEqual([]);
+  });
+  it('a salt-and-pepper line uses whichever of them is on the shelf', () => {
+    expect(pantryUsedIn(['Salt and pepper to taste'], ['pepper'])).toEqual(['pepper']);
+  });
+});
+
+describe('doneShoppingPlan', () => {
+  const rows = [
+    { id: 'a', text: '473 ml flour', done: true },
+    { id: 'b', text: '2 cans tomatoes', done: true },
+    { id: 'c', text: '3 Eggs', done: true },
+    { id: 'd', text: 'paper towels', done: true },
+    { id: 'e', text: '1 lb butter', done: false },
+    { id: 'f', text: '1 tsp ground ginger', done: true },
+  ];
+  it('covers the done rows only, named as a pantry row', () => {
+    const plan = doneShoppingPlan(rows, ['flour']);
+    expect(plan.map((x) => x.id)).toEqual(['a', 'b', 'c', 'd', 'f']);
+    expect(plan.map((x) => x.name)).toEqual(['flour', 'canned tomatoes', 'Eggs', 'paper towels', 'ground ginger']);
+    expect(plan.map((x) => x.aisle)).toEqual(['Dry Goods', 'Cans & Jars', 'Dairy & Eggs', 'Other', 'Produce']);
+  });
+  it('already means the pantry has it; defaultOn is off for that and for Other', () => {
+    const plan = doneShoppingPlan(rows, ['flour', 'ginger']);
+    expect(plan.map((x) => x.already)).toEqual([true, false, false, false, false]);
+    expect(plan.map((x) => x.defaultOn)).toEqual([false, true, true, false, true]);
+    // negative: a pantry that holds the fresh tomatoes does not hold the cans
+    expect(doneShoppingPlan(rows, ['tomatoes']).find((x) => x.id === 'b')?.already).toBe(false);
+    expect(doneShoppingPlan(rows, ['canned tomatoes']).find((x) => x.id === 'b')?.already).toBe(true);
+    expect(doneShoppingPlan([], ['flour'])).toEqual([]);
+  });
+});
+
+describe('a container is an identity only for a thing with a fresh form', () => {
+  it('tomatoes: cans are not fresh, either way round', () => {
+    expect(covers(['tomatoes'], '2 cans diced tomatoes')).toBe(false);
+    expect(covers(['canned tomatoes'], '2 tomatoes')).toBe(false);
+    expect(covers(['canned tomatoes'], '1 can diced tomatoes')).toBe(true);
+    expect(covers(['tomatoes'], '2 tomatoes')).toBe(true);
+  });
+
+  it('only-ever-preserved things read the container as a unit', () => {
+    expect(covers(['coconut milk'], '1 can coconut milk')).toBe(true);
+    expect(covers(['1 can coconut milk'], 'coconut milk')).toBe(true);
+    expect(covers(['salsa'], '1 jar salsa')).toBe(true);
+    expect(covers(['chickpeas'], '1 can chickpeas')).toBe(true);
+    expect(covers(['canned chickpeas'], '2 cups chickpeas')).toBe(true);
+    expect(pantryRowKey('1 can coconut milk')).toBe(pantryRowKey('coconut milk'));
+    // negatives: a different thing is still different
+    expect(covers(['coconut milk'], '1 can chickpeas')).toBe(false);
+    expect(covers(['milk'], '1 can coconut milk')).toBe(false);
+    expect(covers(['salsa'], '1 jar tomatoes')).toBe(false);
+  });
+
+  it('black beans file as Cans & Jars, so the can is only a unit', () => {
+    expect(shoppingRows([r('a', ['1 can black beans'])])[0]?.aisle).toBe('Cans & Jars');
+    expect(covers(['black beans'], '1 can black beans')).toBe(true);
+    expect(covers(['1 can black beans'], 'black beans')).toBe(true);
+    // negative: other beans are other beans
+    expect(covers(['black beans'], '1 can kidney beans')).toBe(false);
+  });
+
+  it('dried stays a kind, separate from the container rule', () => {
+    expect(covers(['basil'], '1 tsp dried basil')).toBe(false);
+    expect(covers(['dried basil'], 'basil')).toBe(false);
+  });
+});
+
+describe('part-of reads "juice of 1 lemon" as lemon juice', () => {
+  it('pantry lemon covers the juice or zest of one, in every wording', () => {
+    for (const line of ['juice of 1 lemon', 'Juice of 1 lemon', 'the juice of half a lemon',
+      '1 lemon, juiced', 'zest of 1 lemon', 'zest of a lemon']) {
+      expect(covers(['lemon'], line), line).toBe(true);
+      expect(covers(['lemons'], line), line).toBe(true);
+    }
+    expect(covers(['lime'], 'juice of 2 limes')).toBe(true);
+    expect(covers(['limes'], 'zest of 1 lime')).toBe(true);
+    expect(covers(['orange'], 'zest of 1 orange')).toBe(true);
+    expect(covers(['oranges'], 'juice of 1 large orange')).toBe(true);
+    expect(covers(['lemon juice'], 'juice of 1 lemon')).toBe(true);
+  });
+
+  it('one direction, and only the right fruit', () => {
+    expect(covers(['lemon juice'], '1 lemon')).toBe(false);
+    expect(covers(['lemon juice'], 'zest of 1 lemon')).toBe(false);
+    expect(covers(['lime'], 'juice of 1 lemon')).toBe(false);
+    expect(covers(['lemon'], 'juice of 2 limes')).toBe(false);
+    expect(covers(['orange'], 'zest of 1 lemon')).toBe(false);
+    expect(covers(['flour'], 'juice of 1 lemon')).toBe(false);
+    expect(covers(['lemon'], 'juice of 1 lemon and 1 lime')).toBe(false);
   });
 });

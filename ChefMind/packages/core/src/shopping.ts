@@ -148,12 +148,13 @@ const MEASURE_WORDS = new Set([
   'tsp', 'teaspoon', 'tbsp', 'tablespoon', 'oz', 'ounce', 'lb', 'pound',
   'cup', 'clove', 'can', 'gal', 'gallon', 'qt', 'quart', 'pt', 'pint',
   'stick', 'slice', 'packet', 'package', 'pkg', 'jar', 'bottle', 'box', 'bag', 'tin',
+  'fl', 'dl', 'cl', 'mg', 'milligram', 'head', 'stalk', 'piece', 'dozen', 'wedge',
 ]);
 
 /** Is this word an amount rather than a thing? A number, a measure, or one of
  *  the measures a cook writes in words. */
 const isAmountWord = (w: string): boolean =>
-  /^\d/.test(w) || MEASURE_WORDS.has(w) || VAGUE_WORDS.has(w);
+  /^[\d\p{No}]/u.test(w) || MEASURE_WORDS.has(w) || VAGUE_WORDS.has(w);
 
 /**
  * WHICH KIND OF THE SAME THING — the owner, 2026-09-18: "i have sugar in my pantry
@@ -172,26 +173,104 @@ const isAmountWord = (w: string): boolean =>
  * claimed almond flour would send you home without the thing the recipe is
  * made of. Colour words especially: white sugar is granulated sugar, but
  * white wine is not red wine, and one list cannot tell those apart.
+ *
+ * 'kosher' WAS HERE and is not (the owner, 2026-11-21: "salt on its own would
+ * match salt, but if it specifies kosher salt, it only matches if the pantry
+ * has kosher salt"). Kosher salt is its own box on the shelf, so it is a
+ * KIND word that counts. The other words keep the reading they had.
  */
 const VARIETY_WORDS = new Set([
   'granulated', 'table', 'fine', 'superfine', 'coarse', 'flaky', 'plain',
   'regular', 'ordinary', 'standard', 'pure', 'unbleached',
-  'all', 'purpose', 'allpurpose', 'kosher', 'sea', 'iodized', 'iodised',
+  'all', 'purpose', 'allpurpose', 'sea', 'iodized', 'iodised',
 ]);
 
 /**
- * A PART of a staple that having the staple covers — the owner, same day: "things
+ * A PART of a staple that having the staple covers — the owner, 2026-09-18: "things
  * like egg yolk should realize i already have eggs".
  *
  * A table rather than a rule, and short on purpose. 'Yolk' and 'white' are
  * the two words a recipe uses for half an egg, and 'white' is exactly the
  * word a general rule must not be allowed to drop (see above). Naming the
- * two pairs outright is what buys the egg case without buying the wine one.
+ * pairs outright is what buys the egg case without buying the wine one.
+ *
+ * ONE DIRECTION ONLY (the owner, 2026-11-21): the key is what a RECIPE line
+ * asks for, the value is the thing on the shelf that covers it. A pantry row
+ * for lemon juice does not put a lemon on hand, so this is read on the recipe
+ * side and never folds two pantry rows together. Keys are singular, as
+ * `pantryKey` leaves them.
  */
 const PART_OF: Record<string, string> = {
   'egg yolk': 'egg',
   'egg white': 'egg',
+  'lemon juice': 'lemon',
+  'lemon zest': 'lemon',
+  'lime juice': 'lime',
+  'lime zest': 'lime',
+  'orange juice': 'orange',
+  'orange zest': 'orange',
+  'garlic clove': 'garlic',
 };
+
+/**
+ * NAMED ALIASES — two spellings of ONE thing on the shelf, read both ways
+ * (the owner, 2026-11-21). A short explicit table like PART_OF, not a rule:
+ * every pair here was named, and what is not named stays itself ('buttermilk',
+ * 'coconut milk' and 'almond milk' are not milk).
+ *
+ * Keys are what `pantryKey` leaves: singular, preparation words gone, so
+ * 'extra virgin olive oil' arrives as 'virgin olive oil' ('extra' is a prep
+ * word) and 'extra-virgin' as 'extravirgin' (the hyphen is dropped). The
+ * value is the one spelling both sides are compared as.
+ *
+ * 'pepper' means black pepper: a spice-rack reading, because a cook lists
+ * pepper in the pantry and does not list a bell pepper there. Every other
+ * pepper is a kind word and never reaches this table.
+ */
+const ALIASES: Record<string, string> = {
+  'black pepper': 'pepper',
+  'peppercorn': 'pepper',
+  'black peppercorn': 'pepper',
+  'green onion': 'scallion',
+  'chicken stock': 'chicken broth',
+  'parmigiano reggiano': 'parmesan',
+  'parmigianoreggiano': 'parmesan',
+  'parmesan cheese': 'parmesan',
+  'virgin olive oil': 'olive oil',
+  'extravirgin olive oil': 'olive oil',
+  'unsalted butter': 'butter',
+  'salted butter': 'butter',
+  'whole milk': 'milk',
+  'skim milk': 'milk',
+  // '2% milk' reaches here as 'milk': the 2 is an amount word, read past.
+};
+
+/**
+ * 'ground' is a preparation word ONLY on a spice ('ground black pepper' is
+ * pepper), and these four are the spices where ground is a different thing
+ * from the plain one: ground (dried) ginger is not the fresh root, ground
+ * coriander is the seed and not cilantro, ground mustard is not the
+ * condiment, ground turmeric is not the root. They keep 'ground'.
+ */
+const FORM_SENSITIVE = new Set(['ginger', 'coriander', 'mustard', 'turmeric']);
+
+/**
+ * Words only the pantry reads past, so they are not in PREP_WORDS (which the
+ * Refresh combine also uses, and which must not start merging lines it kept
+ * apart before). 'fresh' is what a bare herb or produce name already means,
+ * so it is no kind at all; 'dried' and 'canned' ARE kinds and are never
+ * dropped (the owner, 2026-11-21: "DO distinguish fresh vs canned or dried").
+ */
+const PANTRY_PREP = new Set(['fresh', 'cracked']);
+
+/** Preserved, said as an adjective: the same thing as a can or jar unit. */
+const PRESERVED = new Set(['canned', 'tinned', 'jarred']);
+
+/** Never put on a shopping list, as if always on hand (the owner, 2026-11-21). */
+const ALWAYS_ON_HAND = new Set([
+  'water', 'ice', 'boiling water', 'warm water', 'cold water', 'hot water', 'ice water',
+  'lukewarm water', 'ice cube',
+]);
 
 /**
  * The name as the PANTRY reads it: the thing itself, with the measure a cook
@@ -215,18 +294,132 @@ export function pantryKey(name: string): string {
   return (kept.length > 0 ? kept : words).join(' ');
 }
 
+const CITRUS = new Set(['lemon', 'lime', 'orange']);
+/** Words between 'juice of' and the fruit: '1', 'half', 'a', 'the'. */
+const PART_FILLER = new Set(['a', 'an', 'the', 'one', 'two', 'three', 'half', 'whole', 'large', 'small', 'medium']);
+
 /**
- * The STAPLE a key names: the same thing with the kind of it taken off.
- *
- * What the pantry actually compares, on both sides. `pantryKey` answers what
- * the line says; this answers what is in the cupboard when it is true.
+ * 'juice of 1 lemon', 'the juice of half a lemon', 'zest of 2 limes' read as
+ * 'lemon juice' / 'lime zest' — the part PART_OF already knows. Anything that
+ * does not fit the shape is returned as it came.
  */
-function staple(key: string): string {
-  const words = key.split(' ').filter(Boolean);
-  const kept = words.filter((w) => !VARIETY_WORDS.has(w));
-  const bare = (kept.length > 0 ? kept : words).join(' ');
-  return PART_OF[bare] ?? bare;
+function partPhrase(words: string[]): string[] {
+  const at = words.findIndex((x, i) => (x === 'juice' || x === 'zest') && words[i + 1] === 'of');
+  if (at < 0) return words;
+  const rest = words.slice(at + 2).filter((x) => !PART_FILLER.has(x) && !NUMBER_WORD.test(x));
+  const fruit = rest[0];
+  return rest.length === 1 && fruit !== undefined && CITRUS.has(fruit) ? [fruit, words[at] as string] : words;
 }
+
+/** Filter, but never to nothing. */
+function keepSome(words: string[], keep: (w: string) => boolean): string[] {
+  const out = words.filter(keep);
+  return out.length > 0 ? out : words;
+}
+
+/** An amount that survived in the middle of a name: '2', '½', '250g'. */
+const NUMBER_WORD = /^(?:[\d\p{No}]+(?:[./,]\d+)?|\d+(?:\.\d+)?[a-z]+)$/u;
+
+/**
+ * The STAPLE a run of `pantryKey` words names: what is in the cupboard when
+ * the line is true. In this order, because each step makes the next simpler:
+ *   1. canned/tinned/jarred come off (the caller turns them into can:/jar:);
+ *   2. 'fresh coriander' is cilantro, before 'fresh' is read past;
+ *   3. a number, and a measure right after one, is not part of a name,
+ *      whether or not the parser caught it ('flour 2 cups');
+ *   4. 'fresh' and 'cracked' come off, 'dried' never does;
+ *   5. 'ground' comes off a SPICE only (the aisle classifier decides, so
+ *      ground beef keeps it), except the FORM_SENSITIVE four;
+ *   6. a kind that is the same box on the shelf ('granulated') comes off;
+ *   7. a named alias is read as its one spelling.
+ */
+function stapleOf(base: string[]): string {
+  let w = keepSome(partPhrase(base), (x) => !PRESERVED.has(x));
+  const fc = w.findIndex((x, i) => x === 'fresh' && w[i + 1] === 'coriander');
+  if (fc >= 0) w = [...w.slice(0, fc), 'cilantro', ...w.slice(fc + 2)];
+  const noNumbers: string[] = [];
+  for (let i = 0; i < w.length; i++) {
+    const x = w[i] as string;
+    if (NUMBER_WORD.test(x)) {
+      if (MEASURE_WORDS.has(w[i + 1] ?? '')) i++;
+      continue;
+    }
+    noNumbers.push(x);
+  }
+  w = noNumbers.length > 0 ? noNumbers : w;
+  w = keepSome(w, (x) => !PANTRY_PREP.has(x));
+  if (w.includes('ground') && !w.some((x) => FORM_SENSITIVE.has(x))
+    && ingredientAisle(w.join(' ')) === 'Spices & Seasoning') {
+    w = keepSome(w, (x) => x !== 'ground');
+  }
+  w = keepSome(w, (x) => !VARIETY_WORDS.has(x));
+  const joined = w.join(' ');
+  return ALIASES[joined] ?? joined;
+}
+
+/**
+ * A can or a jar is where a thing is SOLD, and it only IS an identity when the
+ * thing has a fresh form to be told apart from: '2 cans tomatoes' are not the
+ * fresh tomatoes, and 'canned tomatoes' is not '2 tomatoes'. Coconut milk,
+ * salsa, chickpeas and black beans are only ever sold preserved, so for them
+ * the container is a unit like any other and is read past (the coordinator,
+ * 2026-11-21). "Has a fresh form" is: the name without the container word
+ * files as Produce. 'tin' is a can, 'jarred' a jar.
+ */
+function containerOf(text: string, unit: string | null, name: string): '' | 'can' | 'jar' {
+  const c = containerWord(text, unit, name);
+  if (c === '') return '';
+  // The name as written (plural, so phrases like 'black beans' still match the
+  // aisle table), minus amounts, container words and prep words.
+  const words = nameKey(bareName(name)).split(' ').filter(Boolean);
+  let i = 0;
+  while (i < words.length && isAmountWord(singularOf(words[i] as string))) i++;
+  const bare = words.slice(i).filter((w) => !PREP_WORDS.has(w) && !PRESERVED.has(w)
+    && !CONTAINER_WORDS.has(w));
+  return ingredientAisle((bare.length > 0 ? bare : words).join(' ')) === 'Produce' ? c : '';
+}
+
+const CONTAINER_WORDS = new Set(['can', 'cans', 'tin', 'tins', 'jar', 'jars']);
+
+/** Which container the line names, whatever the thing in it is. */
+function containerWord(text: string, unit: string | null, name: string): '' | 'can' | 'jar' {
+  const u = unit ? singularOf(unit.trim().toLowerCase()) : '';
+  if (u === 'can' || u === 'tin') return 'can';
+  if (u === 'jar') return 'jar';
+  if (/\b(?:canned|tinned)\b/i.test(text)) return 'can';
+  if (/\bjarred\b/i.test(text)) return 'jar';
+  // The unit the parser missed: '1 (14 oz) can diced tomatoes', '2 tins …'.
+  for (const x of nameKey(bareName(name)).split(' ').filter(Boolean).map((w) => singularOf(w))) {
+    if (!isAmountWord(x)) break;
+    if (x === 'can' || x === 'tin') return 'can';
+    if (x === 'jar') return 'jar';
+  }
+  return '';
+}
+
+/** What a line or pantry row IS, for deciding it is on the shelf: one key for
+ *  the whole thing, and one per thing it names when it says 'X and Y'. */
+type Ident = { key: string; parts: string[] };
+
+function identify(text: string): Ident {
+  const t = text.trim();
+  const p = ingredientParts(t);
+  const name = p.name || t;
+  const c = containerOf(t, p.unit, name);
+  const prefixed = (k: string) => (k !== '' && c !== '' ? `${c}:${k}` : k);
+  let base = pantryKey(name);
+  // 'lemon, juiced' is the juice of a lemon, said the other way round.
+  const tail = /,\s*(?:finely\s+)?(juiced|zested)\b/i.exec(name);
+  if (tail && CITRUS.has(base)) base = `${base} ${tail[1]!.toLowerCase() === 'juiced' ? 'juice' : 'zest'}`;
+  const key = prefixed(stapleOf(base.split(' ').filter(Boolean)));
+  const parts = base.split(/\s+and\s+/).filter(Boolean)
+    .map((part) => prefixed(stapleOf(part.split(' ').filter(Boolean)))).filter(Boolean);
+  return { key, parts: parts.length > 1 ? parts : [key] };
+}
+
+/** The shelf things that would cover a key: itself, and the thing it is a
+ *  part of (PART_OF, recipe side only). */
+const coverers = (key: string): string[] => (PART_OF[key] ? [key, PART_OF[key] as string] : [key]);
 
 /**
  * What a pantry ROW is, for deciding two rows are the same ingredient: its
@@ -237,11 +430,7 @@ function staple(key: string): string {
  * decides the key's class, never a number.
  */
 export function pantryRowKey(text: string): string {
-  const p = ingredientParts(text.trim());
-  const key = staple(pantryKey(p.name || text));
-  if (key === '') return '';
-  const u = p.unit ? p.unit.trim().toLowerCase() : '';
-  return u === 'can' || u === 'cans' || u === 'jar' || u === 'jars' ? `${u.startsWith('can') ? 'can' : 'jar'}:${key}` : key;
+  return identify(text).key;
 }
 
 /**
@@ -254,8 +443,18 @@ export function pantryHas(rows: readonly string[], text: string, except = -1): b
   return rows.some((r, i) => i !== except && pantryRowKey(r) === key);
 }
 
+/** The pantry as shelf things: identity → the first ROW that holds it. */
+function shelf(pantry: readonly string[]): Map<string, string> {
+  const have = new Map<string, string>();
+  for (const row of pantry) {
+    const key = pantryRowKey(row);
+    if (key !== '' && !have.has(key)) have.set(key, row);
+  }
+  return have;
+}
+
 /**
- * Is this line's ingredient already on hand?
+ * The pantry rows that cover this line, or null when it is not all on hand.
  *
  * The 'and' case is here because a recipe writes 'salt and pepper to taste'
  * far more often than it writes either alone. It goes only when EVERY thing
@@ -266,12 +465,24 @@ export function pantryHas(rows: readonly string[], text: string, except = -1): b
  * cheese' is one box and does not put cheese on hand; a recipe line saying
  * 'salt and pepper' is two things and needs both.
  */
-function onHand(have: ReadonlySet<string>, name: string): boolean {
-  const key = staple(pantryKey(name));
-  if (key === '') return false;
-  if (have.has(key)) return true;
-  const parts = key.split(/\s+and\s+/).filter(Boolean).map(staple);
-  return parts.length > 1 && parts.every((part) => have.has(part));
+function coveredBy(have: ReadonlyMap<string, string>, id: Ident): string[] | null {
+  if (id.key === '') return null;
+  const find = (key: string): string | undefined => {
+    for (const k of coverers(key)) { const row = have.get(k); if (row !== undefined) return row; }
+    return undefined;
+  };
+  const whole = find(id.key);
+  if (whole !== undefined) return [whole];
+  if (id.parts.length < 2) return null;
+  const rows = id.parts.map(find);
+  return rows.every((r) => r !== undefined) ? (rows as string[]) : null;
+}
+
+/** Is a pantry row (by identity) one of the things this line names? Looser
+ *  than `coveredBy`: a cook who had salt used salt even if pepper ran out. */
+function lineUses(rowKey: string, id: Ident): boolean {
+  if (rowKey === '' || id.key === '') return false;
+  return coverers(id.key).includes(rowKey) || (id.parts.length > 1 && id.parts.some((k) => coverers(k).includes(rowKey)));
 }
 
 /** A name with its bracketed aside and its comma tail taken off — what the
@@ -380,39 +591,71 @@ export function mergeIntoList(existing: readonly string[], incoming: readonly st
   /** What nothing on the list could take, combined among themselves. */
   added: string[];
 } {
+  const { kept, added } = foldIntoList(existing, incoming);
+  return { kept, added };
+}
+
+/** `mergeIntoList`, with a record of which incoming line landed on which
+ *  existing row (`at` indexes `existing`) and what that row became. */
+function foldIntoList(existing: readonly string[], incoming: readonly string[]): {
+  kept: string[];
+  added: string[];
+  folds: { line: string; at: number; result: string }[];
+} {
   const kept = existing.slice();
   const fresh: string[] = [];
+  const folds: { line: string; at: number; result: string }[] = [];
   for (const line of incoming) {
     // Against the CURRENT text, so a second line can fold into a row the
     // first one already changed — two recipes each wanting butter.
     const at = kept.findIndex((t) => recombineLines([t, line]).length === 1);
     if (at < 0) { fresh.push(line); continue; }
     const [combined] = recombineLines([kept[at] as string, line]);
-    if (combined !== undefined) kept[at] = combined;
+    if (combined !== undefined) { kept[at] = combined; folds.push({ line, at, result: combined }); }
   }
   // The leftovers meet each other too: `shoppingLines` combined them on the
   // STRICT reading, and 'onion' beside 'chopped onions' only meets on the
   // loose one — which is the reading every line above just had.
-  return { kept, added: recombineLines(fresh) };
+  return { kept, added: recombineLines(fresh), folds };
 }
 
 function shoppingEntries(
-  sources: ShoppingSource[],
-  pantry: string[],
+  sources: readonly ShoppingSource[],
+  pantry: readonly string[],
   loose = false,
 ): { text: string; name: string; aisle: Aisle }[] {
+  return buildEntries(sources, pantry, loose).rows;
+}
+
+/** An entry plus who asked for it. */
+type Tracked = Entry & { from: string[]; srcs: Set<number>; match: string };
+
+/**
+ * The one pass behind every list: what to buy, what the pantry covered, and
+ * how many lines collapsed into another recipe's. `rows` is what
+ * `shoppingLines` has always answered; the rest is what the plan view shows.
+ */
+function buildEntries(
+  sources: readonly ShoppingSource[],
+  pantry: readonly string[],
+  loose: boolean,
+): {
+  rows: { text: string; name: string; aisle: Aisle; from: string[] }[];
+  held: { text: string; from: string[]; match: string }[];
+  combined: number;
+} {
   const keyOfName = loose ? looseNameKey : nameKey;
   // The pantry reads names its OWN way, the same way in both passes: whether
   // two lines of a list combine and whether a cupboard already holds one of
   // them are different questions, and the second one has to survive '1 tsp',
   // 'a pinch of' and 'to taste' alike.
-  const have = new Set(
-    pantry.map((p) => staple(pantryKey(ingredientParts(p).name || p))).filter(Boolean),
-  );
+  const have = shelf(pantry);
   // Insertion-ordered, which is what Map guarantees and a plain object does
   // not for numeric-looking keys.
-  const seen = new Map<string, Entry>();
-  for (const src of sources) {
+  const seen = new Map<string, Tracked>();
+  const held = new Map<string, Tracked>();
+  let combined = 0;
+  sources.forEach((src, srcIx) => {
     for (const line of src.ingredients) {
       const text = line.trim();
       // A subheader is a heading for the COOK ("For the béchamel:"), not a
@@ -428,7 +671,12 @@ function shoppingEntries(
       const unit = (aside?.unit ?? p.unit)?.toLowerCase() ?? null;
       const name = loose ? bareName(p.name) : p.name.trim();
       const nk = keyOfName(name);
-      if (have.size > 0 && onHand(have, name)) continue;   // already in the pantry
+      const id = identify(text);
+      // Water and ice are never bought. Strict pass only: Refresh combines
+      // rows somebody put on the list, and must not make one vanish.
+      if (!loose && ALWAYS_ON_HAND.has(id.key)) continue;
+      const rows = have.size > 0 ? coveredBy(have, id) : null;
+      const into = rows ? held : seen;
       const dim = unitDimension(unit);
       // The key is what "the same thing" means. Case-folded; the DIMENSION
       // counts rather than the unit, so cups and tablespoons of the same
@@ -445,11 +693,18 @@ function shoppingEntries(
       // one would put a number on the list nobody wrote.
       const rawQty = aside ? qtyValue(aside.qty) : p.qty === null ? null : qtyValue(p.qty);
       const qty = rawQty === null ? null : dim === null ? rawQty : toBase(rawQty, unit);
-      const prev = seen.get(key);
+      const prev = into.get(key);
       if (!prev) {
-        seen.set(key, { qty, dim, unit, name, raw: text });
+        into.set(key, {
+          qty, dim, unit, name, raw: text,
+          from: src.title ? [src.title] : [], srcs: new Set([srcIx]), match: rows ? rows.join(', ') : '',
+        });
         continue;
       }
+      // Two recipes asking for the same thing is one line, and worth saying.
+      if (into === seen && !prev.srcs.has(srcIx)) combined++;
+      prev.srcs.add(srcIx);
+      if (src.title && !prev.from.includes(src.title)) prev.from.push(src.title);
       // Two lines that both parse: add them. Anything else keeps the first
       // line exactly as written, which is also what makes a repeated
       // quantity-less ingredient ('salt') collapse to one row.
@@ -461,11 +716,122 @@ function shoppingEntries(
       // and still does here whenever the lengths tie.
       if (loose && name !== '' && name.length < prev.name.length) prev.name = name;
     }
-  }
-  return [...seen.values()].map((e) => {
-    const text = render(e, loose);
-    return { text, name: e.name, aisle: ingredientAisle(e.name, e.unit) };
   });
+  return {
+    rows: [...seen.values()].map((e) => ({
+      text: render(e, loose), name: e.name, aisle: ingredientAisle(e.name, e.unit), from: e.from,
+    })),
+    held: [...held.values()].map((e) => ({ text: render(e, loose), from: e.from, match: e.match })),
+    combined,
+  };
+}
+
+/**
+ * The shopping PLAN: what to buy, what the pantry already covers, what would
+ * fold into rows the list already has, and how many lines two recipes shared.
+ * The same combining as `shoppingLines`, in the same order, with the reasons
+ * left in. `from` is the recipe titles that want a line; `match` is the
+ * pantry ROW that covered it; `merges` are the lines `mergeIntoList` would add
+ * to an existing list row (`into` is that row as it stands in `list`, `result`
+ * what it becomes).
+ */
+export function shoppingPlan(
+  sources: ShoppingSource[],
+  pantry: readonly string[],
+  list: readonly string[],
+): {
+  toBuy: { text: string; name: string; aisle: Aisle; from: string[] }[];
+  inPantry: { text: string; from: string[]; match: string }[];
+  merges: { text: string; into: string; result: string }[];
+  combined: number;
+} {
+  const { rows, held, combined } = buildEntries(sources, pantry, false);
+  const { folds } = foldIntoList(list, rows.map((r) => r.text));
+  return {
+    toBuy: rows,
+    inPantry: held,
+    merges: folds.map((f) => ({ text: f.line, into: list[f.at] as string, result: f.result })),
+    combined,
+  };
+}
+
+/** How many shopping lines this one recipe would add, given the pantry — the
+ *  recipe list's "2 to buy" / "Have everything". */
+export function recipeStillToBuy(ingredients: readonly string[], pantry: readonly string[]): number {
+  return buildEntries([{ title: null, ingredients: [...ingredients] }], pantry, false).rows.length;
+}
+
+/** The recipes with an ingredient this pantry row covers, and the first line
+ *  that does — the pantry row's "used in". */
+export function pantryUsedBy(
+  row: string,
+  recipes: readonly { id: string; title: string; ingredients: readonly string[] }[],
+): { id: string; title: string; line: string }[] {
+  const rowKey = pantryRowKey(row);
+  const out: { id: string; title: string; line: string }[] = [];
+  for (const r of recipes) {
+    const line = r.ingredients.find((l) => {
+      const t = l.trim();
+      return t !== '' && !isSubheader(t) && lineUses(rowKey, identify(t));
+    });
+    if (line !== undefined) out.push({ id: r.id, title: r.title, line });
+  }
+  return out;
+}
+
+/** The pantry rows this recipe uses, in pantry order — the "Ran out?" step
+ *  after cooking. */
+export function pantryUsedIn(ingredients: readonly string[], pantry: readonly string[]): string[] {
+  const ids = ingredients.map((l) => l.trim()).filter((t) => t !== '' && !isSubheader(t)).map(identify);
+  const out: string[] = [];
+  for (const row of pantry) {
+    const rowKey = pantryRowKey(row);
+    if (rowKey !== '' && !out.includes(row) && ids.some((id) => lineUses(rowKey, id))) out.push(row);
+  }
+  return out;
+}
+
+/** The name a pantry row would carry for a bought line: the ingredient with
+ *  its quantity, unit and note taken off, in the words the cook wrote. A can
+ *  or jar stays one ('canned tomatoes'), because that is its identity. */
+function pantryNameOf(text: string): string {
+  const p = ingredientParts(text.trim());
+  const name = p.name || text.trim();
+  const bare = bareName(name).replace(USE_TAIL, '').trim();
+  const tokens = bare.split(' ').filter(Boolean);
+  let i = 0;
+  while (i < tokens.length && isAmountWord(singularOf(tokens[i]!.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')))) i++;
+  const rest = tokens.slice(i).join(' ');
+  const out = rest !== '' ? rest : bare;
+  const c = containerOf(text, p.unit, name);
+  if (c === '' || /\b(?:canned|tinned|jarred)\b/i.test(out)) return out;
+  return `${c === 'can' ? 'canned' : 'jarred'} ${out}`;
+}
+
+/**
+ * What ticking off the shopping list offers to put in the pantry: one entry
+ * per DONE row. `already` is the pantry holding it; `defaultOn` is whether the
+ * box starts ticked — not when it is already there, and not for an `Other`
+ * thing the aisles could not place (batteries, a card).
+ */
+export function doneShoppingPlan(
+  rows: readonly { id: string; text: string; done: boolean }[],
+  pantry: readonly string[],
+): { id: string; text: string; name: string; aisle: Aisle; defaultOn: boolean; already: boolean }[] {
+  const have = shelf(pantry);
+  const out: { id: string; text: string; name: string; aisle: Aisle; defaultOn: boolean; already: boolean }[] = [];
+  for (const r of rows) {
+    if (!r.done) continue;
+    const text = r.text.trim();
+    if (text === '') continue;
+    const id = identify(text);
+    if (ALWAYS_ON_HAND.has(id.key)) continue;
+    const p = ingredientParts(text);
+    const aisle = ingredientAisle(p.name || text, p.unit);
+    const already = coveredBy(have, id) !== null;
+    out.push({ id: r.id, text: r.text, name: pantryNameOf(text), aisle, defaultOn: aisle !== 'Other' && !already, already });
+  }
+  return out;
 }
 
 /** The name made to agree with the number in front of it — the last word
@@ -523,7 +889,7 @@ function render(e: Entry, loose = false): string {
  * line it is unsure of — an extra row costs a tap, a lost one costs a retype.
  *
  * `have` is the pantry as it stands. Anything already on it (by the pantry's
- * own reading, `staple(pantryKey(…))`) is left out, and so is a repeat within
+ * own reading, `pantryRowKey`) is left out, and so is a repeat within
  * the photo — a receipt that rang up milk twice still means one row.
  */
 export function pantryItemsFromPages(pages: readonly string[], have: readonly string[] = []): string[] {
