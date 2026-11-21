@@ -7,6 +7,11 @@
       "copies": ["ChefMind/app/src/components/SuiteTopBar.tsx", "AcctMind/apps/app/src/components/SuiteTopBar.tsx"]
     },
     {
+      "id": "app-components-wide-frame-tsx",
+      "origin": "CalMind/apps/app/src/components/WideFrame.tsx",
+      "copies": ["ChefMind/app/src/components/WideFrame.tsx", "AcctMind/apps/app/src/components/WideFrame.tsx"]
+    },
+    {
       "id": "suite-topbar-css",
       "origin": "packages/mind-server/assets/suite-topbar.css",
       "copies": ["ReadMind/public/suite-topbar.css", "PlanMind/app/styles/suite-topbar.css", "TaskMind/app/styles/suite-topbar.css"]
