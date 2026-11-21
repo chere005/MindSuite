@@ -6,7 +6,7 @@
  * or time field wins the VALUE, but a parsed token always leaves the title —
  * it was an instruction, not part of the name.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   byRecOrd,
@@ -38,16 +38,7 @@ import { Dropdown } from './Dropdown';
 export type ItemKind = 'event' | 'reminder' | 'note';
 type ItemRec = Rec<'event'> | Rec<'reminder'> | Rec<'note'>;
 
-export function ItemModal({
-  mode,
-  kind: kind0,
-  rec,
-  date: date0,
-  text0,
-  dest0,
-  onClose,
-  onSaved,
-}: {
+export type ItemEditorProps = {
   mode: 'create' | 'edit';
   kind: ItemKind;
   rec?: ItemRec;
@@ -63,6 +54,40 @@ export function ItemModal({
   dest0?: string | null;
   onClose: () => void;
   onSaved?: (id: string, kind: ItemKind) => void;
+};
+
+/** The phone's edit window: the form below, in a centred card over a dimmed page. */
+export function ItemModal(props: ItemEditorProps) {
+  return (
+    <Modal transparent animationType="fade" onRequestClose={props.onClose}>
+      <Pressable style={s.backdrop} onPress={props.onClose}>
+        <Pressable style={s.card} onPress={() => {}}>
+          <ItemEditor {...props} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * The form itself — fields, reveals, Goes in / Calendar, Delete / Cancel /
+ * Save — with no window around it. The phone's ItemModal wraps it in a Modal;
+ * the wide layout's detail pane renders it inline (`inline`), so both screens
+ * are the same fields with the same validation.
+ */
+export function ItemEditor({
+  mode,
+  kind: kind0,
+  rec,
+  date: date0,
+  text0,
+  dest0,
+  onClose,
+  onSaved,
+  inline = false,
+}: ItemEditorProps & {
+  /** In the wide layout's detail pane rather than the phone's window. */
+  inline?: boolean;
 }) {
   const { recs, mutate, sharedRecs, sharedPut, sharedPartner, sharedPartnerLabel } = useStore();
   const clock24 = useClock24();
@@ -122,6 +147,11 @@ export function ItemModal({
   const [showRepeat, setShowRepeat] = useState(init.repeat !== null);
   const [dest, setDest] = useState<string | null>(init.dest);
   const [err, setErr] = useState('');
+  // A reminder whose day has passed rides forward to today; the detail pane
+  // says so, as the wireframe's header does.
+  const carried = mode === 'edit' && rec?.type === 'reminder' && !rec.payload.done && rec.payload.due && rec.payload.due < today
+    ? new Date(`${rec.payload.due}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : null;
 
   /**
    * What each picker NAMES (the owner, 2026-09-19: "the start/end date should
@@ -357,11 +387,16 @@ export function ItemModal({
 
 
   return (
-    <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={s.backdrop} onPress={onClose}>
-        <Pressable style={s.card} onPress={() => {}}>
-          <Scroll contentContainerStyle={s.scroll}>
-            <Text style={s.h2}>{mode === 'create' ? 'New' : 'Edit'}</Text>
+    <>
+          <Scroll contentContainerStyle={inline ? s.scrollInline : s.scroll}>
+            {inline ? (
+              <View style={s.headRow}>
+                <Text style={s.h2}>{mode === 'create' ? 'New' : `Edit ${kind}`}</Text>
+                {carried && <Text style={s.carried}>Carried forward from {carried}</Text>}
+              </View>
+            ) : (
+              <Text style={s.h2}>{mode === 'create' ? 'New' : 'Edit'}</Text>
+            )}
             {(mode === 'create' || rec?.type !== 'note') && !sharedRec && (
               <View style={s.rowWrap}>
                 {(['event', 'reminder', 'note'] as ItemKind[]).map((k) => (
@@ -402,7 +437,7 @@ export function ItemModal({
             </View>
 
             {!showTime ? (
-              <Pill label="+ Time" onPress={() => setShowTime(true)} />
+              <Reveal inline={inline}><Pill label="+ Time" onPress={() => setShowTime(true)} /></Reveal>
             ) : (
               <View style={s.rowWrap}>
                 <Text style={s.label}>Time</Text>
@@ -416,7 +451,7 @@ export function ItemModal({
                 sits as the placeholder and saves unless overtyped. */}
             {kind === 'event' && showTime &&
               (!showEnd ? (
-                <Pill
+                <Reveal inline={inline}><Pill
                   label="+ End"
                   onPress={() => {
                     const ft = parseClockField(timeField);
@@ -424,7 +459,7 @@ export function ItemModal({
                     setEnd(start ? timePlus(start, 60) : null);
                     setShowEnd(true);
                   }}
-                />
+                /></Reveal>
               ) : (
                 <View style={s.rowWrap}>
                   <Text style={s.label}>End</Text>
@@ -435,7 +470,7 @@ export function ItemModal({
 
             {kind !== 'note' &&
               (!showRepeat ? (
-                <Pill label="+ Repeat" onPress={() => { setShowRepeat(true); setRepeat(repeat ?? { n: 1, unit: 'week' }); }} />
+                <Reveal inline={inline}><Pill label="+ Repeat" onPress={() => { setShowRepeat(true); setRepeat(repeat ?? { n: 1, unit: 'week' }); }} /></Reveal>
               ) : (
                 <View style={s.rowWrap}>
                   <Text style={s.label}>every</Text>
@@ -499,8 +534,6 @@ export function ItemModal({
               </View>
             </View>
           </Scroll>
-        </Pressable>
-      </Pressable>
       {pick && (
         <DayPick
           value={pick === 'endDate' ? endDay : startDay}
@@ -508,14 +541,22 @@ export function ItemModal({
           onClose={() => setPick(null)}
         />
       )}
-    </Modal>
+    </>
   );
+}
+
+/** In the detail pane a reveal pill keeps its own width instead of stretching across the column. */
+function Reveal({ inline, children }: { inline: boolean; children: React.ReactNode }) {
+  return inline ? <View style={{ alignSelf: 'flex-start' }}>{children}</View> : <>{children}</>;
 }
 
 const s = themed(() => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#000a', alignItems: 'center', justifyContent: 'center', padding: 16 },
   card: { width: '100%', maxWidth: 440, maxHeight: '90%', backgroundColor: T.surface, borderWidth: 1, borderColor: T.line, borderRadius: 16 },
   scroll: { padding: 18, gap: 12 },
+  scrollInline: { padding: 16, gap: 12 },
+  headRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
+  carried: { color: T.dim, fontSize: 13 },
   h2: { color: T.text, fontSize: 18, fontWeight: '700' },
   label: { color: T.dim, fontSize: 13 },
   rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },

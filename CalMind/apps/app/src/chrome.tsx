@@ -15,6 +15,7 @@ import { Requests } from './screens/Requests';
 import { syncLook } from './components/SyncDot';
 import { useToast } from './components/Toast';
 import { useNav } from './nav';
+import { useWide } from './components/WideFrame';
 
 export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, onToggleCompleted }: {
   title: string;
@@ -25,6 +26,7 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
   onToggleCompleted?: () => void;
 }) {
   const nav = useNav();
+  const { wide } = useWide();
   const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
   const requests = useMemo(() => meetreqBadgeCount(recs), [recs]);
   const [sharedSeen, setSharedSeen] = useState(false);
@@ -59,7 +61,7 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
   ];
   return <>
     <TopBarFrame title={title} colors={colors}
-      left={<TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
+      left={wide ? undefined : <TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
       controls={controls} picker={picker}
       account={<AccountMenu colors={colors} username={session?.username} statusColor={look.color} statusLabel={look.text}
         label={`${session?.username ?? ''} — account menu. ${look.text}` + (requests > 0 ? ` ${requests} new meeting request${requests === 1 ? '' : 's'}.` : '')}

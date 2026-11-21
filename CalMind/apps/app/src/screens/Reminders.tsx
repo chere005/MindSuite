@@ -37,7 +37,8 @@ import { useSharedTick, useTickGrace } from '../components/tickgrace';
 import { Chevron } from '../components/Chevron';
 import { EditExit, stayInEdit } from '../components/EditExit';
 import { useSectionDrag, type SectionSlot } from '../components/sectiondrag';
-import { ItemModal } from '../components/ItemModal';
+import { ItemSheet } from '../components/DetailPane';
+import { useWide } from '../components/WideFrame';
 import { useToast } from '../components/Toast';
 import { CircleBtn, ConfirmDelete, Field, FoldCaret, Pill, Scroll, WebHitSlop } from '../ui';
 import { useFolds } from '../folds';
@@ -810,9 +811,9 @@ export function Reminders() {
         </EditExit>
       </Scroll>
 
-      {modalRec && <ItemModal mode="edit" kind="reminder" rec={modalRec} onClose={closeModal} />}
+      {modalRec && <ItemSheet mode="edit" kind="reminder" rec={modalRec} onClose={closeModal} />}
       {/* The + on a partner's section: a new row, filed there, saved to their store by the sheet. */}
-      {createIn && <ItemModal mode="create" kind="reminder" dest0={createIn} onClose={() => setCreateIn(null)} />}
+      {createIn && <ItemSheet mode="create" kind="reminder" dest0={createIn} onClose={() => setCreateIn(null)} />}
       {emptyAsk && (
         <Modal transparent animationType="fade" onRequestClose={() => setEmptyAsk(null)}>
           <Pressable style={s.askBackdrop} onPress={() => setEmptyAsk(null)}>
@@ -886,6 +887,7 @@ type RemRowProps = {
  * reached through `api` — see RowApi.
  */
 const RemRow = React.memo(function RemRow({ r, idx, color, last, rolled, dim, pageEdit, editingThis, editText, swipedThis, today, clock24, slot, api }: RemRowProps) {
+  const { wide } = useWide();
   const chip = (() => {
     const { due, time, repeat, done } = r.payload;
     if (!due && !time && !repeat) return null;
@@ -959,7 +961,13 @@ const RemRow = React.memo(function RemRow({ r, idx, color, last, rolled, dim, pa
                 // duplicate, subtask, delete, and the pencil for
                 // the full sheet — and a plain tap is for the
                 // words. The long-press still arms edit mode.
-                if (!pageEdit) { api.current.setEditing(r.id); api.current.setEditText(r.payload.text); }
+                // On a wide window the row opens its full editor in the detail
+                // pane instead (the owner, 2026-11-21: clicking a reminder opens
+                // its edit form beside the list).
+                if (!pageEdit) {
+                  if (wide) { api.current.setModalRec(r); return; }
+                  api.current.setEditing(r.id); api.current.setEditText(r.payload.text);
+                }
               }}
               onLongPress={() => api.current.enterEdit()}
               delayLongPress={350}
@@ -1095,7 +1103,7 @@ function SharedReminders({ viewKey, partner }: { viewKey: string; partner: strin
   return (
     <View style={s.page}>
       <TopBar title="Reminders" picker={<FolderPick app="reminders" />} />
-      {editRec && <ItemModal mode="edit" kind="reminder" rec={editRec} onClose={() => setEditRec(null)} />}
+      {editRec && <ItemSheet mode="edit" kind="reminder" rec={editRec} onClose={() => setEditRec(null)} />}
       <Scroll contentContainerStyle={s.scroll}>
         <View style={s.folderHead}>
           <Text style={[s.folderName, { backgroundColor: (folder?.payload.color ?? '#888888') + '33' }]}>@{shown}: {folder?.payload.name ?? '…'}</Text>

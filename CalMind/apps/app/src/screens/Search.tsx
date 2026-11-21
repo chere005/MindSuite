@@ -26,8 +26,34 @@ const SORT_OPTIONS = [
 
 export function Search({ onClose, onOpen }: { onClose: () => void; onOpen: (hit: SearchHit) => void }) {
   const insets = useSafeAreaInsets();
-  const { recs, mutate } = useStore();
   const [query, setQuery] = useState('');
+  return (
+    <Modal animationType="slide" onRequestClose={onClose}>
+      <View style={[s.page, { paddingTop: insets.top }]}>
+        <View style={s.head}>
+          <CircleBtn testID="search-back" glyph="‹" size={32} label="Back" onPress={onClose} />
+          <Field
+            testID="search-field"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search reminders, notes, events…"
+            autoFocus
+            style={s.field}
+          />
+        </View>
+        <SearchBody query={query} onOpen={onOpen} />
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * The kind filter, sort and results under a query — shared by the phone's
+ * full-screen Search above and the wide layout, which draws it in the main
+ * pane when the sidebar's search field has text.
+ */
+export function SearchBody({ query, onOpen }: { query: string; onOpen: (hit: SearchHit) => void }) {
+  const { recs, mutate } = useStore();
   const [sort, setSort] = useState<SearchSort>('relevance');
   const [desc, setDesc] = useState(false);
   const [kindsOpen, setKindsOpen] = useState(false);
@@ -47,79 +73,67 @@ export function Search({ onClose, onOpen }: { onClose: () => void; onOpen: (hit:
   );
   const filterLabel = active.length === ALL_KINDS.length ? 'All kinds' : active.map((k) => KIND_LABEL[k]).join(' · ');
   return (
-    <Modal animationType="slide" onRequestClose={onClose}>
-      <View style={[s.page, { paddingTop: insets.top }]}>
-        <View style={s.head}>
-          <CircleBtn testID="search-back" glyph="‹" size={32} label="Back" onPress={onClose} />
-          <Field
-            testID="search-field"
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search reminders, notes, events…"
-            autoFocus
-            style={s.field}
-          />
-        </View>
-        <View style={s.controls}>
-          <Pressable testID="search-kinds" style={s.kindsPill} onPress={() => setKindsOpen(true)}>
-            <Text style={s.kindsText} numberOfLines={1}>{filterLabel}</Text>
-            <Text style={s.chev}>⌄</Text>
-          </Pressable>
-          <Dropdown
-            testID="search-sort"
-            value={sort}
-            options={SORT_OPTIONS}
-            onPick={(id) => setSort(id as SearchSort)}
-          />
-          <Pressable
-            testID="search-dir"
-            style={s.dirBtn}
-            onPress={() => setDesc(!desc)}
-            accessibilityRole="button"
-            accessibilityLabel={desc ? 'Largest first — tap for smallest first' : 'Smallest first — tap for largest first'}
-          >
-            <Text style={s.dirText}>{desc ? '↓' : '↑'}</Text>
-          </Pressable>
-        </View>
-        <Scroll style={s.results} keyboardShouldPersistTaps="handled">
-          {query.trim() !== '' && hits.length === 0 && (
-            <Text testID="search-none" style={s.none}>Nothing matches.</Text>
-          )}
-          {hits.map((h) => (
-            <Pressable key={`${h.kind}-${h.id}`} testID="search-row" style={s.row} onPress={() => onOpen(h)}>
-              <View style={s.rowIcon}>
-                {h.kind === 'reminder' && <TickCircleIcon size={16} />}
-                {h.kind === 'note' && <PageIcon size={16} />}
-                {h.kind === 'event' && <CalendarIcon size={16} />}
-              </View>
-              <Text style={[s.rowText, h.done && s.rowDone]} numberOfLines={1}>{h.text}</Text>
-              {h.date && <Text style={s.rowDate}>{h.date}</Text>}
-            </Pressable>
-          ))}
-        </Scroll>
-        {kindsOpen && (
-          <Modal transparent animationType="fade" onRequestClose={() => setKindsOpen(false)}>
-            <Pressable style={s.backdrop} onPress={() => setKindsOpen(false)}>
-              <Pressable style={s.menu} onPress={() => {}}>
-                {ALL_KINDS.map((k) => (
-                  <Pressable key={k} testID={`search-kind-${k}`} style={s.menuRow} onPress={() => toggleKind(k)}>
-                    <View style={[s.box, active.includes(k) && s.boxOn]}>
-                      {active.includes(k) && <Text style={s.boxTick}>✓</Text>}
-                    </View>
-                    <Text style={s.menuText}>{KIND_LABEL[k]}</Text>
-                  </Pressable>
-                ))}
-              </Pressable>
-            </Pressable>
-          </Modal>
-        )}
+    <View style={s.bodyWrap}>
+      <View style={s.controls}>
+        <Pressable testID="search-kinds" style={s.kindsPill} onPress={() => setKindsOpen(true)}>
+          <Text style={s.kindsText} numberOfLines={1}>{filterLabel}</Text>
+          <Text style={s.chev}>⌄</Text>
+        </Pressable>
+        <Dropdown
+          testID="search-sort"
+          value={sort}
+          options={SORT_OPTIONS}
+          onPick={(id) => setSort(id as SearchSort)}
+        />
+        <Pressable
+          testID="search-dir"
+          style={s.dirBtn}
+          onPress={() => setDesc(!desc)}
+          accessibilityRole="button"
+          accessibilityLabel={desc ? 'Largest first — tap for smallest first' : 'Smallest first — tap for largest first'}
+        >
+          <Text style={s.dirText}>{desc ? '↓' : '↑'}</Text>
+        </Pressable>
       </View>
-    </Modal>
+      <Scroll style={s.results} keyboardShouldPersistTaps="handled">
+        {query.trim() !== '' && hits.length === 0 && (
+          <Text testID="search-none" style={s.none}>Nothing matches.</Text>
+        )}
+        {hits.map((h) => (
+          <Pressable key={`${h.kind}-${h.id}`} testID="search-row" style={s.row} onPress={() => onOpen(h)}>
+            <View style={s.rowIcon}>
+              {h.kind === 'reminder' && <TickCircleIcon size={16} />}
+              {h.kind === 'note' && <PageIcon size={16} />}
+              {h.kind === 'event' && <CalendarIcon size={16} />}
+            </View>
+            <Text style={[s.rowText, h.done && s.rowDone]} numberOfLines={1}>{h.text}</Text>
+            {h.date && <Text style={s.rowDate}>{h.date}</Text>}
+          </Pressable>
+        ))}
+      </Scroll>
+      {kindsOpen && (
+        <Modal transparent animationType="fade" onRequestClose={() => setKindsOpen(false)}>
+          <Pressable style={s.backdrop} onPress={() => setKindsOpen(false)}>
+            <Pressable style={s.menu} onPress={() => {}}>
+              {ALL_KINDS.map((k) => (
+                <Pressable key={k} testID={`search-kind-${k}`} style={s.menuRow} onPress={() => toggleKind(k)}>
+                  <View style={[s.box, active.includes(k) && s.boxOn]}>
+                    {active.includes(k) && <Text style={s.boxTick}>✓</Text>}
+                  </View>
+                  <Text style={s.menuText}>{KIND_LABEL[k]}</Text>
+                </Pressable>
+              ))}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+    </View>
   );
 }
 
 const s = themed(() => StyleSheet.create({
   page: { flex: 1, backgroundColor: T.bg },
+  bodyWrap: { flex: 1 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 },
   field: { flex: 1 },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginTop: 10 },

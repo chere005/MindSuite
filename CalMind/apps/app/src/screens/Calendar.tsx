@@ -43,14 +43,17 @@ import { TopBar } from '../chrome';
 import { CalendarPick, useCalendarView } from '../components/CalendarPick';
 import { CalendarImport } from '../components/CalendarImport';
 import { CalGlyph, ChefHatGlyph, PageGlyph, TickBoxGlyph } from '../components/KindIcons';
-import { ItemModal, type ItemKind } from '../components/ItemModal';
+import { type ItemKind } from '../components/ItemModal';
+import { ItemSheet, ReadOnlySheet, type ReadOnlyView } from '../components/DetailPane';
+import { useWide } from '../components/WideFrame';
+import { WideMonth, type CellLine } from '../components/WideMonth';
 import { useSwipeLeft } from '../components/swiperow';
 import { BalancedRow } from '../components/BalancedRow';
 import { Chevron } from '../components/Chevron';
 import { useSharedTick, useTickGrace } from '../components/tickgrace';
 import { EditExit } from '../components/EditExit';
 import { useToast } from '../components/Toast';
-import { CircleBtn, ConfirmDelete, Rule, Scroll, WebHitSlop } from '../ui';
+import { CircleBtn, ConfirmDelete, Pill, Rule, Scroll, WebHitSlop } from '../ui';
 import { useFolds } from '../folds';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -71,6 +74,8 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   const { visible: visibleCals, calendars, visibleShared, visibleSubs } = useCalendarView();
   const clock24 = useClock24();
   const toast = useToast();
+  // Wide windows: text-bearing cells, the editor in the detail pane.
+  const { wide } = useWide();
   const today = todayStr();
   const [ym, setYm] = useState((calDay ?? today).slice(0, 7));
   const [day, setDayState] = useState(calDay ?? today);
@@ -143,6 +148,10 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   // "remove the additional add button on calendar"). Creating on a day is
   // the Add tab's job now, and it defaults to this screen's selected day.
   const [modal, setModal] = useState<null | { mode: 'edit'; kind: ItemKind; rec: Rec<'event'> | Rec<'reminder'> | Rec<'note'> }>(null);
+
+  // A read-only item (an imported calendar's event, a planned recipe) open in
+  // the wide layout's detail pane.
+  const [ro, setRo] = useState<ReadOnlyView | null>(null);
 
   const [year, month] = ym.split('-').map(Number) as [number, number];
   // The picker's ticks are what's on screen: events on switched-off calendars
@@ -526,6 +535,92 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
     );
   };
 
+  /**
+   * The wide grid's text lines for every shown day — the same core calls the
+   * day panel and the list view make, so a day reads the same in all three.
+   * Not memoised: the closures reach tick/setModal, and a stale one would
+   * tick the wrong render's record.
+   */
+  const openEdit = (d: string, kind: ItemKind, rec: Rec<'event'> | Rec<'reminder'> | Rec<'note'>) => {
+    setRo(null);
+    setDay(d);
+    setModal({ mode: 'edit', kind, rec });
+  };
+  const dateWord = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const openSub = (d: string, o: (typeof subOccs)[number]) => {
+    const sub = visibleSubs.find((x) => x.id === o.subId);
+    const where = !sub ? 'where it comes from' : subSourceLabel(sub.payload) === 'Google' ? 'Google Calendar' : subSourceLabel(sub.payload) === 'CalDAV' ? 'the CalDAV calendar it comes from' : 'the calendar it is linked from';
+    setModal(null);
+    setDay(d);
+    setRo({
+      heading: 'Imported event',
+      title: o.occ.title,
+      swatch: o.color,
+      rows: [
+        { label: 'Date', value: dateWord(d) },
+        ...(o.occ.time ? [{ label: 'Time', value: timeRangeLabel(o.occ.time, o.occ.endTime, clock24) }] : []),
+        { label: 'Calendar', value: sub?.payload.name ?? 'Imported calendar' },
+        ...(o.occ.location ? [{ label: 'Where', value: o.occ.location }] : []),
+      ],
+      note: `Read-only. This event comes from an imported calendar; edit it in ${where}.`,
+    });
+  };
+  const openRecipe = (d: string, n: Rec<'note'>) => {
+    setModal(null);
+    setDay(d);
+    setRo({
+      heading: 'Recipe',
+      title: n.payload.title,
+      rows: [{ label: 'Planned', value: dateWord(d) }],
+      note: 'Read-only here. A recipe is edited in ChefMind.',
+      // The same door the day panel's recipe rows already use.
+      action: { label: 'Open recipe', testID: 'detail-open-recipe', onPress: () => onNoteCreated?.(n.id) },
+    });
+  };
+  const cellLines = new Map<string, CellLine[]>();
+  if (wide && calView !== 'list') {
+    for (const d of cells) {
+      const mine = dayItems(drawn, d, today, folderModes);
+      const theirs = dayItems(sharedDrawn, d, today, folderModes);
+      const out: CellLine[] = [];
+      for (const e of [...mine.events, ...theirs.events]) {
+        out.push({
+          key: `e${e.id}`, kind: 'event', text: e.payload.text, time: e.payload.time ? timeLabel(e.payload.time, clock24) : null,
+          color: (calById.get(e.payload.calendarId) ?? sharedCalById.get(e.payload.calendarId))?.color ?? T.folderBlue,
+          onPress: () => openEdit(d, 'event', e),
+        });
+      }
+      for (const o of subOccs.filter((x) => x.occ.date === d)) {
+        out.push({
+          key: `s${o.subId}${o.occ.uid}`, kind: 'sub', text: o.occ.title, time: o.occ.time ? timeLabel(o.occ.time, clock24) : null,
+          color: o.color, onPress: () => openSub(d, o),
+        });
+      }
+      for (const { rec: r, overdue, late } of mine.reminders) {
+        if (r.payload.done && !(showDone && !late)) continue;
+        out.push({
+          key: `r${r.id}`, kind: 'reminder', text: r.payload.text, time: r.payload.time ? timeLabel(r.payload.time, clock24) : null,
+          color: folderColor.get(r.payload.folderId) ?? T.dim, done: r.payload.done, overdue,
+          onPress: () => openEdit(d, 'reminder', r), onTick: () => tick(r),
+        });
+      }
+      for (const { rec: r, overdue } of theirs.reminders.filter(({ rec: x }) => shTick.shows(x))) {
+        out.push({
+          key: `sr${r.id}`, kind: 'reminder', text: r.payload.text, time: r.payload.time ? timeLabel(r.payload.time, clock24) : null,
+          color: T.dim, done: shTick.done(r), overdue,
+          onPress: () => openEdit(d, 'reminder', r), onTick: () => shTick.tick(r),
+        });
+      }
+      for (const n of [...mine.notes, ...theirs.notes]) {
+        out.push({ key: `n${n.id}`, kind: 'note', text: n.payload.title, color: T.dim, onPress: () => onNoteCreated?.(n.id) });
+      }
+      for (const n of chefDatesOn(recs, chefRecs, d)) {
+        out.push({ key: `c${n.id}`, kind: 'recipe', text: n.payload.title, color: T.accent, onPress: () => openRecipe(d, n) });
+      }
+      cellLines.set(d, out);
+    }
+  }
+
   const dueLabel = (d: string) =>
     new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   /**
@@ -564,7 +659,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
         picker={<CalendarPick renderImport={(props) => <CalendarImport {...props} />} subscriptionLabel={subSourceLabel} />}
       />
       {/* The date centred over the grid; ◉ jumps home to today. */}
-      <View style={s.pagerRow}>
+      <View style={[s.pagerRow, wide && s.pagerRowWide]}>
         <CircleBtn testID="cal-prev" glyph="‹" label="Previous" size={32} onPress={() => page(-1)} />
         <Pressable onPress={() => { setYm(today.slice(0, 7)); setDay(today); setWkAnchor(today); }} hitSlop={6}>
           {/* Abbreviated too, and this is the one that actually moves: the
@@ -576,6 +671,18 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           <Text testID="cal-ym" style={s.ymLabel}>{new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</Text>
         </Pressable>
         <CircleBtn testID="cal-next" glyph="›" label="Next" size={32} onPress={() => page(1)} />
+        {/* Wide: the three views are buttons, since a mouse has no swipe to
+            fold them (the phone keeps the swipe and shows none of this). */}
+        {wide && (
+          <>
+            <Pill testID="cal-today" label="Today" onPress={() => { setYm(today.slice(0, 7)); setDay(today); setWkAnchor(today); }} />
+            <View style={s.viewSeg}>
+              {VIEWS.map((v) => (
+                <Pill key={v} testID={`cal-view-${v}`} label={v === 'week' ? 'Week' : v === 'list' ? 'List' : 'Month'} primary={calView === v} onPress={() => setCalView(v)} />
+              ))}
+            </View>
+          </>
+        )}
       </View>
 
       {calView === 'list' ? (
@@ -633,6 +740,9 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
         </View>
       ) : (
       <>
+      {wide ? (
+        <WideMonth cells={cells as string[]} ym={ym} day={day} today={today} weekMode={weekMode} lines={cellLines} onDay={setDay} panHandlers={gridPan.panHandlers} />
+      ) : (
       <View testID="cal-grid" style={s.grid} {...gridPan.panHandlers}>
         {WEEKDAYS.map((w, i) => (
           <Text key={i} style={s.weekday}>{w}</Text>
@@ -669,6 +779,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           </Pressable>
         ))}
       </View>
+      )}
       <Rule />
       {/* The legend was a ScrollView capped at 22vh, mirroring the suite —
           until the owner said a legend should not scroll. It sizes to its content
@@ -676,7 +787,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           which is what keeps 'to its content' small. (It was also once gated
           off in week mode — `cells` is already the two-week range, so the
           names were right all along and simply not drawn.) */}
-      {(legend.length > 0 || sharedLegend.length > 0) && (
+      {!wide && (legend.length > 0 || sharedLegend.length > 0) && (
         // The SAME pan responder as the grid, so an up/down swipe can start on
         // the legend as well. The owner, 2026-08-11: "just the gesture, don't
         // change the behavior" — so this is the identical handler object, not
@@ -742,9 +853,9 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           other is what it looked like when this rule stayed behind. */}
       {/* Follows the legend exactly — ungating one and not the other left the
           legend drawing in week mode with no line under it. */}
-      {(legend.length > 0 || sharedLegend.length > 0) && <Rule />}
+      {!wide && (legend.length > 0 || sharedLegend.length > 0) && <Rule />}
 
-      <Scroll style={s.panel} contentContainerStyle={s.panelWrap}>
+      <Scroll style={[s.panel, wide && s.panelWide]} contentContainerStyle={s.panelWrap}>
         {/* The phone's tap-to-exit; the web keeps its document listener.
             EditExit carries the panel's layout (s.panelInner) so arming edit
             mode cannot move anything — see EditExit for the story. */}
@@ -776,7 +887,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
         {!folded.has('events') && items.events.map((e) => (
           <View key={e.id} {...swipe.handlersFor(e.id)} style={[s.row, s.rowNoSelect]}>
             <View style={[s.dot, s.rowDot, { backgroundColor: calById.get(e.payload.calendarId)?.color ?? T.folderBlue }]} />
-            <Pressable testID="dp-ev-body" style={s.rowBodyFlex} onPress={() => rowPress(e.id)} onLongPress={() => setPanelEdit(true)} delayLongPress={350}>
+            <Pressable testID="dp-ev-body" style={s.rowBodyFlex} onPress={() => (wide ? openEdit(day, 'event', e) : rowPress(e.id))} onLongPress={() => setPanelEdit(true)} delayLongPress={350}>
               {/* One line, elided — the last row kind still wrapping after
                   reminders (2026-08-20) and note titles took the same rule. */}
               <Text numberOfLines={1} style={s.rowText}>{e.payload.text}</Text>
@@ -843,7 +954,13 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
             <View style={[s.dot, s.rowDot, { backgroundColor: o.color }]} />
             {/* No press, no edit cluster, no swipe: read-only is the DESIGN
                 (the owner: "i just want read only access"), not a gap. */}
-            <Text numberOfLines={1} style={s.rowText}>{o.occ.title}</Text>
+            {wide ? (
+              <Pressable testID="dp-sub-body" style={s.rowBodyFlex} onPress={() => openSub(day, o)}>
+                <Text numberOfLines={1} style={s.rowText}>{o.occ.title}</Text>
+              </Pressable>
+            ) : (
+              <Text numberOfLines={1} style={s.rowText}>{o.occ.title}</Text>
+            )}
             {o.occ.time && <Text style={s.chip}>{timeRangeLabel(o.occ.time, o.occ.endTime, clock24)}</Text>}
           </View>
         ))}
@@ -868,7 +985,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
             {/* testID for the no-shift spec: this is the flex child the edit
                 cluster used to squeeze, so its width is the measurement that
                 tells the two arrangements apart. */}
-            <Pressable testID="dp-rem-body" style={s.rowBodyFlex} onPress={() => rowPress(r.id)} onLongPress={() => setPanelEdit(true)} delayLongPress={350}>
+            <Pressable testID="dp-rem-body" style={s.rowBodyFlex} onPress={() => (wide ? openEdit(day, 'reminder', r) : rowPress(r.id))} onLongPress={() => setPanelEdit(true)} delayLongPress={350}>
               {/* Done keeps the folder's hue, faded — the owner's word over the
                   suite's grey, 2026-08-18. The strike still says finished.
                   One line, elided (2026-08-20) — same rule as the Reminders
@@ -1015,7 +1132,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
             <Pressable
               testID="dp-chef-row"
               style={s.rowBodyFlex}
-              onPress={() => onNoteCreated?.(n.id)}
+              onPress={() => (wide ? openRecipe(day, n) : onNoteCreated?.(n.id))}
             >
               <Text numberOfLines={1} style={s.rowText}>{n.payload.title}</Text>
             </Pressable>
@@ -1030,7 +1147,8 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
       </Scroll>
       </>
       )}
-      {modal && <ItemModal mode="edit" kind={modal.kind} rec={modal.rec} onClose={() => setModal(null)} onSaved={(id, kind) => kind === 'note' && onNoteCreated?.(id)} />}
+      {wide && ro && <ReadOnlySheet view={ro} onClose={() => setRo(null)} />}
+      {modal && <ItemSheet mode="edit" kind={modal.kind} rec={modal.rec} onClose={() => setModal(null)} onSaved={(id, kind) => kind === 'note' && onNoteCreated?.(id)} />}
     </View>
   );
 }
@@ -1057,6 +1175,11 @@ const s = themed(() => StyleSheet.create({
   // This screen was the tightest of the five, at 1px.
   pagerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 0, paddingBottom: 4 },
   ymLabel: { color: T.text, fontSize: 15, fontWeight: '600', minWidth: 150, textAlign: 'center' },
+  pagerRowWide: { justifyContent: 'flex-start', paddingHorizontal: 16, paddingBottom: 8 },
+  viewSeg: { flexDirection: 'row', gap: 6, marginLeft: 8 },
+  // Under the text-bearing grid the day panel is a short strip, not the half
+  // of the screen the phone gives it.
+  panelWide: { flexGrow: 0, flexShrink: 0, flexBasis: 150, height: 150 },
   // userSelect none: a swipe across the cell numbers must never start a
   // text selection — on web a selection TERMINATES the pan mid-gesture.
   grid: { userSelect: 'none', flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8, paddingVertical: 6 },

@@ -14,11 +14,15 @@ import { Habits } from './src/screens/Habits';
 import { Add } from './src/screens/Add';
 import { QuickTick } from './src/screens/QuickTick';
 import { Search } from './src/screens/Search';
+import { DetailProvider } from './src/components/DetailPane';
+import { WideShell } from './src/components/WideShell';
+import { useWide } from './src/components/WideFrame';
 import { Request } from './src/screens/Request';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
 
 function Root() {
   const { ready, session } = useStore();
+  const { wide } = useWide();
   // Signing in lands on the Calendar, as the suite does — "what's on today"
   // shouldn't depend on which icon you opened.
   // The tab survives a refresh, and every switch feeds the back stack.
@@ -76,60 +80,53 @@ function Root() {
   if (!ready) return <View style={s.page} />;
   if (!session) return <Login />;
   if (tickId) return <QuickTick id={tickId} onDone={tickDone} />;
+  const goNote = (id: string) => {
+    setNoteToOpen(id);
+    setTab('notes');
+  };
+  // The Add tab has no place in the wide layout (quick-add is its header field).
+  const shownTab = wide && tab === 'add' ? 'calendar' : tab;
+  const screens = (
+    <>
+      {shownTab === 'reminders' && <Reminders />}
+      {shownTab === 'calendar' && <Calendar onNoteCreated={goNote} />}
+      {shownTab === 'add' && <Add date0={addFrom} done={() => setTab('calendar')} onNoteCreated={goNote} />}
+      {shownTab === 'notes' && <Notes openNoteId={noteToOpen} onOpenConsumed={() => setNoteToOpen(null)} />}
+      {shownTab === 'habits' && <Habits />}
+    </>
+  );
+  const openHit = (hit: Parameters<React.ComponentProps<typeof Search>['onOpen']>[0]) => {
+    setSearchOpen(false);
+    if (hit.kind === 'note') goNote(hit.id);
+    else setTab(hit.kind === 'reminder' ? 'reminders' : 'calendar');
+  };
   return (
+    <DetailProvider>
     <NavCtx.Provider value={{
       canBack,
       goBack,
       openSearch: () => setSearchOpen(true),
-      openNote: (id) => {
-        setNoteToOpen(id);
-        setTab('notes');
-      },
+      openNote: goNote,
     }}>
+    {wide ? (
+      // Desktop-size window: sidebar, the section's own screen, detail pane.
+      <View style={s.page}>
+        <WideShell tab={tab} onTab={setTab} main={screens} onNoteCreated={goNote} onOpenHit={openHit} />
+      </View>
+    ) : (
     <View style={s.page}>
       {/* Phone-first column, centred on a wide window — the suite's page shape. */}
       <View style={s.centre}>
         <View style={s.body}>
-          {tab === 'reminders' && <Reminders />}
-          {tab === 'calendar' && (
-            <Calendar
-              onNoteCreated={(id) => {
-                setNoteToOpen(id);
-                setTab('notes');
-              }}
-            />
-          )}
-          {tab === 'add' && (
-            <Add
-              date0={addFrom}
-              done={() => setTab('calendar')}
-              onNoteCreated={(id) => {
-                setNoteToOpen(id);
-                setTab('notes');
-              }}
-            />
-          )}
-          {tab === 'notes' && <Notes openNoteId={noteToOpen} onOpenConsumed={() => setNoteToOpen(null)} />}
-          {tab === 'habits' && <Habits />}
+          {screens}
         </View>
       </View>
       <TabBar tab={tab} onTab={setTab} />
-      {searchOpen && (
-        <Search
-          onClose={() => setSearchOpen(false)}
-          onOpen={(hit) => {
-            setSearchOpen(false);
-            if (hit.kind === 'note') {
-              setNoteToOpen(hit.id);
-              setTab('notes');
-            } else {
-              setTab(hit.kind === 'reminder' ? 'reminders' : 'calendar');
-            }
-          }}
-        />
-      )}
+      {searchOpen && <Search onClose={() => setSearchOpen(false)} onOpen={openHit} />}
     </View>
+    )}
     </NavCtx.Provider>
+    </DetailProvider>
   );
 }
 
