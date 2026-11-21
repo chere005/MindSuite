@@ -53,6 +53,10 @@ import { TransactionsScreen, type RowAction } from './src/TransactionsScreen';
 import { load, save } from './src/persist';
 import { DEFAULTS, loadPrefs, savePrefs, type Prefs } from './src/prefs';
 import { SPACE, T, TAP } from './src/theme';
+import { useWide } from './src/components/WideFrame';
+import { WideApp } from './src/wide/WideApp';
+import { useLedgerAccess } from './src/access';
+import { ReadOnlyBanner, ReadOnlyContext } from './src/readonly';
 
 /** What the line editor's bar says: the category the line lives in. */
 type Phase =
@@ -151,6 +155,18 @@ export default function App() {
    * showing off for a frame before it shows on.
    */
   const [prefs, setPrefs] = useState<Prefs>(DEFAULTS);
+  /** Wide (desktop-size) window: the sidebar frame instead of the phone column. */
+  const { wide } = useWide();
+  /**
+   * May this ledger be edited here? ONE answer, decided where the ledger came
+   * from (core's `ledgerAccess`): the Mac app and the native apps edit; a
+   * plain browser showing the CloudKit copy of the phone's ledger does not,
+   * because nothing it did would ever be written back.
+   */
+  const { access, info } = useLedgerAccess();
+  const readOnly = access.readOnly;
+  /** The banner's Sign in opens the cog menu, where the Apple ID button is. */
+  const [menuAsk, setMenuAsk] = useState(0);
 
   useEffect(() => {
     let running = true;
@@ -248,13 +264,19 @@ export default function App() {
        * blocked store nothing is written at all, which is the whole reason
        * that branch returns above.
        */
+      // Who may edit is decided by where the ledger came from, which a plain
+      // browser only knows once CloudKit has answered. Seeding is a WRITE.
+      await shared.settled();
+      if (!running) return;
       const now = Date.now();
       // And ALWAYS at least one category, for the same reason: the Budget
       // tab's only way to make a line is the + beside a category, so a store
       // with none shows an empty state whose instruction is to go elsewhere.
       // The owner, 2026-09-15. Both are writes, so both happen only after a
       // successful read — a damaged store is never written to.
-      const seeded = ensureCategory(
+      // A read-only view (the phone's copy through CloudKit) never creates a
+      // record, not even these defaults: it shows only what the copy holds.
+      const seeded = shared.access().readOnly ? r.store : ensureCategory(
         ensureAccount(r.store, `acct-${newId()}`, now),
         `cat-${newId()}`,
         now,
@@ -356,6 +378,9 @@ export default function App() {
      */
     undoable = true,
   ) => {
+    // A read-only ledger has no write path at all: nothing may change, save
+    // or publish. The controls are not drawn either; this is the backstop.
+    if (readOnly) return;
     // Before setPhase, and before any await: see storeRef's note.
     storeRef.current = next;
     setUndo(undoable ? current.store : null);
@@ -375,7 +400,7 @@ export default function App() {
     // merge — and a read-merge-write here would race the very next commit.
     // Anything another device put there arrives through `reconcileShared`.
     void shared.push(serialize(next));
-  }, []);
+  }, [readOnly]);
 
   const onSave = useCallback((draft: Draft) => {
     if (phase.k !== 'ready') return;
@@ -459,7 +484,7 @@ export default function App() {
    * app's standing answer (see the pick bar's Delete): a live control that
    * does nothing is the one that gets pressed twice.
    */
-  const undoBtn = (
+  const undoBtn = readOnly ? null : (
     <CircleBtn
       onPress={() => {
         if (phase.k !== 'ready' || undo === null) return;
@@ -482,7 +507,9 @@ export default function App() {
 
   const appMenu = (
     <AppMenu
-      onImport={openImport}
+      readOnly={readOnly}
+      openSignal={menuAsk}
+      onImport={readOnly ? undefined : openImport}
       onExport={onExportBudget}
       onMatch={() => setMatching(true)}
       whole={prefs.amountMode === 'whole'}
@@ -522,8 +549,17 @@ export default function App() {
     }
   }, [phase, commit]);
 
+  const banner = readOnly ? (
+    <ReadOnlyBanner
+      info={info}
+      onReload={() => { void reconcileShared(); }}
+      onSignIn={() => setMenuAsk((n) => n + 1)}
+    />
+  ) : null;
+
   return (
     <SafeAreaProvider>
+      <ReadOnlyContext.Provider value={{ readOnly, banner }}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'left', 'right']}>
         {phase.k === 'loading' && (
@@ -549,7 +585,7 @@ export default function App() {
             {/* Export's receipt — the file was handed over or copied, and on
                 both paths the only evidence is that something left the app. */}
             {note !== null && <Banner testID="note" tone="warn" text={note} />}
-            {tab === 'budget' && (
+            {!wide && tab === 'budget' && (
               <BudgetScreen
                 txns={live(phase.store.txns)}
                 categories={live(phase.store.categories)}
@@ -653,7 +689,7 @@ export default function App() {
             )}
 
             {/* Tombstones travel; they are not shown. */}
-            {tab === 'transactions' && (
+            {!wide && tab === 'transactions' && (
             <TransactionsScreen
               txns={live(phase.store.txns)}
               onAdd={(account) => {
@@ -749,6 +785,30 @@ export default function App() {
                 }));
               }}
             />
+            )}
+
+            {wide && (
+              <WideApp
+                store={phase.store}
+                commit={(next) => commit(phase, next)}
+                tab={tab}
+                onTab={setTab}
+                budgetMonth={prefs.budgetMonth}
+                onBudgetMonth={(m) => setPref('budgetMonth', m)}
+                mode={prefs.amountMode}
+                rules={rules}
+                choices={choices}
+                readOnly={readOnly}
+                banner={banner}
+                info={info}
+                menu={appMenu}
+                actions={{
+                  onImport: openImport,
+                  onExport: onExportBudget,
+                  onMatch: () => setMatching(true),
+                  onManage: setManaging,
+                }}
+              />
             )}
 
             {/*
@@ -928,7 +988,7 @@ export default function App() {
                 to look like a bottom bar while it stayed first in the JSX is
                 exactly what shipped: it looked wrong and read as the change
                 never arriving. */}
-            <Tabs
+            {!wide && <Tabs
               tab={tab}
               onTab={setTab}
               onAdd={() => {
@@ -942,14 +1002,15 @@ export default function App() {
                 setAddingIn(null);
                 setAdding(true);
               }}
-            />
+              readOnly={readOnly}
+            />}
 
             <Devices
               visible={showDevices}
               peers={peers}
               onClose={() => setShowDevices(false)}
             />
-            <AddTransaction
+            {!wide && <AddTransaction
               visible={adding}
               editing={editing ?? undefined}
               mode={prefs.amountMode}
@@ -960,10 +1021,11 @@ export default function App() {
               rules={rules}
               onSave={onSave}
               onCancel={() => { setAdding(false); setEditing(null); }}
-            />
+            />}
           </>
         )}
       </SafeAreaView>
+      </ReadOnlyContext.Provider>
     </SafeAreaProvider>
   );
 }

@@ -26,7 +26,8 @@ export function SectionPick({
   onOpen: () => void;
   onClose: () => void;
   /** The last row of the menu, exactly as the suite's folder pick has it. */
-  onManage: () => void;
+  /** Omitted when the ledger is read-only: nothing can be made or renamed. */
+  onManage: (() => void) | undefined;
   /**
    * The top bar's face: the dot in a ring, with no name beside it.
    *
@@ -98,6 +99,7 @@ export function SectionPick({
                 {/* Last, and the only way in: accounts and categories are
                     made on the manage screen, so there is one place that
                     knows how to name and colour one. */}
+                {onManage !== undefined && (
                 <Pressable
                   onPress={() => { onClose(); onManage(); }}
                   style={[styles.row, styles.manage]}
@@ -105,6 +107,7 @@ export function SectionPick({
                 >
                   <Text style={styles.manageText}>Manage {label}</Text>
                 </Pressable>
+                )}
               </ScrollView>
             </Pressable>
           </Pressable>

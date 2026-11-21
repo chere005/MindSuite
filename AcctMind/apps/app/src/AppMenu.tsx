@@ -12,7 +12,11 @@ import { suiteAccount, openSuiteAccount, signOutSuiteAccount } from './suiteacco
 const shortDay = (day: string): string =>
   `${monthLabel(day).slice(0, 3)} ${Number(day.slice(8, 10))}, ${day.slice(0, 4)}`;
 
-export function AppMenu({ onImport, onExport, onMatch, whole, onWhole, start, onStart, offer }: {
+export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, onMatch, whole, onWhole, start, onStart, offer }: {
+  /** A read-only ledger: no import, no rules, no budget start. */
+  readOnly?: boolean;
+  /** Bumped by the read-only banner's Sign in: opens the menu, where the Apple ID button is. */
+  openSignal?: number;
   onImport?: (() => void) | undefined;
   onExport: () => void;
   onMatch: () => void;
@@ -26,6 +30,9 @@ export function AppMenu({ onImport, onExport, onMatch, whole, onWhole, start, on
   const [options, setOptions] = useState(false);
   const [account] = useState(suiteAccount);
   const slots = shared.signInSlots();
+  useEffect(() => {
+    if (openSignal > 0) { setOptions(true); setOpen(true); }
+  }, [openSignal]);
   const [syncNote, setSyncNote] = useState('iCloud: checking…');
   useEffect(() => {
     if (!open) return;
@@ -39,7 +46,7 @@ export function AppMenu({ onImport, onExport, onMatch, whole, onWhole, start, on
   const items: AccountMenuItem[] = ledgerOptions ? [
     ...(onImport ? [{ key: 'import', label: 'Import from CSV', testID: 'menu-import', onPress: onImport }] : []),
     { key: 'export', label: 'Export budget', testID: 'menu-export', onPress: onExport },
-    { key: 'match', label: 'Auto-categorize transactions', testID: 'menu-auto-categorize', onPress: onMatch },
+    ...(readOnly ? [] : [{ key: 'match', label: 'Auto-categorize transactions', testID: 'menu-auto-categorize', onPress: onMatch }]),
   ] : [
     { key: 'account', label: 'Account', testID: 'menu-account', onPress: () => openSuiteAccount(account) },
     { key: 'settings', label: 'Settings', testID: 'menu-settings', keepOpen: true, onPress: () => setOptions(true) },
@@ -68,7 +75,7 @@ export function AppMenu({ onImport, onExport, onMatch, whole, onWhole, start, on
                 it offers the latest reconcile — where his budget began — and
                 set, it steps a day at a time and × clears.
               */}
-              <View style={styles.startWrap} testID="menu-start">
+              {!readOnly && <View style={styles.startWrap} testID="menu-start">
                 <View style={styles.startHead}>
                   <Text style={styles.rowText}>Budget starts</Text>
                   {start !== null && (
@@ -116,7 +123,7 @@ export function AppMenu({ onImport, onExport, onMatch, whole, onWhole, start, on
                     </Pressable>
                   </View>
                 )}
-              </View>
+              </View>}
               <Pressable
                 style={[styles.row, styles.last]}
                 onPress={() => onWhole(!whole)}

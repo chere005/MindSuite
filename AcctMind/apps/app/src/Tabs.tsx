@@ -27,11 +27,13 @@ export type Tab = 'budget' | 'transactions';
 /** Wide enough for the content, narrow enough that the tabs stay together. */
 const BAR_MAX_WIDTH = 420;
 
-export function Tabs({ tab, onTab, onAdd }: {
+export function Tabs({ tab, onTab, onAdd, readOnly = false }: {
   tab: Tab;
   onTab: (t: Tab) => void;
   /** The middle button: opens the add form, from either tab. */
   onAdd: () => void;
+  /** A read-only ledger has nothing to add: the button is not drawn. */
+  readOnly?: boolean;
 }) {
   return (
     <View style={styles.outer}>
@@ -45,7 +47,7 @@ export function Tabs({ tab, onTab, onAdd }: {
           <BudgetIcon color={tab === 'budget' ? T.text : T.dim} />
         </TabButton>
 
-        <Pressable
+        {!readOnly && <Pressable
           onPress={onAdd}
           style={styles.add}
           accessibilityRole="button"
@@ -53,7 +55,7 @@ export function Tabs({ tab, onTab, onAdd }: {
           testID="add-button"
         >
           <PlusMark />
-        </Pressable>
+        </Pressable>}
 
         <TabButton
           label="Transactions"

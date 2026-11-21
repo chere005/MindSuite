@@ -42,6 +42,7 @@ import {
   CheckIcon, DollarIcon, FlagIcon, PencilIcon, XIcon,
 } from './Icons';
 import { PickBar } from './PickBar';
+import { useReadOnly } from './readonly';
 import { useRowDrag, type RowDrag } from './rowdrag';
 import { SectionPick } from './SectionPick';
 import { SpendingPreview } from './SpendingPreview';
@@ -229,6 +230,8 @@ export function BudgetScreen({
     mode: AssignMode,
   ) => void;
 }) {
+  // Read-only: no pencil, no +, no pick bar, no snooze box, amounts are plain text.
+  const { readOnly, banner } = useReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [spending, setSpending] = useState<{ kind: 'line' | 'category'; id: string } | null>(null);
@@ -462,14 +465,14 @@ export function BudgetScreen({
         controls={
           <>
           {undo}
-          <CircleBtn
+          {!readOnly && <CircleBtn
             on={edit}
             onPress={() => (edit ? leaveEdit() : setEdit(true))}
             label={edit ? 'Done editing' : 'Edit budget'}
             testID="budget-edit-toggle"
           >
             <PencilIcon color={edit ? '#ffffff' : T.text} />
-          </CircleBtn>
+          </CircleBtn>}
           </>
         }
         picker={
@@ -481,12 +484,13 @@ export function BudgetScreen({
             visible={picking}
             onOpen={() => setPicking(true)}
             onClose={() => setPicking(false)}
-            onManage={onManage}
+            onManage={readOnly ? undefined : onManage}
             compact
           />
         }
         menu={menu}
       />
+      {banner}
 
       {/* THE NUMBERS FIRST, then the controls that decide them — the owner,
           2026-09-21. It was the other way round from 2026-09-16, on the
@@ -587,8 +591,8 @@ export function BudgetScreen({
             onEditAmount={onEditAmount}
             onSpentCategory={() => setSpending({ kind: 'category', id: c.id })}
             onSpentLine={(id) => setSpending({ kind: 'line', id })}
-            onAssignCategory={(at) => setAssignment({ kind: 'category', id: c.id, at })}
-            onAssignLine={(id, at) => setAssignment({ kind: 'line', id, at })}
+            onAssignCategory={(at) => { if (!readOnly) setAssignment({ kind: 'category', id: c.id, at }); }}
+            onAssignLine={(id, at) => { if (!readOnly) setAssignment({ kind: 'line', id, at }); }}
             onRenameLine={onRenameLine}
             onRenameCategory={onRenameCategory}
             onDeleteLine={onDeleteLine}
@@ -699,13 +703,13 @@ export function BudgetScreen({
         The equals flag funds the target, the plus flag adds the full target,
         the green dollar matches spending, and zero levels the available balance.
       */}
-      <PickBar
+      {!readOnly && <PickBar
         prefix="budget-picked"
         count={picked.length}
         onAll={() => setPicked(visible)}
         onClear={() => setPicked([])}
         extras={<AssignmentButtons prefix="budget-assign" off={picked.length === 0} onAssign={(mode) => assign(pickedLines(), mode)} />}
-      />
+      />}
       {assignment !== null && actionRows.length > 0 && (
         <AssignmentMenu
           name={(actionCategory?.name ?? actionLine?.name) || 'Untitled'}
@@ -880,6 +884,7 @@ function CategorySection({
   /** A line's index in that same list. */
   flatIdxOf: (id: string) => number;
 }) {
+  const { readOnly } = useReadOnly();
   const budgeted = rows.reduce((n, l) => n + budgetOf(l), 0);
   const spent = rows.reduce((n, l) => n + spentOn(l.id), 0);
   // Summed the same way the rows are, so a folded category and its open one
@@ -958,7 +963,7 @@ function CategorySection({
           />
         ) : (
           /* Adds a LINE, not a transaction. */
-          <Pressable
+          readOnly ? null : <Pressable
             onPress={onAdd}
             style={styles.headAdd}
             accessibilityRole="button"
@@ -1119,6 +1124,7 @@ function LineRow({
    */
   fixed?: boolean;
 }) {
+  const locked = fixed || useReadOnly().readOnly;
   const pick = { line, spent, budgeted, carry, set };
   // One word, from core. Four colours decided in a component is four chances
   // for the Mac and the phone to disagree about what a yellow line means.
@@ -1164,7 +1170,7 @@ function LineRow({
         
         Never on the No Category row: there is no record to select.
       */}
-      {fixed || onPick === undefined ? <View style={styles.pickCol} /> : (
+      {locked || onPick === undefined ? <View style={styles.pickCol} /> : (
         <Pressable
           onPress={onPick}
           style={styles.pickCol}
@@ -1245,7 +1251,7 @@ function LineRow({
         often, and it is the one control here that changes nothing about the
         money.
       */}
-      {fixed ? <View style={styles.snoozeCol} /> : (
+      {locked ? <View style={styles.snoozeCol} /> : (
       <Pressable
         onPress={() => onSnooze(!snoozed)}
         style={styles.snoozeCol}
@@ -1263,7 +1269,7 @@ function LineRow({
       {/* What the line is AIMING at. Editable like the other two. */}
       <AmountCell
         onPress={(at) => onEditAmount(pick, 'needs', at)}
-        fixed={fixed}
+        fixed={locked}
         label={`Needs ${formatAmount(line.needs)}`}
         tip="Needs"
         testID={`line-needs-tap-${line.id}`}
@@ -1280,7 +1286,7 @@ function LineRow({
           it hides the list you were reading to decide. */}
       <AmountCell
         onPress={(at) => onEditAmount(pick, 'budget', at)}
-        fixed={fixed}
+        fixed={locked}
         label={`Assigned ${formatAmount(budgeted)}`}
         tip="Assigned"
         testID={`line-budgeted-tap-${line.id}`}
@@ -1302,7 +1308,7 @@ function LineRow({
       </Tip>
       <AmountCell
         onPress={(at) => onEditAmount(pick, 'available', at)}
-        fixed={fixed}
+        fixed={locked}
         label={`Available ${formatAmount(availableOf(budgeted, spent, carry))}`}
         tip="Available"
         testID={`line-available-tap-${line.id}`}

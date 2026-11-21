@@ -12,9 +12,20 @@
  */
 import * as native from '../modules/icloud-file';
 
+import type { LedgerAccess, SyncInfo } from '@acctmind/core';
+import { fileTimes, markRead, markSaved, onSyncChange } from './syncinfo';
+
 export const available = native.available;
-export const pull = native.pull;
-export const push = native.push;
+export const pull: typeof native.pull = async () => {
+  const text = await native.pull();
+  markRead();
+  return text;
+};
+export const push: typeof native.push = async (value) => {
+  const ok = await native.push(value);
+  if (ok) markSaved();
+  return ok;
+};
 export const onRemoteChange = native.onRemoteChange;
 
 /** CloudKit's Apple ID buttons are a browser's only (icloudfile.web.ts). */
@@ -36,4 +47,18 @@ export async function status(): Promise<string> {
   // The second half is the copy the web app reads (Swift module header).
   const mirror = await native.mirrorStatus();
   return mirror === null ? 'container available' : `container available · ${mirror}`;
+}
+
+/** The native apps hold the ledger file themselves: always editable. */
+export async function settled(): Promise<void> {}
+
+export function access(): LedgerAccess {
+  return { source: 'file', readOnly: false };
+}
+export function onAccessChange(handler: () => void): () => void {
+  return onSyncChange(handler);
+}
+export function syncInfo(): SyncInfo {
+  const t = fileTimes();
+  return { source: 'file', readAt: t.readAt, savedAt: t.savedAt, writtenAt: null, signedIn: false };
 }

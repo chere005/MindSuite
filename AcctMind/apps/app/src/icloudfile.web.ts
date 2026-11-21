@@ -22,7 +22,9 @@
  * single-window app that is open while you use it actually needs; the phone,
  * which is the device that goes away and comes back, has the metadata query.
  */
+import { ledgerAccess, isLocalHost, type LedgerAccess, type SyncInfo } from '@acctmind/core';
 import * as ck from './cloudkitweb';
+import { fileTimes, markRead, markSaved, onSyncChange } from './syncinfo';
 
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -57,6 +59,11 @@ export function signInSlots(): { signIn: string; signOut: string } | null {
   return bridge() === null ? { signIn: ck.SIGN_IN_ID, signOut: ck.SIGN_OUT_ID } : null;
 }
 
+/** Who may edit is known once CloudKit has answered; the Tauri shell needs no wait. */
+export async function settled(): Promise<void> {
+  if (bridge() === null) await ck.settle();
+}
+
 export async function available(): Promise<boolean> {
   const invoke = bridge();
   if (invoke === null) return ck.available();
@@ -72,7 +79,9 @@ export async function pull(): Promise<string | null> {
   const invoke = bridge();
   if (invoke === null) return ck.pull();
   try {
-    return await invoke<string | null>('icloud_read');
+    const text = await invoke<string | null>('icloud_read');
+    markRead();
+    return text;
   } catch {
     return null;
   }
@@ -83,7 +92,9 @@ export async function push(value: string): Promise<boolean> {
   const invoke = bridge();
   if (invoke === null) return ck.push(value);
   try {
-    return await invoke<boolean>('icloud_write', { value });
+    const ok = await invoke<boolean>('icloud_write', { value });
+    if (ok) markSaved();
+    return ok;
   } catch {
     return false;
   }
@@ -115,4 +126,34 @@ export async function status(): Promise<string> {
 export function onRemoteChange(handler: () => void): () => void {
   if (bridge() === null) return ck.onRemoteChange(handler);
   return () => {};
+}
+
+/**
+ * THE one answer to "may this ledger be edited here" (core's `ledgerAccess`).
+ * The Tauri shell is editable; a plain browser reading the CloudKit copy is
+ * not, because `ck.push` never writes and an edit would be lost silently.
+ */
+export function access(): LedgerAccess {
+  const s = ck.state();
+  return ledgerAccess({
+    native: false, tauri: bridge() !== null, cloudKit: s.engine, signedIn: s.signedIn,
+    localHost: typeof location !== 'undefined' && isLocalHost(location.hostname),
+  });
+}
+
+export function onAccessChange(handler: () => void): () => void {
+  const a = ck.onState(handler);
+  const b = onSyncChange(handler);
+  return () => { a(); b(); };
+}
+
+/** What the sidebar's status line and the read-only banner say. */
+export function syncInfo(): SyncInfo {
+  const { source } = access();
+  if (source === 'copy') {
+    const s = ck.state();
+    return { source, readAt: s.readAt, savedAt: null, writtenAt: s.writtenAt, signedIn: s.signedIn };
+  }
+  const t = fileTimes();
+  return { source, readAt: t.readAt, savedAt: t.savedAt, writtenAt: null, signedIn: false };
 }

@@ -73,7 +73,8 @@ test('valid shared names work and malformed or cross-origin metadata cannot crea
 
 test('the suite bar and menu keep common dimensions on both tabs, including narrow phones', async ({ page }, info) => {
   await sharedShell(page, { ...account, username: account.username.repeat(5) });
-  for (const width of [320, 375, 760, 1200]) {
+  // Below 900 px: from 900 up the wide frame replaces the phone's bar (e2e/wide.spec.ts).
+  for (const width of [320, 375, 760, 890]) {
     await page.setViewportSize({ width, height: 812 });
     for (const tab of ['budget', 'transactions']) {
       await page.getByTestId(`tab-${tab}`).click();

@@ -24,12 +24,14 @@ import { SPACE, T, TAP } from './theme';
 /** What an unfiled transaction reads as — the Budget tab's word for it too. */
 export const NO_CATEGORY = 'No Category';
 
-export function CategoryPick({ categories, lines, value, onPick, allowNone = true }: {
+export function CategoryPick({ categories, lines, value, onPick, allowNone = true, compact = false }: {
   categories: readonly Category[];
   lines: readonly CategoryChoice[];
   value: string | null;
   onPick: (id: string | null) => void;
   allowNone?: boolean;
+  /** The wide detail pane's size: the same 14 point value as its Account field. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const line = lines.find((l) => l.id === value) ?? null;
@@ -42,13 +44,13 @@ export function CategoryPick({ categories, lines, value, onPick, allowNone = tru
     <>
       <Pressable
         onPress={() => setOpen(true)}
-        style={styles.field}
+        style={[styles.field, compact && styles.fieldCompact]}
         accessibilityRole="button"
         accessibilityLabel={label}
         testID="category-button"
       >
         {chosen !== null && <Dot colors={[chosen.color]} size={12} />}
-        <Text style={[styles.value, chosen === null && styles.none]} numberOfLines={1} testID="category-value">
+        <Text style={[styles.value, compact && styles.valueCompact, chosen === null && styles.none]} numberOfLines={1} testID="category-value">
           {label}
         </Text>
         <Text style={styles.chev}>⌄</Text>
@@ -156,6 +158,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
   },
   value: { color: T.text, fontSize: 17, flex: 1 },
+  fieldCompact: { minHeight: 36, borderRadius: 8 },
+  valueCompact: { fontSize: 14, fontWeight: '400' },
   none: { color: T.dim },
   chev: { color: T.dim, fontSize: 13 },
   rowGroup: { color: T.gold, fontSize: 13, flexShrink: 0 },

@@ -27,6 +27,7 @@ import { useRowDrag, type RowDrag } from './rowdrag';
 import { TipBubble, useTip } from './Tip';
 import { BarRow, CircleBtn, TopBar } from './TopBar';
 import { SPACE, T, TAP } from './theme';
+import { useReadOnly } from './readonly';
 
 export type RowAction = 'edit' | 'duplicate' | 'copy' | 'delete';
 
@@ -125,12 +126,27 @@ type Props = {
   onDeleteMany?: ((ids: readonly string[]) => void) | undefined;
 };
 
-export function TransactionsScreen({
+/**
+ * Read-only mode takes every editing handler away: a screen with no `onAction`
+ * has no pencil, no swipe-delete and no inline edit (each is drawn only when its
+ * handler exists), and Section and Row hide the + and the reconcile hammer.
+ */
+export function TransactionsScreen(props: Props) {
+  const { readOnly } = useReadOnly();
+  const p: Props = readOnly ? {
+    ...props, onAction: undefined, onMove: undefined, onInline: undefined, onDate: undefined,
+    onCleared: undefined, onDeleteMany: undefined,
+  } : props;
+  return <TransactionsBody {...p} />;
+}
+
+function TransactionsBody({
   txns, onAdd, onAction, onDevices, peers = 0, menu, undo, accounts,
   sort, onSort, amountMode, collapsed, onCollapsed, onMove, onManage, lines, categoryOptions, categories, onReconcile,
   onInline, onDate, onCleared, onDeleteMany,
 }: Props) {
   // Ordering is core's, not the list's — see spec/sort.json.
+  const { readOnly, banner } = useReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [filter, setFilter] = useState(EMPTY_TXN_FILTER);
@@ -397,12 +413,13 @@ export function TransactionsScreen({
             visible={picking}
             onOpen={() => setPicking(true)}
             onClose={() => setPicking(false)}
-            onManage={onManage}
+            onManage={readOnly ? undefined : onManage}
             compact
           />
         }
         menu={menu}
       />
+      {banner}
 
       <BarRow>
         <View style={styles.search}>
@@ -571,14 +588,14 @@ export function TransactionsScreen({
         It is core's `selectedTotal`, which skips an id whose row has gone
         rather than counting it as zero.
       */}
-      <PickBar
+      {!readOnly && <PickBar
         prefix="picked"
         count={selection.length}
         detail={selection.length > 0 ? formatAmount(selectedTotal(txns, selection)) : undefined}
         onAll={() => setPicked(visible)}
         onClear={() => setPicked([])}
         onDelete={deleteSelected}
-      />
+      />}
       {filterOpen && (
         <TransactionFilters
           value={filter}
@@ -652,6 +669,7 @@ function Section({
   /** A row's index in that same list. */
   flatIdxOf: (id: string) => number;
 }) {
+  const { readOnly } = useReadOnly();
 
   /*
    * A parked delete outranks this header too.
@@ -728,7 +746,7 @@ function Section({
             {formatAmount(balance)}
           </Text>
         )}
-        <Pressable
+        {!readOnly && <Pressable
           onPress={parked ? dismiss : () => onReconcileOpen(account.id, 'total')}
           onHoverIn={hammerTip.hover.onHoverIn}
           onHoverOut={hammerTip.hover.onHoverOut}
@@ -742,7 +760,7 @@ function Section({
               too: a bubble hanging off this hammer is already beside the
               account it belongs to. */}
           <TipBubble text="Reconcile" shown={hammerTip.shown} />
-        </Pressable>
+        </Pressable>}
 
         {/*
           WHAT THE BANK HAS CONFIRMED, right of the hammer — the owner,
@@ -788,7 +806,7 @@ function Section({
           arithmetic, and the row it writes is cleared, because a difference
           the bank has already settled is by definition on the statement.
         */}
-        <Pressable
+        {!readOnly && <Pressable
           onPress={parked ? dismiss : () => onReconcileOpen(account.id, 'cleared')}
           onHoverIn={clearedTip.hover.onHoverIn}
           onHoverOut={clearedTip.hover.onHoverOut}
@@ -799,7 +817,7 @@ function Section({
         >
           <HammerIcon />
           <TipBubble text="Reconcile cleared" shown={clearedTip.shown} />
-        </Pressable>
+        </Pressable>}
 
         {/* Whatever the row has left, so the + keeps the right-hand edge. */}
         <View style={styles.headSpacer} />
@@ -820,7 +838,7 @@ function Section({
 
         {/* Each account adds into ITSELF: the + is the only thing that tells
             the form which section it was opened from. */}
-        <Pressable
+        {!readOnly && <Pressable
           onPress={parked ? dismiss : onAdd}
           style={styles.headAdd}
           accessibilityRole="button"
@@ -828,7 +846,7 @@ function Section({
           testID={`account-add-${account.id}`}
         >
           <Text style={styles.headAddText}>+</Text>
-        </Pressable>
+        </Pressable>}
       </View>
 
       {!shut && rows.map((t) => {
@@ -938,9 +956,12 @@ function Row({
    * grabs at one pixel fires on a tap that wobbled. Both thresholds and both
    * decisions are core's; see `claimsSwipe` and `swipeArms`.
    */
+  const { readOnly } = useReadOnly();
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => claimsSwipe(g.dx, g.dy),
+      onMoveShouldSetPanResponder: (_e, g) => !readOnlyRef.current && claimsSwipe(g.dx, g.dy),
       onPanResponderRelease: (_e, g) => { if (swipeArms(g.dx)) onSwipe(); },
     }),
   ).current;
@@ -1021,7 +1042,9 @@ function Row({
         picking is what it is for. The one case they share is a parked
         delete, which wins over everything — see core.
       */}
-      <Pressable
+      {/* Read-only: nothing to select for, so the column is kept (the
+          names stay aligned) and nothing is drawn in it. */}
+      {readOnly ? <View style={styles.pickCol} /> : <Pressable
         onPress={pickTap(parked) === 'dismiss' ? onDismiss : onPick}
         style={styles.pickCol}
         accessibilityRole="checkbox"
@@ -1032,7 +1055,7 @@ function Row({
         <View style={[styles.box, styles.boxRound, picked && styles.boxPicked]}>
           {picked && <Text style={styles.boxTick}>✓</Text>}
         </View>
-      </Pressable>
+      </Pressable>}
       <View style={styles.rowMain}>
         {inline === 'name' && onInline !== undefined ? (
           <InlineText
@@ -1161,7 +1184,12 @@ function Row({
         `rowTap` like every other part of the row: in edit mode a tap picks,
         with a delete parked it dismisses, otherwise it flips the flag.
       */}
-      <Pressable
+      {readOnly ? (
+        // A plain tick, as in the wide read-only table: not a checkbox.
+        <View style={styles.clearedCol} testID={`txn-cleared-${txn.id}`}>
+          {txn.cleared === true && <Text style={styles.readTick}>✓</Text>}
+        </View>
+      ) : <Pressable
         onPress={onTap(onCleared === undefined ? undefined : () => onCleared(txn.cleared !== true))}
         style={styles.clearedCol}
         accessibilityRole="checkbox"
@@ -1172,7 +1200,7 @@ function Row({
         <View style={[styles.box, txn.cleared && styles.boxOn]}>
           {txn.cleared && <Text style={styles.boxTick}>✓</Text>}
         </View>
-      </Pressable>
+      </Pressable>}
       </Pressable>
       </Animated.View>
 
@@ -1831,6 +1859,7 @@ const styles = StyleSheet.create({
   // one colour the app uses for "you did this" is the accent.
   boxPicked: { backgroundColor: T.accent, borderColor: T.accent },
   boxTick: { color: T.bg, fontSize: 10, lineHeight: 12 },
+  readTick: { color: T.positive, fontSize: 14 },
   empty: { alignItems: 'center', gap: SPACE.xs, padding: SPACE.xl },
   emptyTitle: { color: T.text, fontSize: 17 },
   emptyBody: { color: T.dim, fontSize: 15 },

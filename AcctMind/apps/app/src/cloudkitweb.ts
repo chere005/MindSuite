@@ -57,6 +57,23 @@ let loadError: string | null = null;
 let signedIn = false;
 /** What the last read found, for the status line. */
 let lastRead: string | null = null;
+/** When the phone wrote the record we last read, and when we read it (ms). */
+let writtenAt: number | null = null;
+let readAt: number | null = null;
+/** Whether CloudKit JS started at all: pending until the first answer. */
+let engine: 'pending' | 'ready' | 'off' = 'pending';
+
+const stateHandlers = new Set<() => void>();
+const fireState = () => stateHandlers.forEach((h) => h());
+
+/** What the page needs to know to decide who may edit, and what to say. */
+export function state() {
+  return { engine, signedIn, writtenAt, readAt };
+}
+export function onState(h: () => void): () => void {
+  stateHandlers.add(h);
+  return () => { stateHandlers.delete(h); };
+}
 
 const handlers = new Set<() => void>();
 const fire = () => handlers.forEach((h) => h());
@@ -129,12 +146,19 @@ function container(): Promise<CkContainer | null> {
       const c = ck.getDefaultContainer();
       await auth(c);
       watchSignIn(c);
+      engine = 'ready';
+      fireState();
       return c;
     } catch (e) {
       loadError = `CloudKit would not start: ${String(e)}`;
+      engine = 'off';
+      fireState();
       return null;
     }
-  })();
+  })().then((c) => {
+    if (c === null && engine === 'pending') { engine = 'off'; fireState(); }
+    return c;
+  });
   return ready;
 }
 
@@ -142,6 +166,7 @@ function container(): Promise<CkContainer | null> {
 function watchSignIn(c: CkContainer): void {
   void c.whenUserSignsIn().then(() => {
     signedIn = true;
+    fireState();
     fire();
     watchSignOut(c);
   }).catch(() => {});
@@ -150,10 +175,20 @@ function watchSignOut(c: CkContainer): void {
   void c.whenUserSignsOut().then(() => {
     signedIn = false;
     lastRead = null;
+    writtenAt = null;
+    fireState();
     fire();
     // The button comes back for the next sign-in.
     void auth(c).then(() => watchSignIn(c));
   }).catch(() => {});
+}
+
+/**
+ * Resolves once CloudKit JS has answered (started, or failed), so whether a
+ * session exists is known; gives up after a few seconds on a page that hangs.
+ */
+export async function settle(): Promise<void> {
+  await Promise.race([container().then(() => undefined), new Promise<void>((r) => setTimeout(r, 3000))]);
 }
 
 /** Is there an Apple ID session that can read the record? */
@@ -187,9 +222,13 @@ export async function pull(): Promise<string | null> {
       const code = err?.serverErrorCode ?? err?.ckErrorCode ?? 'error';
       if (code === 'NOT_FOUND' || code === 'UNKNOWN_ITEM') {
         lastRead = 'signed in · the phone has not written a copy yet';
+        writtenAt = null;
+        readAt = Date.now();
+        fireState();
       } else if (code === 'AUTHENTICATION_REQUIRED') {
         signedIn = false;
         lastRead = null;
+        fireState();
       } else {
         lastRead = `signed in · could not read the copy (${code})`;
       }
@@ -203,6 +242,9 @@ export async function pull(): Promise<string | null> {
     }
     const text = await unpack(field);
     const when = rec?.modified?.timestamp;
+    writtenAt = when ?? null;
+    readAt = Date.now();
+    fireState();
     lastRead = when
       ? `reading the phone's copy, written ${new Date(when).toLocaleString()}`
       : "reading the phone's copy";
