@@ -169,13 +169,8 @@ function usable(next: number): number | null {
  *   overspend is the one to look at. It reads CARRY too — a line covered by
  *   what it brought in from last month has not overspent anything.
  *
- *   SHORT does NOT read carry, deliberately. `needs` is what this line wants
- *   ASSIGNING in the month being looked at, and money left over from August
- *   does not mean September was funded.
- *
- *   SHORT only when a target was actually SET. Zero means "no target", and
- *   painting every line without one yellow would make the colour mean
- *   nothing — most lines never get a target.
+ *   SHORT when a line still needs an assignment to meet its target.
+ *   Carryover can finish the target once it has covered that month's spending.
  */
 export type LineTone = 'snoozed' | 'over' | 'short' | 'funded';
 
@@ -186,19 +181,21 @@ export function lineTone(
 ): LineTone {
   if (line.snoozed) return 'snoozed';
   if (availableOf(line.budget, spent, carry) < 0) return 'over';
-  if (line.needs > 0 && line.budget < line.needs) return 'short';
+  if (stillNeeded(line, spent, carry) > 0) return 'short';
   return 'funded';
 }
 
 /**
  * What is still to assign before a line meets its target, or 0.
  *
- * Never negative: a line funded past its target does not need minus money,
- * and returning a negative here would draw a "needs" figure that reads as a
- * debt when it is the opposite.
+ * A paid bill meets its target when the month's spending reaches the target
+ * and the balance covers that spending, including money carried in.
  */
-export function stillNeeded(line: { budget: number; needs: number; snoozed: boolean }): number {
+export function stillNeeded(
+  line: { budget: number; needs: number; snoozed: boolean }, spent = 0, carry = 0,
+): number {
   if (line.snoozed || line.needs <= 0) return 0;
+  if (-spent >= line.needs && availableOf(line.budget, spent, carry) >= 0) return 0;
   return Math.max(0, line.needs - line.budget);
 }
 
@@ -249,7 +246,7 @@ export function assignedFor(
 ): number | null {
   if (mode === 'zero') return usable(budgetFor(0, spent, carry));
   if (mode === 'spent') return usable(budgetFor(0, spent));
-  return usable(budgeted + stillNeeded({ ...line, budget: budgeted }));
+  return usable(budgeted + stillNeeded({ ...line, budget: budgeted }, spent, carry));
 }
 
 /**

@@ -30,7 +30,7 @@ import {
   Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import {
-  LONG_PRESS_MS, availableOf, budgetIn, carriedInto, countsFrom, dropTarget, foldLevel,
+  LONG_PRESS_MS, assignedFor, availableOf, budgetIn, carriedInto, countsFrom, dropTarget, foldLevel,
   formatAmount, lineTone, linesIn, monthOf, monthSet, slotEntries, toggleSelected, total,
   snoozedLines, unassigned, unfiledSince,
   type AssignMode, type BudgetAmount, type Category, type Line, type LineTone, type Setting, type Txn,
@@ -42,6 +42,7 @@ import {
 import { PickBar } from './PickBar';
 import { useRowDrag, type RowDrag } from './rowdrag';
 import { SectionPick } from './SectionPick';
+import { SpendingPreview } from './SpendingPreview';
 import { Tip, TipBubble, useTip } from './Tip';
 import { BarRow, CircleBtn, TopBar } from './TopBar';
 import { SPACE, T, TAP } from './theme';
@@ -211,6 +212,7 @@ export function BudgetScreen({
 }) {
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
+  const [spending, setSpending] = useState<{ kind: 'line' | 'category'; id: string } | null>(null);
   /**
    * Edit mode, and the same rule as the Transactions tab: the pencil turns it
    * on, and every row shows its controls at once rather than one row at a
@@ -289,8 +291,19 @@ export function BudgetScreen({
   const carryOf = (l: Line) => carried.get(l.id) ?? 0;
 
   const shown = view === null ? categories : categories.filter((c) => c.id === view);
+  const transactionsByLine = useMemo(() => {
+    const byLine = new Map<string, Txn[]>();
+    for (const txn of inScope) {
+      if (txn.category === null) continue;
+      const rows = byLine.get(txn.category);
+      if (rows) rows.push(txn);
+      else byLine.set(txn.category, [txn]);
+    }
+    return byLine;
+  }, [inScope]);
+  const transactionsFor = (id: string) => transactionsByLine.get(id) ?? [];
   /** What has actually moved through a line. Negative for spending. */
-  const spentOn = (id: string) => total(inScope.filter((t) => t.category === id));
+  const spentOn = (id: string) => total(transactionsFor(id));
   /** This budget's lines under one category, in the order they are drawn. */
   const linesOf = (id: string) => linesIn(lines, id);
 
@@ -473,10 +486,26 @@ export function BudgetScreen({
   const pickedLines = () => picked
     .map((id) => lines.find((l) => l.id === id))
     .filter((l): l is Line => l !== undefined);
-  const assignPicked = (mode: AssignMode) => onAssignMany(
-    pickedLines().map((l) => ({ line: l, budgeted: budgetOf(l), spent: spentOn(l.id), carry: carryOf(l) })),
-    mode,
-  );
+  const amountsFor = (line: Line) => ({ line, budgeted: budgetOf(line), spent: spentOn(line.id), carry: carryOf(line) });
+  const assignPicked = (mode: AssignMode) => onAssignMany(pickedLines().map(amountsFor), mode);
+  const previewLine = spending?.kind === 'line' ? lines.find((line) => line.id === spending.id) : undefined;
+  const previewCategory = spending?.kind === 'category' ? categories.find((c) => c.id === spending.id) : undefined;
+  const previewAmounts = previewLine ? amountsFor(previewLine) : undefined;
+  const previewUnfiled = spending?.id === NONE;
+  const previewName = previewLine?.name ?? previewCategory?.name ?? (previewUnfiled ? 'No Category' : undefined);
+  const previewTxns = previewLine ? transactionsFor(previewLine.id)
+    : previewCategory ? linesOf(previewCategory.id).flatMap((line) => transactionsFor(line.id))
+    : previewUnfiled ? loose : [];
+  const previewBudget = previewAmounts && {
+    assigned: previewAmounts.budgeted,
+    carry: previewAmounts.carry,
+    toAssign: assignedFor('zero', {
+      needs: previewAmounts.line.needs,
+      snoozed: snoozed.has(previewAmounts.line.id),
+    }, previewAmounts.budgeted, previewAmounts.spent, previewAmounts.carry),
+    onAssign: () => onAssignMany([previewAmounts], 'zero'),
+  };
+  const openUnfiledSpending = () => setSpending({ kind: 'category', id: NONE });
 
   return (
     <View style={styles.fill}>
@@ -604,6 +633,8 @@ export function BudgetScreen({
             snoozed={snoozed}
             set={set}
             onEditAmount={onEditAmount}
+            onSpentCategory={() => setSpending({ kind: 'category', id: c.id })}
+            onSpentLine={(id) => setSpending({ kind: 'line', id })}
             onRenameLine={onRenameLine}
             onRenameCategory={onRenameCategory}
             onDeleteLine={onDeleteLine}
@@ -661,7 +692,7 @@ export function BudgetScreen({
                 <View style={styles.colHead}>
                   <Tip style={styles.colLabel} text="Needs"><FlagIcon /></Tip>
                   <Tip style={styles.colLabel} text="Assigned"><CheckIcon /></Tip>
-                  <Tip style={styles.colLabel} text="Spent"><DollarIcon color={T.danger} /></Tip>
+                  <Tip style={styles.colLabel} text="Spent" onPress={openUnfiledSpending}><DollarIcon color={T.danger} /></Tip>
                   <Tip style={styles.colLabel} text="Available"><DollarIcon color={T.positive} /></Tip>
                 </View>
                 {/* Never in edit mode, whatever the page is doing: that is
@@ -679,6 +710,7 @@ export function BudgetScreen({
                   onName={() => {}}
                   onNamed={() => {}}
                   onEditAmount={() => {}}
+                  onSpent={openUnfiledSpending}
                   onDelete={() => {}}
                   onSnooze={() => {}}
                   grip={undefined}
@@ -747,6 +779,15 @@ export function BudgetScreen({
           </>
         )}
       />
+      {previewName !== undefined && (
+        <SpendingPreview
+          name={previewName}
+          month={monthName(budgetMonth)}
+          txns={previewTxns}
+          budget={previewBudget}
+          onClose={() => setSpending(null)}
+        />
+      )}
     </View>
   );
 }
@@ -800,6 +841,7 @@ function CategorySection({
   category, rows, shut, onToggle, onFoldAll, onAdd, edit, naming, setNaming,
   spentOn, budgetOf, carryOf, snoozed, set,
   onEditAmount, onRenameLine, onRenameCategory, onDeleteLine, onSnoozeLine,
+  onSpentCategory, onSpentLine,
   onDeleteCategory, picked, onPick, drag, canDrag, headIdx, emptyIdx, flatIdxOf,
 }: {
   category: Category;
@@ -821,6 +863,8 @@ function CategorySection({
   /** Which set an amount edit lands in. Passed through to the pad. */
   set: string;
   onEditAmount: (pick: LinePick, field: LineField, at: Anchor) => void;
+  onSpentCategory: () => void;
+  onSpentLine: (id: string) => void;
   onRenameLine: (line: Line, name: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
   onDeleteLine: (line: Line) => void;
@@ -987,7 +1031,7 @@ function CategorySection({
           <Tip style={styles.colLabel} text="Assigned" testID="col-budgeted">
             <CheckIcon />
           </Tip>
-          <Tip style={styles.colLabel} text="Spent" testID="col-spent">
+          <Tip style={styles.colLabel} text="Spent" testID="col-spent" onPress={onSpentCategory}>
             <DollarIcon color={T.danger} />
           </Tip>
           <Tip style={styles.colLabel} text="Available" testID="col-available">
@@ -1021,6 +1065,7 @@ function CategorySection({
               if (next !== l.name && next !== '') onRenameLine(l, next);
             }}
             onEditAmount={onEditAmount}
+            onSpent={() => onSpentLine(l.id)}
             onDelete={() => onDeleteLine(l)}
             onSnooze={(next) => onSnoozeLine(l, next)}
             grip={canDrag ? drag.gripFor(i) : undefined}
@@ -1036,7 +1081,7 @@ function CategorySection({
 
 function LineRow({
   line, spent, budgeted, carry, set, edit, picked = false, snoozed = false, onPick, naming, onName, onNamed,
-  onEditAmount, onDelete, onSnooze, grip, lifted, dy, fixed = false,
+  onEditAmount, onSpent, onDelete, onSnooze, grip, lifted, dy, fixed = false,
 }: {
   line: Line;
   spent: number;
@@ -1067,6 +1112,7 @@ function LineRow({
   onName: () => void;
   onNamed: (next: string) => void;
   onEditAmount: (pick: LinePick, field: LineField, at: Anchor) => void;
+  onSpent: () => void;
   onDelete: () => void;
   onSnooze: (next: boolean) => void;
   grip: object | undefined;
@@ -1252,14 +1298,12 @@ function LineRow({
           testID={`line-budgeted-${line.id}`}
         />
       </AmountCell>
-      {/* Spent still cannot be TYPED OVER — it is what actually moved, and
-          there is deliberately no `line-spent-tap-*` to open a pad with. It
-          only carries a tip now, which is why this one may be flashed by a
-          tap: there is nothing else for a tap here to mean. */}
       <Tip
         text="Spent"
         label={`Spent ${formatAmount(spent)}`}
         above
+        testID={`line-spent-tap-${line.id}`}
+        onPress={onSpent}
       >
         <Money style={[styles.rowNum, toneStyle(tone)]} cents={spent} testID={`line-spent-${line.id}`} />
       </Tip>

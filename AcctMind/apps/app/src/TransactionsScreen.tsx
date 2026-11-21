@@ -97,6 +97,7 @@ type Props = {
    * points at a LINE (v4), so this is what turns that id into a word.
    */
   lines: readonly CategoryChoice[];
+  categoryOptions: readonly CategoryChoice[];
   /** The headings the lines sit under — the row's dropdown groups by them. */
   categories: readonly Category[];
   /**
@@ -125,7 +126,7 @@ type Props = {
 
 export function TransactionsScreen({
   txns, onAdd, onAction, onDevices, peers = 0, menu, undo, accounts,
-  sort, onSort, amountMode, collapsed, onCollapsed, onMove, onManage, lines, categories, onReconcile,
+  sort, onSort, amountMode, collapsed, onCollapsed, onMove, onManage, lines, categoryOptions, categories, onReconcile,
   onInline, onDate, onCleared, onDeleteMany,
 }: Props) {
   // Ordering is core's, not the list's — see spec/sort.json.
@@ -444,7 +445,7 @@ export function TransactionsScreen({
             onDate={onDate}
             onCleared={onCleared}
             lineName={lineName}
-            lines={lines}
+            lines={categoryOptions}
             categories={categories}
             reconciling={reconciling}
             onReconcileOpen={(account, what) => setReconciling({ account, what })}

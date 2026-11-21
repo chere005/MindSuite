@@ -432,7 +432,7 @@
       "funded"
     ]
   ],
-  "_toneCarried": "the colour, with carry: OVER reads it, SHORT does not. [budget, needs, snoozed, spent, carry, tone]",
+  "_toneCarried": "Carryover covers spending and can finish a paid target. [budget, needs, snoozed, spent, carry, tone]",
   "toneCarried": [
     [
       0,
@@ -464,6 +464,22 @@
       false,
       0,
       50000,
+      "short"
+    ],
+    [
+      0,
+      10000,
+      false,
+      -10000,
+      10000,
+      "funded"
+    ],
+    [
+      0,
+      10000,
+      false,
+      -9000,
+      10000,
       "short"
     ],
     [
@@ -620,6 +636,15 @@
       -3000,
       0,
       10000
+    ],
+    [
+      "needs",
+      10000,
+      false,
+      0,
+      -10000,
+      10000,
+      0
     ],
     [
       "needs",

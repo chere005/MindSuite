@@ -13,5 +13,9 @@
     "filed": ["books", "food", "books", "food", "food", null],
     "deleted": ["rent", "rent", "rent", "rent"],
     "order": ["food", "books", "income", "rent"]
-  }
+  },
+  "hiddenLines": [
+    { "line": "duplicate", "parent": "deleted" },
+    { "line": "orphaned", "parent": "missing" }
+  ]
 }

@@ -97,8 +97,8 @@ export function TipBubble({ text, shown, above = false }: {
   );
 }
 
-/** A mark that is not a control otherwise: hover or tap it to be told what it is. */
-export function Tip({ text, label, above = false, style, testID, children }: {
+/** Hover names the control. A tap can flash the tip or open a detail view. */
+export function Tip({ text, label, above = false, style, testID, onPress, children }: {
   text: string;
   /**
    * What a screen reader hears, when that is more than the tip says.
@@ -111,6 +111,7 @@ export function Tip({ text, label, above = false, style, testID, children }: {
   above?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string | undefined;
+  onPress?: () => void;
   children: ReactNode;
 }) {
   const tip = useTip();
@@ -118,7 +119,7 @@ export function Tip({ text, label, above = false, style, testID, children }: {
     <Pressable
       onHoverIn={tip.hover.onHoverIn}
       onHoverOut={tip.hover.onHoverOut}
-      onPress={tip.flash}
+      onPress={onPress ?? tip.flash}
       style={style}
       accessibilityRole="button"
       accessibilityLabel={label ?? text}

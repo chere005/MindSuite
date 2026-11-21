@@ -55,8 +55,7 @@ test('a column mark says which column it is, on hover and on tap', async ({ page
   await mark.click();
   await expect(mark).toHaveText('Assigned');
 
-  // …and the other three say their own names, not the envelope's.
-  await page.getByTestId('col-spent').click();
+  await page.getByTestId('col-spent').hover();
   await expect(page.getByTestId('col-spent')).toHaveText('Spent');
   await page.getByTestId('col-available').click();
   await expect(page.getByTestId('col-available')).toHaveText('Available');
@@ -69,9 +68,9 @@ test('a tapped tip goes away by itself', async ({ page }) => {
   // something else was tapped would be a bubble covering the row under it.
   await withStore(page, STORE());
   await page.getByTestId('tab-budget').click();
-  const mark = page.getByTestId('col-spent');
+  const mark = page.getByTestId('col-needs');
   await mark.click();
-  await expect(mark).toHaveText('Spent');
+  await expect(mark).toHaveText('Needs');
   await expect(mark).toHaveText('', { timeout: 4000 });
 });
 
@@ -106,11 +105,12 @@ test('a number says which column it is under, and still opens the pad', async ({
   await page.getByTestId('pad-backdrop').click({ position: { x: 5, y: 5 } });
   await expect(page.getByTestId('pad-amount')).toBeHidden();
 
-  // SPENT has no pad to open, so a tap there may flash its tip — and it
-  // still cannot be typed over, which is what the missing tap target says.
-  await expect(page.getByTestId('line-spent-tap-l1')).toHaveCount(0);
-  await page.getByTestId('line-spent-l1').hover();
-  await expect(page.getByTestId('line-spent-l1').locator('..')).toContainText('Spent');
+  const spent = page.getByTestId('line-spent-tap-l1');
+  await spent.hover();
+  await expect(spent).toContainText('Spent');
+  await spent.click();
+  await expect(page.getByTestId('spent-preview-title')).toHaveText('Groceries');
+  await expect(page.getByTestId('pad-amount')).toBeHidden();
 });
 
 test('each column mark is the colour the owner named for it', async ({ page }) => {

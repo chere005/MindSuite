@@ -8,6 +8,7 @@ import {
 const spec = JSON.parse(readFileSync(new URL('../../../spec/categorization.json', import.meta.url), 'utf8')) as {
   matches: [string, string, string | null, string | null][];
   frequency: { lines: string[]; filed: (string | null)[]; deleted: string[]; order: string[] };
+  hiddenLines: { line: string; parent: 'missing' | 'deleted' }[];
 };
 const line = (id: string): Line => ({
   id, name: id, category: 'c1', budget: 0, needs: 0, snoozed: false, order: 0, created: 1, updated: 1,
@@ -38,8 +39,22 @@ it('uses live filing counts and keeps the existing order between ties', () => {
     ...filed.map((category, i) => txn(String(i), { category })),
     ...deleted.map((category, i) => txn(`d${i}`, { category, deleted: true })),
   ];
-  expect(categoryChoices(store().lines, txns).map((choice) => choice.id))
+  expect(categoryChoices({ ...store(), txns }).map((choice) => choice.id))
     .toEqual(order.map((id) => id === 'income' ? INCOME : id));
+});
+
+it('excludes lines under deleted or missing categories from pickers and rules', () => {
+  const initial = store();
+  const parent = initial.categories[0]!;
+  const base = {
+    ...initial,
+    categories: [...initial.categories, { ...parent, id: 'deleted', deleted: true as const }],
+    lines: [...initial.lines, ...spec.hiddenLines.map(({ line: id, parent }) => ({ ...line(id), category: parent }))],
+    settings: spec.hiddenLines.map(({ line: id }) => ({ id: `categoryMatch:${id}`, value: id, created: 1, updated: 1 })),
+  };
+  expect(categoryChoices(base).map(({ id }) => id)).toEqual([INCOME, ...spec.frequency.lines]);
+  expect(categoryRules(base)).toEqual([]);
+  expect(saveCategoryRule(base, 'Shop', spec.hiddenLines[0]!.line, 20)).toBe(base);
 });
 
 it('files existing unassigned transactions and persists rules for later imports', () => {

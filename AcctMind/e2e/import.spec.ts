@@ -67,10 +67,13 @@ test('dropping a CSV on the budget opens its import preview before writing anyth
   await expect(page.getByTestId('import-filename')).toHaveText('statement.CSV');
   await expect(page.getByTestId('import-plan')).toHaveText('3 new');
   expect(await live(page)).toHaveLength(0);
+  await page.getByTestId('import-replace').click();
+  await expect(page.getByTestId('import-replace')).toContainText('Press again');
 
   await dropFiles(page, { name: 'short.csv', text: csv(`"${APPLE}","-8.93","Posted"`) });
   await expect(page.getByTestId('import-filename')).toHaveText('short.csv');
   await expect(page.getByTestId('import-plan')).toHaveText('1 new');
+  await expect(page.getByTestId('import-replace')).toHaveText('Replace everything in this account');
   await page.getByTestId('import-add').click();
   await expect(page.getByTestId('import-title')).toBeHidden();
   expect((await live(page)).map(({ name }) => name)).toEqual(['Apple']);

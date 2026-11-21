@@ -483,7 +483,7 @@ export default function App() {
   );
 
   const ledger = phase.k === 'ready' ? phase.store : null;
-  const choices = useMemo(() => ledger === null ? [] : categoryChoices(ledger.lines, ledger.txns), [ledger]);
+  const choices = useMemo(() => ledger === null ? [] : categoryChoices(ledger), [ledger]);
   const rules = useMemo(() => ledger === null ? [] : categoryRules(ledger), [ledger]);
 
   const appMenu = (
@@ -715,7 +715,8 @@ export default function App() {
               collapsed={prefs.collapsed}
               onCollapsed={(ids) => setPref('collapsed', [...ids])}
               onManage={() => setManaging('accounts')}
-              lines={choices}
+              lines={live(phase.store.lines)}
+              categoryOptions={choices}
               categories={live(phase.store.categories)}
               /*
                * Reconcile: say what the account actually holds, and the

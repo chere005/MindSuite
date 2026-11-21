@@ -127,11 +127,15 @@ test('nothing picked, nothing assigned — pressing all three changes nothing', 
   await expect(page.getByTestId('budget-assign-zero')).not.toHaveAttribute('aria-disabled', 'true');
 });
 
-test('= 0 adjusts the selected line until available is zero including carryover', async ({ page }) => {
+function priorSet(): string {
   const prior = new Date();
   prior.setDate(1);
   prior.setMonth(prior.getMonth() - 1);
-  const set = `m:${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}`;
+  return `m:${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}`;
+}
+
+test('= 0 adjusts the selected line until available is zero including carryover', async ({ page }) => {
+  const set = priorSet();
   const store = JSON.parse(STORE());
   store.budgets.push({ ...monthBudget('l1', 2000), set, id: `${set}|l1` });
   await withStore(page, JSON.stringify(store));
@@ -145,6 +149,47 @@ test('= 0 adjusts the selected line until available is zero including carryover'
   // The other two were never picked and must not have moved.
   await expect(page.getByTestId('line-budgeted-l2')).toHaveText('$25.00');
   expect(await assignedIn(page, 'l3')).toBe(120000);
+});
+
+test('Spent explains which transactions and carryover cover a line this month', async ({ page }) => {
+  const set = priorSet();
+  const store = JSON.parse(STORE());
+  store.lines.find((line: { id: string }) => line.id === 'l2').needs = 1000;
+  store.txns.push({ ...store.txns[0], id: 'prior', date: `${set.slice(2)}-06`, amount: -70 });
+  store.budgets = [
+    ...store.budgets.filter((row: { line: string }) => row.line !== 'l2'),
+    { ...monthBudget('l1', 2070), set, id: `${set}|l1` },
+    { ...monthBudget('l2', 1000), set, id: `${set}|l2` },
+  ];
+  await withStore(page, JSON.stringify(store));
+  await page.getByTestId('tab-budget').click();
+  await page.getByTestId('line-spent-tap-l1').click();
+  await expect(page.getByTestId('spent-preview-title')).toHaveText('Groceries');
+  await expect(page.getByTestId('spent-preview-txn-t1')).toContainText('Shop');
+  await expect(page.getByTestId('spent-preview-txn-t2')).toBeHidden();
+  await expect(page.getByTestId('spent-preview-txn-prior')).toBeHidden();
+  await expect(page.getByTestId('spent-preview-carryover')).toHaveText('$20.00');
+  await expect(page.getByTestId('spent-preview-spent')).toHaveText('-$120.00');
+  await expect(page.getByTestId('spent-preview-assign')).toHaveText('Set Assigned to $100.00');
+  await page.getByTestId('spent-preview-assign').click();
+  await expect(page.getByTestId('spent-preview-available')).toHaveText('$0.00');
+  await expect(page.getByTestId('spent-preview-covered')).toBeVisible();
+  expect(await assignedIn(page, 'l1')).toBe(10000);
+  await page.getByTestId('spent-preview-close').click();
+  await expect(page.getByTestId('spent-preview-close')).toBeHidden();
+
+  await page.getByTestId('line-spent-tap-l2').click();
+  await expect(page.getByTestId('spent-preview-title')).toHaveText('Coffee');
+  await expect(page.getByTestId('spent-preview-carryover')).toHaveText('$10.00');
+  await expect(page.getByTestId('spent-preview-assigned')).toHaveText('$0.00');
+  await expect(page.getByTestId('spent-preview-available')).toHaveText('$0.00');
+  await expect(page.getByTestId('spent-preview-covered')).toBeVisible();
+  await page.getByTestId('spent-preview-close').click();
+  await expect(page.getByTestId('spent-preview-close')).toBeHidden();
+  await expect(page.getByTestId('line-available-l2')).toHaveCSS('color', 'rgb(48, 209, 88)');
+  await pick(page, 'l2');
+  await page.getByTestId('budget-assign-needs').click();
+  expect(await assignedIn(page, 'l2')).toBe(0);
 });
 
 test('= flag ADDS up to the target, and never takes away', async ({ page }) => {

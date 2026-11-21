@@ -323,15 +323,12 @@ test('and with money already spent, the two still agree', async ({ page }) => {
   await expect(page.getByTestId(`line-available-${line}`)).toHaveText('$300.00');
 });
 
-test('spent is shown and cannot be typed over', async ({ page }) => {
-  // A budget screen that let you edit the money that actually moved would be
-  // a budget screen that lies. There is no `line-spent-tap-*` at all — the
-  // other two columns have one and this one deliberately does not.
-  const line = await seed(page);
-  await expect(page.getByTestId(`line-spent-${line}`)).toBeVisible();
-  await expect(page.getByTestId(`line-budgeted-tap-${line}`)).toBeVisible();
-  await expect(page.getByTestId(`line-available-tap-${line}`)).toBeVisible();
-  await expect(page.getByTestId(`line-spent-tap-${line}`)).toHaveCount(0);
+test('the Spent column heading opens the category spending preview', async ({ page }) => {
+  await seed(page);
+  await page.getByTestId('col-spent').click();
+  await expect(page.getByTestId('spent-preview-spent')).toHaveText('$0.00');
+  await expect(page.getByText('No transactions this month')).toBeVisible();
+  await expect(page.getByTestId('pad-amount')).toBeHidden();
 });
 
 test('tapping away COMMITS — it is the other way out, not a cancel', async ({ page }) => {

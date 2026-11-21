@@ -14,7 +14,7 @@
  * is assigned gets read with `assignedIn` rather than off the record.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { assignedIn, fresh, setSign, stored } from './helpers';
+import { assignedIn, fresh, setSign, stored, withStore } from './helpers';
 
 type Stored = {
   categories: { id: string; name: string; deleted?: true }[];
@@ -24,6 +24,30 @@ type Stored = {
 
 const live = (s: Stored) => s.categories.filter((c) => c.deleted !== true);
 const liveLines = (s: Stored) => s.lines.filter((l) => l.deleted !== true);
+
+test('the picker hides a duplicate mortgage under a deleted group', async ({ page }) => {
+  const stamp = { order: 0, created: 1, updated: 1 };
+  await withStore(page, JSON.stringify({
+    v: 4,
+    txns: [{ id: 'old', name: 'Past payment', date: '2026-10-06', amount: -1000,
+      account: 'a1', category: 'duplicate', ...stamp }],
+    accounts: [{ id: 'a1', name: 'Checking', color: '#4c8bf0', ...stamp }],
+    categories: [
+      { id: 'bills', name: 'Bills', color: '#66d695', ...stamp },
+      { id: 'retired', name: 'Old bills', color: '#66d695', ...stamp, deleted: true },
+    ],
+    lines: [
+      { id: 'mortgage', name: 'Mortgage', category: 'bills', ...stamp },
+      { id: 'duplicate', name: 'Mortgage', category: 'retired', ...stamp },
+    ],
+    budgets: [],
+  }));
+  await expect(page.getByTestId('txn-category')).toHaveText('Mortgage');
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('category-button').click();
+  await expect(page.getByTestId('category-opt-mortgage')).toHaveText('MortgageBills');
+  await expect(page.getByTestId('category-opt-duplicate')).toHaveCount(0);
+});
 
 /*
  * Desktop only, and worth saying why rather than leaving it to be found.

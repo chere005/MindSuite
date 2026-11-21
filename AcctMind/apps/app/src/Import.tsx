@@ -52,25 +52,21 @@ export function Import({ visible, store, accounts, onOpen, onClose, onImport }: 
   const [preview, setPreview] = useState<Preview | null>(null);
   const [selectedAccount, setAccount] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
-  /** `replace` is armed by a first press, like the budget's delete. */
-  const [armed, setArmed] = useState(false);
-  /** …and so is the ordinary import, but ONLY when it would remove a row. */
-  const [armedAdd, setArmedAdd] = useState(false);
+  /** A destructive import is confirmed against the account and ledger shown in its preview. */
+  const [confirmation, setConfirmation] = useState<{ mode: ImportMode; account: string; store: Store } | null>(null);
   const latestRead = useRef(0);
 
   const close = () => {
     latestRead.current++;
     setPreview(null);
     setPasted('');
-    setArmed(false);
-    setArmedAdd(false);
+    setConfirmation(null);
     onClose();
   };
 
   const takeFile = useCallback((file: File) => {
     const read = ++latestRead.current;
-    setArmed(false);
-    setArmedAdd(false);
+    setConfirmation(null);
     setPreview({ kind: 'reading', name: file.name });
     onOpen();
     void file.text().then(
@@ -112,11 +108,13 @@ export function Import({ visible, store, accounts, onOpen, onClose, onImport }: 
 
   const takePaste = () => {
     setPreview({ kind: 'parsed', name: null, data: readCsv(pasted) });
-    setArmed(false);
-    setArmedAdd(false);
+    setConfirmation(null);
   };
 
   const account = accounts.find((a) => a.id === selectedAccount)?.id ?? accounts[0]?.id ?? null;
+  const confirmedMode = confirmation?.store === store && confirmation.account === account ? confirmation.mode : null;
+  const armed = confirmedMode === 'replace';
+  const armedAdd = confirmedMode === 'add';
   const loaded = preview?.kind === 'parsed' ? preview.data : null;
   const error = preview?.kind === 'failed' ? 'Could not read that CSV file.'
     : loaded?.rows.length === 0 ? 'No transactions found in that file.' : null;
@@ -192,7 +190,7 @@ export function Import({ visible, store, accounts, onOpen, onClose, onImport }: 
                 {accounts.map((a) => (
                   <Pressable
                     key={a.id}
-                    onPress={() => { setAccount(a.id); setArmed(false); setArmedAdd(false); }}
+                    onPress={() => { setAccount(a.id); setConfirmation(null); }}
                     style={[styles.acct, account === a.id && styles.acctOn]}
                     accessibilityRole="button"
                     accessibilityState={{ selected: account === a.id }}
@@ -305,7 +303,10 @@ export function Import({ visible, store, accounts, onOpen, onClose, onImport }: 
               <Pressable
                 onPress={() => {
                   if (account === null || plan === null || loaded === null) return;
-                  if (plan.missing.length > 0 && !armedAdd) { setArmedAdd(true); return; }
+                  if (plan.missing.length > 0 && !armedAdd) {
+                    setConfirmation({ mode: 'add', account, store });
+                    return;
+                  }
                   onImport(account, loaded.rows, 'add');
                   close();
                 }}
@@ -330,7 +331,7 @@ export function Import({ visible, store, accounts, onOpen, onClose, onImport }: 
               <Pressable
                 onPress={() => {
                   if (account === null || replacing === null || loaded === null) return;
-                  if (!armed) { setArmed(true); return; }
+                  if (!armed) { setConfirmation({ mode: 'replace', account, store }); return; }
                   onImport(account, loaded.rows, 'replace');
                   close();
                 }}
