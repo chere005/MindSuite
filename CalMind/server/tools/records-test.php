@@ -183,7 +183,11 @@ t('sql: a sealed payload is bound to its store and id — moved or altered, it r
     ok(!str_contains((string) file_get_contents($cfg['data_dir'] . '/records.sqlite'), 'secret text'), 'nowhere in the file');
     $pdo->prepare("UPDATE rs_records SET payload = ? WHERE owner = 'sam'")->execute([$alexSeal]);
     throws(fn() => rs_view($cfg, 'sam', '')->get('n1'), "alex's payload under sam's name");
-    $flip = substr($alexSeal, 0, -2) . (substr($alexSeal, -2, 1) === 'A' ? 'B' : 'A') . substr($alexSeal, -1);
+    // One ciphertext BYTE, not one base64 character: a character in the padding or the last group's spare bits can
+    // change without changing a byte, which is how this check once passed against an unaltered row.
+    $bin = base64_decode(substr($alexSeal, 5), true);
+    $bin[strlen($bin) - 1] = chr(ord($bin[strlen($bin) - 1]) ^ 0x01);
+    $flip = 'ENC2:' . base64_encode($bin);
     $pdo->prepare("UPDATE rs_records SET payload = ? WHERE owner = 'alex'")->execute([$flip]);
     throws(fn() => rs_view($cfg, 'alex', '')->since(0), 'one altered character');
 });
