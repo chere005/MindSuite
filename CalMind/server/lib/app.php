@@ -596,7 +596,7 @@ const SUITE_SCOPE = 'calmind';
  * A request for another app's space follows THAT app's switch and hold: MealMind names space 'chef' on every action (its
  * api.ts), so 'chefmind' held keeps its calls on the legacy path while calmind is un-held, and calmind held does not hold
  * them back while chefmind is un-held. The scope does not follow: a chef-space token is still scope 'calmind' (the API it
- * opens is this one, on the same accounts; the importer made ChefMind's (now MealMind's) legacy tokens, which live in the same tokens.json,
+ * opens is this one, on the same accounts; the importer made MealMind's legacy tokens, which live in the same tokens.json,
  * calmind-scoped), so a token's scope must still be exactly SUITE_SCOPE, whichever app's hold the request follows.
  */
 const SUITE_SPACE_APPS = ['chef' => 'chefmind'];
@@ -1369,7 +1369,7 @@ function handle_sync(array $cfg, array $in): never
  *
  * MealMind (2026-08-21) reuses these accounts and keeps its own store, and the
  * first version of that made sync space-aware and left sharing alone — so
- * ChefMind (now MealMind) pulled the partner's CALMIND folders and showed them, on the very
+ * MealMind pulled the partner's CALMIND folders and showed them, on the very
  * first sign-in. The owner's words: "this should be completely separate from
  * calmind... it just shares the login mechanism and users".
  *

@@ -599,9 +599,9 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
   /**
    * MealMind's recipes, drawn here under the chef's hat.
    *
-   * The owner, 2026-09-15: "sync recipes in ChefMind and CalMind… recipes show up
+   * The owner, 2026-09-15: "sync recipes in MealMind and CalMind… recipes show up
    * in CalMind as notes sections with a chef hat icon to the right to
-   * indicate they are coming from ChefMind." These are MealMind's OWN
+   * indicate they are coming from MealMind." These are MealMind's OWN
    * records — its notes folders, their sections, the recipes in them — read
    * from that app's sync space by the store (store.tsx, CHEF_SPACE) and
    * drawn under the All view after my folders, the way a partner's shared
@@ -609,7 +609,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
    * marking; the badge on the folder head names the app.
    *
    * READ HERE, NEVER WRITTEN. The owner, later the same day: "disable editing
-   * ChefMind recipes from CalMind." A tap opens the recipe in a reader
+   * MealMind recipes from CalMind." A tap opens the recipe in a reader
    * (ChefRecipeView) — title, card, the scale buttons a cook wants — with no
    * editor, no +, no delete; MealMind is where a recipe is changed. The
    * store keeps only a read model of that space (chefRecs) and no way to
@@ -1815,7 +1815,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
 }
 
 /**
- * A MealMind recipe, READ. The owner, 2026-09-15: "disable editing ChefMind
+ * A MealMind recipe, READ. The owner, 2026-09-15: "disable editing MealMind
  * recipes from CalMind." What a cook wants from a recipe on this screen —
  * the title, the card, half/double — and nothing that writes: no title
  * field, no body editor, no Recipe page, no delete. MealMind is where a

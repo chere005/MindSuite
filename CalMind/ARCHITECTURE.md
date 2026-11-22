@@ -111,8 +111,7 @@ and all — still kept in lockstep with this one, deliberately, across repos:
 - [chere005/MyCalMind](https://github.com/chere005/MyCalMind) (né
   CalMind-Local) — the server taken out: one device's data, mirrored to
   paired devices over Bonjour and nowhere else. iOS + watchOS only.
-- MealMind (`../MealMind`; ChefMind up to 1.51.0, once
-  [chere005/ChefMind](https://github.com/chere005/ChefMind)) — recipes and a
+- MealMind (`../MealMind`) — recipes and a
   shopping list, syncing through THIS server on THESE accounts, kept apart by
   a sync SPACE (`records-chef-<user>.json`), not a second server. Its deploy
   gates read this checkout as `$CALMIND_REPO`.

@@ -43,8 +43,6 @@ INSTALLING
 - **Windows (x64)**: run `MealMind_7.12.0_x64-setup.exe` (or the `.msi`). The installers are not code-signed, so
   SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
 - **macOS (Apple silicon)**: open `MealMind_7.12.0_aarch64.dmg` and drag MealMind to Applications. The app is signed and notarized.
-- **MealMind was ChefMind.** On Windows, uninstall ChefMind first (Settings > Apps > Installed apps), leaving
-  "Delete the application data" unticked: MealMind keeps the same sign-in and data. On a Mac, move ChefMind to the Trash.
 - `SHA256SUMS.txt` lists the checksum of every installer.
 INSTALLING
       ;;

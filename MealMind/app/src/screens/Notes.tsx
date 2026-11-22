@@ -2018,7 +2018,7 @@ const NoteRow = memo(function NoteRow({ n, idx, pageEdit, picked, slotHere, drag
         )}
         {pageEdit && (
           <>
-            {/* NO calendar button (the owner, 2026-08-22: "remove the calendar icon in edit mode in chefmind"); the date CHIP above stays. */}
+            {/* NO calendar button (the owner, 2026-08-22: "remove the calendar icon in edit mode in MealMind"); the date CHIP above stays. */}
             <CircleBtn testID="note-dup" glyph="⧉" label="Duplicate" size={22} onPress={() => h.dup(n.id)} />
             <ConfirmDelete onDelete={() => h.del(n.id)} />
           </>

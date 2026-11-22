@@ -61,7 +61,7 @@ async function onBudget(page: Page): Promise<void> {
 const pick = (page: Page, id: string) => page.getByTestId(`line-pick-${id}`).click();
 
 test('the bar is there before anything is picked, and says so', async ({ page }) => {
-  // ChefMind's rule, carried over with the bar (the owner there, 2026-09-16): a
+  // MealMind's rule, carried over with the bar (the owner there, 2026-09-16): a
   // bar that appears only once something is picked is a count you cannot
   // read until after you have guessed at the control that produces it.
   await onBudget(page);

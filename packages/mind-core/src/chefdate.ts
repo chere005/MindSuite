@@ -1,9 +1,9 @@
 /**
  * A date that CalMind keeps ABOUT a MealMind recipe.
  *
- * The owner, 2026-09-16: "allow adding dates in CalMind to ChefMind entries…
+ * The owner, 2026-09-16: "allow adding dates in CalMind to MealMind entries…
  * showing up on the calendar is only known to CalMind, and still points to
- * the ChefMind recipe itself when opened from the calendar."
+ * the MealMind recipe itself when opened from the calendar."
  *
  * So this is a one-way annotation, and the direction is the whole design.
  * The recipes under the hat in Notes are MealMind's records, read through a

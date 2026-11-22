@@ -13,10 +13,8 @@ something AGENTS.md sets out in full, it says so rather than repeating it.
 ## What it is, and where it came from
 
 CalMind's recipes, with a shopping list and a pantry, syncing through the same
-server on the same account. It was called ChefMind up to 1.51.0 (tags
-`ChefMind/x.y.0`); from 1.52.0 it is MealMind, at `/MealMind/`, and every id
-that stores data or identifies an installed app kept the old name (AGENTS.md
-lists them). It is a CLONE of CalMind's `apps/app` and
+server on the same account, at `/MealMind/` (AGENTS.md lists the ids that
+store data or identify an installed app). It is a CLONE of CalMind's `apps/app` and
 `packages/core`, not a rewrite — see `AGENTS.md` for the rules that keep it
 one. It has been its own repo since 2026-08-22, extracted from
 [chere005/CalMind](https://github.com/chere005/CalMind) with its history.
@@ -39,7 +37,7 @@ App-owned, not shared (not listed in `tools/shared-files.json`, plus the config 
 
 The web app at [seancheren.com/MealMind](https://seancheren.com/MealMind) is an
 installable PWA. TEST has the same client at `test.seancheren.com/MealMind`, using that origin's CalMind API.
-The old path, `/ChefMind/`, redirects there (Deploying, below). iOS and Android come from
+iOS and Android come from
 Expo, the macOS desktop shell is Tauri, and Windows `.msi`/`.exe` are built by
 CI. Which of those this repo can build for itself, and which it cannot, is
 AGENTS.md, "Platforms — what ships where, and how".
@@ -111,7 +109,7 @@ keep".
 | `QuickTick`, `watch.ts` and `core/watch.ts`, the watch/widget targets | no watch, no widgets |
 | `subs.ts`, `core/calsub.ts`, `core/ical.ts`, `core/rrule.ts` | calendar subscriptions belong to the calendar |
 | the Event card on Add | an event is a calendar thing |
-| `Reminders`, the Reminder card, and the general reminders FOLDER | The owner, 2026-08-21: "remove reminders from ChefMind" — a general list is CalMind's job. The screen went then; the seeded folder named *Reminders* survived until 2026-08-22 ("that should have been removed completely") because the shape pass needed somewhere to file a stray reminder. The shopping list is that somewhere now, and an account that already grew the folder has it folded in — rows first, then the folder. The `reminder` RECORD stays: the shopping rows are reminder records, and Search finds them under **Shopping** |
+| `Reminders`, the Reminder card, and the general reminders FOLDER | The owner, 2026-08-21: "remove reminders from MealMind" — a general list is CalMind's job. The screen went then; the seeded folder named *Reminders* survived until 2026-08-22 ("that should have been removed completely") because the shape pass needed somewhere to file a stray reminder. The shopping list is that somewhere now, and an account that already grew the folder has it folded in — rows first, then the folder. The `reminder` RECORD stays: the shopping rows are reminder records, and Search finds them under **Shopping** |
 | `core/markdown.ts` | it exports a Reminders view as Markdown, and there is no Reminders view |
 | `core/chefdate.ts` | the dates CalMind keeps about MealMind recipes, which MealMind never sees |
 | the repeat pill on Add | what is left there makes a recipe, and a recipe does not recur |
@@ -198,8 +196,6 @@ traps set out why at length.
 
 Production writes only `/home/public/MealMind`; `--test` writes only `/home/public/test/MealMind` and checks TEST's CalMind API. Both use a fresh origin-relative export, refuse an inherited API override, disable dotenv loading and retain all gates. The selected destinations and flags cannot be overridden by `deploy.conf`, which supplies the SSH login (gitignored — see `deploy.conf.sample`). A TEST refresh neither tags a release nor changes a version.
 
-**The old path.** Once the new page is proven, `deploy.sh` replaces the instance's `/ChefMind/` (the app's path up to 1.51.0) with `tools/old-path/`: an `.htaccess` that 302s every request to the same place under `/MealMind/`, query string included, except `sw.js`, which it serves no-cache as a worker that deletes only the `chefmind-*` caches (one origin holds every app's), unregisters ChefMind's worker and reloads its pages onto the redirect. A redirected worker script is refused by browsers, so `sw.js` must never redirect. Its rewrite rules replace the site root's in that directory, so it first re-applies the root's `test.`/`dev.` host routing (as CalMind's `web.htaccess` does), a no-op in the TEST copy; without it PROD's folder would answer every `test.seancheren.com/ChefMind/` request. `tools/test-deploy-targets.sh` checks that order. The folder is uploaded as `ChefMind.next`, proven there over HTTPS, swapped in with two renames, and the old folder is moved to `/home/private/retired-web/`, never deleted. It is idempotent (an old path that already holds these files is left alone) and touches only what it recognises: ChefMind's page, an earlier redirect, or nothing. TEST's `/ChefMind/` is also the TestChefMind sandbox's deploy target, and while it serves that page it is left alone.
-
 `npm run test:deploy` covers the fixed target guards and exercises dry-run, deploy and verification with stubbed build and network commands.
 
 ## Releasing
@@ -230,7 +226,7 @@ sh tools/build-platforms.sh --mac --ios --android
 
 ## Releases
 
-Pushing a namespaced version tag (`MealMind/1.52.0`; `ChefMind/x.y.0` up to 1.51.0) starts the **MealMind Release**
+Pushing a namespaced version tag (`MealMind/1.52.0`) starts the **MealMind Release**
 workflow (the suite root's `.github/workflows/mealmind-release.yml`), which builds the desktop installers on
 GitHub's runners and attaches them to ONE GitHub release for that version. The
 release is created as a draft and published only when every expected file is on
@@ -250,8 +246,8 @@ that is already a published release is refused; the notes are the tag's
 annotation, else the tagged commit's message; the draft is created), then
 `windows` and `mac` in parallel (typecheck, then the web export and head patch
 as `deploy.sh` runs them, then `tauri build`; Windows installs the MSI on the
-runner, checks it carries ChefMind's pinned upgrade code (so it upgrades a
-ChefMind MSI install instead of installing beside it), and checks it launches
+runner, checks it carries the pinned upgrade code (so it upgrades an
+earlier MSI install instead of installing beside it), and checks it launches
 and opens a MealMind window; the Mac job also
 runs the test suites, which need a POSIX shell), then `publish` (every file is
 there, `SHA256SUMS.txt` is attached, the release is published as Latest; a
@@ -278,7 +274,7 @@ platform missing dispatches itself again (input `attempt`, three runs at most),
 building only what the draft lacks.
 
 **An existing tag with no release** (a past version, or after deleting a bad
-draft): `gh workflow run mealmind-release.yml --ref main -f tag=<tag>` (e.g. `MealMind/1.52.0`; the workflow takes only `MealMind/` tags, and the `ChefMind/` ones already have their releases). It builds the tag's
+draft): `gh workflow run mealmind-release.yml --ref main -f tag=<tag>` (e.g. `MealMind/1.52.0`; the workflow takes only `MealMind/` tags). It builds the tag's
 own tree with the current workflow.
 
 **Preflight** (`sh tools/preflight.sh [tag]`, run by the lane right before the

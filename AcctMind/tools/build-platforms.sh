@@ -20,7 +20,7 @@
 # @acctmind/desktop, iOS installs to the phone), so this repo's own lane
 # shipped the web, dispatched Windows CI, and stopped — a release could tag
 # and push with the Mac bundle still built from whatever was last lying
-# around. ChefMind's did exactly that, and the fix is suite-wide on the owner's
+# around. MealMind's did exactly that, and the fix is suite-wide on the owner's
 # word (2026-08-23): "all apps should have a deploy on their own mechanism
 # inside their repo". So the machinery is HERE, the dtp lane runs it, and
 # CoreMind orchestrates ACROSS apps by calling each app's own lane rather
@@ -318,7 +318,7 @@ if [ "$WANT_IOS" = 1 ]; then
   # the app rather than about the state of the USB port. The owner, 2026-09-21,
   # after a release reached one phone and stopped — "you should have dtp to
   # all platforms and all 3 phones and my watch", then the routing itself, in
-  # the same breath: "the only apps installed on person B's phone are ChefMind
+  # the same breath: "the only apps installed on person B's phone are MealMind
   # and CalMind", "person C's phone only gets CalMind", "my phone gets all 6
   # (including the test ones)". The ledger is one of those six and lives on
   # the owner's phone alone, which is why there is one line below and not three;

@@ -7,16 +7,16 @@
  *
  * Upstream this has five: the calendar and habits sit either side of a raised
  * accent + . MealMind keeps the shopping list and nothing else — the owner,
- * 2026-08-21: "remove reminders from ChefMind". A cooking app that also held
+ * 2026-08-21: "remove reminders from MealMind". A cooking app that also held
  * a general reminders list was holding CalMind's job.
  *
- * The PANTRY joined it 2026-08-22 (the owner: "add a third tab to chefmind which is
+ * The PANTRY joined it 2026-08-22 (the owner: "add a third tab to MealMind which is
  * a list of groceries on hand"). Pantry sits beside Recipes rather than beside
  * Shopping, even though the two lists are the same component: they are
  * opposites — what you have and what you need — and putting them adjacent is
  * how you tap the wrong one.
  *
- * The + went 2026-09-15 (the owner: "remove the + page from ChefMind"), and with it
+ * The + went 2026-09-15 (the owner: "remove the + page from MealMind"), and with it
  * the only raised control the bar had, so every tab is now the same shape. It
  * filed ONE kind — a recipe — into a section chosen from a dropdown, which is
  * the thing the Recipes screen's own + beside each section does in place,

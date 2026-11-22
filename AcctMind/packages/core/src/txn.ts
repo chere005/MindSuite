@@ -866,7 +866,7 @@ export function rowTap(parked: boolean, edit: boolean): RowTap {
 /**
  * What a tap on the SELECTOR DOT does — the same precedence, one case short.
  *
- * The dot is ChefMind's, brought over 2026-09-21, and it is drawn on every
+ * The dot is MealMind's, brought over 2026-09-21, and it is drawn on every
  * row at all times rather than only in edit mode. So it has no `edit` case:
  * picking is what it is FOR, and a mode it ignored would be a mode it lied
  * about.

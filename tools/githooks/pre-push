@@ -4,10 +4,8 @@
 #   for a remote named by `git config --get-all mindsuite.publicRemote` (a remote name or url), fail closed:
 #     - only these remote refs may be written:
 #         refs/heads/main
-#         refs/tags/<App>/<x.y.z>   App = AcctMind CalMind MealMind CoreMind PlanMind ReadMind TaskMind (the lanes' tags;
-#                                   ChefMind is MealMind's name up to 1.51.0, kept so its tags stay valid)
-#         refs/heads/preflight/<acctmind|calmind|mealmind|chefmind>/<sha7..40>   (the lanes' throwaway preflight branches;
-#                                   chefmind so one left from before the rename can still be deleted)
+#         refs/tags/<App>/<x.y.z>   App = AcctMind CalMind MealMind CoreMind PlanMind ReadMind TaskMind (the lanes' tags)
+#         refs/heads/preflight/<acctmind|calmind|mealmind>/<sha7..40>   (the lanes' throwaway preflight branches)
 #       never a <App>/legacy/<version> marker, any other branch or tag, or an old-style tag;
 #     - only a preflight branch may be deleted;
 #     - every pushed object gets a full-ancestry `history` scan, with no skip when the needle list is missing.
@@ -29,8 +27,8 @@ public=0
 for p in $(git config --get-all mindsuite.publicRemote); do
   if [ "$p" = "$remote" ] || [ "$p" = "$url" ]; then public=1; fi
 done
-APPS='AcctMind|CalMind|MealMind|ChefMind|CoreMind|PlanMind|ReadMind|TaskMind'
-PREFLIGHT='refs/heads/preflight/(acctmind|calmind|mealmind|chefmind)/[0-9a-f]{7,40}'
+APPS='AcctMind|CalMind|MealMind|CoreMind|PlanMind|ReadMind|TaskMind'
+PREFLIGHT='refs/heads/preflight/(acctmind|calmind|mealmind)/[0-9a-f]{7,40}'
 public_ref_ok() {
   printf '%s\n' "$1" | grep -Eqx "refs/heads/main|refs/tags/($APPS)/[0-9]+\.[0-9]+\.[0-9]+|$PREFLIGHT"
 }

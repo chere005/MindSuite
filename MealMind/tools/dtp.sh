@@ -1,5 +1,5 @@
 #!/bin/sh
-# dtp — deploy, tag, push. The release gesture for MealMind (ChefMind until 1.51.0).
+# dtp — deploy, tag, push. The release gesture for MealMind.
 # tdtp — the same lane with the full test run in front: tools/tdtp.sh, which
 # calls this with --full. (the owner's shorthand, 2026-08-22: dtp = deploy, tag,
 # push; tdtp = test, deploy, tag, push.)
@@ -26,8 +26,7 @@
 #      commit, publishing nothing. A failure stops the lane exactly as step 4
 #      does: the version stays untagged and a re-run reuses it. Never tag
 #      around a failed preflight; --skip-preflight is the deliberate way past.
-#   6. tag MealMind/X.Y.0 (namespaced, no v) (annotated; ChefMind/X.Y.0 up to
-#      1.51.0, which still count as this app's tags below)
+#   6. tag MealMind/X.Y.0 (namespaced, no v) (annotated)
 #   7. git push --atomic — the tag push starts the Release
 #      workflow (.github/workflows/mealmind-release.yml), which builds the installers
 #      and publishes ONE GitHub release for the version
@@ -157,10 +156,7 @@ fi
 # What the Release workflow builds from, changed since the last tag? Read
 # BEFORE the bump commit, which touches the manifests every time. A dtp skips
 # the 5–10 minute preflight when the answer is no; tdtp always runs it.
-# The app was ChefMind until 1.51.0 (tags ChefMind/x.y.0): with no MealMind/
-# tag yet, the last ChefMind/ one is the last release.
-LAST_TAG=$(git describe --tags --abbrev=0 --match 'MealMind/[0-9]*.[0-9]*.[0-9]*' 2>/dev/null ||
-  git describe --tags --abbrev=0 --match 'ChefMind/[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
+LAST_TAG=$(git describe --tags --abbrev=0 --match 'MealMind/[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
 RELEASE_INPUTS=1
 if [ -n "$LAST_TAG" ] &&
     git diff --quiet "$LAST_TAG" HEAD -- ':(top).github/workflows/mealmind-release.yml' &&
@@ -177,12 +173,10 @@ CUR=$(node -p "require('./package.json').version")
 printf '%s\n' "$CUR" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
   || { echo "package.json version '$CUR' is not x.y.z" >&2; exit 1; }
 
-# A version is this app's whether it shipped as MealMind/ or, up to 1.51.0,
-# as ChefMind/ — else the first MealMind run would ship 1.51.0 a second time.
+# A version is this app's whether it shipped from this repo or, before the
+# monorepo, from its own (MealMind/legacy/).
 if git show-ref --verify --quiet "refs/tags/MealMind/$CUR" ||
-   git show-ref --verify --quiet "refs/tags/ChefMind/$CUR" ||
-   git show-ref --verify --quiet "refs/tags/ChefMind/legacy-origin/$CUR" ||
-   git show-ref --verify --quiet "refs/tags/ChefMind/legacy/$CUR"; then
+   git show-ref --verify --quiet "refs/tags/MealMind/legacy/$CUR"; then
   NEW=$(echo "$CUR" | awk -F. '{printf "%d.%d.0", $1, $2+1}')
   echo "==> version: $CUR (tagged) -> $NEW"
 else
@@ -196,9 +190,7 @@ fi
 # shipped. Checked HERE, while nothing has been touched yet.
 TAG="MealMind/$NEW"
 if git show-ref --verify --quiet "refs/tags/$TAG" ||
-   git show-ref --verify --quiet "refs/tags/ChefMind/$NEW" ||
-   git show-ref --verify --quiet "refs/tags/ChefMind/legacy-origin/$NEW" ||
-   git show-ref --verify --quiet "refs/tags/ChefMind/legacy/$NEW"; then
+   git show-ref --verify --quiet "refs/tags/MealMind/legacy/$NEW"; then
   echo "refusing: the tag $NEW already exists — nothing has shipped yet." >&2
   echo "  It is the residue of an interrupted lane: look at it, then delete it" >&2
   echo "  or move the version on." >&2

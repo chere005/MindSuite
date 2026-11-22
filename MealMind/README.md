@@ -1,6 +1,6 @@
 # MealMind
 
-Recipes, a pantry and a shopping list. (It was called ChefMind until 1.51.0.)
+Recipes, a pantry and a shopping list.
 
 ## Disclaimer
 
@@ -11,7 +11,7 @@ Feel free to deploy this on your own website, build and deploy the iOS version, 
 ## Quick start / Install
 
 - Web: [seancheren.com/MealMind](https://seancheren.com/MealMind). Installs as a PWA. Sign in with a CalMind account.
-- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/MindSuite/releases) (the `MealMind/` tags; `ChefMind/` up to 1.51.0). Unsigned.
+- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/MindSuite/releases) (the `MealMind/` tags). Unsigned.
 - iOS and Android: build from source, see Building.
 
 ## Platforms
@@ -61,7 +61,7 @@ CALMIND_DATA_DIR=/tmp/mealmind-dev-data php -S 127.0.0.1:8792 e2e-router.php   #
 
 For local or native builds, `EXPO_PUBLIC_API_URL` can select another `/api/index.php` endpoint. Web deployment requires it unset and disables dotenv loading so the client follows the page's origin.
 
-Deploy production with `./deploy.sh --yes-prod`, or TEST only with `./deploy.sh --test`. Each selects a fixed web root and its own CalMind API. `--dry-run` previews transfers; `--verify` checks the selected instance. After a deploy proves the new page, the old `/ChefMind/` path becomes a redirect to `/MealMind/` with a worker that removes the old one. `deploy.conf` supplies only the SSH login. TEST uses the same source and gates, without changing the release version or any account data.
+Deploy production with `./deploy.sh --yes-prod`, or TEST only with `./deploy.sh --test`. Each selects a fixed web root and its own CalMind API. `--dry-run` previews transfers; `--verify` checks the selected instance. `deploy.conf` supplies only the SSH login. TEST uses the same source and gates, without changing the release version or any account data.
 
 Needs a sibling `../CalMind` checkout. Phones: `sh tools/build-platforms.sh --ios` or `--android`. Desktop: `npm run desktop`. Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub.
 

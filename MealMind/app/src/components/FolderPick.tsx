@@ -61,7 +61,7 @@ export function useFolderView(app: 'reminders' | 'notes'): FolderView {
  * the pie, everything on shows the rainbow. It reads the one `useFolderView`,
  * so the selection logic is not duplicated to draw it.
  *
- * (From 2026-09-16 the picker was a row in the username menu, ChefMind's only;
+ * (From 2026-09-16 the picker was a row in the username menu, MealMind's only;
  * since 2026-11-21 it is the bar's ring again, as in every suite app.)
  */
 export function FolderDot({ app, size = 14 }: { app: 'reminders' | 'notes'; size?: number }) {

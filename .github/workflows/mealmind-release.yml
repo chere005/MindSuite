@@ -203,8 +203,6 @@ jobs:
           - **Windows (x64)**: run \`MealMind_${VERSION}_x64-setup.exe\` (or the \`.msi\`). The installers are not code-signed, so
             SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
           - **macOS (Apple silicon)**: open \`MealMind_${VERSION}_aarch64.dmg\` and drag MealMind to Applications. The app is signed and notarized.
-          - **MealMind was ChefMind.** On Windows, uninstall ChefMind first (Settings > Apps > Installed apps), leaving
-            "Delete the application data" unticked: MealMind keeps the same sign-in and data. On a Mac, move ChefMind to the Trash.
           - \`SHA256SUMS.txt\` lists the checksum of every installer.
           EOF
           } > "$RUNNER_TEMP/release-notes.md"
@@ -302,16 +300,16 @@ jobs:
             ls -l "$f"
           done
 
-      # The app was ChefMind until 1.51.0, and Tauri derives an unpinned MSI UpgradeCode from productName: renamed without a
-      # pin, the MSI would install BESIDE ChefMind instead of upgrading it. tauri.conf.json pins ChefMind's code
-      # (bundle.windows.wix.upgradeCode); this proves the built MSI carries exactly that code.
-      - name: The MSI keeps ChefMind's upgrade code
+      # Tauri derives an unpinned MSI UpgradeCode from productName, so a changed productName would make the MSI install
+      # BESIDE the earlier one instead of upgrading it. tauri.conf.json pins the code (bundle.windows.wix.upgradeCode);
+      # this proves the built MSI carries exactly that code.
+      - name: The MSI keeps its pinned upgrade code
         shell: pwsh
         working-directory: MealMind
         run: |
           $want = '677a7f70-1ba5-529d-829f-6305e40c3d93'
           $pin = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).bundle.windows.wix.upgradeCode
-          if ("$pin".Trim('{}').ToLower() -ne $want) { throw "tauri.conf.json pins upgradeCode '$pin', not ChefMind's $want" }
+          if ("$pin".Trim('{}').ToLower() -ne $want) { throw "tauri.conf.json pins upgradeCode '$pin', not the pinned $want" }
           $msi = Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
           if (-not $msi) { throw 'no MSI to read' }
           $wi = New-Object -ComObject WindowsInstaller.Installer
@@ -322,8 +320,8 @@ jobs:
           if (-not $rec) { throw "$($msi.Name) has no UpgradeCode property" }
           $got = $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, 1)
           [void]$view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null)
-          if ($got.Trim('{}').ToLower() -ne $want) { throw "$($msi.Name) has UpgradeCode $got, not ChefMind's $want" }
-          Write-Host "$($msi.Name): UpgradeCode $got (ChefMind's)"
+          if ($got.Trim('{}').ToLower() -ne $want) { throw "$($msi.Name) has UpgradeCode $got, not the pinned $want" }
+          Write-Host "$($msi.Name): UpgradeCode $got (pinned)"
 
       # The runner IS a Windows machine with a desktop session, so the smoke that used to wait for a human runs here: install
       # the MSI the way a user's machine would, launch what it installed, and hold it to the bar the Mac smoke sets - it

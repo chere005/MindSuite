@@ -4,9 +4,9 @@ import { API, SESSION_KEY } from './port';
 /**
  * MealMind's recipes, drawn in Notes under the chef's hat — and edited there.
  *
- * The owner, 2026-09-15: "sync recipes in ChefMind and CalMind… recipes show up in
+ * The owner, 2026-09-15: "sync recipes in MealMind and CalMind… recipes show up in
  * CalMind as notes sections with a chef hat icon to the right to indicate they
- * are coming from ChefMind." MealMind keeps its store in a second sync SPACE
+ * are coming from MealMind." MealMind keeps its store in a second sync SPACE
  * of the same account (`space: 'chef'` on the sync request), so this spec
  * seeds that space straight through the API as MealMind itself would, then
  * checks two things the screen alone cannot prove:
@@ -14,7 +14,7 @@ import { API, SESSION_KEY } from './port';
  *   1. the recipe is DRAWN — its folder wears the MealMind badge, its section
  *      the hat, its row opens the ordinary editor;
  *   2. opening one WRITES NOTHING — not to MealMind's space, not to mine.
- *      The owner, later the same day: "disable editing ChefMind recipes from
+ *      The owner, later the same day: "disable editing MealMind recipes from
  *      CalMind." A build that still routed a tap into the editor would look
  *      right on screen and change MealMind's store, so both stores are read
  *      back over the API.
@@ -101,7 +101,7 @@ test("MealMind's recipes show under the hat, read-only — opening one writes no
   expect(hatBox.x, 'hat is right of the section name').toBeGreaterThan(nameBox.x + nameBox.width - 1);
 
   // Open it: a READER, not the editor (the owner, later that day: "disable editing
-  // ChefMind recipes from CalMind"). No title field, no body editor, no +.
+  // MealMind recipes from CalMind"). No title field, no body editor, no +.
   await row.click();
   await expect(page.getByTestId('chef-note-view')).toBeVisible();
   await expect(page.getByTestId('chef-note-title')).toHaveText('Cacio e Pepe');
@@ -126,9 +126,9 @@ test("MealMind's recipes show under the hat, read-only — opening one writes no
 });
 
 test('CalMind can date a MealMind recipe; the date is CalMind\'s alone and the calendar still opens the recipe', async ({ page }) => {
-  // the owner, 2026-09-16: "allow adding dates in CalMind to ChefMind entries…
+  // the owner, 2026-09-16: "allow adding dates in CalMind to MealMind entries…
   // showing up on the calendar is only known to CalMind, and still points to
-  // the ChefMind recipe itself when opened from the calendar."
+  // the MealMind recipe itself when opened from the calendar."
   //
   // Three claims, and the middle one is the one a screenshot cannot make:
   // the day goes into CalMind's own notes prefs, so MealMind's store must

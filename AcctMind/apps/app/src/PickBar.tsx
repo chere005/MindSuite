@@ -2,8 +2,8 @@
  * The bar at the foot of the ledger: how many rows are picked, what they
  * come to, the two ways to change that wholesale, and a two-press Delete.
  *
- * MealMind's `app/src/components/PickBar.tsx` (the app was ChefMind then), brought over on the owner's word
- * (2026-09-21: "take the 'selected' behavior from chefmind and implement
+ * MealMind's `app/src/components/PickBar.tsx`, brought over on the owner's word
+ * (2026-09-21: "take the 'selected' behavior from MealMind and implement
  * that here"). THIS COPY IS A FORK, kept out of the groups in
  * tools/shared-files.json, for two reasons that are both this
  * repo's rules rather than preferences:
@@ -20,7 +20,7 @@
  * the same four controls in the same order, the same two-press Delete on the
  * same 2.5s fuse, the same "All and Clear live HERE, beside the count they
  * act on, and Delete is pushed to the far end where no thumb heading for
- * Clear can reach it" (the owner to ChefMind, 2026-09-16).
+ * Clear can reach it" (the owner to MealMind, 2026-09-16).
  *
  * `detail`, `extras` and an OPTIONAL `onDelete` are what MealMind's bar has
  * no use for. The first two are slots and the third is presence — none of

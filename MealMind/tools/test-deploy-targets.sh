@@ -5,20 +5,15 @@ cd "$(dirname "$0")/.."
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/chef-targets.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 FIXTURE="$TMP/client"
-mkdir -p "$FIXTURE/tools/old-path" "$FIXTURE/app/src" "$FIXTURE/app/assets" "$FIXTURE/app/dist" "$TMP/bin"
+mkdir -p "$FIXTURE/tools" "$FIXTURE/app/src" "$FIXTURE/app/assets" "$FIXTURE/app/dist" "$TMP/bin"
 cp deploy.sh "$FIXTURE/deploy.sh"
 cp tools/python.sh "$FIXTURE/tools/python.sh"
-cp tools/old-path/.htaccess tools/old-path/sw.js "$FIXTURE/tools/old-path/"
 printf '%s\n' 'SSH_DEST=fixture.invalid' > "$FIXTURE/deploy.conf"
 printf '%s\n' "export const space = 'chef';" > "$FIXTURE/app/src/api.ts"
 printf '%s\n' 'fixture' > "$FIXTURE/app/dist/favicon.ico"
 printf '%s\n' 'fixture' > "$FIXTURE/tools/web.htaccess"
 printf '%s\n' 'EXPO_PUBLIC_API_URL=https://seancheren.com/calmind/api/index.php' > "$FIXTURE/.env"
-# The live site, as far as deploy.sh can ask it. The old /ChefMind/ path answers as
-# CHEF_TARGET_OLD says until the stubbed swap (ssh mv) has run: chef = ChefMind's page,
-# sandbox = the TestChefMind sandbox's page, none = 404. The staged ChefMind.next/, and
-# the old path after the swap, answer as the redirect folder does — unless
-# CHEF_TARGET_BROKEN_REDIRECT is set, when they serve a page instead.
+# The live site, as far as deploy.sh can ask it.
 cat > "$TMP/bin/curl" <<'STUB'
 #!/bin/sh
 printf 'curl %s\n' "$*" >> "$CHEF_TARGET_LOG"
@@ -27,22 +22,6 @@ case " $* " in
   *'"action":"spaces"'*) printf '%s\n' '{"ok":true,"spaces":["chef"]}'; exit 0 ;;
 esac
 case "$url" in
-  */ChefMind/*|*/ChefMind.next/*)
-    origin=${url%%/ChefMind*}; rest=${url#*/ChefMind/}
-    [ "$rest" != "$url" ] || rest=${url#*/ChefMind.next/}
-    mode=redirect
-    case "$url" in */ChefMind/*) [ -f "$CHEF_TARGET_SWAPPED" ] || mode=${CHEF_TARGET_OLD:-chef} ;; esac
-    [ -z "${CHEF_TARGET_BROKEN_REDIRECT:-}" ] || [ "$mode" != redirect ] || mode=chef
-    case "$mode:$*" in
-      redirect:*'%{redirect_url}'*) printf '302 %s/MealMind/%s' "$origin" "$rest" ;;
-      redirect:*'-D -'*) printf 'HTTP/2 200 \r\ncache-control: no-cache\r\ncontent-type: text/javascript\r\n\r\n' ;;
-      redirect:*) cat "$CHEF_TARGET_FIXTURE/tools/old-path/sw.js" ;;
-      none:*' -o /dev/null '*) printf '404 ' ;;
-      *:*'%{redirect_url}'*|*:*' -o /dev/null '*) printf '200 ' ;;
-      *:*'-D -'*) printf 'HTTP/2 200 \r\ncache-control: max-age=31536000\r\n\r\n' ;;
-      sandbox:*) printf '%s\n' '<!doctype html><head><title>TestChefMind</title></head>' ;;
-      *) printf '%s\n' '<!doctype html><head><title>ChefMind</title></head>' ;;
-    esac ;;
   *)
     case " $* " in
       *' -o /dev/null '*) printf 200 ;;
@@ -51,16 +30,9 @@ case "$url" in
     esac ;;
 esac
 STUB
-# The server's side: a `cat` of the old path's files answers with the redirect
-# folder's when CHEF_TARGET_OLD=redirect (it is already in place); the swap (the
-# call that runs mv) marks the old path swapped for the curl stub.
 cat > "$TMP/bin/ssh" <<'STUB'
 #!/bin/sh
 printf 'ssh %s\n' "$*" >> "$CHEF_TARGET_LOG"
-case "$*" in
-  *"cat '"*) [ "${CHEF_TARGET_OLD:-}" != redirect ] || cat "$CHEF_TARGET_FIXTURE/tools/old-path/.htaccess" "$CHEF_TARGET_FIXTURE/tools/old-path/sw.js" ;;
-  *"mv '"*) : > "$CHEF_TARGET_SWAPPED" ;;
-esac
 exit 0
 STUB
 cat > "$TMP/bin/npm" <<'STUB'
@@ -83,13 +55,13 @@ STUB
   chmod +x "$TMP/bin/$cmd"
 done
 chmod +x "$TMP/bin/curl" "$TMP/bin/npm" "$TMP/bin/ssh"
-export CHEF_TARGET_FIXTURE="$FIXTURE" CHEF_TARGET_LOG="$TMP/calls" CHEF_TARGET_SWAPPED="$TMP/swapped"
+export CHEF_TARGET_FIXTURE="$FIXTURE" CHEF_TARGET_LOG="$TMP/calls"
 PATH="$TMP/bin:$PATH"; export PATH
-unset CHEF_GATES_PASSED EXPO_PUBLIC_API_URL CHEF_TARGET_OLD CHEF_TARGET_BROKEN_REDIRECT CHEF_TARGET_WRONG_PAGE
+unset CHEF_GATES_PASSED EXPO_PUBLIC_API_URL CHEF_TARGET_WRONG_PAGE
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; cat "$TMP/output"; }
-run() { : > "$CHEF_TARGET_LOG"; rm -f "$CHEF_TARGET_SWAPPED"; (cd "$FIXTURE" && sh deploy.sh "$@") > "$TMP/output" 2>&1; }
+run() { : > "$CHEF_TARGET_LOG"; (cd "$FIXTURE" && sh deploy.sh "$@") > "$TMP/output" 2>&1; }
 selected() { # <label> <origin> <root> <mode...>
   label=$1; origin=$2; root=$3; shift 3
   if run "$@" && grep -q "curl .*${origin}/calmind/api/index.php" "$CHEF_TARGET_LOG" &&
@@ -119,78 +91,10 @@ printf '%s\n' 'SSH_DEST=fixture.invalid' 'WEB_DEST=/home/public/MealMind' > "$FI
 if run --test; then bad 'config cannot replace the guarded TEST destination'; else
   if ! grep -q '^rsync ' "$CHEF_TARGET_LOG"; then ok 'config cannot replace the guarded TEST destination'; else bad 'config destination guard'; fi
 fi
-printf '%s\n' 'SSH_DEST=fixture.invalid' 'OLD_DEST=/home/public/ChefMind' > "$FIXTURE/deploy.conf"
-if run --test; then bad 'config cannot replace the guarded TEST old path'; else
-  if ! grep -Eq '^(rsync|ssh) ' "$CHEF_TARGET_LOG"; then ok 'config cannot replace the guarded TEST old path'; else bad 'config old-path guard'; fi
-fi
 printf '%s\n' 'SSH_DEST=fixture.invalid' > "$FIXTURE/deploy.conf"
 
-# The old /ChefMind/ path becomes a redirect only after /MealMind/ is live and proven.
-# Each case sets the stubs' state and unsets it after (see the unset above for why).
-line() { grep -n -- "$1" "$CHEF_TARGET_LOG" | head -n 1 | cut -d: -f1; }
-retired() { # <label> <origin> <old root> <mode...>: staged, proven, swapped, moved out, proven again
-  label=$1; origin=$2; old=$3; shift 3
-  parent=${old%/*}
-  if run "$@"; then
-    proof=$(line "^curl .*${origin}/MealMind/index.html"); stage=$(line "^rsync .*tools/old-path/ fixture.invalid:${old}.next/")
-    probe=$(line "^curl .*${origin}/ChefMind.next/sw.js"); swap=$(line "^ssh .*cd '${parent}'.*mv 'ChefMind.next' 'ChefMind'")
-    after=$(line "^curl .*${origin}/ChefMind/sw.js")
-    if [ -n "$proof" ] && [ -n "$stage" ] && [ -n "$probe" ] && [ -n "$swap" ] && [ -n "$after" ] &&
-        [ "$proof" -lt "$stage" ] && [ "$stage" -lt "$probe" ] && [ "$probe" -lt "$swap" ] && [ "$swap" -lt "$after" ] &&
-        grep -q "^ssh .*mv 'ChefMind.old' '/home/private/retired-web/" "$CHEF_TARGET_LOG"; then ok "$label"; else bad "$label"; fi
-  else bad "$label (exit non-zero)"; fi
-}
-retired 'production: the old path is staged, proven, swapped and moved out, after the new one is proven' https://seancheren.com /home/public/ChefMind --yes-prod
-retired 'TEST: the same, on TEST only' https://test.seancheren.com /home/public/test/ChefMind --test
-if ! grep -q 'https://seancheren.com/\|/home/public/ChefMind' "$CHEF_TARGET_LOG"; then ok 'TEST retirement never touches the production old path'; else bad 'TEST retirement target'; fi
-export CHEF_TARGET_OLD=none
-retired 'an old path with nothing there gets the redirect' https://seancheren.com /home/public/ChefMind --yes-prod
-CHEF_TARGET_OLD=redirect
-if run --yes-prod && grep -q 'already the redirect' "$TMP/output" &&
-    ! grep -Eq '^rsync .*old-path|^ssh .*mv ' "$CHEF_TARGET_LOG"; then ok 'an old path that is already the redirect is left as it is (idempotent)'; else bad 'idempotent retirement'; fi
-CHEF_TARGET_OLD=sandbox
-if run --test && grep -q 'left alone' "$TMP/output" &&
-    ! grep -Eq '^rsync .*old-path|^ssh .*mv ' "$CHEF_TARGET_LOG"; then ok "TEST's /ChefMind/ holding the TestChefMind sandbox is left alone"; else bad 'sandbox left alone'; fi
-unset CHEF_TARGET_OLD
-export CHEF_TARGET_BROKEN_REDIRECT=1
-if run --yes-prod; then bad 'a staged redirect that does not redirect stops the deploy'; else
-  if grep -q '^rsync .*ChefMind.next/' "$CHEF_TARGET_LOG" && ! grep -q '^ssh .*mv ' "$CHEF_TARGET_LOG"; then ok 'a staged redirect that does not redirect stops the deploy before any swap'; else bad 'broken staged redirect'; fi
-fi
-unset CHEF_TARGET_BROKEN_REDIRECT
 export CHEF_TARGET_WRONG_PAGE=1
-if run --yes-prod; then bad 'a wrong page at /MealMind/ stops the deploy'; else
-  if ! grep -Eq '^rsync .*old-path|^ssh .*mv |ChefMind' "$CHEF_TARGET_LOG"; then ok 'the old path is not touched (or even asked) unless the new page is proven'; else bad 'retirement ran before the new page was proven'; fi
-fi
+if run --yes-prod; then bad 'a wrong page at /MealMind/ stops the deploy'; else ok 'a wrong page at /MealMind/ stops the deploy'; fi
 unset CHEF_TARGET_WRONG_PAGE
-if run --dry-run && grep -q '^rsync .*--dry-run.*tools/old-path/ fixture.invalid:/home/public/ChefMind.next/' "$CHEF_TARGET_LOG" &&
-    ! grep -q '^ssh .*mv ' "$CHEF_TARGET_LOG" && ! grep -q '/ChefMind.next/sw.js' "$CHEF_TARGET_LOG"; then ok 'a dry run previews the old-path upload and swaps nothing'; else bad 'dry-run retirement'; fi
-
-# The redirect folder's own rewrite rules replace the site root's, so it must
-# route test. and dev. hosts to their own instance BEFORE it redirects;
-# otherwise PROD's /ChefMind/ answers every test.seancheren.com/ChefMind/
-# request (the sandbox, TEST's retirement probes) with prod's redirect. The
-# curl stub above treats the instances as independent and cannot see that, so
-# this reads the file. Checked against two broken copies too, so it can fail.
-routes_hosts() { # routes_hosts <htaccess>: host routing and the sw.js pass-through come before the 302
-  awk '
-    /^[[:space:]]*(#|$)/ { next }
-    { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); n++; L[n] = $0 }
-    END {
-      for (i = 1; i <= n; i++) if (L[i] ~ /R=302/) { r = i; break }
-      if (!r) exit 1
-      for (i = 1; i + 2 < r; i++) {
-        if (L[i] == "RewriteCond %{HTTP_HOST} ^test\\. [NC]" && L[i+1] == "RewriteCond %{REQUEST_URI} !^/test/" &&
-            L[i+2] == "RewriteRule ^ /test%{REQUEST_URI} [L]") t = 1
-        if (L[i] == "RewriteCond %{HTTP_HOST} ^dev\\. [NC]" && L[i+1] == "RewriteCond %{REQUEST_URI} !^/dev/" &&
-            L[i+2] == "RewriteRule ^ /dev%{REQUEST_URI} [L]") d = 1
-      }
-      for (i = 1; i < r; i++) if (L[i] == "RewriteRule ^sw\\.js$ - [L]") s = 1
-      exit !(t && d && s)
-    }' "$1"
-}
-if routes_hosts tools/old-path/.htaccess; then ok 'the redirect folder sends test. and dev. hosts to their own instance before it redirects'; else bad 'old-path host routing'; fi
-grep -v '/test%{REQUEST_URI}' tools/old-path/.htaccess > "$TMP/no-test.htaccess"
-{ grep 'R=302' tools/old-path/.htaccess; grep -v 'R=302' tools/old-path/.htaccess; } > "$TMP/late.htaccess"
-if ! routes_hosts "$TMP/no-test.htaccess" && ! routes_hosts "$TMP/late.htaccess"; then ok 'and that check fails a copy without the test. rule, or with the 302 first'; else bad 'the old-path host-routing check cannot fail'; fi
 printf '%s\n' "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

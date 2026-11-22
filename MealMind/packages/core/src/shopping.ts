@@ -1020,7 +1020,7 @@ function render(e: Entry, loose = false): string {
 }
 
 /**
- * WHAT A PHOTO SAYS IS ON HAND — the owner, 2026-10-01: "in chefmind pantry add a
+ * WHAT A PHOTO SAYS IS ON HAND — the owner, 2026-10-01: "in MealMind pantry add a
  * button to do ocr to look at a receipt or list of ingredients to add them to
  * the pantry".
  *

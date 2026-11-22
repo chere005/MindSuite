@@ -64,19 +64,10 @@ try "refuses a stray destination"        's|^WEB_DEST=.*|WEB_DEST="/home/public/
 
 try "TEST refuses the production root"    's|^WEB_DEST=.*|WEB_DEST="/home/public/MealMind"|'      --test
 try "production refuses the TEST root"    's|^WEB_DEST=.*|WEB_DEST="/home/public/test/MealMind"|' --yes-prod
-try "refuses the OLD path as the destination" 's|^WEB_DEST=.*|WEB_DEST="/home/public/ChefMind"|'   --yes-prod
 try "TEST refuses CalMind's test area"    's|^WEB_DEST=.*|WEB_DEST="/home/public/test/calmind"|' --test
 try "TEST refuses a production API"       's|^API_URL=.*|API_URL="https://seancheren.com/calmind/api/index.php"|' --test
 try "TEST refuses a production page URL"  's|^SITE_URL=.*|SITE_URL="https://seancheren.com/MealMind"|' --test
 
-# The old /ChefMind/ path is replaced by a redirect folder and its contents
-# moved out: that step must never be aimed anywhere but the old path.
-try "TEST refuses the production old path"  's|^OLD_DEST=.*|OLD_DEST="/home/public/ChefMind"|'      --test
-try "production refuses the TEST old path"  's|^OLD_DEST=.*|OLD_DEST="/home/public/test/ChefMind"|' --yes-prod
-try "refuses the new path as the old one"   's|^OLD_DEST=.*|OLD_DEST="/home/public/MealMind"|'      --yes-prod
-try "refuses CalMind's area as the old path" 's|^OLD_DEST=.*|OLD_DEST="/home/public/calmind"|'     --yes-prod
-try "TEST refuses a production old URL"     's|^OLD_URL=.*|OLD_URL="https://seancheren.com/ChefMind"|' --test
-try "refuses a retirement folder in the web root" 's|^RETIRED_DIR=.*|RETIRED_DIR="/home/public/retired"|' --yes-prod
 
 echo "deploy.sh — the API gate"
 # THE ONE PROTECTING THE OWNER'S DATA rather than his web root: MealMind sends

@@ -1,7 +1,7 @@
 /**
  * Where a dragged recipe lands — the half of the row drag that was wrong.
  *
- * The owner, 2026-09-19: "dragging was buggy in chefmind for recipes when sections
+ * The owner, 2026-09-19: "dragging was buggy in MealMind for recipes when sections
  * were closed and between sections generally". Both halves of that are here:
  * a section that is SHUT contributes only its header (its rows are not drawn,
  * so they are not entries and cannot throw the indices off), and the header

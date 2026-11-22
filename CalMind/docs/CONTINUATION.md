@@ -82,8 +82,8 @@ screenshots under `/tmp/calmind-card-dots/screenshots/`. Use
 universal archive ran out of internal disk space before the ARM build passed.
 
 Shared source is pushed on main: CoreMind `6233765`, MyCalMind `c2f2ca6`,
-ChefMind `3745f78`. ChefMind source preflight `40783325248` passed; no
-ChefMind or MyCalMind app release was made. All consumer drift checks pass.
+MealMind `3745f78`. MealMind source preflight `40783325248` passed; no
+MealMind or MyCalMind app release was made. All consumer drift checks pass.
 The fixture API is stopped, the disposable simulator deleted, and SPACE
 unmounted.
 
@@ -117,12 +117,12 @@ the successful full result is
 the disposable simulator deleted, and SPACE unmounted.
 
 Source copies are pushed on main: CoreMind `552caf4`, MyCalMind `53c69e6`,
-ChefMind `f732752`. All consumer drift checks pass. ChefMind's source-only
-preflight `40772053063` passed; no ChefMind or MyCalMind app release was made.
+MealMind `f732752`. All consumer drift checks pass. MealMind's source-only
+preflight `40772053063` passed; no MealMind or MyCalMind app release was made.
 A follow-up to preserve the native regression runner in the repo is queued
 in the owner's ticket Inbox.
 
-## Earlier daily-log and ChefMind handoff (1.44.0)
+## Earlier daily-log and MealMind handoff (1.44.0)
 
 The new Note / Recipe / Daily log dropdown is first in the note editor's
 button row. Daily log creates a dated card with Food, Exercise, and Mood
@@ -138,20 +138,20 @@ repo's copy is a one-line @mind/core stub), with optional fields in
 Markdown include active log card contents. The server payload remains opaque;
 no server schema or record type changed.
 
-All ChefMind notes are now beneath one collapsible ChefMind parent, with
+All MealMind notes are now beneath one collapsible MealMind parent, with
 source folders and sections as subgroups. This changes presentation only:
-reading and folding still write nothing to ChefMind's records.
+reading and folding still write nothing to MealMind's records.
 
 The shared dropdown now exposes individual accessible choices. The note-type
 picker waits for iOS dismissal before opening RecipeEditor. CoreMind carries
 these exact changes and manifests for the new module/spec/test; source copies
-in MyCalMind and the compatible ChefMind core are updated. CoreMind is pushed
+in MyCalMind and the compatible MealMind core are updated. CoreMind is pushed
 at `c31dd5e`; MyCalMind at `d16ad93`.
 
 ## Earlier verification
 
 Typechecks, the development suite, relevant daily-log/Recipe/Markdown browser
-checks, ChefMind grouping checks, canon tests, and all consumer drift checks
+checks, MealMind grouping checks, canon tests, and all consumer drift checks
 passed. The native headless probe verified all three daily fields, adding a
 second card, persistence after reopening, type changes without losing cards,
 and opening Recipe from the dropdown. Result:
@@ -167,7 +167,7 @@ Preflight 40630834089 and published Release 40631599434 both passed.
 Release: https://github.com/chere005/CalMind/releases/tag/1.44.0.
 The signed 1.44.0 production bundle is installed on `Phone 1` and
 his watch. Its signature, version, production API, Daily log code, and
-ChefMind parent-group code were checked; no fixture API is bundled.
+MealMind parent-group code were checked; no fixture API is bundled.
 
 The device run used `IOS_DEVICE=Phone 1` to finish within the cutoff.
 Person B's and Person C's phones were not updated in this run. The signed bundle
@@ -176,9 +176,9 @@ Device output: `/tmp/calmind-dailylog-phone.log`. Release output:
 `/tmp/calmind-dailylog-release3.log`. The installed local desktop and Android
 apps were not rebuilt, and no MyCalMind app release was performed.
 
-ChefMind's compatible source is pushed on main at `1f2bd27`, prepared as
+MealMind's compatible source is pushed on main at `1f2bd27`, prepared as
 untagged 1.31.0 because its preflight refuses an already published version.
-No ChefMind release or deployment was requested or performed. Preflight
+No MealMind release or deployment was requested or performed. Preflight
 40630737075 passed for `63185b0`; the final merge only retains a remote TODO,
 and application/build inputs were verified identical to that checked commit.
 The prior local/remote divergence was merged, preserving local pantry/note

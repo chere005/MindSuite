@@ -5,7 +5,7 @@
     "",
     "It exists because the two facts below used to live in CalMind's",
     "server/lib/app.php and were read OUT of that PHP by core tests — including",
-    "ChefMind's, which had to reach into a sibling checkout to run at all, and",
+    "MealMind's, which had to reach into a sibling checkout to run at all, and",
     "skipped when there was not one. A contract that only one party holds is not",
     "a contract; it is a file the other party hopes is still there.",
     "",

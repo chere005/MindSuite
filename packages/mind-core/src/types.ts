@@ -41,7 +41,7 @@ export type Folder = {
    */
   shopping?: boolean;
   /**
-   * THE PANTRY (MealMind, the owner 2026-08-22: "add a third tab to chefmind which
+   * THE PANTRY (MealMind, the owner 2026-08-22: "add a third tab to MealMind which
    * is a list of groceries on hand... call that tab pantry... if something is
    * on the pantry already, skip adding to shopping cart").
    *

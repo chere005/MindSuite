@@ -950,7 +950,7 @@ t('a sync SPACE is a separate store under the same login', function () use ($rec
     ok($tok !== '', 'signed up for a token');
 
     api(['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('cal1', 100, 'calmind only')]], $tok);
-    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('chef1', 100, 'chefmind only')]], $tok);
+    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('chef1', 100, 'mealmind only')]], $tok);
 
     $ids = function (array $r): array {
         $out = array_map(fn($c) => (string) $c['id'], $r['body']['changes'] ?? []);
@@ -990,8 +990,8 @@ t('a sync SPACE is a separate store under the same login', function () use ($rec
 
 t('sharing is PER SPACE — a CalMind partnership shares nothing into MealMind', function () use ($mkUser, $shareRec) {
     /**
-     * The leak this exists for, found by the owner the minute ChefMind (now MealMind) went live:
-     * sync had a space and sharing did not, so ChefMind pulled his partner's
+     * The leak this exists for, found by the owner the minute MealMind went live:
+     * sync had a space and sharing did not, so MealMind pulled his partner's
      * CALMIND folders and drew them inside an app that is supposed to share
      * nothing with CalMind but the login.
      *
@@ -1023,7 +1023,7 @@ t('sharing is PER SPACE — a CalMind partnership shares nothing into MealMind',
     eq([], $chef['body']['partners'], 'and names nobody there');
     eq([], $chef['body']['records'], 'and hands over nothing');
 
-    // Now they pair up IN CHEFMIND, and a shares a chef folder.
+    // Now they pair up IN MEALMIND, and a shares a chef folder.
     api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [
         ['id' => 'kf', 'type' => 'folder', 'updated' => 1, 'payload' => ['name' => 'Chef folder', 'color' => '#f0b429', 'ord' => 'a', 'app' => 'notes']],
         ['id' => 'ks', 'type' => 'section', 'updated' => 1, 'payload' => ['name' => 'General', 'folderId' => 'kf', 'ord' => 'a']],

@@ -33,14 +33,13 @@
 # subdomain routing: on a `test.` host, rewrite everything under this
 # directory to /test/calmind/. That block is CalMind's — it exists so
 # /home/public/calmind's own per-directory config re-applies the site's
-# test→/test/ mapping for CalMind's OWN path. In ChefMind's directory it was
+# test→/test/ mapping for CalMind's OWN path. In MealMind's directory it was
 # dead code on the apex (the host never matches) and a live wrong answer on
-# test.seancheren.com: every request under /ChefMind was served CalMind's
-# index.html and CalMind's bundle, while TestChefMind's files sat correctly on
-# disk beside it. Found by TestChefMind's first qdtp, 2026-09-15 — the
-# served-page proof said "that is not TestChefMind's page", and it was right.
+# test.seancheren.com: every request under /MealMind was served CalMind's
+# index.html and CalMind's bundle, while TestMealMind's files sat correctly on
+# disk beside it. Found by TestMealMind's first qdtp, 2026-09-15 — the
+# served-page proof said "that is not TestMealMind's page", and it was right.
 #
 # The site's root .htaccess already maps test.seancheren.com/MealMind to
 # /test/MealMind before this file is consulted, so this directory needs no
-# routing of its own; only the cache rules above. (The old /ChefMind/
-# production copy carried the CalMind block until the rename retired it.)
+# routing of its own; only the cache rules above.

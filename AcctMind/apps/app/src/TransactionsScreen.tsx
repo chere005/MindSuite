@@ -211,7 +211,7 @@ function TransactionsBody({
    */
   const [edit, setEdit] = useState(false);
   /**
-   * The rows picked out — ChefMind's selection, brought over 2026-09-21.
+   * The rows picked out — MealMind's selection, brought over 2026-09-21.
    *
    * NOT TIED TO EDIT MODE any more, and that is the substance of the change
    * rather than a detail. It was cleared the moment the pencil went off, on
@@ -573,7 +573,7 @@ function TransactionsBody({
       </ScrollView>
 
       {/*
-        THE PICK BAR, at the foot and ALWAYS DRAWN — ChefMind's, and its
+        THE PICK BAR, at the foot and ALWAYS DRAWN — MealMind's, and its
         reason carries over word for word (the owner there, 2026-09-16): it is the
         only thing that says how many are picked, and appearing only once
         something was picked made the count you wanted before choosing the
@@ -1021,8 +1021,8 @@ function Row({
         <Text style={styles.gripText}>≡</Text>
       </View>
       {/*
-        THE SELECTOR DOT — ChefMind's, and always drawn (the owner, 2026-09-21:
-        "take the 'selected' behavior from chefmind"). It was a tick that
+        THE SELECTOR DOT — MealMind's, and always drawn (the owner, 2026-09-21:
+        "take the 'selected' behavior from MealMind"). It was a tick that
         appeared only in edit mode, and only once the row was picked.
 
         Its 18 points were already reserved at all times, which is what keeps

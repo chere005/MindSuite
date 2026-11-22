@@ -505,7 +505,7 @@ async function pick(page: Page, n: number): Promise<void> {
 test('the dot picks a row, and the bar says what the picks come to', async ({ page }) => {
   // The owner, 2026-08-21: "when multiple transactions are selected, show the sum
   // of their amounts" — "what did this weekend cost" should be three taps,
-  // not three numbers added by hand. And 2026-09-21: ChefMind's selection,
+  // not three numbers added by hand. And 2026-09-21: MealMind's selection,
   // which means an always-visible dot and no mode to find first.
   await threeRows(page);
 

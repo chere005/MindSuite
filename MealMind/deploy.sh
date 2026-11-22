@@ -42,19 +42,11 @@ SITE_URL="https://seancheren.com/MealMind"
 # The API this client talks to. CalMind's, on purpose — same accounts, and the
 # data is kept apart by the sync space rather than by a second server.
 API_URL="https://seancheren.com/calmind/api/index.php"
-# The app's path until 1.51.0, when it was ChefMind. Once the new path is live
-# and proven, the old one becomes a redirect (retire_old_path, at the foot).
-OLD_DEST="/home/public/ChefMind"
-OLD_URL="https://seancheren.com/ChefMind"
 if [ "$TARGET" = test ]; then
 WEB_DEST="/home/public/test/MealMind"
 SITE_URL="https://test.seancheren.com/MealMind"
 API_URL="https://test.seancheren.com/calmind/api/index.php"
-OLD_DEST="/home/public/test/ChefMind"
-OLD_URL="https://test.seancheren.com/ChefMind"
 fi
-# Where the old path's last contents go: out of the web root, never deleted.
-RETIRED_DIR="/home/private/retired-web"
 SPACE="chef"
 if [ "$TARGET" = test ] && [ "$GO" = 1 ]; then
   echo "refusing: --test and --yes-prod select different instances" >&2; exit 1
@@ -79,14 +71,9 @@ case "$TARGET:$WEB_DEST:$SITE_URL:$API_URL" in
   test:/home/public/test/MealMind:https://test.seancheren.com/MealMind:https://test.seancheren.com/calmind/api/index.php) ;;
   *) echo "guard: MealMind destination, page and API must match the selected instance" >&2; exit 1 ;;
 esac
-case "$TARGET:$OLD_DEST:$OLD_URL:$RETIRED_DIR" in
-  prod:/home/public/ChefMind:https://seancheren.com/ChefMind:/home/private/retired-web) ;;
-  test:/home/public/test/ChefMind:https://test.seancheren.com/ChefMind:/home/private/retired-web) ;;
-  *) echo "guard: the old ChefMind path and its retirement folder must match the selected instance" >&2; exit 1 ;;
-esac
 
 # A local config supplies the SSH login only; it cannot alter the checked target or consent flags.
-readonly TARGET WEB_DEST SITE_URL API_URL SPACE DRY GO VERIFY_ONLY OLD_DEST OLD_URL RETIRED_DIR
+readonly TARGET WEB_DEST SITE_URL API_URL SPACE DRY GO VERIFY_ONLY
 
 # ---------------------------------------------------------------- the API gate
 #
@@ -350,99 +337,5 @@ if [ -z "$DRY" ]; then
     verify_live || { echo "the deployed page is wrong" >&2; exit 1; }
   fi
 fi
-
-# ------------------------------------------------------- the old /ChefMind/ path
-#
-# The app was ChefMind, at /ChefMind/, until 1.51.0. Bookmarks, home-screen
-# installs and a service worker that serves the old shell offline all still
-# point there. So once the new path is live AND PROVEN (above: a failed proof
-# has already stopped the script), the old directory is replaced by
-# tools/old-path/: an .htaccess that 302s every request to the same place
-# under /MealMind/, and an sw.js that deletes ChefMind's caches (only those:
-# one origin holds every app's) and unregisters ChefMind's worker.
-#
-# The swap is staged: upload as ChefMind.next, prove it serves the redirect
-# and the worker there, then two renames (ChefMind -> ChefMind.old, .next ->
-# ChefMind) and the old folder moves OUT of the web root to $RETIRED_DIR —
-# moved, never deleted.
-#
-# Idempotent: when the old path already holds exactly these files, there is
-# nothing to do. And it touches only what it recognises: the old ChefMind page
-# (its <title>), an earlier redirect of this script's, or nothing at all. The
-# TEST instance's /ChefMind/ is also where the TestChefMind sandbox deploys
-# (its page is titled TestChefMind), and that is left exactly as it is.
-#
-# Every ssh and rsync starts its line, so tools/check-deploy-guards.sh's
-# tampered copies echo them rather than reach the server.
-probe_old_path() { # probe_old_path <base URL> — does it redirect and serve the kill worker?
-  P_OK=1
-  for P in "" "index.html?retired=1"; do
-    GOT=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$1/$P") || GOT="no answer"
-    if [ "$GOT" = "302 $SITE_URL/$P" ]; then
-      printf '  \033[32m✓\033[0m %s -> 302 %s\n' "$1/$P" "$SITE_URL/$P"
-    else
-      printf '  \033[31m✗\033[0m %s answers "%s", not a 302 to %s\n' "$1/$P" "$GOT" "$SITE_URL/$P"; P_OK=0
-    fi
-  done
-  HDRS=$(curl -sS -D - -o /dev/null "$1/sw.js") || HDRS=""
-  BODY=$(curl -sS "$1/sw.js") || BODY=""
-  if printf '%s\n' "$HDRS" | head -n 1 | grep -q ' 200' &&
-      printf '%s\n' "$HDRS" | grep -qi '^cache-control:.*no-cache' &&
-      case "$BODY" in *"startsWith('chefmind-')"*unregister*) true ;; *) false ;; esac; then
-    printf '  \033[32m✓\033[0m %s/sw.js is the kill worker, 200, no-cache\n' "$1"
-  else
-    printf '  \033[31m✗\033[0m %s/sw.js is not the kill worker served 200 no-cache\n' "$1"; P_OK=0
-  fi
-  [ "$P_OK" = 1 ]
-}
-retire_old_path() {
-  OLD_PARENT=${OLD_DEST%/*}; OLD_NAME=${OLD_DEST##*/}
-  echo "==> the old path: $OLD_URL/ -> $SITE_URL/"
-  WANT=$(cat tools/old-path/.htaccess tools/old-path/sw.js)
-  HAVE=$(
-    ssh $SSHMUX "$SSH_DEST" "cat '$OLD_DEST/.htaccess' '$OLD_DEST/sw.js' 2>/dev/null"
-  ) || HAVE=""
-  if [ -n "$HAVE" ] && [ "$HAVE" = "$WANT" ]; then
-    echo "    already the redirect — nothing to change"
-    return 0
-  fi
-  OLD_SEEN=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$OLD_URL/index.html") || OLD_SEEN="no answer"
-  case "$OLD_SEEN" in
-    "200 "*)
-      OLD_PAGE=$(curl -sS "$OLD_URL/index.html") || OLD_PAGE=""
-      case "$OLD_PAGE" in
-        *'<title>ChefMind</title>'*) echo "    it still serves ChefMind's page — replacing it with the redirect" ;;
-        *) echo "    it serves some other page (the TestChefMind sandbox's, on TEST?) — left alone"; return 0 ;;
-      esac ;;
-    "302 $SITE_URL/index.html") echo "    an earlier redirect — replacing it with this one" ;;
-    "404 "*) echo "    nothing there — putting the redirect in place" ;;
-    *) echo "    it answers \"$OLD_SEEN\": not something this script put there — left alone; a re-run tries again"; return 0 ;;
-  esac
-  # (Called as `retire_old_path || exit 1`, so set -e is off in here: every
-  # step that can fail says so itself.)
-  rsync -avL $DRY -e "$RSH" tools/old-path/ "$SSH_DEST:$OLD_DEST.next/" \
-    || { echo "could not upload the redirect to $OLD_DEST.next — the old path is unchanged" >&2; return 1; }
-  if [ -n "$DRY" ]; then
-    echo "    (dry run: would prove $OLD_URL.next/, swap it in for $OLD_DEST and move the old folder to $RETIRED_DIR/)"
-    return 0
-  fi
-  echo "    proving the staged copy at $OLD_URL.next/"
-  # Retried once after a moment, like the served-page proof above.
-  probe_old_path "$OLD_URL.next" || { sleep 5; probe_old_path "$OLD_URL.next"; } || {
-    echo "the staged redirect at $OLD_DEST.next does not answer as it must — the old path is unchanged" >&2
-    return 1
-  }
-  STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-  RETIRED_AS="$TARGET-$OLD_NAME-$STAMP"
-  ssh $SSHMUX "$SSH_DEST" "set -e; cd '$OLD_PARENT'; test -f '$OLD_NAME.next/.htaccess'; test -f '$OLD_NAME.next/sw.js'; mkdir -p '$RETIRED_DIR'; if [ -e '$OLD_NAME.old' ]; then mv '$OLD_NAME.old' '$RETIRED_DIR/$RETIRED_AS.earlier'; fi; if [ -e '$OLD_NAME' ]; then mv '$OLD_NAME' '$OLD_NAME.old'; fi; mv '$OLD_NAME.next' '$OLD_NAME'; if [ -e '$OLD_NAME.old' ]; then mv '$OLD_NAME.old' '$RETIRED_DIR/$RETIRED_AS'; fi" \
-    || { echo "the swap at $OLD_PARENT failed part-way — look at $OLD_NAME, $OLD_NAME.next and $OLD_NAME.old there" >&2; return 1; }
-  echo "    swapped in; whatever was there is now $RETIRED_DIR/$RETIRED_AS"
-  echo "    proving the old path"
-  probe_old_path "$OLD_URL" || { sleep 5; probe_old_path "$OLD_URL"; } || {
-    echo "the old path does not redirect as it must after the swap — look at $OLD_DEST" >&2
-    return 1
-  }
-}
-retire_old_path || exit 1
 
 echo "==> Done. $SITE_URL"

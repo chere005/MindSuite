@@ -45,7 +45,7 @@
 #      failures on this machine twice.
 #
 # THIS REPO SHIPS ITSELF. Steps 3 and 7 were CoreMind's alone
-# (bin/build-platforms.sh CalMind) until 2026-08-23, and ChefMind fell into
+# (bin/build-platforms.sh CalMind) until 2026-08-23, and MealMind fell into
 # the hole that leaves first: a release tagged and pushed while the Mac
 # bundle stayed a day behind. The owner, 2026-08-23: "all apps should have a
 # deploy on their own mechanism inside their repo" — so tools/

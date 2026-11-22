@@ -12,7 +12,7 @@
  *  · the PANTRY (the owner, 2026-08-22) in the notes sky leaned green, so the three
  *    tabs read as three places;
  *  · NO general Reminders folder (the owner, 2026-08-22: "i still see reminders on
- *    chefmind, that should have been removed completely") — every reminder
+ *    MealMind, that should have been removed completely") — every reminder
  *    here IS a shopping or pantry row, and an account that already grew one
  *    has it folded into the shopping list;
  *  · no ride-along Calendar folder, no calendar, no habit section — this app

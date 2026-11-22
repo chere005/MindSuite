@@ -21,7 +21,7 @@ import { PageIcon, TickCircleIcon } from '../components/KindIcons';
 const ALL_KINDS: SearchKind[] = ['reminder', 'note'];
 // 'note' is the record type; 'Recipes' is what this app calls it.
 // 'reminder' is the record type; SHOPPING is what the only surviving ones
-// are (the owner, 2026-08-21: "remove reminders from ChefMind"). Labelling the
+// are (the owner, 2026-08-21: "remove reminders from MealMind"). Labelling the
 // filter by the type rather than by the screen it opens would send people
 // looking for a tab that is gone.
 const KIND_LABEL: Record<SearchKind, string> = { reminder: 'Shopping', note: 'Recipes', event: 'Events' };

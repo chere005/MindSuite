@@ -49,9 +49,9 @@ const snapKey = (user: string) => `calmind.snapshot.${user}@${instanceTag()}`;
  * MealMind keeps its recipes in a second sync SPACE of the same account —
  * `records-chef-<user>.json` on the server, reached with `space: 'chef'` on
  * the sync request (server/lib/app.php, SYNC_SPACES). The owner, 2026-09-15:
- * "sync recipes in ChefMind and CalMind… recipes show up in CalMind as notes
+ * "sync recipes in MealMind and CalMind… recipes show up in CalMind as notes
  * sections with a chef hat icon to the right to indicate they are coming from
- * ChefMind." So this app runs a SECOND engine against that space: its own
+ * MealMind." So this app runs a SECOND engine against that space: its own
  * cursor, its own snapshot key, the same transport with the space named, and
  * never normalized here — MealMind seeds and re-homes its own store, and a
  * CalMind normalize pass over it would plant a Calendar folder and a habit
@@ -186,7 +186,7 @@ type Store = {
   sharedPut: (rec: AnyRec) => Promise<void>;
   /** MealMind's records — the same account's `chef` space, see CHEF_SPACE.
    *  Drawn by Notes under the chef's hat, READ-ONLY: there is no write path
-   *  into that space from here (the owner, 2026-09-15: "disable editing ChefMind
+   *  into that space from here (the owner, 2026-09-15: "disable editing MealMind
    *  recipes from CalMind"). */
   chefRecs: AnyRec[];
 };

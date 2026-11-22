@@ -151,7 +151,7 @@ for T in $PLAN; do
       # itself (and needed dependencies) on its own... coremind is to ship all
       # apps simultaneously."
       #
-      # Detected rather than listed. ChefMind grew the file first
+      # Detected rather than listed. MealMind grew the file first
       # (2026-08-23, morning); CalMind, AcctMind and MyCalMind grew theirs the
       # same day — every app ships itself now, and bin/build-platforms.sh
       # below is the fallback for a checkout that predates that.

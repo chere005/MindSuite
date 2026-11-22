@@ -178,7 +178,6 @@ check "allows main and a release tag in one atomic push" 0 -- push pub "refs/hea
 refs/tags/CalMind/1.63.0 $HT refs/tags/CalMind/1.63.0 $Z"
 check "allows a lane preflight branch" 0 -- push pub "HEAD $HS refs/heads/preflight/calmind/$(printf '%s' "$HS" | cut -c1-7) $Z"
 check "allows deleting a lane preflight branch" 0 -- push pub "(delete) $Z refs/heads/preflight/mealmind/abcdef1 $HS"
-check "allows deleting a preflight branch from before the MealMind rename" 0 -- push pub "(delete) $Z refs/heads/preflight/chefmind/abcdef1 $HS"
 check "refuses a legacy marker tag" 1 -- push pub "refs/tags/CalMind/legacy/1.62.0 $HL refs/tags/CalMind/legacy/1.62.0 $Z"
 check "refuses another branch" 1 -- push pub "refs/heads/main $HS refs/heads/feature $Z"
 check "refuses a preflight branch of an app without a preflight lane" 1 -- push pub "HEAD $HS refs/heads/preflight/planmind/abcdef1 $Z"

@@ -455,7 +455,7 @@ describe('what a tap means', () => {
 
 describe('pickTap — the selector dot', () => {
   it('picks, in edit mode and out of it', () => {
-    // The dot is drawn on every row at all times (ChefMind's, 2026-09-21),
+    // The dot is drawn on every row at all times (MealMind's, 2026-09-21),
     // so it answers the same way whatever mode the page is in. If this ever
     // grew an `edit` argument, the dot would be lying about being always on.
     expect(pickTap(false)).toBe('pick');

@@ -17,7 +17,7 @@
 #
 # WHY THIS LIVES HERE. These builds were CoreMind's alone
 # (bin/build-platforms.sh CalMind), and this repo's own dtp shipped the web
-# and nothing else. ChefMind fell into the hole that arrangement leaves,
+# and nothing else. MealMind fell into the hole that arrangement leaves,
 # first: a release tagged and pushed while its Mac bundle stayed a day
 # behind, built before the Pantry tab existed. The owner, 2026-08-23: "all apps
 # should have a deploy on their own mechanism inside their repo" — so the
@@ -347,7 +347,7 @@ if [ "$WANT_IOS" = 1 ]; then
   # "install to whatever is plugged in" either. Each app in the suite belongs
   # on a SPECIFIC set of handsets, and that set is a fact about the app, not
   # about what is on the desk: "the only apps installed on person B's phone are
-  # ChefMind and CalMind", "person C's phone only gets CalMind", "my phone gets
+  # MealMind and CalMind", "person C's phone only gets CalMind", "my phone gets
   # all 6 (including the test ones)". CalMind is the app that is on all three,
   # which is why all three are listed here and why this list is not shared.
   #
@@ -570,7 +570,7 @@ PY
   #
   # There is NO per-phone app cap to ration here, and the comment that stood in
   # this spot until 2026-09-21 — counting the phone's slots against Apple's
-  # free-tier limit of 3 apps on a device, CalMind, ChefMind, AcctMind and no
+  # free-tier limit of 3 apps on a device, CalMind, MealMind, AcctMind and no
   # room for a fourth — was describing a limit this suite is not under. The
   # team, TEAMID0000, is PAID, and the profile is the tell: an
   # Xcode-managed profile for this team carries TimeToLive 365 where a personal

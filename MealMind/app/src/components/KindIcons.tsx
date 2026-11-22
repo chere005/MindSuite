@@ -48,10 +48,10 @@ export function PageGlyph({ color, size = 11 }: { color: string; size?: number }
 }
 
 /**
- * A chef's toque — the recipe app's mark (MealMind; ChefMind up to 1.51.0).
+ * A chef's toque — the recipe app's mark (MealMind).
  * Drawn right of a Notes section whose recipes live in MealMind's store (the
- * owner, 2026-09-15, of ChefMind: "a chef hat icon to the right to indicate
- * they are coming from ChefMind"). A puffed crown over a band, stroke only
+ * owner, 2026-09-15, of MealMind: "a chef hat icon to the right to indicate
+ * they are coming from MealMind"). A puffed crown over a band, stroke only
  * like the rest of this file, so it reads at 14pt beside a section name
  * without turning into a blob.
  */

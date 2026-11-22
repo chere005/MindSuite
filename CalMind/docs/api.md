@@ -81,7 +81,7 @@ overrides it, `''` keeps the instance legacy). CalMind never copies the library.
   `passkey_remove`, `meetreq_*`, `calsub_*`) follows `calmind` whatever the
   body says: `chefmind` held keeps it legacy while
   `calmind` is not, and `calmind` held does not hold it back. Its tokens keep
-  scope `calmind` (one API, one set of accounts; imported ChefMind (now MealMind) tokens are
+  scope `calmind` (one API, one set of accounts; imported MealMind tokens are
   `calmind` rows), so the scope rule below is the same for both spaces.
   CalMind's own read-only pull of the `chef` space follows `chefmind` too:
   while the two holds differ that pull is refused and stays quiet (the last

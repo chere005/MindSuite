@@ -18,7 +18,7 @@
 # WHY THIS LIVES HERE. It was CoreMind's `bin/build-platforms.sh` alone, a
 # table-driven script covering four apps, and this repo's own dtp shipped the
 # web and nothing else. That arrangement had a hole you could not see from
-# inside either repo: a ChefMind release could complete, tag and push while
+# inside either repo: a MealMind release could complete, tag and push while
 # the Mac bundle stayed at whatever it was last built from. It did exactly
 # that — the .app on this machine was staged 2026-08-22 16:10, before the
 # Pantry tab existed, so the tab was live on the web for a day while the
@@ -98,7 +98,7 @@ fi
 # instead of running beside it.
 #
 # It sees ONLY builds that take the lock — the scripts that source canon's
-# helper: as of 2026-10-01 the platform blocks of AcctMind, CalMind, ChefMind (now MealMind)
+# helper: as of 2026-10-01 the platform blocks of AcctMind, CalMind, MealMind
 # and MyCalMind, MyCalMind's deploy-device.sh, AcctMind's desktop smoke and
 # CoreMind's fallback bin/build-platforms.sh. It looks for no xcodebuild,
 # gradle or cargo process, so a block here still starts beside, unseen:
@@ -141,9 +141,6 @@ devicectl_install() { # udid bundle [label]
 
 # Owed installs (tools/retry-installs.sh, shared byte for byte from CoreMind/bin): an install that failed, or a phone that
 # was away, is recorded with a saved copy of the build and retried when the phone is back; bookkeeping never fails the lane.
-# Recorded as MealMind. Up to 1.51.0 the app was ChefMind, and an entry still owed under that label is the same bundle id
-# at an older version: a retry would put it back over a newer MealMind. So every MealMind install, or newer build owed,
-# clears the ChefMind entries for that phone too (a clear drops only versions at or below this build's).
 owed_installs() { IOS_PHONES="${IOS_PHONES:-}" sh "$ROOT/tools/retry-installs.sh" "$@" || true; }
 
 # The export the desktop shell stages: a CLEAN one, plus the head patch.
@@ -180,7 +177,7 @@ ensure_dist() {
 # The generated project is REUSED once it exists — a prebuild --clean on every
 # build would also wipe ios/derived-platforms and turn each release into a cold
 # build. The price of reuse: the project froze the version at whatever app.json
-# said the day the workspace was first generated. app/ios/ChefMind/Info.plist
+# said the day the workspace was first generated. app/ios/MealMind/Info.plist
 # carries a LITERAL CFBundleShortVersionString, and it said 1.4.0 — the
 # workspace dates from 2026-08-22 — so every phone install since then reported
 # 1.4.0; at 1.25.0 the web, the Mac bundle and the APK all said 1.25.0 (found
@@ -234,9 +231,8 @@ prebuild_ios() {
   # THE WORKSPACE IS NAMED AFTER THE APP: prebuild calls the project, the
   # scheme and the .app after app.json's expo.name, and writes that name into
   # Info.plist as the home-screen name. So a generated project under any other
-  # name is a stale one — ChefMind.xcworkspace from before the app became
-  # MealMind (1.52.0) would build ChefMind.app and put "ChefMind" back on the
-  # phones — and is regenerated (--clean), never reused.
+  # name is a stale one — it would build an .app under the old name and put
+  # that name back on the phones — and is regenerated (--clean), never reused.
   IOS_NAME=$( cd "$ROOT/$APPDIR" && node -p "require('./app.json').expo.name" 2>/dev/null ) || IOS_NAME=""
   case "$IOS_NAME" in
     ''|*[!A-Za-z0-9]*) echo "no plain expo.name in $APPDIR/app.json (got '$IOS_NAME')" >&2; return 1 ;;
@@ -279,9 +275,9 @@ if [ "$WANT_MAC" = 1 ]; then
   ensure_dist || exit 1
   ( cd "$ROOT" && npm -w "$DESKTOP_WS" run build ) \
     || { echo "the macOS bundle failed to build" >&2; exit 1; }
-  # BY NAME, never the first *.app in the folder: a ChefMind.app left there by
-  # a pre-rename build (a carried-over target/) sorts before MealMind.app, and
-  # would be the one signed, smoked and installed.
+  # BY NAME, never the first *.app in the folder: an .app left there by an
+  # older productName (a carried-over target/) can sort before MealMind.app,
+  # and would be the one signed, smoked and installed.
   PRODUCT=$(cd "$ROOT" && node -p "require('./desktop/src-tauri/tauri.conf.json').productName") && [ -n "$PRODUCT" ] \
     || { echo "could not read productName from desktop/src-tauri/tauri.conf.json" >&2; exit 1; }
   APPBUNDLE="$ROOT/desktop/src-tauri/target/release/bundle/macos/$PRODUCT.app"
@@ -321,35 +317,7 @@ if [ "$WANT_MAC" = 1 ]; then
   # install can never disagree about which app this is. The path also scopes
   # it to the INSTALLED copy: a bundle someone is running out of
   # target/release/bundle is not the one being replaced here.
-  #
-  # ONE-TIME, FROM THE RENAME (1.52.0). The app was ChefMind, installed as
-  # /Applications/ChefMind.app under the SAME bundle identifier MealMind.app
-  # carries (com.seancheren.chefmind.desktop, kept because it owns the sign-in
-  # and the offline data). Two bundles with one identifier confuse
-  # LaunchServices about which one it opens. So the old one is quit here, the
-  # way MealMind is below (asked, never killed), and moved to the Trash, from
-  # where it can be put back, only AFTER MealMind.app is installed and its
-  # signature verified: a failed copy must not leave neither app in
-  # /Applications. Matched on the exact path AND the identifier, so
-  # TestChefMind.app, or a ChefMind.app that is something else, is never
-  # touched. One that will not quit stays put, and the next build tries again.
-  OLD_APP="/Applications/ChefMind.app"
-  OLD_REOPEN=0; OLD_GONE=0; OLD_WAS_RUNNING=0
-  if [ -d "$OLD_APP" ] &&
-      [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$OLD_APP/Contents/Info.plist" 2>/dev/null)" = com.seancheren.chefmind.desktop ]; then
-    OLD_GONE=1
-    if pgrep -f "$OLD_APP/Contents/MacOS/" >/dev/null 2>&1; then
-      OLD_WAS_RUNNING=1
-      echo "    quitting ChefMind — it is MealMind now"
-      osascript -e 'quit app "ChefMind"' >/dev/null 2>&1 || true
-      WAITED=0
-      while pgrep -f "$OLD_APP/Contents/MacOS/" >/dev/null 2>&1; do
-        [ "$WAITED" -lt 8 ] || { echo "warning: ChefMind would not quit — it stays in /Applications until the next build" >&2; OLD_GONE=0; break; }
-        sleep 1
-        WAITED=$((WAITED + 1))
-      done
-    fi
-  fi
+
   APPNAME=$(basename "$APPBUNDLE" .app)
   WAS_RUNNING=0
   GONE=1
@@ -388,26 +356,13 @@ if [ "$WANT_MAC" = 1 ]; then
       || { echo 'the installed app signature could not be verified' >&2; exit 1; }
   fi
   echo "    installed: /Applications/$(basename "$APPBUNDLE")"
-  # The old ChefMind.app (quit above), now that MealMind.app is in its place.
-  if [ "$OLD_GONE" = 1 ]; then
-    # trash(8) is macOS 15's; NSFileManager does the same thing before it.
-    { [ -x /usr/bin/trash ] && /usr/bin/trash -s "$OLD_APP" >/dev/null 2>&1; } ||
-      osascript -l JavaScript -e "ObjC.import('Foundation'); \$.NSFileManager.defaultManager.trashItemAtURLResultingItemURLError(\$.NSURL.fileURLWithPath('$OLD_APP'), null, null)" >/dev/null 2>&1 || true
-    if [ -e "$OLD_APP" ]; then
-      echo "warning: /Applications/ChefMind.app could not be moved to the Trash — it stays until the next build" >&2
-    else
-      echo "    moved /Applications/ChefMind.app to the Trash: MealMind.app replaces it"
-      OLD_REOPEN=$OLD_WAS_RUNNING
-    fi
-  fi
   # AND GIVE HIM HIS WINDOW BACK — only if it was there to begin with. An app
   # he had closed stays closed: a release that conjures windows onto his
   # desktop is its own kind of rude. Best-effort from here down, like every
   # step of this since the quit: failing to reopen a window must never turn a
   # release that shipped into a lane that failed, so nothing below touches the
   # exit status.
-  # (ChefMind open before the release counts: it is the same app, renamed.)
-  if { [ "$WAS_RUNNING" = 1 ] && [ "$GONE" = 1 ]; } || [ "$OLD_REOPEN" = 1 ]; then
+  if [ "$WAS_RUNNING" = 1 ] && [ "$GONE" = 1 ]; then
     if open -g "/Applications/$APPNAME.app" >/dev/null 2>&1; then
       echo "    reopened $APPNAME — it was running before this release"
     else
@@ -429,9 +384,9 @@ if [ "$WANT_IOS" = 1 ]; then
   # about the app, not about what happens to be on the desk when the lane runs.
   # The owner, 2026-09-21, after a release reached one phone — "you should have dtp
   # to all platforms and all 3 phones and my watch" — and then the routing
-  # itself: "the only apps installed on person B's phone are ChefMind and
+  # itself: "the only apps installed on person B's phone are MealMind and
   # CalMind", "person C's phone only gets CalMind", "my phone gets all 6
-  # (including the test ones)". ChefMind, now MealMind, is therefore the owner's
+  # (including the test ones)". MealMind is therefore the owner's
   # phone and Person B's; Person C's is CalMind's alone and is deliberately
   # absent below.
   #
@@ -609,10 +564,8 @@ PY
       OK=$((OK + 1))
       echo "    installed $SCHEME.app on $PHONE"
       owed_installs clear MealMind "$U" "$BUNDLE"
-      owed_installs clear ChefMind "$U" "$BUNDLE"
     else
       owed_installs record MealMind "$U" "$BUNDLE"
-      owed_installs clear ChefMind "$U" "$BUNDLE"
       echo "warning: $PHONE ($U) would not take $SCHEME.app — going on to the next" >&2
       echo "  If the team has never signed for it, one build aimed at it registers it:" >&2
       echo "    IOS_PHONES=$U sh tools/build-platforms.sh --ios" >&2
@@ -623,7 +576,7 @@ PY
   # non-zero over the absentee would make the lane's exit status — the one
   # place "it all worked" is read off — mean nothing. Reaching NONE of them is
   # the failure the single `exit 1` here used to catch, and it still is.
-  for U in $AWAY; do owed_installs record MealMind "$U" "$BUNDLE"; owed_installs clear ChefMind "$U" "$BUNDLE"; done
+  for U in $AWAY; do owed_installs record MealMind "$U" "$BUNDLE"; done
   [ "$OK" -gt 0 ] || { echo "not one phone took $SCHEME.app" >&2; exit 1; }
   # No watch branch: watchOS is not a target here — watch.ts and the
   # watch/widget targets went with Calendar and Habits (ARCHITECTURE.md).

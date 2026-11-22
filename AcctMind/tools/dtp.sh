@@ -46,7 +46,7 @@
 # 2026-08-23 (its bin/build-platforms.sh, the AcctMind row), and the hole
 # that left was invisible from inside either repo: a release could tag and
 # push with the Mac bundle still built from whatever was lying around —
-# ChefMind's did exactly that. The owner, 2026-08-23: "all apps should have a
+# MealMind's did exactly that. The owner, 2026-08-23: "all apps should have a
 # deploy on their own mechanism inside their repo". So the machinery is
 # tools/build-platforms.sh, HERE, and this lane runs it.
 #

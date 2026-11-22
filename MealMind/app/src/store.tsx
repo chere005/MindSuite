@@ -51,10 +51,10 @@ const instanceTag = (): string => {
  * tag is what separates a device that has switched servers from one that has
  * not.
  *
- * And `chefmind.`, not `mealmind.`: the app was ChefMind up to 1.51.0, and
- * these keys hold the sign-in and the device's only copy of unsynced edits.
- * Renaming them would sign every device out and strand those edits; a move
- * would need a read-old, write-new step kept for several releases.
+ * And `chefmind.`, not `mealmind.`: these keys hold the sign-in and the device's
+ * only copy of unsynced edits. Renaming them would sign every device out and
+ * strand those edits; a move would need a read-old, write-new step kept for
+ * several releases.
  */
 const SESSION_KEY = `chefmind.session@${instanceTag()}`;
 const snapKey = (user: string) => `chefmind.snapshot.${user}@${instanceTag()}`;

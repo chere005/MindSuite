@@ -22,7 +22,7 @@
  * It was Recipes' own inline JSX until 2026-08-22, and copying it across
  * would have been three bars drifting apart from the first change onwards.
  *
- * NOT MealMind (then ChefMind) only any more: it was canon from 2026-09-21 until CoreMind/canon
+ * NOT MealMind only any more: it was canon from 2026-09-21 until CoreMind/canon
  * was retired, and is this app's own file now (tools/shared-files.json does not
  * list it). Upstream's Notes screen still has no selection to act on, so
  * CalMind carries no twin — but

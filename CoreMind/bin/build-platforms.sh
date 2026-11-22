@@ -6,7 +6,7 @@
 # THE FALLBACK, AND THE ORIGIN. An app with its own tools/build-platforms.sh
 # owns its artifacts and its lane builds them in the right places — the desktop
 # bundle before the tag, the devices after the push — so bin/dtp.sh passes
-# --platforms through and never calls this for it. ChefMind moved that way on
+# --platforms through and never calls this for it. MealMind moved that way on
 # 2026-08-23, after a release tagged and pushed while its Mac bundle stayed a
 # day behind and had never heard of the Pantry tab; CalMind, AcctMind and
 # MyCalMind moved the same day. ALL FOUR ship themselves now, so dtp calls this
@@ -94,14 +94,14 @@ fi
 #
 # That last column is the point of the 2026-09-21 change, and it is a fact
 # about the APP, not about what happens to be plugged in: "the only apps
-# installed on person B's phone are ChefMind and CalMind", "person C's phone
+# installed on person B's phone are MealMind and CalMind", "person C's phone
 # only gets CalMind", "my phone gets all 6 (including the test ones)". A
 # release is therefore neither "install to the phone" nor "install to every
 # phone" — it is this list, minus whoever is switched off tonight.
 #
 # MyCalMind's iOS build still does NOT install, and the reason it used to give
 # for that was wrong: it said the free Apple dev team caps a device at 3 apps
-# and the slot was already spent on CalMind/ChefMind/AcctMind. The team these
+# and the slot was already spent on CalMind/MealMind/AcctMind. The team these
 # builds sign with, TEAMID0000, is PAID — its Xcode-managed
 # profile carries TimeToLive 365 where a personal team's carries 7 — so there
 # is no slot and never was one to spend. What is true is the other half of

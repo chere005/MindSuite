@@ -62,7 +62,7 @@ git bundle create "$HOME/MindSuiteMigrationBackup/$(date +%F)/MindSuite-clean-pr
 
 ```
 sh tools/publish/squash-reroot.sh \
-  --marker AcctMind/0.62.0 --marker CalMind/1.62.0 --marker ChefMind/1.39.0 --marker CoreMind/1.32.0 \
+  --marker AcctMind/0.62.0 --marker CalMind/1.62.0 --marker MealMind/1.39.0 --marker CoreMind/1.32.0 \
   --marker PlanMind/0.28.0 --marker ReadMind/0.5.0 --marker TaskMind/0.1.0 \
   --export "$W/export.git"
 ```
@@ -218,8 +218,8 @@ refuses everything else (fail closed):
 | Ref | Who pushes it |
 | --- | --- |
 | `refs/heads/main` | step 6, and every lane (`git push --atomic origin main refs/tags/<tag>`) |
-| `refs/tags/<App>/<x.y.z>`, App one of AcctMind, CalMind, MealMind, ChefMind (MealMind's name up to 1.51.0), CoreMind, PlanMind, ReadMind, TaskMind | the app's lane (three numeric parts, nothing after them) |
-| `refs/heads/preflight/<acctmind\|calmind\|mealmind\|chefmind>/<sha>` (7 to 40 hex digits; `chefmind` is from before the rename) | that app's `tools/preflight.sh`, which also deletes it |
+| `refs/tags/<App>/<x.y.z>`, App one of AcctMind, CalMind, MealMind, CoreMind, PlanMind, ReadMind, TaskMind | the app's lane (three numeric parts, nothing after them) |
+| `refs/heads/preflight/<acctmind\|calmind\|mealmind>/<sha>` (7 to 40 hex digits) | that app's `tools/preflight.sh`, which also deletes it |
 
 A `<App>/legacy/<version>` marker, any other branch or tag, an old-style tag (`v1.2.3`, `<app>-v1.2.3`, a two-part
 version) and the deletion of anything but a preflight branch are refused. Every pushed object still gets a
@@ -230,7 +230,7 @@ longer read.
 ## Version sync
 
 The lanes decide the next version from the tags in the repository. The new repository has none: the lanes of AcctMind,
-ChefMind (now MealMind), CalMind and CoreMind REUSE a version that is not tagged, PlanMind and TaskMind tag the version in
+MealMind, CalMind and CoreMind REUSE a version that is not tagged, PlanMind and TaskMind tag the version in
 `package.json` (and refuse one that is already tagged), and ReadMind (version = newest tag) would start at 0.1.0. They all read `<App>/legacy/<version>` as
 "taken", which is why step 3 makes the markers. They only work if the files carry what was actually shipped:
 
@@ -238,7 +238,7 @@ ChefMind (now MealMind), CalMind and CoreMind REUSE a version that is not tagged
 | --- | --- | --- | --- | --- |
 | AcctMind | `package.json` | 0.62.0 | 0.62.0 | marker only |
 | CalMind | `apps/app/app.json`, `desktop/package.json`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, `desktop/src-tauri/Cargo.lock`, `package-lock.json` | 1.62.0 | 1.60.0, 1.61.0 and 1.62.0 | marker only (the six files were bumped from 1.59.0 to 1.62.0 by the commit below); the lane's first release is 1.63.0 |
-| ChefMind | `package.json` | 1.39.0 | 1.39.0 | marker only |
+| MealMind | `package.json` | 1.39.0 | 1.39.0 | marker only |
 | CoreMind | `package.json` | 1.32.0 | 1.32.0 | marker only |
 | PlanMind | `package.json` | 0.28.0 | 0.28.0 | marker only |
 | ReadMind | none: the newest tag | 0.5.0 | 0.5.0 | marker only |
