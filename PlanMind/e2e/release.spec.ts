@@ -128,10 +128,11 @@ test.describe('a new release reaches an open page', () => {
       const letGo = hold(served, '"complete"');
       await page.getByRole('checkbox', { name: `Complete ${title}`, exact: true }).click();
       await expect(page.locator('#sync-status')).toHaveText('Saving…');
-      // Meanwhile another release answers (the silent save of the sidebar choice goes through) and the page is touched: a write is in flight, so it waits.
+      // Meanwhile another release answers (the silent save of the picker choice goes through) and the page is touched: a write is in flight, so it waits.
       served.stamp = B;
       const saved = page.waitForResponse(response => response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"savePrefs"'));
-      await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click();
+      await page.getByRole('button', { name: /^Lists: / }).click();
+      await page.getByRole('group', { name: 'Lists', exact: true }).getByRole('button', { name: OWNER_NAME, exact: true }).click();
       await saved;
       const header = (await page.locator('.page-header').boundingBox())!;
       await page.mouse.click(header.x + header.width / 2, header.y + header.height / 2);
@@ -210,22 +211,23 @@ test.describe('a new release reaches an open page', () => {
     await reloaded(page);
   });
 
-  test('a picker or sidebar save still on its way finishes first: the page loads the new release after its answer, and the choice is stored', async ({ page, baseURL }) => {
+  test('a picker save still on its way finishes first: the page loads the new release after its answer, and the choice is stored', async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER), served = await host(page);
     try {
       await login(page);
       await mark(page);
       const letGo = hold(served, '"savePrefs"');
       const sent = page.waitForRequest(request => request.method() === 'POST' && (request.postData() ?? '').includes('"savePrefs"'));
-      await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click();
+      await page.getByRole('button', { name: /^Lists: / }).click();
+      await page.getByRole('group', { name: 'Lists', exact: true }).getByRole('button', { name: OWNER_NAME, exact: true }).click();
       await sent;
       // The 400 ms pause is over and the request is out, with no write marked busy: the host has not answered, and a load now would cut it off.
       served.stamp = B;
       await poll(page);
-      await still(page, 'the save of the sidebar is on its way');
+      await still(page, 'the save of the picker is on its way');
       letGo();
       await reloaded(page);
-      expect((await owner.snapshot()).prefs.sidebar).toBe('hidden');
+      expect((await owner.snapshot()).prefs.selection).toEqual({ base: OWNER, overlays: [] });
     } finally { await owner.dispose(); await resetPrefs(baseURL!); }
   });
 

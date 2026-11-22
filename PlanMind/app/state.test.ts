@@ -68,79 +68,48 @@ describe('selection', () => {
 });
 
 describe('sidebar', () => {
-  it('is shown unless the server said hidden, and any other word reads as shown', () => {
+  it('every load starts shown, whatever the server stored or sent', () => {
     expect(state.sidebar).toBe('shown');
-    expect(createState(session(5, { prefs: { selection: { base: A, overlays: [] }, sidebar: 'hidden' } }), io).sidebar).toBe('hidden');
-    for (const odd of ['Hidden', 'collapsed', '', undefined, null, 1, true]) {
-      expect(createState(session(5, { prefs: { selection: { base: A, overlays: [] }, sidebar: odd as never } }), io).sidebar).toBe('shown');
+    for (const stored of ['hidden', 'shown', 'Hidden', 'collapsed', '', undefined, null, 1, true]) {
+      expect(createState(session(5, { prefs: { selection: { base: A, overlays: [] }, sidebar: stored as never } }), io).sidebar, JSON.stringify(stored)).toBe('shown');
     }
     expect(createState(session(5, { prefs: { selection: { base: A, overlays: [] } } as never }), io).sidebar).toBe('shown');
   });
-  it('changes at once, tells the shell, and is saved 400 ms later with the selection', () => {
+  it('changes at once and tells the shell, but is never saved: no write, no pending state', () => {
     const seen: string[] = [];
     state.subscribe(change => seen.push(change));
     state.setSidebar('hidden');
     expect(state.sidebar).toBe('hidden');
     expect(seen).toEqual(['sidebar']);
-    vi.advanceTimersByTime(399);
+    expect(state.prefsPending).toBe(false);
+    expect(state.writing).toBe(false);
+    vi.advanceTimersByTime(5000);
     expect(sent).toHaveLength(0);
-    vi.advanceTimersByTime(1);
-    expect(sent).toEqual([{ action: 'savePrefs', selection: { base: A, overlays: [] }, sidebar: 'hidden' }]);
+    state.setSidebar('shown');
+    expect(state.sidebar).toBe('shown');
+    vi.advanceTimersByTime(5000);
+    expect(sent).toHaveLength(0);
   });
-  it('shares the one pause with the picker: one write carries both', () => {
-    state.setSelection({ base: 'alex', overlays: [] });
-    vi.advanceTimersByTime(200);
+  it('the same value changes nothing', () => {
+    const seen: string[] = [];
+    state.subscribe(change => seen.push(change));
+    state.setSidebar('shown');
+    expect(seen).toEqual([]);
+  });
+  it('a picker save never carries the sidebar, collapsed or not', () => {
     state.setSidebar('hidden');
-    vi.advanceTimersByTime(399);
-    expect(sent).toHaveLength(0);
-    vi.advanceTimersByTime(1);
-    expect(sent).toEqual([{ action: 'savePrefs', selection: { base: 'alex', overlays: [] }, sidebar: 'hidden' }]);
-  });
-  it('only the save that follows a sidebar change carries it: a picker change on a stale device never undoes another device\'s choice', () => {
-    // This device loaded 'hidden' and has not touched the sidebar since; another device may have shown it meanwhile.
-    const stale = createState(session(5, { prefs: { selection: { base: A, overlays: [] }, sidebar: 'hidden' } }), io);
-    stale.setSelection({ base: 'alex', overlays: [] });
+    state.setSelection({ base: 'alex', overlays: [] });
     vi.advanceTimersByTime(400);
     expect(sent).toEqual([{ action: 'savePrefs', selection: { base: 'alex', overlays: [] } }]);
-    stale.setSidebar('shown');
-    vi.advanceTimersByTime(400);
-    stale.setSelection({ base: A, overlays: [] });
-    vi.advanceTimersByTime(400);
-    expect(sent.map(m => m.action === 'savePrefs' && 'sidebar' in m)).toEqual([false, true, false]);
-  });
-  it('the same value changes and saves nothing; toggling back before the pause still saves the last value', () => {
-    state.setSidebar('shown');
-    vi.advanceTimersByTime(1000);
-    expect(sent).toHaveLength(0);
-    state.setSidebar('hidden');
-    state.setSidebar('shown');
-    vi.advanceTimersByTime(400);
-    expect(sent).toEqual([{ action: 'savePrefs', selection: { base: A, overlays: [] }, sidebar: 'shown' }]);
-  });
-  it('a sidebar change whose save failed is sent again with the next save', async () => {
-    io.send.mockImplementationOnce(async (m: Mutation) => { sent.push(m); throw new ApiFailure('Down', 0, null, undefined, true); });
-    state.setSidebar('hidden');
-    vi.advanceTimersByTime(400);
-    await vi.advanceTimersByTimeAsync(0);
-    state.setSelection({ base: 'alex', overlays: [] });
-    vi.advanceTimersByTime(400);
-    expect(sent.map(m => m.action === 'savePrefs' && m.sidebar)).toEqual(['hidden', 'hidden']);
-  });
-  it('is saved at once when the page is hidden, and closing cancels a pending save', () => {
-    state.setSidebar('hidden');
-    state.close();
-    vi.advanceTimersByTime(1000);
-    expect(sent).toHaveLength(0);
-  });
-  it('a failing save is silent and the sidebar stays as chosen; a later poll never moves it', async () => {
-    io.send.mockRejectedValue(new ApiFailure('Down', 0, null, undefined, true));
-    state.setSidebar('hidden');
-    vi.advanceTimersByTime(400);
-    await vi.advanceTimersByTimeAsync(0);
     expect(state.sidebar).toBe('hidden');
-    expect(state.error).toBe('');
+  });
+  it('a poll never moves it, whatever the server holds', () => {
+    state.setSidebar('hidden');
     state.applyResponse(session(9, { prefs: { selection: { base: A, overlays: [] }, sidebar: 'shown' } }));
     expect(state.sidebar).toBe('hidden');
+    state.setSidebar('shown');
+    state.applyResponse(session(10, { prefs: { selection: { base: A, overlays: [] }, sidebar: 'hidden' } }));
+    expect(state.sidebar).toBe('shown');
   });
 });
 
@@ -682,9 +651,9 @@ describe('a new release', () => {
     watch.see('20261102093000-2');
     expect(watched.newRelease).toBe(true);
   });
-  it('a change of the picker or the sidebar is pending until its save has been sent', () => {
+  it('a change of the picker is pending until its save has been sent', () => {
     expect(state.prefsPending).toBe(false);
-    state.setSidebar('hidden');
+    state.setSelection({ base: 'both', overlays: [A] });
     expect(state.prefsPending).toBe(true);
     vi.advanceTimersByTime(400);
     expect(state.prefsPending).toBe(false);
@@ -702,10 +671,10 @@ describe('a new release', () => {
       await sending;
       expect(state.writing).toBe(false);
     });
-    it('a picker or sidebar save is writing from the change to its answer, not only until the request is sent', async () => {
+    it('a picker save is writing from the change to its answer, not only until the request is sent', async () => {
       const answer = held<Snapshot>();
       io.send.mockReturnValueOnce(answer.promise);
-      state.setSidebar('hidden');
+      state.setSelection({ base: 'both', overlays: [A] });
       expect(state.writing).toBe(true);
       vi.advanceTimersByTime(400);
       // The request is out (the 400 ms pause is over, `busy` was never set) and the host has not answered.
@@ -740,7 +709,7 @@ describe('a new release', () => {
       const prefs = held<Snapshot>(), theme = held<{ theme: string }>();
       io.send.mockReturnValueOnce(prefs.promise);
       io.setTheme.mockReturnValueOnce(theme.promise);
-      state.setSidebar('hidden');
+      state.setSelection({ base: 'both', overlays: [A] });
       vi.advanceTimersByTime(400);
       const saving = state.saveTheme('sage');
       const seen: string[] = [];

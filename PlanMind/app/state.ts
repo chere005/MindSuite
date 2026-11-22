@@ -48,7 +48,8 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let session = initial;
   let selection = resolveSelection(initial.prefs.selection, initial.lists);
   // Anything the server did not say is 'hidden' reads as shown.
-  let sidebar: SidebarState = initial.prefs.sidebar === 'hidden' ? 'hidden' : DEFAULT_SIDEBAR;
+  // Every page load starts with the sidebar shown: a stored `sidebar` word (an old choice) is ignored, and collapsing it is never saved.
+  let sidebar: SidebarState = DEFAULT_SIDEBAR;
   // The theme on screen, and the last one the server confirmed. A pick shows at once but is only believed once it is saved.
   let theme = initial.theme, savedTheme = initial.theme, themeTry = 0;
   let today = todayIn(initial.timezone);
@@ -83,9 +84,6 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   // Saves nobody waits for (the picker, the sidebar, the theme) have no `busy`, but they are in flight all the same: a reload now would cut them off.
   let quietWrites = 0;
-  // Whether this device changed the sidebar since it last told the server. Only then does a save carry it (the server keeps the
-  // stored value otherwise), so a picker change here never puts a stale sidebar over another device's choice.
-  let sidebarDirty = false;
   let stopTimers: (() => void) | undefined;
   // CalMind's events (the Day schedule draws them faint, under the planner's own entries): what was last read, for which days, and
   // whether this account hides them. A failed read keeps what is held (and is asked again at the next poll); nothing is stored.
@@ -238,16 +236,14 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     }
   }
 
-  /** Best effort and silent: the in-memory selection and sidebar apply whether or not this lands. A failed save keeps the sidebar owed for the next one. */
+  /** Best effort and silent: the in-memory selection applies whether or not this lands. The sidebar is never part of it. */
   function savePrefs() {
     saveTimer = undefined;
     if (!alive) { return; }
-    const withSidebar = sidebarDirty;
-    sidebarDirty = false;
     quietWrites++;
-    io.send(withSidebar ? { action: 'savePrefs', selection, sidebar } : { action: 'savePrefs', selection }).then(applyResponse, () => { sidebarDirty ||= withSidebar; }).finally(quietWriteEnded);
+    io.send({ action: 'savePrefs', selection }).then(applyResponse, () => {}).finally(quietWriteEnded);
   }
-  /** One write for whatever changed in the last moment: the picker and the sidebar share it. */
+  /** One write for whatever changed in the last moment of the picker. */
   function schedulePrefs() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(savePrefs, PREFS_DEBOUNCE_MS);
@@ -296,7 +292,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     get settling() { return settling > 0; },
     /** Whether the host now serves another release than the one this page started under (the shell reloads at a quiet moment). */
     get newRelease() { return io.release?.changed ?? false; },
-    /** Whether a change of the picker or sidebar is still waiting for its save (a reload now would lose it). */
+    /** Whether a change of the picker is still waiting for its save (a reload now would lose it). */
     get prefsPending() { return saveTimer !== undefined; },
     /** Whether any write of this page is under way or waiting: a save in flight, a picker or sidebar change waiting for its pause or its answer, a theme being stored. A reload now would lose it. */
     get writing() { return queue.length > 0 || saveTimer !== undefined || quietWrites > 0; },
@@ -335,13 +331,11 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
       chores = next;
       emit('chores');
     },
-    /** Shows or hides the desktop sidebar: kept in memory at once, saved with the picker state after the same short pause. */
+    /** Shows or hides the desktop sidebar for this page only: kept in memory, never saved or synced. */
     setSidebar(next: SidebarState) {
       if (next === sidebar) { return; }
       sidebar = next;
-      sidebarDirty = true;
       emit('sidebar');
-      schedulePrefs();
     },
     /**
      * Picks a theme: it shows at once ('theme' change) and is saved through the account preference. When the save fails
