@@ -1,0 +1,63 @@
+{
+	"name": "mindsuite-desktop",
+	"productName": "MindSuite",
+	"version": "0.2.0",
+	"private": true,
+	"description": "The MindSuite desktop workspace.",
+	"author": {
+		"name": "MindSuite"
+	},
+	"homepage": "https://seancheren.com/MindSuite/",
+	"main": "main.cjs",
+	"scripts": {
+		"start": "npm run stage:mac && electron .",
+		"check": "node --test test/*.test.cjs",
+		"build:mac": "npm run stage:mac && electron-builder --mac dir --arm64 --publish never",
+		"build:windows": "electron-builder --win nsis --x64 --arm64 --publish never",
+		"build:linux": "electron-builder --linux AppImage deb --x64 --arm64 --publish never",
+		"stage:mac": "node stage-local.cjs",
+		"test:mac": "node test/smoke.cjs"
+	},
+	"devDependencies": {
+		"electron": "44.11.3",
+		"electron-builder": "26.18.0",
+		"@electron/asar": "3.4.1"
+	},
+	"build": {
+		"appId": "com.seancheren.mindsuite",
+		"icon": "assets/icon.png",
+		"files": [
+			"*.cjs",
+			"shell.html",
+			"shell.css",
+			"shell.js",
+			"assets/icon.png",
+			"assets/apps/*.svg"
+		],
+		"electronFuses": {
+			"runAsNode": false,
+			"enableNodeOptionsEnvironmentVariable": false,
+			"enableNodeCliInspectArguments": false,
+			"enableEmbeddedAsarIntegrityValidation": true,
+			"onlyLoadAppFromAsar": true
+		},
+		"mac": {
+			"category": "public.app-category.productivity",
+			"identity": "-",
+			"hardenedRuntime": false,
+			"notarize": false,
+			"extraResources": [
+				{
+					"from": "runtime",
+					"to": "mindsuite-local"
+				}
+			]
+		},
+		"win": {
+			"artifactName": "${productName}-${version}-Setup.${ext}"
+		},
+		"linux": {
+			"category": "Office"
+		}
+	}
+}

@@ -152,9 +152,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
     const next = VIEWS[Math.min(VIEWS.length - 1, Math.max(0, i + (inward ? 1 : -1)))]!;
     if (next !== calView) setCalView(next);
   };
-  // Edit only: the panel's own "+ Add" pill is gone (the owner, 2026-08-20 —
-  // "remove the additional add button on calendar"). Creating on a day is
-  // the Add tab's job now, and it defaults to this screen's selected day.
+  // The Add tab and wide quick add both default to the selected day.
   const [modal, setModal] = useState<null | { mode: 'edit'; kind: ItemKind; rec: Rec<'event'> | Rec<'reminder'> | Rec<'note'> }>(null);
 
   // A read-only item (an imported calendar's event, a planned recipe) open in
@@ -998,15 +996,22 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   }, [beside, day, drawn, today, folderModes, showDone, recs, chefRecs]);
   const restNode = beside ? (
     <View testID="cal-rest-pane" style={s.restPane}>
-      <View style={s.restHead}>
-        <Text testID="cal-day-title" style={s.panelTitle}>{dayLabel}</Text>
+      <View testID="cal-pane-day" style={[s.restDay, upcoming.length > 0 && s.restDayWithUpcoming]}>
+        <View style={s.restHead}>
+          <Text testID="cal-day-title" accessibilityRole="header" style={s.panelTitle}>{dayLabel}</Text>
+        </View>
+        {dayPanel(true)}
       </View>
-      {dayPanel(true)}
       {upcoming.length > 0 && (
-        <Scroll style={s.restUpcoming} contentContainerStyle={s.restUpcomingInner}>
-          <Text style={s.restUpLabel}>Coming up</Text>
-          {upcoming.map(({ date: d, items: it, chef }) => renderAgendaDay(d, it, chef, UP_IDS, () => setDay(d)))}
-        </Scroll>
+        <View testID="cal-pane-upcoming" style={s.restUpcoming}>
+          <View style={s.restUpHead}>
+            <CalGlyph color={T.accent} size={16} />
+            <Text accessibilityRole="header" style={s.restUpLabel}>Coming up</Text>
+          </View>
+          <Scroll testID="cal-up-scroll" contentContainerStyle={s.restUpcomingInner}>
+            {upcoming.map(({ date: d, items: it, chef }) => renderAgendaDay(d, it, chef, UP_IDS, () => setDay(d)))}
+          </Scroll>
+        </View>
       )}
     </View>
   ) : null;
@@ -1231,11 +1236,14 @@ const s = themed(() => StyleSheet.create({
   // a width cap only left a dead gap beside the pane.
   wideGridCap: { flex: 1, minHeight: 0, width: '100%' },
   panelInPane: { flexGrow: 0, flexShrink: 1 },
-  restPane: { flex: 1, minHeight: 0 },
-  restHead: { paddingTop: 14, paddingHorizontal: 16, paddingBottom: 2 },
-  restUpcoming: { flex: 1, minHeight: 0, borderTopWidth: 1, borderTopColor: T.lineSoft },
-  restUpcomingInner: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 },
-  restUpLabel: { color: T.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
+  restPane: { flex: 1, minHeight: 0, padding: 12, gap: 12 },
+  restDay: { flexShrink: 1, minHeight: 0, borderWidth: 1, borderColor: T.line, borderRadius: 10, backgroundColor: T.bg, overflow: 'hidden' },
+  restDayWithUpcoming: { maxHeight: '55%' },
+  restHead: { paddingTop: 12, paddingHorizontal: 16, paddingBottom: 2 },
+  restUpcoming: { flex: 1, minHeight: 0, borderWidth: 1, borderColor: T.accent, borderRadius: 10, backgroundColor: T.bg, overflow: 'hidden' },
+  restUpHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: T.accentSoft },
+  restUpcomingInner: { paddingHorizontal: 16, paddingBottom: 12, gap: 6 },
+  restUpLabel: { color: T.text, fontSize: 16, fontWeight: '700' },
   panelWide: { flexGrow: 0, flexShrink: 0, flexBasis: 150, height: 150 },
   // userSelect none: a swipe across the cell numbers must never start a
   // text selection — on web a selection TERMINATES the pan mid-gesture.

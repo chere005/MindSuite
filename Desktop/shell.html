@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'">
+<title>MindSuite</title>
+<link rel="stylesheet" href="shell.css">
+<script src="shell.js" defer></script>
+</head>
+<body>
+<header>
+  <img src="assets/icon.png" width="24" height="24" alt="MindSuite">
+  <nav aria-label="MindSuite apps" role="tablist"></nav>
+  <button type="button" id="split" aria-label="Split view" title="Split view" aria-pressed="false">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M8 3v10"/></svg>
+  </button>
+  <button type="button" id="external" aria-label="Open in browser" title="Open in browser">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"/></svg>
+  </button>
+</header>
+<main aria-live="polite">
+  <nav class="pane-tools" data-side="left" aria-label="Left pane apps" hidden></nav>
+  <section id="left"></section>
+  <div id="divider" role="separator" tabindex="0" aria-label="Resize split panes" title="Drag to resize. Double-click to reset."
+       aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" hidden></div>
+  <nav class="pane-tools" data-side="right" aria-label="Right pane apps" hidden></nav>
+  <section id="right" hidden></section>
+</main>
+</body>
+</html>
