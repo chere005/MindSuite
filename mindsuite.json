@@ -1,13 +1,13 @@
 {
-  "version": "1.0.0",
+  "version": "1.3.0",
   "apps": {
     "CalMind": {
       "repo": "MindSuite",
-      "tag": "CalMind/2.0.0"
+      "tag": "CalMind/2.1.0"
     },
     "MealMind": {
       "repo": "MindSuite",
-      "tag": "MealMind/2.0.0"
+      "tag": "MealMind/2.1.0"
     },
     "PlanMind": {
       "repo": "MindSuite",
@@ -23,7 +23,7 @@
     },
     "NoteMind": {
       "repo": "NoteMind",
-      "tag": "v1.0.0"
+      "tag": "v1.1.0"
     },
     "ScrollMind": {
       "repo": "ScrollMind",

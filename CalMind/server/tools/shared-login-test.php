@@ -5,7 +5,7 @@
  *   - shared sign-in off      legacy (the instance is not in mindsuite_auth_instances)
  *   - on                      the shared store only: calmind-scoped bearer tokens, same-origin cookie + CSRF
  *   - calmind held            legacy again (mindsuite_auth_hold), a malformed hold too
- *   - chef space              follows the chefmind hold instead (all four combinations)
+ *   - chef space              follows the mealmind hold instead (all four combinations)
  *   - on but unreadable       503, never legacy
  *
  *   CALMIND_SITE_LIB_TEST=<seancheren-site checkout>/lib php server/tools/shared-login-test.php
@@ -377,7 +377,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
 
     // ------------------------------------------------------------ held
     t('held: calmind on hold is legacy again: the legacy token works, a shared one does not', function () use ($port, &$legacyTok, &$alex) {
-        site(ON + ['mindsuite_auth_hold' => ['test' => ['calmind', 'chefmind']]]);
+        site(ON + ['mindsuite_auth_hold' => ['test' => ['calmind', 'mealmind']]]);
         eq('Sam', call($port, ['action' => 'whoami'], bearer($legacyTok))['body']['username'] ?? null, 'legacy');
         $r = call($port, ['action' => 'whoami'], bearer($alex));
         eq(401, $r['status'], 'shared token');
@@ -393,16 +393,16 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(200, call($port, ['action' => 'whoami'], bearer($legacyTok))['status'], 'legacy (string)');
     });
 
-    // MealMind's calls name space 'chef' on every action and follow the chefmind hold; CalMind's follow the calmind hold.
-    t('held: the chef space follows the chefmind hold and the calmind space the calmind hold, in all four combinations', function () use ($port, $plant, $row, $data, &$legacyTok) {
+    // MealMind's calls name space 'chef' on every action and follow the mealmind hold; CalMind's follow the calmind hold.
+    t('held: the chef space follows the mealmind hold and the calmind space the calmind hold, in all four combinations', function () use ($port, $plant, $row, $data, &$legacyTok) {
         $shared = $plant('alex', 'calmind');
         $chef = ['space' => 'chef'];
         $sync = ['cursor' => 0, 'changes' => []];
         foreach ([
             'neither held' => [['planmind'], true, true],
             'calmind held' => [['calmind'], false, true],
-            'chefmind held' => [['chefmind'], true, false],
-            'both held' => [['calmind', 'chefmind'], false, false],
+            'mealmind held' => [['mealmind'], true, false],
+            'both held' => [['calmind', 'mealmind'], false, false],
         ] as $why => [$hold, $calShared, $chefShared]) {
             site(ON + ['mindsuite_auth_hold' => ['test' => $hold]]);
             foreach (['calmind' => [[], $calShared], 'chef' => [$chef, $chefShared]] as $space => [$extra, $isShared]) {
@@ -441,7 +441,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         }
         // C5's scope rule is intact on the chef space: only a row scoped exactly 'calmind' opens it.
         site(ON);
-        foreach (['a chefmind-scoped row' => $plant('alex', 'chefmind'), 'a full-account row' => $plant('alex', ''), 'another app\'s row' => $plant('alex', 'planmind')] as $what => $tok) {
+        foreach (['a mealmind-scoped row' => $plant('alex', 'mealmind'), 'a full-account row' => $plant('alex', ''), 'another app\'s row' => $plant('alex', 'planmind')] as $what => $tok) {
             $r = call($port, ['action' => 'whoami'] + $chef, bearer($tok));
             eq([401, 'bad token', true], [$r['status'], $r['body']['error'] ?? null, $r['body']['shared'] ?? null], "chef space, $what");
         }
@@ -450,7 +450,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(200, call($port, ['action' => 'sync'] + $chef + $one, bearer($shared))['status'], 'chef space, the calmind-scoped row');
         ok(has_store($data, 'alex', 'chef'), 'chef records under the canonical name');
         // An unknown space follows calmind's hold (and sync still refuses it).
-        site(ON + ['mindsuite_auth_hold' => ['test' => ['chefmind']]]);
+        site(ON + ['mindsuite_auth_hold' => ['test' => ['mealmind']]]);
         eq(200, call($port, ['action' => 'whoami', 'space' => 'Chef'], bearer($shared))['status'], 'an unknown space is calmind\'s');
         eq(400, call($port, ['action' => 'sync', 'space' => 'Chef'] + $sync, bearer($shared))['status'], 'and sync refuses it');
         // space 'chef' picks the hold only for sync/shared_*/login/logout/whoami: CalMind's own and account-wide actions
@@ -459,21 +459,21 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         $del = ['action' => 'delete_account'];
         $reg = ['action' => 'passkey_register_begin'];
         $rm = ['action' => 'passkey_remove', 'id' => 'none'];
-        site(ON + ['mindsuite_auth_hold' => ['test' => ['chefmind']]]);
+        site(ON + ['mindsuite_auth_hold' => ['test' => ['mealmind']]]);
         foreach ([$day, $del, $reg, $rm] as $body) {
             $r = call($port, $body + $chef, bearer($legacyTok));
-            eq([401, true], [$r['status'], $r['body']['shared'] ?? null], "calmind on, chefmind held: a legacy token on {$body['action']} with space chef is a shared 401 " . $r['raw']);
+            eq([401, true], [$r['status'], $r['body']['shared'] ?? null], "calmind on, mealmind held: a legacy token on {$body['action']} with space chef is a shared 401 " . $r['raw']);
         }
         eq(200, call($port, ['action' => 'whoami'] + $chef, bearer($legacyTok))['status'], 'and the legacy token still opens the chef space itself');
         site(ON + ['mindsuite_auth_hold' => ['test' => ['calmind']]]);
         $r = call($port, $day + $chef, bearer($shared));
-        eq([401, false], [$r['status'], array_key_exists('shared', $r['body'])], 'calmind held, chefmind on: a shared token on meetreq_day with space chef is a legacy 401 ' . $r['raw']);
+        eq([401, false], [$r['status'], array_key_exists('shared', $r['body'])], 'calmind held, mealmind on: a shared token on meetreq_day with space chef is a legacy 401 ' . $r['raw']);
         foreach ([$del, $reg, $rm] as $body) {
             $r = call($port, $body + $chef, bearer($shared));
-            eq([401, false], [$r['status'], array_key_exists('shared', $r['body'])], "calmind held, chefmind on: a shared token on {$body['action']} with space chef is a legacy 401 " . $r['raw']);
+            eq([401, false], [$r['status'], array_key_exists('shared', $r['body'])], "calmind held, mealmind on: a shared token on {$body['action']} with space chef is a legacy 401 " . $r['raw']);
         }
-        // Sign-up from MealMind's Login screen lands on chefmind's path: legacy while it is held, shared while it is not.
-        foreach ([[['chefmind'], 'cid', false], [['calmind'], 'cia', true]] as [$hold, $name, $isShared]) {
+        // Sign-up from MealMind's Login screen lands on mealmind's path: legacy while it is held, shared while it is not.
+        foreach ([[['mealmind'], 'cid', false], [['calmind'], 'cia', true]] as [$hold, $name, $isShared]) {
             site(ON + ['mindsuite_auth_hold' => ['test' => $hold]]);
             $r = call($port, ['action' => 'signup', 'username' => $name, 'email' => $name . '@example.invalid', 'password' => 'passw0rd'] + $chef);
             $tok = (string) ($r['body']['token'] ?? '');

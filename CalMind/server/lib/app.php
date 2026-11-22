@@ -565,7 +565,7 @@ function account_exists(array $cfg, string $user): bool
 //
 // Dual mode. The site's shared sign-in (the site repo's docs/MINDSUITE-LOGIN.md) is loaded IN-PROCESS from the site lib
 // of this instance; CalMind never copies the library. While that lib is missing, its instance is not switched on, or
-// calmind (chefmind, for the chef space) is on hold there (mindsuite_auth_hold), every action below runs its legacy path on accounts.json and
+// calmind (mealmind, for the chef space) is on hold there (mindsuite_auth_hold), every action below runs its legacy path on accounts.json and
 // tokens.json, unchanged. Once on, the shared store is the only door: tokens.json and accounts.json are never consulted
 // for sign-in (no second door), native clients carry a bearer token whose session row has scope 'calmind' (a full-account
 // token is refused here, and a calmind token opens nothing else in the suite), and the same-origin web build may use the
@@ -579,12 +579,12 @@ const SUITE_APP   = 'calmind';
 const SUITE_SCOPE = 'calmind';
 /**
  * A request for another app's space follows THAT app's switch and hold: MealMind names space 'chef' on every action (its
- * api.ts), so 'chefmind' held keeps its calls on the legacy path while calmind is un-held, and calmind held does not hold
- * them back while chefmind is un-held. The scope does not follow: a chef-space token is still scope 'calmind' (the API it
+ * api.ts), so 'mealmind' held keeps its calls on the legacy path while calmind is un-held, and calmind held does not hold
+ * them back while mealmind is un-held. The scope does not follow: a chef-space token is still scope 'calmind' (the API it
  * opens is this one, on the same accounts; the importer made MealMind's legacy tokens, which live in the same tokens.json,
  * calmind-scoped), so a token's scope must still be exactly SUITE_SCOPE, whichever app's hold the request follows.
  */
-const SUITE_SPACE_APPS = ['chef' => 'chefmind'];
+const SUITE_SPACE_APPS = ['chef' => 'mealmind'];
 /**
  * The only actions whose `space` picks the hold: the three whose data is scoped by space, MealMind's own recipe_fetch,
  * and the ones that carry identity only (sign-in, sign-up, recover/reset, passkey sign-in and list, change_password,

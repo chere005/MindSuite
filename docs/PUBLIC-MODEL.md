@@ -1,6 +1,6 @@
 # The public model: CalMind and MealMind for strangers
 
-The plan: put CalMind and MealMind in the App Store (Google Play next) while keeping their sync on this server, which stays the suite's. This file is the full scope: what is built (and switched off), what is a stub, what is not started, and the order of a switch-over. **Nothing here is switched on.** Shipping any of this code changes nothing for the household until a flag or a config key below is set.
+CalMind and MealMind target the App Store first and Google Play next, with sync on the suite server. Database storage, public accounts and account-optional mode default to off. The table records the status of each part and the final section gives the switch-over order.
 
 ## The model in one paragraph
 
@@ -10,7 +10,7 @@ The apps work with **no account**: records live on the device. **Signing in is o
 
 | Area | Status | Switch | Where |
 | --- | --- | --- | --- |
-| Records storage seam (`rs_tx` / `rs_view`) | **Built, live** (JSON driver, same files) | — | `CalMind/server/lib/records.php` |
+| Records storage seam (`rs_tx` / `rs_view`) | **Built** (JSON driver uses the existing files by default) | — | `CalMind/server/lib/records.php` |
 | Database driver for records (SQLite / MySQL) | **Built, off** | `storage` => `'sql'`, `storage_dsn`, `storage_user`, `storage_pass` in `config.php` (or `CALMIND_STORAGE`, `CALMIND_STORAGE_DSN`) | same |
 | JSON → database migration, verified per store | **Built** (dry run by default; never touches the JSON files) | run by hand | `CalMind/server/tools/records-migrate.php` |
 | Public accounts (sign-up, sign-in, lock, change password, delete, caps) | **Built, off** | `public_accounts` => true (or `CALMIND_PUBLIC_ACCOUNTS=1`) | `CalMind/server/lib/public-accounts.php` |

@@ -16,6 +16,9 @@ import { ChefSessionProvider, pruneIds, useChefSession } from './src/session';
 import { ChefWide } from './src/wide/ChefWide';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
 import { showsLogin } from './src/accountmode';
+import { formerMealStorageKey } from './src/storage';
+
+const TAB_KEY = 'mealmind.tab';
 
 function Root() {
   const { ready, session, recs, localMode, signInOpen } = useStore();
@@ -27,7 +30,7 @@ function Root() {
   // The tab survives a refresh, and every switch feeds the back stack.
   const [tab, setTabState] = useState<Tab>(() => {
     if (typeof localStorage !== 'undefined') {
-      const t = localStorage.getItem('chefmind.tab');
+      const t = localStorage.getItem(TAB_KEY) ?? localStorage.getItem(formerMealStorageKey(TAB_KEY));
       // 'reminders' and 'add' are deliberately absent, and the absence does
       // work: a browser that used an older build has one of those strings in
       // localStorage, and accepting it would land on a tab that no longer
@@ -44,14 +47,14 @@ function Root() {
       setCanBack(true);
     }
     setTabState(t);
-    if (typeof localStorage !== 'undefined') localStorage.setItem('chefmind.tab', t);
+    if (typeof localStorage !== 'undefined') localStorage.setItem(TAB_KEY, t);
   };
   const goBack = () => {
     const prev = backStack.current.pop();
     setCanBack(backStack.current.length > 0);
     if (prev) {
       setTabState(prev);
-      if (typeof localStorage !== 'undefined') localStorage.setItem('chefmind.tab', prev);
+      if (typeof localStorage !== 'undefined') localStorage.setItem(TAB_KEY, prev);
     }
   };
   // A note made anywhere opens in its editor — Search hands the id over.

@@ -340,7 +340,7 @@ describe('the bearer login is unchanged', () => {
     expect(calls[0].headers['X-CSRF-Token']).toBeUndefined();
   });
 
-  test('every call names the chef space, so the server judges it on the chefmind hold', async () => {
+  test('every call names the chef space, so the server judges it on the mealmind hold', async () => {
     const ok = { body: { ok: true, token: tok64(), username: 'alex' } };
     const { api, calls } = await load([ok, ok, ok, ok]);
     await api.login(API, 'alex', 'pw');
@@ -350,20 +350,20 @@ describe('the bearer login is unchanged', () => {
     expect(calls.map((c) => [c.body.action, c.body.space])).toEqual([['login', 'chef'], ['whoami', 'chef'], ['logout', 'chef'], ['sync', 'chef']]);
   });
 
-  test('app sign-in names the chef space too: signin_info and signin_redeem follow the chefmind hold, and the redeem is this app\'s', async () => {
+  test('app sign-in names the chef space too: signin_info and signin_redeem follow the mealmind hold, and the redeem is this app\'s', async () => {
     const { calls } = await load([{ body: { ok: true, shared: true, app_signin: true } }, { body: { ok: true, token: tok64(), username: 'alex' } }]);
     const flow = await import('../src/appsignin');
     expect((await flow.signInFacts(API)).kind).toBe('answer');
     const code = 'ab'.repeat(32);
     const browser = {
-      prepare: async () => 'com.seancheren.chefmind:/signin',
-      open: async (url: string) => `com.seancheren.chefmind:/signin?code=${code}&state=${new URL(url).searchParams.get('state')}`,
+      prepare: async () => 'com.seancheren.mealmind:/signin',
+      open: async (url: string) => `com.seancheren.mealmind:/signin?code=${code}&state=${new URL(url).searchParams.get('state')}`,
       cancel: async () => undefined,
     };
-    const r = await flow.signInThroughAccount(API, 'chefmind', browser, (n) => new Uint8Array(n).fill(3));
+    const r = await flow.signInThroughAccount(API, 'mealmind', browser, (n) => new Uint8Array(n).fill(3));
     expect(r.kind).toBe('ok');
     expect(calls.map((c) => [c.body.action, c.body.space])).toEqual([['signin_info', 'chef'], ['signin_redeem', 'chef']]);
-    expect(calls[1]!.body.redirect_uri).toBe('com.seancheren.chefmind:/signin');
+    expect(calls[1]!.body.redirect_uri).toBe('com.seancheren.mealmind:/signin');
   });
 
   test('no token sends no credential (login, signup, recover, the public request page)', async () => {

@@ -55,7 +55,7 @@ $in  = json_decode((string) file_get_contents('php://input'), true);
 if (!is_array($in)) {
     fail(400, 'JSON body required');
 }
-suite_app($in);   // a request for MealMind's space follows the chefmind hold (lib/app.php, SUITE_SPACE_APPS)
+suite_app($in);   // a request for MealMind's space follows the mealmind hold (lib/app.php, SUITE_SPACE_APPS)
 
 // Every handler answers through reply()/fail(), which set a status and send
 // JSON. A throw from deeper down — store.php refusing a damaged file, say —

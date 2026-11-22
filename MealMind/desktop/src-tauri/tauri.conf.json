@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MealMind",
-  "version": "2.0.0",
-  "identifier": "com.seancheren.chefmind.desktop",
+  "version": "2.1.0",
+  "identifier": "com.seancheren.mealmind.desktop",
   "build": {
     "frontendDist": "../dist-desktop",
     "beforeBuildCommand": "sh stage-dist.sh",

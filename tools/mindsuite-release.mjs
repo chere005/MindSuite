@@ -375,7 +375,7 @@ export function publish({ repo, change, push = true, dryRun = false, log = conso
     if (r.status === 0) {
       git(['update-ref', 'refs/remotes/origin/main', commit]);
       fastForwardCheckouts(git, commit, log, env);
-      log(`MindSuite ${result.state.version}: ${result.message.replace(/^MindSuite [^:]+: ?/, '') || 'tagged'} (${tag})`);
+      log(`${result.message} (tagged ${tag})`);
       return { ...result, commit, tag };
     }
     git(['tag', '-d', tag], { allowFail: true });

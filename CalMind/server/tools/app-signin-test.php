@@ -87,7 +87,7 @@ function site(array $cfg): void
 const KEY = 'calmind-signin-test-key';
 const ON = ['mindsuite_auth_instances' => ['test'], 'mindsuite_auth_keys' => ['test' => KEY]];
 const CM = 'com.seancheren.calmind:/signin';
-const CHEF = 'com.seancheren.chefmind:/signin';
+const CHEF = 'com.seancheren.mealmind:/signin';
 
 echo "CalMind app sign-in, mode by mode\n";
 
@@ -215,18 +215,18 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php') || !is_fi
         eq('invalid request', $bad['body']['error'] ?? null, 'no fields at all');
     });
 
-    t('on: a chefmind code needs space chef; with the chefmind hold the chef space is legacy while calmind still redeems', function () use ($port, $mint, $redeem, $row, &$secrets) {
-        $code = $mint('chefmind', CHEF);
+    t('on: a mealmind code needs space chef; with the mealmind hold the chef space is legacy while calmind still redeems', function () use ($port, $mint, $redeem, $row, &$secrets) {
+        $code = $mint('mealmind', CHEF);
         eq(400, $redeem($port, $code, ['redirect_uri' => CHEF])['status'], 'without space the app is calmind');
-        $code = $mint('chefmind', CHEF);
+        $code = $mint('mealmind', CHEF);
         $r = $redeem($port, $code, ['redirect_uri' => CHEF, 'space' => 'chef']);
         eq(200, $r['status'], 'with space chef ' . $r['raw']);
         $secrets[] = (string) $r['body']['token'];
         eq('calmind', $row((string) $r['body']['token'])['scope'] ?? null, 'a chef-space token keeps the calmind scope');
-        site(ON + ['mindsuite_auth_hold' => ['test' => ['chefmind']]]);
-        eq(['ok' => true, 'shared' => false, 'app_signin' => false], call($port, ['action' => 'signin_info', 'space' => 'chef'])['body'], 'chef info while chefmind is held');
+        site(ON + ['mindsuite_auth_hold' => ['test' => ['mealmind']]]);
+        eq(['ok' => true, 'shared' => false, 'app_signin' => false], call($port, ['action' => 'signin_info', 'space' => 'chef'])['body'], 'chef info while mealmind is held');
         eq(true, call($port, ['action' => 'signin_info'])['body']['app_signin'], 'calmind info is unaffected');
-        $code = $mint('chefmind', CHEF);
+        $code = $mint('mealmind', CHEF);
         $h = $redeem($port, $code, ['redirect_uri' => CHEF, 'space' => 'chef']);
         eq([400, false], [$h['status'], array_key_exists('shared', $h['body'])], 'chef redeem while held');
         site(ON);

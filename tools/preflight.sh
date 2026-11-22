@@ -36,6 +36,8 @@ $MIND_PYTHON "$CHECK" "$ROOT"
 node --test tools/test-mac-architecture.mjs
 node tools/check-shared.mjs
 node --test tools/test-check-shared.mjs
+node tools/check-app-ids.mjs
+node --test tools/test-check-app-ids.mjs
 node --test tools/test-mindsuite-release.mjs
 node tools/mindsuite-release.mjs check --repo "$ROOT"
 # @mind/core has no install of its own; it borrows CoreMind's tsc and vitest.
