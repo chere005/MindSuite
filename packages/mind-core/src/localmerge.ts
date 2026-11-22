@@ -31,7 +31,7 @@
 import type { AnyRec, Rec } from './types';
 import { folderApp } from './types';
 import { byRecOrd } from './order';
-import { CALENDAR_STARTER, FOLDER_NOTES_STARTER, FOLDER_STARTER, HABIT_SECTION_STARTER, SECTION_DEFAULT } from './normalize';
+import { CALENDAR_STARTER, FOLDER_NOTES_STARTER, FOLDER_STARTER, HABIT_SECTION_STARTER } from './normalize';
 import type { Snapshot, SyncEngine } from './sync';
 
 /** The user part of the local store's keys. Never a username (see above). */
@@ -135,9 +135,9 @@ type Item = Rec<'reminder'> | Rec<'note'>;
  *
  *  - A flagged list (shopping, pantry): its rows move into the account list's
  *    first section, because that list's screen draws one section only.
- *  - Any other folder: its sections move to the account's folder and its items
- *    follow (folderId), except an EMPTY section under the default name, which
- *    is retired rather than parked beside the account's own 'General'.
+ *  - Any other folder: a section the account's folder already has BY NAME
+ *    (its 'General', say) hands its items to that one and is retired; any
+ *    other section moves across whole, and every item follows (folderId).
  *  - A calendar or habit section: its events or habits are re-pointed.
  *
  * The adopted container is then tombstoned. An adopted starter with no account
@@ -184,16 +184,26 @@ export function foldAdopted(recs: readonly AnyRec[], adopted: ReadonlySet<string
         }
         for (const sec of mine) put({ ...cur(sec), deleted: true });
       } else {
-        const used = new Set(items.map((it) => it.payload.sectionId));
+        // A section the account's folder already has by name takes this
+        // one's items; any other section moves across whole.
+        const theirs = new Map<string, Rec<'section'>>();
+        for (const sec of sectionsOf(k.id)) if (!theirs.has(sec.payload.name)) theirs.set(sec.payload.name, sec);
+        const into = new Map<string, string>();
         for (const sec of mine) {
           const now = cur(sec);
-          if (!used.has(sec.id) && sec.payload.name === SECTION_DEFAULT) put({ ...now, deleted: true });
-          else put({ ...now, payload: { ...now.payload, folderId: k.id } });
+          const same = theirs.get(sec.payload.name);
+          if (same) {
+            into.set(sec.id, same.id);
+            put({ ...now, deleted: true });
+          } else {
+            put({ ...now, payload: { ...now.payload, folderId: k.id } });
+          }
         }
         for (const it of items) {
           if (it.payload.folderId !== c.id) continue;
           const now = cur(it);
-          put({ ...now, payload: { ...now.payload, folderId: k.id } } as AnyRec);
+          const sectionId = into.get(it.payload.sectionId) ?? it.payload.sectionId;
+          put({ ...now, payload: { ...now.payload, folderId: k.id, sectionId } } as AnyRec);
         }
       }
     } else if (c.type === 'calendar') {

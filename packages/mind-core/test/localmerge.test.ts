@@ -220,6 +220,11 @@ describe('mergeLocalInto', () => {
       const sec = account.get(it.payload.sectionId) as Rec<'section'> | undefined;
       expect(sec?.payload.folderId).toBe(it.payload.folderId);
     }
+    // …in the account's own 'General', not a second one parked beside it.
+    expect(r1.payload.sectionId).toBe(firstSection(account, aRem.id).id);
+    for (const f of [aRem, aRide, aNotes]) {
+      expect(account.all().filter((r) => r.type === 'section' && r.payload.folderId === f.id)).toHaveLength(1);
+    }
     expect((account.get('e1') as Rec<'event'>).payload.calendarId).toBe(aCal.id);
     expect((account.get('h1') as Rec<'habit'>).payload.sectionId).toBe(aHab.id);
 
@@ -263,6 +268,18 @@ describe('mergeLocalInto', () => {
     const { folded } = mergeLocalInto(account, local.toSnapshot());
     expect(folded).toBe(0);
     expect(folders(account).map((f) => f.id).sort()).toEqual(folders(local).map((f) => f.id).sort());
+  });
+
+  it('a section the person made inside a starter moves across whole', () => {
+    const local = seeded(SUITE_SEEDS, 1_000);
+    const lRem = folderBy(local, (x) => x.payload.name === 'Reminders');
+    local.put({ id: 'mine', type: 'section', updated: 0, payload: { name: 'Garden', folderId: lRem.id, ord: 'z' } }, 2_000);
+    local.put({ id: 'r9', type: 'reminder', updated: 0, payload: { text: 'seeds', due: null, time: null, done: false, repeat: null, folderId: lRem.id, sectionId: 'mine', indent: 0, ord: 'm' } }, 2_000);
+    const account = seeded(SUITE_SEEDS, 500);
+    const aRem = folderBy(account, (x) => x.payload.name === 'Reminders');
+    mergeLocalInto(account, local.toSnapshot());
+    expect((account.get('mine') as Rec<'section'>).payload.folderId).toBe(aRem.id);
+    expect((account.get('r9') as Rec<'reminder'>).payload).toMatchObject({ folderId: aRem.id, sectionId: 'mine' });
   });
 
   it('a renamed starter is the person\'s own folder and is not folded', () => {
