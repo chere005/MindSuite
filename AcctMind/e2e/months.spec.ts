@@ -26,6 +26,28 @@
 import { expect, test, type Page } from '@playwright/test';
 import { addTransaction, assignedIn, fresh, monthBudget, setSign, stored, withStore } from './helpers';
 
+test('Budget opens on the current month after a month rolls over', async ({ page }) => {
+  const prefsKey = 'acctmind.prefs.v1';
+  const month = page.getByTestId('budget-month');
+  await page.clock.setFixedTime(new Date(2026, 10, 22, 12));
+  await page.addInitScript((key) => {
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, JSON.stringify({ budgetMonth: '2026-09' }));
+    }
+  }, prefsKey);
+  await page.goto('./');
+  await expect(month).toHaveText('November 2026');
+
+  await page.getByTestId('budget-month-prev').click();
+  await expect(month).toHaveText('October 2026');
+  await page.reload();
+  await expect(month).toHaveText('October 2026');
+
+  await page.clock.setFixedTime(new Date(2026, 11, 1, 12));
+  await page.reload();
+  await expect(month).toHaveText('December 2026');
+});
+
 type Stored = {
   categories: { id: string; name: string; deleted?: true }[];
   lines: { id: string; name: string; category: string; deleted?: true }[];

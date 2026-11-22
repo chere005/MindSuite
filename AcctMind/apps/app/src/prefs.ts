@@ -29,7 +29,7 @@ export type Prefs = {
   /** Accounts folded shut, by id. Also a view choice. */
   collapsed: string[];
   /**
-   * The month the Budget tab is on, `YYYY-MM`.
+   * The selected Budget tab month and the local calendar month when it was picked.
    *
    * A view choice, so it lives here rather than on the records: which month
    * you were last looking at is about this device, while the amounts inside
@@ -40,17 +40,11 @@ export type Prefs = {
    * ("always have a month selected"). A device that saved one still has the
    * key in its file; nothing reads it, and the next save drops it.
    */
-  budgetMonth: string;
-};
-
-/** The month a device that has never stepped anywhere starts on. */
-const thisMonth = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  budgetSelection: { month: string; selectedIn: string } | null;
 };
 
 /** What a device that has never chosen anything gets. */
-export const DEFAULTS: Prefs = { amountMode: 'cents', sort: 'date', collapsed: [], budgetMonth: thisMonth() };
+export const DEFAULTS: Prefs = { amountMode: 'cents', sort: 'date', collapsed: [], budgetSelection: null };
 
 export async function loadPrefs(): Promise<Prefs> {
   try {
@@ -64,13 +58,16 @@ export async function loadPrefs(): Promise<Prefs> {
     // here understands.
     const sort = (data as Record<string, unknown>)['sort'];
     const collapsed = (data as Record<string, unknown>)['collapsed'];
-    const budgetMonth = (data as Record<string, unknown>)['budgetMonth'];
+    const selection = (data as Record<string, unknown>)['budgetSelection'];
+    const { month, selectedIn } = typeof selection === 'object' && selection !== null
+      ? selection as Record<string, unknown> : {};
     return {
       amountMode: mode === 'whole' ? 'whole' : 'cents',
       sort: sort === 'custom' || sort === 'amount' ? sort : 'date',
       collapsed: Array.isArray(collapsed) ? collapsed.filter((c): c is string => typeof c === 'string') : [],
-      budgetMonth: typeof budgetMonth === 'string' && /^\d{4}-\d{2}$/.test(budgetMonth)
-        ? budgetMonth : thisMonth(),
+      // Old preferences recorded the viewed month without when it was picked.
+      budgetSelection: typeof month === 'string' && typeof selectedIn === 'string'
+        ? { month, selectedIn } : null,
     };
   } catch {
     return DEFAULTS;

@@ -84,6 +84,12 @@ export function monthOf(day: string): string {
   return day.slice(0, 7);
 }
 
+/** Keep a manually selected budget month until the local calendar rolls over. */
+export function budgetMonthForView(month: unknown, selectedIn: unknown, current: string): string {
+  return selectedIn === current && typeof month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+    ? month : current;
+}
+
 /**
  * The id a (set, line) amount has, derived so two devices agree.
  *

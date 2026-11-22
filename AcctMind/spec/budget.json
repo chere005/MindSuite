@@ -1,5 +1,13 @@
 {
   "_": "The budget contract: three numbers, two stored, and the operator picker.",
+  "_monthSelection": "[viewed month, calendar month when selected, current calendar month, displayed month]",
+  "monthSelection": [
+    ["2026-09", null, "2026-11", "2026-11"],
+    ["2026-09", "2026-11", "2026-11", "2026-09"],
+    ["2026-09", "2026-11", "2026-12", "2026-12"],
+    ["2026-00", "2026-11", "2026-11", "2026-11"],
+    [null, null, "2026-11", "2026-11"]
+  ],
   "_available": "budgeted PLUS spent, because money out is negative. [budget, spent, available]",
   "available": [
     [

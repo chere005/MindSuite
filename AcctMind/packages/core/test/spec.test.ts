@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  addDays, addMonths, amountDigits, amountField, amountKeyed, amountSeed, applyOp, assignedFor, availableOf, budgetFor, budgetOverspent, dayOf,
+  addDays, addMonths, amountDigits, amountField, amountKeyed, amountSeed, applyOp, assignedFor, availableOf, budgetFor, budgetMonthForView, budgetOverspent, dayOf,
   type AssignMode,
   EMPTY_TXN_FILTER, filterTransactions, hasTxnFilter, importKey, lineTone, parseDelimited,
   reconcileAdjustment, stillNeeded, usDate, validTxnDateRange, type TxnFilter,
@@ -345,6 +345,7 @@ describe('spec/sortmodes.json', () => {
 
 describe('spec/budget.json', () => {
   const b = spec<{
+    monthSelection: [string | null, string | null, string, string][];
     available: [number, number, number][];
     carried: [number, number, number, number][];
     roundTrip: [number, number][];
@@ -354,6 +355,10 @@ describe('spec/budget.json', () => {
     ops: [number, AmountOp, number, number | null][];
     assign: [AssignMode, number, boolean, number, number, number, number][];
   }>('budget');
+
+  it.each(b.monthSelection)('shows %s selected in %s during %s as %s', (month, selectedIn, current, expected) => {
+    expect(budgetMonthForView(month, selectedIn, current)).toBe(expected);
+  });
 
   it("the pick bar's three buttons are three sentences about ASSIGNED", () => {
     for (const [mode, needs, snoozed, budgeted, spent, carry, want] of b.assign) {
