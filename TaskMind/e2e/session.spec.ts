@@ -144,7 +144,8 @@ test.describe('the shell', () => {
   test('signing out ends the session', async ({ page, request }) => {
     await login(page, 'alex');
     await page.locator('#userBtn').click();
-    await page.getByRole('button', { name: 'Sign out' }).click();
+    // The shared account menu (suite-topbar.js) gives its rows the menuitem role, as CalMind's menu does.
+    await page.getByRole('menuitem', { name: 'Sign out' }).click();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await page.goto(PAGE);
     await expect(page.getByLabel('Username')).toBeVisible();

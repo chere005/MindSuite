@@ -58,7 +58,7 @@ export function renderSession(root: HTMLElement, session: Session) {
   const button = h('button', 'ms-app-account'); button.type = 'button'; button.id = 'userBtn';
   button.setAttribute('aria-haspopup', 'menu'); button.setAttribute('aria-expanded', 'false'); button.setAttribute('aria-controls', 'userMenu');
   const name = displayName(session.name, session.me);
-  const face = h('span', 'ms-app-account-face'); face.append(h('span', 'ms-app-account-label', name), h('span', 'ms-app-caret', '▾'));
+  const face = h('span', 'ms-app-account-face'); face.append(h('span', 'ms-app-account-label', name), h('span', 'ms-app-caret')); // the shared CSS draws the chevron
   face.lastElementChild!.setAttribute('aria-hidden', 'true'); button.title = name; button.append(face);
   const menu = h('div', 'ms-app-menu'); menu.id = 'userMenu'; menu.hidden = true;
   const accountData = document.getElementById('app')?.dataset;
