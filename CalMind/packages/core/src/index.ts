@@ -17,6 +17,7 @@ export * from './recipe';
 export * from './rules';
 export * from './manage';
 export * from './sync';
+export * from './localmerge';
 export * from './notesplit';
 export * from './update';
 export * from './layout';

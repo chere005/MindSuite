@@ -28,6 +28,7 @@
     "./search": "./src/search.ts",
     "./chefdate": "./src/chefdate.ts",
     "./sync": "./src/sync.ts",
+    "./localmerge": "./src/localmerge.ts",
     "./watch": "./src/watch.ts",
     "./normalize": "./src/normalize.ts",
     "./pkce": "./src/pkce.ts",
