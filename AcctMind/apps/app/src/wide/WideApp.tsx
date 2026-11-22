@@ -36,7 +36,6 @@ import { WIDE_COLORS } from './shared';
 export type WideActions = {
   onImport: () => void;
   onExport: () => void;
-  onMatch: () => void;
   onManage: (what: 'accounts' | 'categories') => void;
 };
 
@@ -215,7 +214,6 @@ export function WideApp({
       {!readOnly && <SidebarItem label="Import from CSV" onPress={actions.onImport} colors={c} testID="wide-more-import" />}
       <SidebarItem label="Export budget" onPress={actions.onExport} colors={c} testID="wide-more-export" />
       {!readOnly && <SidebarItem label="Categories" onPress={() => actions.onManage('categories')} colors={c} testID="wide-more-categories" />}
-      {!readOnly && <SidebarItem label="Auto-categorize rules" onPress={actions.onMatch} colors={c} testID="wide-more-match" leading={<View style={{ width: 14 }} />} />}
       {!readOnly && <SidebarItem label="Accounts" onPress={() => actions.onManage('accounts')} colors={c} testID="wide-more-accounts" />}
     </>
   );

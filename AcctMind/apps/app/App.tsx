@@ -922,7 +922,6 @@ export default function App() {
                 actions={{
                   onImport: openImport,
                   onExport: onExportBudget,
-                  onMatch: () => setMatching(true),
                   onManage: setManaging,
                 }}
               />

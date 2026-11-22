@@ -124,6 +124,15 @@ const noOverflow = async (page: Page) => {
 test.describe('1280x820, editable', () => {
   test.use({ viewport: { width: 1280, height: 820 } });
 
+  test('auto-categorize rules are reached through Categories', async ({ page }) => {
+    await withStore(page, wideLedger());
+    const sidebar = page.getByTestId('wide-sidebar');
+    await expect(sidebar.getByText('Auto-categorize rules', { exact: true })).toHaveCount(0);
+    await sidebar.getByTestId('wide-more-categories').click();
+    await page.getByTestId('manage-rules').click();
+    await expect(page.getByTestId('auto-category-match')).toBeVisible();
+  });
+
   test('sidebar left of the main pane, no overflow, balance only for one account', async ({ page }) => {
     await withStore(page, wideLedger());
     await expect(page.getByTestId('wide-frame')).toBeVisible();
