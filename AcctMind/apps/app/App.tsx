@@ -19,7 +19,7 @@
  * by remembering to check.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -28,7 +28,7 @@ import {
   applyImport, clearedTotal, copyProblem, parseStore, ensureCategory, newId, nextColor, planImport, RECONCILE_NAME,
   reconcileAdjustment, total, putAccount, putBudget, putCategory, putLine, removeCategoryDeep,
   REORDER_GAP, assignMany, budgetCsv, budgetStart, putBudgetStart, suggestedStart, planSync, serialize, undoTo, linesIn, monthlyBudgetAmounts,
-  monthSet, setMonth, today, tombstone, tombstoneMany, touch,
+  budgetMonthForView, monthOf, monthSet, setMonth, today, tombstone, tombstoneMany, touch,
   txnText, updateTxn, setCleared, patchTxn,
   categoryChoices, categoryRules, putSnooze, removeCategoryRule, saveCategoryRule,
   type AssignMode, type CsvRow, type Draft, type ImportMode, type Line, type Store, type Txn,
@@ -157,6 +157,8 @@ export default function App() {
    * showing off for a frame before it shows on.
    */
   const [prefs, setPrefs] = useState<Prefs>(DEFAULTS);
+  const [calendarMonth, setCalendarMonth] = useState(() => monthOf(today()));
+  const budgetMonth = budgetMonthForView(prefs.budgetSelection?.month, prefs.budgetSelection?.selectedIn, calendarMonth);
   /** Wide (desktop-size) window: the sidebar frame instead of the phone column. */
   const { wide } = useWide();
   /**
@@ -173,7 +175,10 @@ export default function App() {
   useEffect(() => {
     let running = true;
     void loadPrefs().then((p) => { if (running) setPrefs(p); });
-    return () => { running = false; };
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setCalendarMonth(monthOf(today()));
+    });
+    return () => { running = false; sub.remove(); };
   }, []);
 
   /** Remember a view choice, on this device only. */
@@ -184,6 +189,12 @@ export default function App() {
       return next;
     });
   }, []);
+
+  const selectBudgetMonth = useCallback((month: string) => {
+    const selectedIn = monthOf(today());
+    setCalendarMonth(selectedIn);
+    setPref('budgetSelection', { month, selectedIn });
+  }, [setPref]);
 
   /**
    * The ledger, for code that reads it from OUTSIDE a render.
@@ -532,7 +543,7 @@ export default function App() {
     if (phase.k !== 'ready') return;
     const store = phase.store;
     const lines = live(store.lines);
-    const { amounts } = monthlyBudgetAmounts(store, prefs.budgetMonth, lines, store.txns, budgetStart(store));
+    const { amounts } = monthlyBudgetAmounts(store, budgetMonth, lines, store.txns, budgetStart(store));
     const rows = live(store.categories).flatMap((c) =>
       linesIn(lines, c.id).map((l) => {
         const { budget: assigned, spent, carry } = amounts.get(l.id)!;
@@ -541,9 +552,9 @@ export default function App() {
           available: availableOf(assigned, spent, carry),
         };
       }));
-    const name = `acctmind-budget-${prefs.budgetMonth}.csv`;
+    const name = `acctmind-budget-${budgetMonth}.csv`;
     void saveTextFile(name, budgetCsv(rows)).then(say).catch(() => say('Could not export'));
-  }, [phase, prefs.budgetMonth, say]);
+  }, [phase, budgetMonth, say]);
 
   /**
    * UNDO, built here and handed to both tabs.
@@ -583,7 +594,7 @@ export default function App() {
     if (phase.k !== 'ready') return;
     commit(phase, {
       ...phase.store,
-      settings: putSnooze(phase.store, monthSet(prefs.budgetMonth), lineId, next, Date.now()),
+      settings: putSnooze(phase.store, monthSet(budgetMonth), lineId, next, Date.now()),
     });
   };
 
@@ -609,7 +620,7 @@ export default function App() {
         commit(phase, { ...phase.store, settings: putBudgetStart(phase.store, next, Date.now()) });
       }}
       offer={(phase.k === 'ready' ? suggestedStart(live(phase.store.txns)) : null)
-        ?? `${prefs.budgetMonth}-01`}
+        ?? `${budgetMonth}-01`}
     />
   );
 
@@ -673,14 +684,15 @@ export default function App() {
             {note !== null && <Banner testID="note" tone="warn" text={note} />}
             {!wide && tab === 'budget' && (
               <BudgetScreen
+                key={calendarMonth}
                 txns={live(phase.store.txns)}
                 categories={live(phase.store.categories)}
                 lines={live(phase.store.lines)}
                 budgets={phase.store.budgets}
                 settings={phase.store.settings}
                 start={budgetStart(phase.store)}
-                budgetMonth={prefs.budgetMonth}
-                onBudgetMonth={(m: string) => setPref('budgetMonth', m)}
+                budgetMonth={budgetMonth}
+                onBudgetMonth={selectBudgetMonth}
                 menu={appMenu}
                 undo={undoBtn}
                 collapsed={prefs.collapsed}
@@ -761,7 +773,7 @@ export default function App() {
                 onAssignMany={(picks, mode: AssignMode) => {
                   if (phase.k !== 'ready') return;
                   const out = assignMany(
-                    phase.store, monthSet(prefs.budgetMonth), picks, mode, Date.now(),
+                    phase.store, monthSet(budgetMonth), picks, mode, Date.now(),
                   );
                   if (out !== null) commit(phase, { ...phase.store, ...out });
                 }}
@@ -878,8 +890,8 @@ export default function App() {
                 commit={(next) => commit(phase, next)}
                 tab={tab}
                 onTab={setTab}
-                budgetMonth={prefs.budgetMonth}
-                onBudgetMonth={(m) => setPref('budgetMonth', m)}
+                budgetMonth={budgetMonth}
+                onBudgetMonth={selectBudgetMonth}
                 mode={prefs.amountMode}
                 rules={rules}
                 choices={choices}

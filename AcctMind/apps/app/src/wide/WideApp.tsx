@@ -61,7 +61,9 @@ export function WideApp({
   const [account, setAccount] = useState<string | null>(null);
   /** A transaction id, 'new' for a blank form, or null. */
   const [selTxn, setSelTxn] = useState<string | null>(null);
-  const [selLine, setSelLine] = useState<string | null>(null);
+  const [lineSelection, setLineSelection] = useState<{ id: string; month: string } | null>(null);
+  const selLine = lineSelection?.month === budgetMonth ? lineSelection.id : null;
+  const selectLine = (id: string) => setLineSelection({ id, month: budgetMonth });
   /** The Budget's category pie: one category's groups, or null for all (the phone's `view`). */
   const [budgetCat, setBudgetCat] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -80,7 +82,7 @@ export function WideApp({
   const shownAccount = account !== null && accounts.some((a) => a.id === account) ? account : null;
   const firstAccount = shownAccount ?? accounts[0]?.id ?? '';
 
-  const closeDetail = useCallback(() => { setSelTxn(null); setSelLine(null); }, []);
+  const closeDetail = useCallback(() => { setSelTxn(null); setLineSelection(null); }, []);
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDetail(); };
@@ -139,7 +141,7 @@ export function WideApp({
       order: siblings.reduce((n, l) => Math.max(n, l.order), 0) + REORDER_GAP, created: now, updated: now,
     };
     commit(putLine(store, line));
-    setSelLine(line.id);
+    selectLine(line.id);
   };
   const saveLine = (edit: LineEdit) => {
     if (readOnly || lineRow === null) return;
@@ -180,7 +182,7 @@ export function WideApp({
         key={lineRow.line.id} row={lineRow} groupName={group?.name ?? ''} categories={categories}
         spending={sheet.spending(lineRow.line.id)} readOnly={readOnly}
         onSave={saveLine} onDelete={deleteLine} onClose={closeDetail}
-        onOpenTxn={(t) => { setAccount(null); onTab('transactions'); setSelLine(null); setSelTxn(t.id); }}
+        onOpenTxn={(t) => { setAccount(null); onTab('transactions'); setLineSelection(null); setSelTxn(t.id); }}
       />
     );
   }
@@ -220,7 +222,7 @@ export function WideApp({
   const content = tab === 'reports' ? <WideReports store={store} banner={banner} /> : tab === 'budget' ? (
     <WideBudget
       groups={shownCat === null ? sheet.groups : sheet.groups.filter((g) => g.category.id === shownCat)} totals={sheet} budgetMonth={budgetMonth} onMonth={(m) => { closeDetail(); onBudgetMonth(m); }}
-      selectedId={selLine} readOnly={readOnly} banner={banner} onSelect={setSelLine} onAddLine={addLine}
+      selectedId={selLine} readOnly={readOnly} banner={banner} onSelect={selectLine} onAddLine={addLine}
     />
   ) : (
     <WideTransactions
