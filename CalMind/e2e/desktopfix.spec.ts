@@ -205,8 +205,10 @@ test('7. the account menu Search focuses the sidebar field on wide and never pop
 test('8a. the sidebar writes the same prefs as the pickers', async ({ page }) => {
   await page.setViewportSize(WIDE);
   const user = await signup(page);
-  const cals = (await recs(page, user)).filter((r) => r.type === 'calendar');
-  const personal = cals.find((c) => c.payload.name === 'Personal')!;
+  // The first load seeds Personal asynchronously: wait for it to reach the
+  // store rather than reading the records the instant sign-up returns.
+  await expect.poll(async () => (await recs(page, user)).some((r) => r.type === 'calendar' && r.payload.name === 'Personal')).toBe(true);
+  const personal = (await recs(page, user)).find((r) => r.type === 'calendar' && r.payload.name === 'Personal')!;
   await page.getByTestId('side-cal-Personal').click();
   await expect.poll(async () => (await recs(page, user)).find((r) => r.type === 'pref' && r.payload.hidden)?.payload.hidden).toEqual([personal.id]);
   // The calendar picker agrees: its box for Personal is unticked.

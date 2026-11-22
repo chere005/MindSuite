@@ -9,7 +9,7 @@
  * picker and folder picker write; quick-add files through addline.ts, the
  * function the Add tab uses.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { prefsPut, type Rec, type SearchHit } from '@calmind/core';
 import { useStore } from '../store';
@@ -63,17 +63,21 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
   const section: Section = tab === 'add' ? 'calendar' : tab;
 
   // Esc closes the pane (web), unless a picker or menu window is open over it.
-  const closeDetail = detail.item?.onClose;
+  // One listener for the screen's life, reading the CURRENT close through a
+  // ref: a listener attached when the pane opens lands after the paint that
+  // shows it, so an Esc pressed in between was lost.
+  const closeRef = useRef(detail.item?.onClose);
+  closeRef.current = detail.item?.onClose;
   useEffect(() => {
-    if (!closeDetail || typeof document === 'undefined') return;
+    if (typeof document === 'undefined') return;
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== 'Escape') return;
+      if (ev.key !== 'Escape' || !closeRef.current) return;
       if (document.querySelector('[aria-modal="true"]')) return;
-      closeDetail();
+      closeRef.current();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [closeDetail]);
+  }, []);
 
   return (
     <WideFrame
