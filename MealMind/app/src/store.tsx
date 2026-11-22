@@ -9,11 +9,12 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { watchForUpdate } from './update';
-import { SyncEngine, lastDeleted, normalize, prefsOf, folderApp, recLabel, shareOf, undeleted, type AnyRec, type Rec, type Snapshot } from '@calmind/core';
+import { SyncEngine, LOCAL_USER, adoptLocalStore, foldAdopted, lastDeleted, normalize, parseSnapshot, prefsOf, folderApp, recLabel, shareOf, undeleted, type AnyRec, type Rec, type Snapshot } from '@calmind/core';
 import { apiPost, SYNC_SPACE, type Session, syncTransport, ApiError, restoreWebSession } from './api';
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
 import { SharedWrites, type SharedTrouble } from './sharedwrites';
+import { accountOptional, damagedKey, localSnapshotKey, snapshotKey } from './accountmode';
 
 /**
  * Storage is per-INSTANCE, because on the web it is per-ORIGIN and prod, test
@@ -57,7 +58,15 @@ const instanceTag = (): string => {
  * several releases.
  */
 const SESSION_KEY = `chefmind.session@${instanceTag()}`;
-const snapKey = (user: string) => `chefmind.snapshot.${user}@${instanceTag()}`;
+const snapKey = (user: string) => snapshotKey('chefmind', user, instanceTag());
+
+/**
+ * No-account LOCAL MODE (account-optional builds only; see accountmode.ts):
+ * the device's records under their own key, `chefmind.snapshot.~local@<tag>`.
+ * `~` is outside the username alphabet, so this can never be an account's.
+ */
+const OPTIONAL = accountOptional();
+const localKey = () => localSnapshotKey('chefmind', instanceTag());
 
 /**
  * Forget the stored session — and if storage refuses to delete it, leave
@@ -127,6 +136,15 @@ type Store = {
   sharedPartnerLabel: string | null;
   sharedRecs: AnyRec[];
   sharedPut: (rec: AnyRec) => Promise<void>;
+  /** No-account local mode (account-optional builds only, always false
+   *  otherwise): the records live on this device alone, `session` is null so
+   *  nothing that needs a server runs, and there is no sync. */
+  localMode: boolean;
+  /** Local mode with the sign-in card open over it (Settings → Sign in). */
+  signInOpen: boolean;
+  openSignIn: () => void;
+  /** Back from the sign-in card to local use. */
+  closeSignIn: () => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -150,6 +168,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const timers = useRef<{ persist?: ReturnType<typeof setTimeout>; sync?: ReturnType<typeof setTimeout> }>({});
   const persistQueue = useRef<Promise<void>>(Promise.resolve());
 
+  /*
+   * Local mode (OPTIONAL builds only; every one of these stays at its initial
+   * value otherwise, so none of the code reading them changes anything).
+   * Ported from CalMind's store, which carries the full reasoning.
+   *
+   * localRef is the pseudo-session: true while the engine holds the LOCAL
+   * store, persisted under localKey() and never synced. `session` stays null
+   * through it, which is what keeps every network path shut.
+   */
+  const localRef = useRef(false);
+  const [localMode, setLocalMode] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
+  /** The local key holds bytes this device could neither read nor move aside: never written over. */
+  const holdLocalRef = useRef(false);
+  /** Ids adopted from the local store at sign-in, folded once more after the first sync. */
+  const pendingFoldRef = useRef<Set<string> | null>(null);
+  /** The local key must go once an account snapshot holding the merge is on disk. */
+  const pendingLocalClearRef = useRef(false);
+
   // Seeding starters against an EMPTY engine that simply hasn't pulled yet would
   // duplicate everything the server already holds — normalize only runs once the
   // store is hydrated: a snapshot with a cursor, or one completed sync.
@@ -169,7 +206,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // just before a reload never reached the snapshot and quietly vanished
   // (caught by the e2e drag spec). Only the network round-trip is debounced.
   const persistNow = useCallback((user: string) => {
-    if (sessionRef.current?.username !== user) return;
+    const local = user === LOCAL_USER;
+    if (local ? !localRef.current : sessionRef.current?.username !== user) return;
     // A failure here used to be swallowed whole. It is the quietest kind of
     // loss there is: everything keeps working, and then a reload comes back
     // to yesterday. Storage refuses for ordinary reasons — a full quota, a
@@ -177,9 +215,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const snapshot = JSON.stringify(engineRef.current.toSnapshot());
     const write = persistQueue.current
       .catch(() => {})
-      .then(() => AsyncStorage.setItem(snapKey(user), snapshot));
+      .then(() => {
+        // Local bytes this device could not read or move aside are never
+        // written over (enterLocal); saying so is the failure below.
+        if (local && holdLocalRef.current) throw new Error('local store held');
+        return AsyncStorage.setItem(local ? localKey() : snapKey(user), snapshot);
+      });
     persistQueue.current = write
-      .then(() => setPersistFailed(false))
+      .then(async () => {
+        setPersistFailed(false);
+        // Signed in from local mode and the merged snapshot did not reach
+        // disk then: this one holds the merge, so the local copy may go now.
+        if (!local && pendingLocalClearRef.current) {
+          await AsyncStorage.removeItem(localKey()).then(() => { pendingLocalClearRef.current = false; }, () => {});
+        }
+      })
       .catch(() => setPersistFailed(true));
   }, []);
 
@@ -236,8 +286,58 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPartners([]);
     setSharedPartner(null);
     sharedWrites.current?.reset();
+    // Whatever a sign-in from local mode left to finish belonged to that account.
+    pendingFoldRef.current = null;
+    pendingLocalClearRef.current = false;
     applyTheme('midnight'); // the login page always renders midnight
   }, []);
+
+  /**
+   * Open the LOCAL store (account-optional builds only): at launch with no
+   * session, and on the way out of an account. Normally the key is gone after
+   * a sign-in took its records, so this is an empty store growing its
+   * starters (the shopping list and pantry included). A key still there (the
+   * merge was never confirmed on disk) is loaded, not replaced. Bytes that
+   * will not parse are moved aside first; if they cannot be read or moved,
+   * local writes are HELD and the device says it cannot save.
+   */
+  const enterLocal = useCallback(async () => {
+    const key = localKey();
+    let raw: string | null = null;
+    let unreadable = false;
+    try {
+      raw = await AsyncStorage.getItem(key);
+    } catch {
+      unreadable = true;
+    }
+    const parsed = unreadable ? ({ kind: 'damaged' } as const) : parseSnapshot(raw);
+    holdLocalRef.current = false;
+    if (parsed.kind === 'damaged') {
+      const moved = !unreadable && raw !== null
+        && await AsyncStorage.setItem(damagedKey(key, Date.now()), raw).then(() => true, () => false);
+      if (!moved) holdLocalRef.current = true;
+    }
+    engineRef.current = SyncEngine.fromSnapshot(parsed.kind === 'ok' ? parsed.snap : null);
+    hydratedRef.current = true; // nothing to pull: starters are safe to seed now
+    localRef.current = true;
+    setLocalMode(true);
+    setSignInOpen(false);
+    refresh();
+    persistNow(LOCAL_USER); // the starters keep their ids across launches
+  }, [refresh, persistNow]);
+
+  /** After an account is gone (sign-out, a dead token, deletion): local mode
+   *  with whatever the local key holds — normally nothing, as the last
+   *  sign-in took it. A no-op unless the build is account-optional. */
+  const afterAccount = useCallback(async () => {
+    if (!OPTIONAL) return;
+    setReady(false); // not the Login card, not a half-loaded store: a blank page for one read
+    try {
+      await enterLocal();
+    } finally {
+      setReady(true);
+    }
+  }, [enterLocal]);
 
   // One sync at a time. The poll fires every 30 seconds regardless of whether
   // the last one finished, so a request that hangs — accepted, never answered —
@@ -267,6 +367,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       await engineRef.current.sync(syncTransport(s));
       hydratedRef.current = true; // the server has spoken — seeding is safe now
+      // Signed in from local mode: only now does this device know every
+      // starter the account already had (its shopping list and pantry), so
+      // fold the adopted ones into them (localmerge.ts) and push the fold.
+      if (pendingFoldRef.current) {
+        const adopted = pendingFoldRef.current;
+        pendingFoldRef.current = null;
+        const puts = foldAdopted(engineRef.current.toSnapshot().recs, adopted);
+        for (const r of puts) engineRef.current.put(r);
+        if (puts.length > 0) syncAgain.current = true;
+      }
       // WHICH record was refused, not merely that one was. "A note is too
       // long to save" in an app holding hundreds of them leaves you to find
       // it yourself, and the note is by definition not the one on screen.
@@ -298,6 +408,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // disk copy is a cache.
         await forgetSession();
         clearSession();
+        void afterAccount();
         return;
       }
     }
@@ -315,7 +426,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         syncAgain.current = false;
       }
     }
-  }, [refresh, persistNow, pullShared]);
+  }, [refresh, persistNow, pullShared, afterAccount]);
 
   // Every caller fires this and forgets it (`void sharedPut(...)`). The write
   // is drawn at once and sent in order; a refusal (sharing ending a moment
@@ -359,6 +470,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (sessionRef.current) {
         persistNow(sessionRef.current.username);
         syncSoon();
+      } else if (localRef.current) {
+        persistNow(LOCAL_USER); // local mode: saved, never sent
       }
     },
     [refresh, persistNow, syncSoon],
@@ -390,7 +503,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
     const onStorage = (ev: StorageEvent) => {
       const s = sessionRef.current;
-      if (!s || ev.key !== snapKey(s.username) || !ev.newValue) return;
+      // Local mode is a store of its own, on the same terms.
+      const user = s ? s.username : localRef.current ? LOCAL_USER : null;
+      if (!user || ev.key !== (s ? snapKey(user) : localKey()) || !ev.newValue) return;
       let snap: Snapshot | null = null;
       try {
         snap = JSON.parse(ev.newValue) as Snapshot;
@@ -400,16 +515,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!snap || !Array.isArray(snap.recs)) return;
       if (engineRef.current.mergeSnapshot(snap)) {
         refresh();
-        persistNow(s.username); // the union, so a reload right now loses neither tab
-        syncSoon(); // and offer it to the server when there is one
+        persistNow(user); // the union, so a reload right now loses neither tab
+        if (s) syncSoon(); // and offer it to the server when there is one
       }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [refresh, persistNow, syncSoon]);
 
+  /**
+   * The local store, into the account engine now in engineRef
+   * (account-optional builds): core's adoptLocalStore merges, writes the
+   * merged account snapshot, and only once that write has landed removes the
+   * local one. `inMemory` is the local engine's snapshot when signing in from
+   * local mode. At launch it is null, and a local key still on disk beside a
+   * session means a sign-in that did not finish: it is merged again, which is
+   * a no-op for whatever already landed.
+   */
+  const adoptLocal = useCallback(async (user: string, inMemory: Snapshot | null, keepLocal: boolean) => {
+    let local = inMemory;
+    if (!local) {
+      const raw = await AsyncStorage.getItem(localKey()).catch(() => undefined);
+      // Unreadable or damaged bytes stay exactly where they are: local mode
+      // moves them aside, and this must not be the step that loses them.
+      const parsed = raw === undefined ? null : parseSnapshot(raw);
+      if (!parsed || parsed.kind !== 'ok') return;
+      local = parsed.snap;
+    }
+    const out = await adoptLocalStore(engineRef.current, local, {
+      writeAccount: (json) => AsyncStorage.setItem(snapKey(user), json),
+      removeLocal: () => AsyncStorage.removeItem(localKey()),
+    }, { keepLocal });
+    pendingFoldRef.current = out.adopted.size > 0 ? out.adopted : null;
+    // Not removed yet: the next account write that lands removes it (persistNow).
+    pendingLocalClearRef.current = !keepLocal && !out.localCleared;
+    if (!out.persisted) setPersistFailed(true);
+  }, []);
+
   const signIn = useCallback(
     async (s: Session) => {
+      // From local mode, the local store is frozen FIRST: nothing writes its
+      // key from here on, and a write still in flight lands before the merge
+      // below can remove the key (landing after, it would bring it back).
+      const fromLocal = localRef.current;
+      const localEngine = engineRef.current;
+      const localSnap = fromLocal ? localEngine.toSnapshot() : null;
+      const keepLocal = holdLocalRef.current;
+      if (fromLocal) {
+        localRef.current = false;
+        await persistQueue.current;
+      }
+      try {
       // Signing in must not depend on the disk. Unguarded, storage refusing
       // threw before the engine was built and before setSessionState — so a
       // CORRECT password bounced you back to the login screen with no error
@@ -432,13 +588,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         restored = null;
       }
       engineRef.current = SyncEngine.fromSnapshot(restored as never);
+      if (OPTIONAL) await adoptLocal(s.username, localSnap, keepLocal);
       hydratedRef.current = engineRef.current.toSnapshot().cursor > 0;
+      } catch (e) {
+        if (fromLocal) {
+          // Back to local mode as it was, saved again: whatever happened
+          // above, the local records are never left in limbo.
+          await forgetSession();
+          engineRef.current = localEngine;
+          hydratedRef.current = true;
+          localRef.current = true;
+          refresh();
+          persistNow(LOCAL_USER);
+        }
+        throw e;
+      }
+      if (fromLocal) {
+        setLocalMode(false);
+        setSignInOpen(false);
+      }
       setSessionState(s);
       sessionRef.current = s;
       refresh();
       void syncNow();
     },
-    [refresh, syncNow],
+    [refresh, syncNow, adoptLocal, persistNow],
   );
 
   // The suite's folder_shared_color(): the viewer's own recolour override
@@ -482,7 +656,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // sign-out. Do that regardless.
     await forgetSession();
     clearSession();
-  }, [clearSession]);
+    // Account-optional builds come back to local mode, empty: the local
+    // records went into the account at sign-in.
+    await afterAccount();
+  }, [clearSession, afterAccount]);
 
   const clearDeletedAccount = useCallback(async () => {
     const user = sessionRef.current?.username;
@@ -498,7 +675,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     await forgetSession();
     clearSession();
-  }, [clearSession]);
+    await afterAccount();
+  }, [clearSession, afterAccount]);
 
   const setSession = useCallback(async (s: Session) => {
     // Same rule: a refreshed token must reach memory even if the disk will
@@ -508,6 +686,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .catch(() => setPersistFailed(true));
     setSessionState(s);
   }, []);
+
+  // Local mode's way to the sign-in card and back (Settings, Login).
+  const openSignIn = useCallback(() => { if (localRef.current) setSignInOpen(true); }, []);
+  const closeSignIn = useCallback(() => setSignInOpen(false), []);
 
   // Boot: restore the session and its snapshot, then catch up with the server.
   useEffect(() => {
@@ -553,20 +735,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             parsed = null;
           }
           engineRef.current = SyncEngine.fromSnapshot(parsed as never);
+          // A local store still on disk beside a session: a sign-in from
+          // local mode that did not finish. Finish it (a no-op if it had).
+          if (OPTIONAL) await adoptLocal(s.username, null, false);
           hydratedRef.current = engineRef.current.toSnapshot().cursor > 0;
           setSessionState(s);
           sessionRef.current = s;
           refresh();
           void syncNow();
+        } else if (OPTIONAL) {
+          // No account, and the build does not need one: local mode.
+          await enterLocal();
         }
       } finally {
         setReady(true);
       }
     })();
-  }, [refresh, syncNow]);
+  }, [refresh, syncNow, adoptLocal, enterLocal]);
 
   // The revive rule, native edition: sync when the app comes back, and every 30s.
   useEffect(() => {
+    if (localMode) return; // local mode has nothing to sync: no timer at all
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') void syncNow();
     });
@@ -575,7 +764,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sub.remove();
       clearInterval(iv);
     };
-  }, [syncNow]);
+  }, [syncNow, localMode]);
 
   // ...and the web edition of the same rule, for the page itself rather than
   // the data. An installed home-screen app is resumed, not reloaded, so it can
@@ -591,16 +780,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // that URL without any ordinary install running it. An app that shows
   // nothing is very much worse than one that is out of date.
   useEffect(() => {
+    if (localMode) return; // no network at all in local mode, the page's own included
     if (typeof location === 'undefined') return;
     if (new URLSearchParams(location.search).get('autoupdate') !== '1') return;
     return watchForUpdate(() => engineRef.current.toSnapshot().dirty.length);
-  }, []);
+  }, [localMode]);
 
   // One identity per actual change: a fresh object on every provider render
   // re-rendered every screen that reads the store for state it did not use.
   const value = useMemo<Store>(
-    () => ({ ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble: () => sharedWrites.current?.dismissTrouble(), signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut }),
-    [ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut],
+    () => ({ ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble: () => sharedWrites.current?.dismissTrouble(), signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut, localMode, signInOpen, openSignIn, closeSignIn }),
+    [ready, session, recs, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, signIn, signOut, clearDeletedAccount, setSession, mutate, syncNow, undoLastDelete, partners, sharedPartner, sharedPartnerLabel, sharedRecs, sharedPut, localMode, signInOpen, openSignIn, closeSignIn],
   );
   return (
     <Ctx.Provider value={value}>

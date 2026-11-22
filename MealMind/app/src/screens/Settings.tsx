@@ -4,6 +4,10 @@
  * one modal. Under the suite's shared sign-in the password and the account are
  * the suite's: one "Manage your account" action opens its account page instead
  * of the password form and Delete account.
+ *
+ * In an account-optional build's LOCAL MODE (no account; see accountmode.ts)
+ * every account-only part is absent — password, passkeys, sharing, sign-out,
+ * deletion — and one "Sign in to sync and share" opens the Login card.
  */
 import { useEffect, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -22,7 +26,7 @@ import { ShareModal } from '../components/ShareModal';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const store = useStore();
-  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble } = store;
+  const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble, localMode, openSignIn } = store;
   const refusedNotes = (store as typeof store & { refusedNotes?: { id: string; label: string }[] }).refusedNotes ?? [];
   // MealMind's space, where this app holds it (CalMind syncs it under the same
   // login; MealMind's own records ARE that space, so it passes none).
@@ -39,7 +43,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   // flag rides along in the watch feed.
   const clock24 = prefsOf(recs, 'suite').clock24 === true;
   const setClock24 = (on: boolean) => mutate((e) => e.put(prefsPut(recs, 'suite', { clock24: on })));
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode);
   // The first refused note, as several that fit (#75) — null when it cannot
   // be split (a recipe, a daily log) or no longer needs it.
   const refusedRec = refusedNotes[0]
@@ -56,10 +60,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [keysKnown, setKeysKnown] = useState(false);
   useEffect(() => {
     void passkeyAvailable().then(setCanPasskey);
+    if (localMode) return; // no account, no passkeys, and no request to ask
     void listPasskeys(session!)
       .then((k) => { setKeys(k); setKeysKnown(true); })
       .catch(() => setKeysKnown(false));
-  }, [session]);
+  }, [session, localMode]);
   const [confirmPass, setConfirmPass] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -204,6 +209,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </Text>
             </Pressable>
           )}
+          {localMode ? (
+            <>
+              <Text style={s.who}>Everything here is stored on this device only.</Text>
+              <Pill primary testID="local-signin" label="Sign in to sync and share" onPress={() => { onClose(); openSignIn(); }} />
+            </>
+          ) : (<>
           <Text style={s.who}>{session?.username}</Text>
           {shared ? (
             <Pill testID="manage-account" label="Account" onPress={openAccount} />
@@ -215,7 +226,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <Pill label="Change password" onPress={change} />
             </>
           )}
-          {canPasskey && !shared && !inDesktopShell() && (
+          </>)}
+          {canPasskey && !shared && !inDesktopShell() && !localMode && (
             <View testID="passkey-section" style={s.pkSection}>
               <Text style={s.pkHead}>Passkeys</Text>
               {!keysKnown && (
@@ -294,12 +306,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
               Scriptable setup page, and the Scriptable widget was removed
               entirely on the owner's word (2026-08-12). */}
           <View style={s.footer}>
-            <CircleBtn testID="open-share" glyph="⇗" label="Sharing" size={40} onPress={() => setShareOpen(true)} />
+            {!localMode && <CircleBtn testID="open-share" glyph="⇗" label="Sharing" size={40} onPress={() => setShareOpen(true)} />}
             <CircleBtn glyph="✓" label="Done" size={40} color={T.accent} active onPress={onClose} />
           </View>
           <View style={s.row}>
             <Pill testID="export-data" label="Export my data" onPress={exportData} />
           </View>
+          {!localMode && (
           <View style={s.row}>
             <Pill
               label="Sign out"
@@ -309,7 +322,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
               }}
             />
           </View>
-          {shared ? null : !deleteConfirm ? (
+          )}
+          {shared || localMode ? null : !deleteConfirm ? (
             <View style={s.row}>
               <Pill
                 testID="delete-account-start"

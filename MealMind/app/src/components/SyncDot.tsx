@@ -37,10 +37,16 @@ export function syncLook(
    * promises a retry) would be false — partner writes are never retried.
    */
   sharedTrouble: SharedTrouble = false,
+  /**
+   * No-account local mode (account-optional builds): nothing syncs, so
+   * "synced" would be false. Only a device that cannot save outranks it.
+   */
+  local = false,
 ): SyncLook {
   if (persistFailed) {
     return { color: T.danger, text: 'This device cannot save its copy — a reload may lose recent changes.' };
   }
+  if (local) return { color: T.dim, text: 'On this device only — sign in to sync' };
   if (syncState === 'refused') {
     // Name it. "A note is too long to save" in an app holding hundreds leaves
     // The owner to find it himself, and it is by definition not the one on screen.
@@ -107,9 +113,9 @@ export function syncWord(
  * something wrong: green needs no explanation, red does.
  */
 export function SyncDot({ testID, withText = false, showPartner = true }: { testID?: string; withText?: boolean; showPartner?: boolean }) {
-  const { syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
+  const { syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode } = useStore();
   const trouble = showPartner ? sharedTrouble : false;
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, trouble);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, trouble, localMode);
   const bad = look.color === T.danger || look.color === T.gold;
   return (
     // The word goes to the LEFT of the dot so the DOT is what the right edge

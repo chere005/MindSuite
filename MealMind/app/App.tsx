@@ -15,9 +15,10 @@ import { PhoneFlows } from './src/components/PhoneFlows';
 import { ChefSessionProvider, pruneIds, useChefSession } from './src/session';
 import { ChefWide } from './src/wide/ChefWide';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
+import { showsLogin } from './src/accountmode';
 
 function Root() {
-  const { ready, session, recs } = useStore();
+  const { ready, session, recs, localMode, signInOpen } = useStore();
   const sess = useChefSession();
   const { wide } = useWide();
   // Signing in lands on NOTES. Upstream it is the calendar — "what's on today"
@@ -65,7 +66,9 @@ function Root() {
     sess.setPicked((cur) => pruneIds(cur, live));
   }, [recs, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ready) return <View style={s.page} />;
-  if (!session) return <Login />;
+  // No session is the Login card — unless the build is account-optional and
+  // this is local mode, where Login is only what Settings → Sign in opens.
+  if (showsLogin({ session: !!session, localMode, signInOpen })) return <Login />;
   return (
     <NavCtx.Provider value={{ canBack, goBack, openSearch: () => setSearchOpen(true), openTab: setTab, openNote: (id) => { setNoteToOpen(id); setTab('notes'); } }}>
     <View style={s.page}>
