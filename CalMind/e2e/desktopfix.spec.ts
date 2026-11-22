@@ -33,7 +33,6 @@ async function recs(page: Page, user: string): Promise<R[]> {
 const byText = (rs: R[], text: string) => rs.find((r) => (r.payload.text ?? r.payload.title) === text);
 
 async function quick(page: Page, kind: 'event' | 'reminder' | 'note', line: string) {
-  await page.getByTestId('quick-kind').click();
   await page.getByTestId(`quick-kind-${kind}`).click();
   await page.getByTestId('quick-add').fill(line);
   await page.getByTestId('quick-add').press('Enter');
@@ -160,9 +159,9 @@ test('3. an imported event opens read-only with where to edit, and opens again a
   await expect(pane.getByPlaceholder(/What\?/), 'no edit controls').toHaveCount(0);
   await expect(pane.getByText('Save', { exact: true })).toHaveCount(0);
 
-  // An editor opened over it by the row's pencil, then cancelled.
-  await page.getByTestId('dp-ev-body').filter({ hasText: 'Lunch' }).click({ delay: 600 });
-  await page.getByLabel('Edit', { exact: true }).first().click({ timeout: 3_000 });
+  // An editor opened over it (the pane now swaps the resting day for the open
+  // item, so the way to another item is its cell in the grid), then cancelled.
+  await page.getByTestId('cell-line').filter({ hasText: 'Lunch' }).first().click();
   await expect(pane.getByPlaceholder(/What\?/)).toHaveValue('Lunch');
   await pane.getByText('Cancel', { exact: true }).click();
   await expect(pane).toHaveCount(0);

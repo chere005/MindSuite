@@ -38,7 +38,6 @@ async function overflow(page: Page): Promise<number> {
 
 /** An event for today, filed through the wide layout's own quick-add field. */
 async function quickAddEvent(page: Page, line: string) {
-  await page.getByTestId('quick-kind').click();
   await page.getByTestId('quick-kind-event').click();
   await page.getByTestId('quick-add').fill(line);
   await page.getByTestId('quick-add').press('Enter');
@@ -103,6 +102,39 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   await page.getByTestId('habit-name-field').fill('stretch');
   await page.getByTestId('habit-save').click();
   await expect.poll(() => page.getByTestId('habit-daycol').count()).toBe(7);
+
+  // The capped habits grid and its control bar centre in the main pane as one
+  // block: no dead strip on the right (the week grid ends at its last day
+  // column), and the bar's content edges are the grid's. 900 is the narrowest
+  // wide pane, where a classic scrollbar's gutter narrows the scroll but not
+  // the bar (Habits.tsx scrollWide).
+  {
+    const m = (await page.getByTestId('wide-main').boundingBox())!;
+    const grid = (await page.getByTestId('habits-pan').boundingBox())!;
+    expect(grid.width, 'the grid is capped narrower than the pane').toBeLessThan(m.width - 100);
+  }
+  const misaligned = async (week: boolean) => {
+    const m = (await page.getByTestId('wide-main').boundingBox())!;
+    const grid = (await page.getByTestId('habits-pan').boundingBox())!;
+    const bar = (await page.getByTestId('habits-controls').boundingBox())!;
+    const gridR = grid.x + grid.width;
+    const off: Record<string, number> = {
+      centred: (grid.x - m.x) - (m.x + m.width - gridR),
+      barLeft: bar.x + 16 - grid.x,
+      barRight: bar.x + bar.width - 16 - gridR,
+    };
+    if (week) {
+      const last = (await page.getByTestId('habit-daycol').last().boundingBox())!;
+      off.lastDay = last.x + last.width - gridR;
+    }
+    return Object.entries(off).filter(([, v]) => Math.abs(v) > 2).map(([k, v]) => `${k} ${Math.round(v)}`);
+  };
+  for (const [vp, view] of [[WIDE, 'Week'], [NARROW_WIDE, 'Week'], [{ width: 900, height: 800 }, 'Week'], [WIDE, 'Month']] as const) {
+    await page.setViewportSize(vp);
+    await page.getByTestId('habits-controls').getByText(view, { exact: true }).click();
+    await expect.poll(() => misaligned(view === 'Week'), `habits ${view} block at ${vp.width} px`).toEqual([]);
+  }
+  await page.getByTestId('habits-controls').getByText('Week', { exact: true }).click();
 
   // Every section opens wide without throwing; Reminders gets the full width.
   for (const tab of ['tab-notes', 'tab-reminders', 'tab-calendar']) {

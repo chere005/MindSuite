@@ -10,7 +10,7 @@
  * function the Add tab uses.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { prefsPut, type Rec, type SearchHit } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
@@ -18,13 +18,14 @@ import { useAddLine, type AddKind } from '../addline';
 import { calSelectedDay } from '../screens/Calendar';
 import { SearchBody } from '../screens/Search';
 import { Field, Pill } from '../ui';
-import { Dropdown } from './Dropdown';
+import { CalendarIcon, PageIcon, TickCircleIcon } from './KindIcons';
 import type { Tab } from '../nav';
 import { useCalendarView } from './CalendarPick';
 import { useFolderView } from './FolderPick';
 import { DetailBody, useDetail } from './DetailPane';
 import { useToast } from './Toast';
-import { SidebarItem, SidebarLabel, SidebarTitle, WideFrame, type WideColors } from './WideFrame';
+import { useRestingPane } from './restpane';
+import { SidebarItem, SidebarLabel, SidebarTitle, WideFrame, useWide, type WideColors } from './WideFrame';
 
 /** The sidebar's search field, so the account menu's Search can focus it. */
 const searchField: { current: TextInput | null } = { current: null };
@@ -61,6 +62,8 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
   const [query, setQuery] = useState('');
   const searching = query.trim() !== '';
   const section: Section = tab === 'add' ? 'calendar' : tab;
+  const resting = useRestingPane();
+  const { detailBeside } = useWide();
 
   // Esc closes the pane (web), unless a picker or menu window is open over it.
   // One listener for the screen's life, reading the CURRENT close through a
@@ -97,7 +100,8 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
           <View style={[s.screen, searching && s.hidden]}>{main}</View>
         </View>
       }
-      detail={detail.item ? <DetailBody item={detail.item} /> : null}
+      detail={detail.item ? <DetailBody item={detail.item} /> : section === 'calendar' && detailBeside && resting ? <View style={s.screen}>{resting}</View> : null}
+      detailResting={!detail.item}
       onCloseDetail={detail.item?.onClose}
     />
   );
@@ -184,6 +188,12 @@ function Sidebar({ tab, onTab, query, setQuery, colors }: {
   );
 }
 
+const KINDS: { id: AddKind; label: string; icon: React.ComponentType<{ size?: number; color?: string }> }[] = [
+  { id: 'event', label: 'Event', icon: CalendarIcon },
+  { id: 'reminder', label: 'Reminder', icon: TickCircleIcon },
+  { id: 'note', label: 'Note', icon: PageIcon },
+];
+
 /**
  * The Add tab, as a field: the same line, parsed and filed by the same
  * function (addline.ts), with the kind a click away.
@@ -215,12 +225,30 @@ function QuickAdd({ tab, onNoteCreated }: { tab: Section; onNoteCreated: (id: st
           placeholder="Add a reminder or event, like “dentist thu 2pm”"
           style={s.addField}
         />
-        <Dropdown
-          testID="quick-kind"
-          value={kind}
-          options={[{ id: 'event', label: 'Event', testID: 'quick-kind-event' }, { id: 'reminder', label: 'Reminder', testID: 'quick-kind-reminder' }, { id: 'note', label: 'Note', testID: 'quick-kind-note' }]}
-          onPick={(k) => setPicked(k as AddKind)}
-        />
+        <View testID="quick-kind" accessibilityRole="radiogroup" style={s.kindBar}>
+          {KINDS.map((k, i) => {
+            const on = kind === k.id;
+            const color = on ? T.accent : T.dim;
+            const Icon = k.icon;
+            return (
+              <React.Fragment key={k.id}>
+                {i > 0 && <View style={s.kindDivider} />}
+                <Pressable
+                  testID={`quick-kind-${k.id}`}
+                  accessibilityRole="radio"
+                  aria-checked={on}
+                  accessibilityLabel={k.label}
+                  // RNW drops `title`; set the web hover title on the node.
+                  ref={(el) => { (el as unknown as { setAttribute?: (n: string, v: string) => void } | null)?.setAttribute?.('title', k.label); }}
+                  onPress={() => setPicked(k.id)}
+                  style={[s.kindBtn, on && s.kindBtnOn]}
+                >
+                  <Icon size={18} color={color} />
+                </Pressable>
+              </React.Fragment>
+            );
+          })}
+        </View>
         <Pill testID="quick-add-go" compact primary label="Add" onPress={submit} />
       </View>
       {err !== '' && <Text style={s.err}>{err}</Text>}
@@ -237,6 +265,10 @@ const s = themed(() => StyleSheet.create({
   addBar: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: T.line, gap: 4 },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   addField: { flexGrow: 1, flexShrink: 1, flexBasis: 280, minWidth: 200, maxWidth: 560, paddingVertical: 8, fontSize: 14, backgroundColor: T.bg },
+  kindBar: { flexDirection: 'row', alignItems: 'stretch', borderWidth: 1, borderColor: T.line, borderRadius: 10, backgroundColor: T.surface, overflow: 'hidden' },
+  kindBtn: { width: 36, height: 34, alignItems: 'center', justifyContent: 'center' },
+  kindBtnOn: { backgroundColor: T.accentSoft },
+  kindDivider: { width: 1, backgroundColor: T.line },
   err: { color: T.danger, fontSize: 12 },
   search: { fontSize: 14, paddingVertical: 7, marginBottom: 8, backgroundColor: T.bg },
   swatch: { width: 12, height: 12, borderRadius: 3, borderWidth: 2 },

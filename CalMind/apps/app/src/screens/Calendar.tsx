@@ -46,6 +46,7 @@ import { CalGlyph, ChefHatGlyph, PageGlyph, TickBoxGlyph } from '../components/K
 import { type ItemKind } from '../components/ItemModal';
 import { ItemSheet, ReadOnlySheet, type ReadOnlyView } from '../components/DetailPane';
 import { useWide } from '../components/WideFrame';
+import { setRestingPane } from '../components/restpane';
 import { WideMonth, type CellLine } from '../components/WideMonth';
 import { useSwipeLeft } from '../components/swiperow';
 import { BalancedRow } from '../components/BalancedRow';
@@ -65,6 +66,11 @@ let calDay: string | null = null;
 /** The day the calendar is showing right now — what the Add tab defaults to
  *  when it is opened FROM this screen (the owner, 2026-08-20: "the add app when
  *  launched from a particular day should default from that day"). */
+type AgendaIds = Record<'day' | 'head' | 'chef', { testID: string }>;
+const LIST_IDS: AgendaIds = { day: { testID: 'cal-list-day' }, head: { testID: 'cal-list-head' }, chef: { testID: 'cal-list-chef' } };
+/** The resting pane's upcoming days: own ids, so the list view's never double up. */
+const UP_IDS: AgendaIds = { day: { testID: 'cal-up-day' }, head: { testID: 'cal-up-head' }, chef: { testID: 'cal-up-chef' } };
+
 export function calSelectedDay(): string {
   return calDay ?? todayStr();
 }
@@ -75,7 +81,9 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   const clock24 = useClock24();
   const toast = useToast();
   // Wide windows: text-bearing cells, the editor in the detail pane.
-  const { wide } = useWide();
+  const { wide, detailBeside } = useWide();
+  // Room for the day to rest in the right pane beside the grid (>= 1180 px).
+  const beside = wide && detailBeside;
   const today = todayStr();
   const [ym, setYm] = useState((calDay ?? today).slice(0, 7));
   const [day, setDayState] = useState(calDay ?? today);
@@ -642,74 +650,13 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
    */
   const dayLabel = new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 
-  return (
-    <View style={s.page}>
-      {/* The picker does not come and go with the view. Dropping it in week
-          mode took the folder dropdown away AND shifted everything left of it
-          — two complaints from one line. */}
-      {/* Measured across all four tabs: the bar's geometry is already
-          identical everywhere — back at x16, picker at x184, everything
-          centred on the same line. The ONLY difference was that Calendar had
-          no collapse-all, leaving a 140pt gap where the others have one. Its
-          day panel has foldable groups, so it gets the same control in the
-          same place rather than the bar having a hole on one tab. */}
-      <TopBar
-        title="Calendar"
-        titleAfter={wide ? <Text testID="cal-day-title" style={s.panelTitle}>{dayLabel}</Text> : undefined}
-        copyMarkdown={() => viewMarkdown(dayLabel, [
-          { name: 'Events', lines: items.events.map((e) => ({ text: e.payload.text, chip: eventDayLabel(e.payload.date, e.payload.time, e.payload.endDate, e.payload.end, day, clock24) })) },
-          { name: 'Reminders', lines: myReminders.map(({ rec: r }) => ({ text: r.payload.text, chip: r.payload.time ? timeLabel(r.payload.time, clock24) : null })) },
-          { name: sharedPartner ? `Shared — ${sharedPartner}` : 'Shared', lines: theirReminders.map(({ rec: r }) => ({ text: r.payload.text, chip: r.payload.time ? timeLabel(r.payload.time, clock24) : null })) },
-          { name: 'Recipes', lines: chefDay.map((n) => ({ text: n.payload.title, chip: null })) },
-        ])}
-        showCompleted={showDone}
-        onToggleCompleted={() => setShowDone(!showDone)}
-        picker={<CalendarPick renderImport={(props) => <CalendarImport {...props} />} subscriptionLabel={subSourceLabel} />}
-      />
-      {/* The date centred over the grid; ◉ jumps home to today. */}
-      <View style={[s.pagerRow, wide && s.pagerRowWide]}>
-        <CircleBtn testID="cal-prev" glyph="‹" label="Previous" size={32} onPress={() => page(-1)} />
-        <Pressable onPress={() => { setYm(today.slice(0, 7)); setDay(today); setWkAnchor(today); }} hitSlop={6}>
-          {/* Abbreviated too, and this is the one that actually moves: the
-              label is CENTRED between the two arrows, so "May 2026" and
-              "September 2026" centre at different widths and the whole header
-              shifts as you page. The day title below is left-aligned and grows
-              rightward instead. Both are shortened so the screen agrees with
-              itself about how a month is written. */}
-          <Text testID="cal-ym" style={s.ymLabel}>{new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</Text>
-        </Pressable>
-        <CircleBtn testID="cal-next" glyph="›" label="Next" size={32} onPress={() => page(1)} />
-        {/* Wide: the three views are buttons, since a mouse has no swipe to
-            fold them (the phone keeps the swipe and shows none of this). */}
-        {wide && (
-          <>
-            <Pill testID="cal-today" label="Today" onPress={() => { setYm(today.slice(0, 7)); setDay(today); setWkAnchor(today); }} />
-            <View style={s.viewSeg}>
-              {VIEWS.map((v) => (
-                <Pill key={v} testID={`cal-view-${v}`} label={v === 'week' ? 'Week' : v === 'list' ? 'List' : 'Month'} primary={calView === v} onPress={() => setCalView(v)} />
-              ))}
-            </View>
-          </>
-        )}
-      </View>
-
-      {calView === 'list' ? (
-        /* THE LIST. It replaces the grid, the legend and the day panel
-           together — a swipe down brings them all back. The pan handlers ride
-           on the header wrapper so the gesture still works here; the rows
-           themselves scroll. */
-        <View testID="cal-list" style={s.listWrap} {...gridPan.panHandlers}>
-          <Scroll contentContainerStyle={s.listInner}>
-            {agenda.length === 0 && (
-              <Text testID="cal-list-empty" style={s.listEmpty}>Nothing in the next three months</Text>
-            )}
-            {agenda.map(({ date: d, items: it, chef }) => (
-              <View key={d} testID="cal-list-day" style={s.listDay}>
+  const renderAgendaDay = (d: string, it: ReturnType<typeof dayItems>, chef: Rec<'note'>[], tid: AgendaIds, onHead: () => void) => (
+              <View key={d} testID={tid.day.testID} style={s.listDay}>
                 {/* The heading selects that day and folds back to the month,
                     so the list is a way IN rather than a dead end. */}
                 <Pressable
-                  testID="cal-list-head"
-                  onPress={() => { setDay(d); setCalView('month'); }}
+                  testID={tid.head.testID}
+                  onPress={onHead}
                   style={s.listHead}
                 >
                   <Text style={[s.listHeadText, d === today && s.listHeadToday]}>
@@ -737,133 +684,15 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
                   </View>
                 ))}
                 {chef.map((n) => (
-                  <Pressable key={`chef${n.id}`} testID="cal-list-chef" style={s.listRow} onPress={() => onNoteCreated?.(n.id)}>
+                  <Pressable key={`chef${n.id}`} testID={tid.chef.testID} style={s.listRow} onPress={() => onNoteCreated?.(n.id)}>
                     <ChefHatGlyph color={T.accent} size={14} />
                     <Text numberOfLines={1} style={s.rowText}>{n.payload.title}</Text>
                   </Pressable>
                 ))}
               </View>
-            ))}
-          </Scroll>
-        </View>
-      ) : (
-      <>
-      {wide ? (
-        <WideMonth cells={cells as string[]} ym={ym} day={day} today={today} weekMode={weekMode} lines={cellLines} onDay={setDay} panHandlers={gridPan.panHandlers} />
-      ) : (
-      <View testID="cal-grid" style={s.grid} {...gridPan.panHandlers}>
-        {WEEKDAYS.map((w, i) => (
-          <Text key={i} style={s.weekday}>{w}</Text>
-        ))}
-        {cells.map((d) => (
-          <Pressable key={d} testID="cal-cell" onPress={() => setDay(d)} style={s.cell}>
-            <View style={[s.cellInner, d === day && s.cellPicked]}>
-              {/* Today's number sits in a real View circle, flex-centred.
-                  It used to be the Text drawing its own circle with
-                  lineHeight = height, which centres exactly on the web and
-                  rides visibly high on iOS — the number was not centred in
-                  the circle of the day (the owner, 2026-08-18). Flexbox centres
-                  identically on both.
-
-                  BOTH variants sit in one fixed-height slot. A bare Text's
-                  box is its font's natural line (~16px) while the circle is
-                  18, so today's mark well started 2px lower than every other
-                  cell's and the whole column read as pushed down — the owner,
-                  2026-08-19: the top-of-square-to-icons space should be the
-                  same in every cell. The slot is the circle's height, so the
-                  circle defines the rhythm and the plain numbers centre on
-                  its midline; e2e/cellrhythm.spec.ts measures the real boxes. */}
-              <View style={s.numSlot}>
-                {d === today ? (
-                  <View style={s.todayWrap}>
-                    <Text style={s.cellTodayNum}>{Number(d.slice(8))}</Text>
-                  </View>
-                ) : (
-                  <Text style={[s.cellNum, !d.startsWith(ym) && !weekMode && s.cellNumOther]}>{Number(d.slice(8))}</Text>
-                )}
-              </View>
-              {cellMark(d)}
-            </View>
-          </Pressable>
-        ))}
-      </View>
-      )}
-      <Rule />
-      {/* The legend was a ScrollView capped at 22vh, mirroring the suite —
-          until the owner said a legend should not scroll. It sizes to its content
-          now; monthLegend already keeps it to what is visibly on the calendar,
-          which is what keeps 'to its content' small. (It was also once gated
-          off in week mode — `cells` is already the two-week range, so the
-          names were right all along and simply not drawn.) */}
-      {!wide && (legend.length > 0 || sharedLegend.length > 0) && (
-        // The SAME pan responder as the grid, so an up/down swipe can start on
-        // the legend as well. The owner, 2026-08-11: "just the gesture, don't
-        // change the behavior" — so this is the identical handler object, not
-        // a second one with its own thresholds that could drift. The legend
-        // sits BESIDE the grid rather than inside it, which is the whole
-        // reason a swipe begun down here did nothing.
-        //
-        // Attaching one PanResponder to two views is safe: only one view can
-        // be the responder at a time, and the claim still needs the same 10px
-        // of travel, so tapping a legend chip is unaffected.
-        // pointerEvents none, because the legend is entirely LABELS — no
-        // Pressable, no onPress anywhere in it. Without this a swipe that
-        // began on a chip died there: the chips are views like any other and
-        // took the touch, so the gesture reached the responder from the
-        // legend's empty margins and nowhere else. Measured, not guessed: a
-        // drag from the far right worked and one from the middle, where the
-        // chips are, did nothing. Passing them through costs nothing that was
-        // ever used.
-        <View testID="cal-legend" style={[s.legend, s.legendInner]} {...legendPan.panHandlers}>
-          {/* One row per owner, the owner named ONCE in small caps — the
-              suite's legend, not a soup of @-prefixed items.
-
-              The owner label sits in a GUTTER beside the chips rather than
-              inside the balanced row with them. It used to ride along as the
-              first item, which meant line one began after the label and every
-              wrapped line began under it: chips with no common left edge, and
-              a ragged margin the owner could see straight away. The suite has the
-              same two parts — `.cleg-who` is `flex: 0 0 auto` and the chips
-              live in their own wrapping `.cleg-kind` box beside it
-              (calendar/index.php:997-1003) — so this is its shape, not a new
-              idea. It also leaves the balancer doing what it was written for:
-              balancing chips, none of which is a label. */}
-          {legend.length > 0 && (
-            <View style={s.legendRow}>
-              <Text style={s.legendOwner}>{(session?.username ?? 'me').toUpperCase()}</Text>
-              <BalancedRow testID="legend-me" style={s.legendChips} gap={10} rowGap={4} groups={legend.map((l) => (l.kind === 'event' ? 0 : l.kind === 'reminder' ? 1 : 2))}>
-              {legend.map((l) => (
-                <View key={`${l.kind}:${l.id}`} style={s.legendItem}>
-                  {l.kind === 'event' ? <CalGlyph color={l.color} size={14} /> : l.kind === 'reminder' ? <TickBoxGlyph color={l.color} size={14} /> : <PageGlyph color={l.color} size={14} />}
-                  <Text style={s.legendText}>{l.name}</Text>
-                </View>
-              ))}
-              </BalancedRow>
-            </View>
-          )}
-          {sharedLegend.length > 0 && (
-            <View style={s.legendRow}>
-              <Text style={s.legendOwner}>{(sharedPartnerLabel ?? '').toUpperCase()}</Text>
-              <BalancedRow testID="legend-partner" style={s.legendChips} gap={10} rowGap={4} groups={sharedLegend.map((l) => (l.kind === 'event' ? 0 : l.kind === 'reminder' ? 1 : 2))}>
-              {sharedLegend.map((l) => (
-                <View key={`sh:${l.kind}:${l.id}`} style={s.legendItem}>
-                  {l.kind === 'event' ? <CalGlyph color={l.color} size={14} /> : l.kind === 'reminder' ? <TickBoxGlyph color={l.color} size={14} /> : <PageGlyph color={l.color} size={14} />}
-                  <Text style={s.legendText}>{l.name}</Text>
-                </View>
-              ))}
-              </BalancedRow>
-            </View>
-          )}
-        </View>
-      )}
-      {/* The legend's closing rule belongs to the legend. A month holding
-          nothing shows no key at all, and two hairlines stacked on each
-          other is what it looked like when this rule stayed behind. */}
-      {/* Follows the legend exactly — ungating one and not the other left the
-          legend drawing in week mode with no line under it. */}
-      {!wide && (legend.length > 0 || sharedLegend.length > 0) && <Rule />}
-
-      <Scroll style={[s.panel, wide && s.panelWide]} contentContainerStyle={s.panelWrap}>
+  );
+  const dayPanel = (inPane: boolean) => (
+      <Scroll style={inPane ? s.panelInPane : [s.panel, wide && s.panelWide]} contentContainerStyle={s.panelWrap}>
         {/* The phone's tap-to-exit; the web keeps its document listener.
             EditExit carries the panel's layout (s.panelInner) so arming edit
             mode cannot move anything — see EditExit for the story. */}
@@ -1153,6 +982,219 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
         )}
         </EditExit>
       </Scroll>
+  );
+  /** The next few days with something on them, after the selected one — the resting pane's second half. */
+  const upcoming = useMemo(() => {
+    if (!beside) return [];
+    const out: { date: string; items: ReturnType<typeof dayItems>; chef: Rec<'note'>[] }[] = [];
+    for (let i = 1; i <= 30 && out.length < 5; i++) {
+      const d = addDays(day, i);
+      const it = dayItems(drawn, d, today, folderModes);
+      const shown = it.reminders.filter(({ rec: r, late }) => !r.payload.done || (showDone && !late));
+      const chef = chefDatesOn(recs, chefRecs, d);
+      if (it.events.length + shown.length + it.notes.length + chef.length > 0) out.push({ date: d, items: { ...it, reminders: shown }, chef });
+    }
+    return out;
+  }, [beside, day, drawn, today, folderModes, showDone, recs, chefRecs]);
+  const restNode = beside ? (
+    <View testID="cal-rest-pane" style={s.restPane}>
+      <View style={s.restHead}>
+        <Text testID="cal-day-title" style={s.panelTitle}>{dayLabel}</Text>
+      </View>
+      {dayPanel(true)}
+      {upcoming.length > 0 && (
+        <Scroll style={s.restUpcoming} contentContainerStyle={s.restUpcomingInner}>
+          <Text style={s.restUpLabel}>Coming up</Text>
+          {upcoming.map(({ date: d, items: it, chef }) => renderAgendaDay(d, it, chef, UP_IDS, () => setDay(d)))}
+        </Scroll>
+      )}
+    </View>
+  ) : null;
+  useEffect(() => { setRestingPane(restNode); });
+  useEffect(() => () => setRestingPane(null), []);
+
+  return (
+    <View style={s.page}>
+      {/* The picker does not come and go with the view. Dropping it in week
+          mode took the folder dropdown away AND shifted everything left of it
+          — two complaints from one line. */}
+      {/* Measured across all four tabs: the bar's geometry is already
+          identical everywhere — back at x16, picker at x184, everything
+          centred on the same line. The ONLY difference was that Calendar had
+          no collapse-all, leaving a 140pt gap where the others have one. Its
+          day panel has foldable groups, so it gets the same control in the
+          same place rather than the bar having a hole on one tab. */}
+      <TopBar
+        title="Calendar"
+        titleAfter={wide && !beside ? <Text testID="cal-day-title" style={s.panelTitle}>{dayLabel}</Text> : undefined}
+        copyMarkdown={() => viewMarkdown(dayLabel, [
+          { name: 'Events', lines: items.events.map((e) => ({ text: e.payload.text, chip: eventDayLabel(e.payload.date, e.payload.time, e.payload.endDate, e.payload.end, day, clock24) })) },
+          { name: 'Reminders', lines: myReminders.map(({ rec: r }) => ({ text: r.payload.text, chip: r.payload.time ? timeLabel(r.payload.time, clock24) : null })) },
+          { name: sharedPartner ? `Shared — ${sharedPartner}` : 'Shared', lines: theirReminders.map(({ rec: r }) => ({ text: r.payload.text, chip: r.payload.time ? timeLabel(r.payload.time, clock24) : null })) },
+          { name: 'Recipes', lines: chefDay.map((n) => ({ text: n.payload.title, chip: null })) },
+        ])}
+        showCompleted={showDone}
+        onToggleCompleted={() => setShowDone(!showDone)}
+        picker={<CalendarPick renderImport={(props) => <CalendarImport {...props} />} subscriptionLabel={subSourceLabel} />}
+      />
+      {/* The date centred over the grid; ◉ jumps home to today. */}
+      <View style={[s.pagerRow, wide && s.pagerRowWide]}>
+        <CircleBtn testID="cal-prev" glyph="‹" label="Previous" size={32} onPress={() => page(-1)} />
+        <Pressable onPress={() => { setYm(today.slice(0, 7)); setDay(today); setWkAnchor(today); }} hitSlop={6}>
+          {/* Abbreviated too, and this is the one that actually moves: the
+              label is CENTRED between the two arrows, so "May 2026" and
+              "September 2026" centre at different widths and the whole header
+              shifts as you page. The day title below is left-aligned and grows
+              rightward instead. Both are shortened so the screen agrees with
+              itself about how a month is written. */}
+          <Text testID="cal-ym" style={s.ymLabel}>{new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</Text>
+        </Pressable>
+        <CircleBtn testID="cal-next" glyph="›" label="Next" size={32} onPress={() => page(1)} />
+        {/* Wide: the three views are buttons, since a mouse has no swipe to
+            fold them (the phone keeps the swipe and shows none of this). */}
+        {wide && (
+          <>
+            <Pill testID="cal-today" label="Today" onPress={() => { setYm(today.slice(0, 7)); setDay(today); setWkAnchor(today); }} />
+            <View style={s.viewSeg}>
+              {VIEWS.map((v) => (
+                <Pill key={v} testID={`cal-view-${v}`} label={v === 'week' ? 'Week' : v === 'list' ? 'List' : 'Month'} primary={calView === v} onPress={() => setCalView(v)} />
+              ))}
+            </View>
+          </>
+        )}
+      </View>
+
+      {calView === 'list' ? (
+        /* THE LIST. It replaces the grid, the legend and the day panel
+           together — a swipe down brings them all back. The pan handlers ride
+           on the header wrapper so the gesture still works here; the rows
+           themselves scroll. */
+        <View testID="cal-list" style={s.listWrap} {...gridPan.panHandlers}>
+          <Scroll contentContainerStyle={s.listInner}>
+            {agenda.length === 0 && (
+              <Text testID="cal-list-empty" style={s.listEmpty}>Nothing in the next three months</Text>
+            )}
+            {agenda.map(({ date: d, items: it, chef }) => renderAgendaDay(d, it, chef, LIST_IDS, () => { setDay(d); setCalView('month'); }))}
+          </Scroll>
+        </View>
+      ) : (
+      <>
+      {wide ? (
+        <View style={s.wideGridCap}><WideMonth cells={cells as string[]} ym={ym} day={day} today={today} weekMode={weekMode} lines={cellLines} onDay={setDay} panHandlers={gridPan.panHandlers} /></View>
+      ) : (
+      <View testID="cal-grid" style={s.grid} {...gridPan.panHandlers}>
+        {WEEKDAYS.map((w, i) => (
+          <Text key={i} style={s.weekday}>{w}</Text>
+        ))}
+        {cells.map((d) => (
+          <Pressable key={d} testID="cal-cell" onPress={() => setDay(d)} style={s.cell}>
+            <View style={[s.cellInner, d === day && s.cellPicked]}>
+              {/* Today's number sits in a real View circle, flex-centred.
+                  It used to be the Text drawing its own circle with
+                  lineHeight = height, which centres exactly on the web and
+                  rides visibly high on iOS — the number was not centred in
+                  the circle of the day (the owner, 2026-08-18). Flexbox centres
+                  identically on both.
+
+                  BOTH variants sit in one fixed-height slot. A bare Text's
+                  box is its font's natural line (~16px) while the circle is
+                  18, so today's mark well started 2px lower than every other
+                  cell's and the whole column read as pushed down — the owner,
+                  2026-08-19: the top-of-square-to-icons space should be the
+                  same in every cell. The slot is the circle's height, so the
+                  circle defines the rhythm and the plain numbers centre on
+                  its midline; e2e/cellrhythm.spec.ts measures the real boxes. */}
+              <View style={s.numSlot}>
+                {d === today ? (
+                  <View style={s.todayWrap}>
+                    <Text style={s.cellTodayNum}>{Number(d.slice(8))}</Text>
+                  </View>
+                ) : (
+                  <Text style={[s.cellNum, !d.startsWith(ym) && !weekMode && s.cellNumOther]}>{Number(d.slice(8))}</Text>
+                )}
+              </View>
+              {cellMark(d)}
+            </View>
+          </Pressable>
+        ))}
+      </View>
+      )}
+      <Rule />
+      {/* The legend was a ScrollView capped at 22vh, mirroring the suite —
+          until the owner said a legend should not scroll. It sizes to its content
+          now; monthLegend already keeps it to what is visibly on the calendar,
+          which is what keeps 'to its content' small. (It was also once gated
+          off in week mode — `cells` is already the two-week range, so the
+          names were right all along and simply not drawn.) */}
+      {!wide && (legend.length > 0 || sharedLegend.length > 0) && (
+        // The SAME pan responder as the grid, so an up/down swipe can start on
+        // the legend as well. The owner, 2026-08-11: "just the gesture, don't
+        // change the behavior" — so this is the identical handler object, not
+        // a second one with its own thresholds that could drift. The legend
+        // sits BESIDE the grid rather than inside it, which is the whole
+        // reason a swipe begun down here did nothing.
+        //
+        // Attaching one PanResponder to two views is safe: only one view can
+        // be the responder at a time, and the claim still needs the same 10px
+        // of travel, so tapping a legend chip is unaffected.
+        // pointerEvents none, because the legend is entirely LABELS — no
+        // Pressable, no onPress anywhere in it. Without this a swipe that
+        // began on a chip died there: the chips are views like any other and
+        // took the touch, so the gesture reached the responder from the
+        // legend's empty margins and nowhere else. Measured, not guessed: a
+        // drag from the far right worked and one from the middle, where the
+        // chips are, did nothing. Passing them through costs nothing that was
+        // ever used.
+        <View testID="cal-legend" style={[s.legend, s.legendInner]} {...legendPan.panHandlers}>
+          {/* One row per owner, the owner named ONCE in small caps — the
+              suite's legend, not a soup of @-prefixed items.
+
+              The owner label sits in a GUTTER beside the chips rather than
+              inside the balanced row with them. It used to ride along as the
+              first item, which meant line one began after the label and every
+              wrapped line began under it: chips with no common left edge, and
+              a ragged margin the owner could see straight away. The suite has the
+              same two parts — `.cleg-who` is `flex: 0 0 auto` and the chips
+              live in their own wrapping `.cleg-kind` box beside it
+              (calendar/index.php:997-1003) — so this is its shape, not a new
+              idea. It also leaves the balancer doing what it was written for:
+              balancing chips, none of which is a label. */}
+          {legend.length > 0 && (
+            <View style={s.legendRow}>
+              <Text style={s.legendOwner}>{(session?.username ?? 'me').toUpperCase()}</Text>
+              <BalancedRow testID="legend-me" style={s.legendChips} gap={10} rowGap={4} groups={legend.map((l) => (l.kind === 'event' ? 0 : l.kind === 'reminder' ? 1 : 2))}>
+              {legend.map((l) => (
+                <View key={`${l.kind}:${l.id}`} style={s.legendItem}>
+                  {l.kind === 'event' ? <CalGlyph color={l.color} size={14} /> : l.kind === 'reminder' ? <TickBoxGlyph color={l.color} size={14} /> : <PageGlyph color={l.color} size={14} />}
+                  <Text style={s.legendText}>{l.name}</Text>
+                </View>
+              ))}
+              </BalancedRow>
+            </View>
+          )}
+          {sharedLegend.length > 0 && (
+            <View style={s.legendRow}>
+              <Text style={s.legendOwner}>{(sharedPartnerLabel ?? '').toUpperCase()}</Text>
+              <BalancedRow testID="legend-partner" style={s.legendChips} gap={10} rowGap={4} groups={sharedLegend.map((l) => (l.kind === 'event' ? 0 : l.kind === 'reminder' ? 1 : 2))}>
+              {sharedLegend.map((l) => (
+                <View key={`sh:${l.kind}:${l.id}`} style={s.legendItem}>
+                  {l.kind === 'event' ? <CalGlyph color={l.color} size={14} /> : l.kind === 'reminder' ? <TickBoxGlyph color={l.color} size={14} /> : <PageGlyph color={l.color} size={14} />}
+                  <Text style={s.legendText}>{l.name}</Text>
+                </View>
+              ))}
+              </BalancedRow>
+            </View>
+          )}
+        </View>
+      )}
+      {/* The legend's closing rule belongs to the legend. A month holding
+          nothing shows no key at all, and two hairlines stacked on each
+          other is what it looked like when this rule stayed behind. */}
+      {/* Follows the legend exactly — ungating one and not the other left the
+          legend drawing in week mode with no line under it. */}
+      {!wide && (legend.length > 0 || sharedLegend.length > 0) && <Rule />}
+
+      {!beside && dayPanel(false)}
       </>
       )}
       {wide && ro && <ReadOnlySheet view={ro} onClose={() => setRo(null)} />}
@@ -1185,8 +1227,15 @@ const s = themed(() => StyleSheet.create({
   ymLabel: { color: T.text, fontSize: 15, fontWeight: '600', minWidth: 150, textAlign: 'center' },
   pagerRowWide: { justifyContent: 'flex-start', paddingHorizontal: 16, paddingBottom: 8 },
   viewSeg: { flexDirection: 'row', gap: 6, marginLeft: 8 },
-  // Under the text-bearing grid the day panel is a short strip, not the half
-  // of the screen the phone gives it.
+  // The grid fills the space between the sidebar and the resting day pane;
+  // a width cap only left a dead gap beside the pane.
+  wideGridCap: { flex: 1, minHeight: 0, width: '100%' },
+  panelInPane: { flexGrow: 0, flexShrink: 1 },
+  restPane: { flex: 1, minHeight: 0 },
+  restHead: { paddingTop: 14, paddingHorizontal: 16, paddingBottom: 2 },
+  restUpcoming: { flex: 1, minHeight: 0, borderTopWidth: 1, borderTopColor: T.lineSoft },
+  restUpcomingInner: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 },
+  restUpLabel: { color: T.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   panelWide: { flexGrow: 0, flexShrink: 0, flexBasis: 150, height: 150 },
   // userSelect none: a swipe across the cell numbers must never start a
   // text selection — on web a selection TERMINATES the pan mid-gesture.

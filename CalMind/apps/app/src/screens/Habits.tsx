@@ -8,7 +8,7 @@
  * the username) filters sections and opens Manage sections.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import {
   byRecOrd,
@@ -53,6 +53,14 @@ const FOLD_KEY = 'calmind.folded.habits';
 // five. It's the WIDTH that decides, not the platform: a tablet or a native
 // app on a big screen gets all seven, a narrow desktop window gets five.
 const WIDE_AT = 700;
+
+// The wide week grid is exactly its columns: the name column plus seven day
+// columns, so the row lines and the pager end at the last day and the whole
+// block centres with no empty band at its right. The bar adds its 16 a side.
+const NAME_COL_WIDE = 260;
+const DAY_COL_WIDE = 48;
+const WEEK_WIDE = NAME_COL_WIDE + 7 * DAY_COL_WIDE;
+const MONTH_WIDE = 560;
 
 function weekDates(offset: number, count: number): string[] {
   // The suite's rolling window ENDS on tomorrow, so today is always in view
@@ -412,8 +420,10 @@ export function Habits() {
         picker={<SectionPick />}
       />
 
-      {/* Week|Month segmented at the left; the labelled pager at the right. */}
-      <View style={[s.controlRow, wide && s.controlRowWide, wide && view === 'month' && s.controlRowWideMonth]}>
+      {/* Week|Month segmented at the left; the labelled pager at the right.
+          Wide: this bar and the grid below are capped, and both centre in the
+          pane so they stay one block with no dead strip on the right. */}
+      <View testID="habits-controls" style={[s.controlRow, wide && s.controlRowWide, wide && view === 'month' && s.controlRowWideMonth]}>
         <View style={s.segmented}>
           <Pressable style={[s.segBtn, view === 'week' && s.segOn]} onPress={() => setView('week')}>
             <Text style={[s.segText, view === 'week' && s.segTextOn]}>Week</Text>
@@ -432,7 +442,7 @@ export function Habits() {
       {/* A live drag holds the scroll still. Refusing the responder hand-over
           is what keeps the gesture, but on a touch device a list that also
           scrolls under the finger fights the drop line for the same pixels. */}
-      <Scroll contentContainerStyle={s.scrollWrap} scrollEnabled={drag.dragIdx === null && secDrag.dragging === null}>
+      <Scroll style={wide ? s.scrollWide : undefined} contentContainerStyle={s.scrollWrap} scrollEnabled={drag.dragIdx === null && secDrag.dragging === null}>
         {/* On a PHONE this wrapper is what makes a tap outside leave edit
             mode. The two exits above it — Escape and the document
             pointerdown listener — both sit behind `typeof document ===
@@ -751,13 +761,24 @@ const s = themed(() => StyleSheet.create({
   // render identically in and out of edit mode. scrollWrap is the container's.
   scrollWrap: { flexGrow: 1 },
   scroll: { padding: 16, paddingTop: 13, paddingBottom: 48, gap: 16, flexGrow: 1 },
-  controlRowWide: { maxWidth: 812, width: '100%', alignSelf: 'flex-start', paddingBottom: 4 },
-  controlRowWideMonth: { maxWidth: 592 },
-  gridWide: { width: '100%', maxWidth: 780, alignSelf: 'flex-start' },
-  gridWideMonth: { width: '100%', maxWidth: 560, alignSelf: 'flex-start' },
+  // Wide: the bar (cap + its 16 padding a side) and the grid (cap, inside the
+  // scroll's 16 padding) both centre, so their edges line up at every width.
+  controlRowWide: { maxWidth: WEEK_WIDE + 32, width: '100%', alignSelf: 'center', paddingBottom: 4 },
+  controlRowWideMonth: { maxWidth: MONTH_WIDE + 32 },
+  gridWide: { width: '100%', maxWidth: WEEK_WIDE, alignSelf: 'center' },
+  gridWideMonth: { width: '100%', maxWidth: MONTH_WIDE, alignSelf: 'center' },
+  // A classic (non-overlay) scrollbar would shift the grid's centre left of
+  // the bar's, which sits outside the scroll; a gutter on both edges keeps
+  // the scroll's content box centred in the pane either way. Web only.
+  // The gutter also narrows that content box (2×15 px on classic scrollbars)
+  // while the bar keeps the pane's width, so the edges agree only while the
+  // grid sits at its cap. It does at every wide width: the narrowest wide
+  // pane is 900 − 232 (sidebar) = 668 ≥ 596 + 2×16 + 2×20. e2e/desktop.spec.ts
+  // checks the edges at 900 px.
+  scrollWide: Platform.OS === 'web' ? ({ scrollbarGutter: 'stable both-edges' } as unknown as object) : {},
   headRowWide: { paddingBottom: 4 },
-  nameColWide: { flexGrow: 0, flexShrink: 0, flexBasis: 260, width: 260 },
-  dayColWide: { width: 48 },
+  nameColWide: { flexGrow: 0, flexShrink: 0, flexBasis: NAME_COL_WIDE, width: NAME_COL_WIDE },
+  dayColWide: { width: DAY_COL_WIDE },
   habitRowWide: { paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: T.lineSoft },
   nameBoxWide: { flex: 1, minWidth: 0, paddingVertical: 8, paddingLeft: 28, paddingRight: 4, alignItems: 'flex-start' },
   secPillWide: { paddingHorizontal: 2, paddingVertical: 4 },
