@@ -157,8 +157,8 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   expect(errors, 'no page errors at desktop width').toEqual([]);
 });
 
-test('calendar quick add stays above the selected day and the scrolling upcoming section', async ({ page }) => {
-  await page.setViewportSize({ ...WIDE, height: 480 });
+test('calendar quick add stays pinned above an upcoming section that fits its content', async ({ page }) => {
+  await page.setViewportSize(WIDE);
   await signup(page);
 
   const pane = page.getByTestId('wide-rest');
@@ -167,10 +167,23 @@ test('calendar quick add stays above the selected day and the scrolling upcoming
   const selectedDay = pane.getByTestId('cal-pane-day');
   const upcoming = pane.getByTestId('cal-pane-upcoming');
   const agenda = upcoming.getByTestId('cal-up-scroll');
-  for (let i = 1; i <= 12; i++) {
+  const addAppointment = async (i: number) => {
     await add.fill(`Appointment ${i} tomorrow at 2pm`);
     await add.press('Enter');
     await expect(add).toHaveValue('');
+  };
+  await addAppointment(1);
+  const firstDay = upcoming.getByTestId('cal-up-day');
+  await expect(firstDay).toBeVisible();
+  const shortCard = (await upcoming.boundingBox())!;
+  const firstDayBox = (await firstDay.boundingBox())!;
+  const bottomGap = shortCard.y + shortCard.height - (firstDayBox.y + firstDayBox.height);
+  expect(bottomGap).toBeGreaterThan(8);
+  expect(bottomGap).toBeLessThan(24);
+
+  await page.setViewportSize({ ...WIDE, height: 480 });
+  for (let i = 2; i <= 12; i++) {
+    await addAppointment(i);
   }
 
   await expect(upcoming.getByRole('heading', { name: 'Coming up' })).toBeVisible();

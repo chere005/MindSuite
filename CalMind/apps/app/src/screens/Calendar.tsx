@@ -1236,13 +1236,13 @@ const s = themed(() => StyleSheet.create({
   // a width cap only left a dead gap beside the pane.
   wideGridCap: { flex: 1, minHeight: 0, width: '100%' },
   panelInPane: { flexGrow: 0, flexShrink: 1 },
-  restPane: { flex: 1, minHeight: 0, padding: 12, gap: 12 },
+  restPane: { flex: 1, minHeight: 0, paddingHorizontal: 12, paddingVertical: 16, gap: 16 },
   restDay: { flexShrink: 1, minHeight: 0, borderWidth: 1, borderColor: T.line, borderRadius: 10, backgroundColor: T.bg, overflow: 'hidden' },
   restDayWithUpcoming: { maxHeight: '55%' },
   restHead: { paddingTop: 12, paddingHorizontal: 16, paddingBottom: 2 },
-  restUpcoming: { flex: 1, minHeight: 0, borderWidth: 1, borderColor: T.accent, borderRadius: 10, backgroundColor: T.bg, overflow: 'hidden' },
+  restUpcoming: { flexShrink: 1, minHeight: 0, borderWidth: 1, borderColor: T.accent, borderRadius: 10, backgroundColor: T.bg, overflow: 'hidden' },
   restUpHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: T.accentSoft },
-  restUpcomingInner: { paddingHorizontal: 16, paddingBottom: 12, gap: 6 },
+  restUpcomingInner: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
   restUpLabel: { color: T.text, fontSize: 16, fontWeight: '700' },
   panelWide: { flexGrow: 0, flexShrink: 0, flexBasis: 150, height: 150 },
   // userSelect none: a swipe across the cell numbers must never start a
