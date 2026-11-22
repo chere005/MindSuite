@@ -5,6 +5,7 @@ const { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = requi
 const { join } = require('node:path');
 const { origin, installCalMindProtocol } = require('./calmind.cjs');
 const { openScrollMind } = require('./scrollmind.cjs');
+const { openNoteMind } = require('./notemind.cjs');
 const { flag, runLease } = require('./scroll-lease.cjs');
 const { configurePermissions, external, lockWebContents, preferences } = require('./web-contents.cjs');
 const { apps, restore, select, toggle, paneBounds, ratioFor } = require('./workspace.cjs');
@@ -35,10 +36,11 @@ function start() {
   let initial;
   try { initial = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { /* a new workspace */ }
   let state = restore(initial);
-  let window, calmindSession, scroll, closing = false, cleanClose = false, quitting = false;
+  let window, calmindSession, scroll, note, suiteMenu, closing = false, cleanClose = false, quitting = false;
   let saveTimer, editingPicker = false;
   const views = new Map(), pending = new Map(), errors = new Map();
 
+  const splitMenuItem = { label: 'Split View', accelerator: 'CmdOrCtrl+Alt+S', click: () => update(toggle(state)) };
   const appFor = key => apps.find(entry => entry.key === key);
   const isOpen = key => key === state.left || key === state.right;
   const shortMessage = error => typeof error?.message === 'string' ? error.message.split('\n')[0].slice(0, 260) : 'Could not open the app.';
@@ -49,6 +51,12 @@ function start() {
     ...(testing && { bounds: Object.fromEntries([...views].map(([key, view]) => [key, view.getBounds()])) }),
   });
 
+  function publishMenu(noteMenu = note?.menu) {
+    if (!isMac || !suiteMenu) return;
+    const menu = state.active === 'notemind' && !editingPicker && noteMenu ? noteMenu : suiteMenu;
+    if (Menu.getApplicationMenu() !== menu) Menu.setApplicationMenu(menu);
+  }
+
   function publish() {
     if (!window || window.isDestroyed()) return;
     const [width, height] = window.getContentSize();
@@ -57,6 +65,8 @@ function start() {
       view.setVisible(isOpen(key) && !errors.has(key) && !editingPicker);
       if (isOpen(key)) view.setBounds(bounds[key === state.right ? 1 : 0]);
     }
+    note?.layout();
+    publishMenu();
     if (!window.webContents.isDestroyed()) window.webContents.send('suite:state', snapshot());
   }
 
@@ -123,6 +133,21 @@ function start() {
       scroll = await openScrollMind(window, root, join(app.getPath('documents'), 'ScrollMind'), { testing });
       return attach(key, scroll.view);
     }
+    if (isMac && key === 'notemind') {
+      const root = join(runtime, 'notemind');
+      const profile = testing ? join(fixture, 'notes-profile') : join(app.getPath('appData'), 'NoteMind');
+      if (!existsSync(join(root, 'src/index.html'))) throw new Error('The bundled NoteMind files are missing.');
+      note = await openNoteMind(window, root, profile, {
+        attach: view => attach(key, view),
+        detach: view => { views.delete(key); window.contentView.removeChildView(view); },
+        activate: () => selectApp(key),
+        closeSuite: () => window.close(),
+        menuChanged: publishMenu,
+        splitMenuItem,
+        testing,
+      });
+      return;
+    }
     const isLocalCalMind = isMac && key === 'calmind';
     if (isLocalCalMind && !existsSync(join(runtime, 'calmind/index.html'))) {
       throw new Error('The bundled CalMind export is missing.');
@@ -163,6 +188,8 @@ function start() {
     closing = true;
     try {
       await Promise.allSettled(pending.values());
+      await note?.finish();
+      note = null;
       await scroll?.finish();
       saveState();
       for (const view of views.values()) {
@@ -176,8 +203,9 @@ function start() {
       quitting = false;
       closing = false;
       if (testing) { console.error(error); app.exit(1); return; }
+      update(state);
       await dialog.showMessageBox(window, {
-        type: 'error', title: 'Writing has not been saved', message: 'ScrollMind is staying open to protect your writing.',
+        type: 'error', title: 'Writing has not been saved', message: 'MindSuite is staying open to protect your writing.',
         detail: shortMessage(error), buttons: ['Keep Writing'],
       });
     }
@@ -201,6 +229,8 @@ function start() {
     window.on('closed', () => {
       errors.clear();
       scroll = null;
+      note = null;
+      if (suiteMenu) Menu.setApplicationMenu(suiteMenu);
       window = null;
       if (quitting || testing) setImmediate(() => app.quit());
     });
@@ -243,16 +273,17 @@ function start() {
     const menu = [
       { role: 'appMenu' }, { role: 'editMenu' },
       { label: 'View', submenu: [
-        { label: 'Split View', accelerator: 'CmdOrCtrl+Alt+S', click: () => update(toggle(state)) },
+        splitMenuItem,
         { type: 'separator' },
         { label: 'Reload App', accelerator: 'CmdOrCtrl+R', click: () => {
-          if (state.active === 'scrollmind' && scroll) return;
+          if ((state.active === 'scrollmind' && scroll) || (state.active === 'notemind' && note)) return;
           views.get(state.active)?.webContents.reload();
         } },
         { role: 'togglefullscreen' },
       ] }, { role: 'windowMenu' },
     ];
-    Menu.setApplicationMenu(Menu.buildFromTemplate(isMac ? menu : menu.slice(1)));
+    suiteMenu = Menu.buildFromTemplate(isMac ? menu : menu.slice(1));
+    Menu.setApplicationMenu(suiteMenu);
     showWindow();
   }).catch(error => { console.error(error); app.exit(1); });
 }

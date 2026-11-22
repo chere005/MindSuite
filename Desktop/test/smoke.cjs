@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
-const { mkdtemp, mkdir, rm, stat } = require('node:fs/promises');
+const { mkdtemp, mkdir, realpath, rm, stat } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 
@@ -64,9 +64,9 @@ async function launch(root) {
   } catch (error) { child.kill(); throw error; }
 }
 
-async function proveExclusive(root) {
+async function proveExclusive(root, profile = 'documents/ScrollMind/App') {
   const child = spawn(electron, [...appArgs, '--mindsuite-scroll-lease'], {
-    env: { ...process.env, MINDSUITE_SCROLL_PROFILE: join(root, 'documents/ScrollMind/App') },
+    env: { ...process.env, MINDSUITE_SCROLL_PROFILE: join(root, profile) },
     stdio: ['pipe', 'pipe', 'ignore'],
   });
   try {
@@ -122,6 +122,25 @@ async function main() {
     assert(info.dataPath.startsWith(join(root, 'documents/ScrollMind') + '/'));
     await stat(info.dataPath);
     console.log('The bundled panes share a split view and the ScrollMind editor wrote a local document.');
+    await evaluate(shell, 'window.suite.select("notemind", "right")');
+    const note = await running.page('/notemind/src/index.html');
+    await waitFor(() => evaluate(note, 'window.notemind?.start.info().then(info => info.version)'), 'the local NoteMind editor');
+    await waitFor(() => evaluate(note, 'localStorage.getItem("notemind.inputSource")'), 'the drawing workspace to finish loading');
+    const catalog = await evaluate(note, 'window.notemind.listSheets()');
+    assert(Array.isArray(catalog.pages));
+    await proveExclusive(root, 'notes-profile');
+    const file = join(root, 'documents/Fixture.nm');
+    const doc = { path: file, text: '# Local NoteMind fixture', title: 'Fixture', assets: {} };
+    const saved = await evaluate(note, 'window.notemind.save(' + JSON.stringify(doc) + ')');
+    assert.equal(saved.path, await realpath(file));
+    assert.equal(saved.recoverySaved, true);
+    await stat(file);
+    assert.equal(await evaluate(note, 'typeof window.scrollmind'), 'undefined');
+    assert.equal(await evaluate(note, 'typeof window.suite'), 'undefined');
+    assert.match(await evaluate(note, 'typeof window.wm?.pen?.buttons'), /^function$/);
+    assert.equal(await evaluate(shell, 'typeof window.notemind'), 'undefined');
+    console.log('The bundled note editor wrote a local notepad.');
+    await evaluate(shell, 'window.suite.select("scrollmind", "right")');
     await closeAndCheck(running, scroll);
     console.log('The first window saved and closed.');
     running = await launch(root);
@@ -134,15 +153,21 @@ async function main() {
     const reopened = await running.page('/scrollmind/src/renderer/index.html');
     await waitFor(() => evaluate(reopened, 'window.scrollmind?.workspaceState().then(s => s.scrolls?.length === 2)'), 'the reopened scroll');
     console.log('The second window restored the saved split proportions and the local scroll.');
+    await evaluate(restored, 'window.suite.select("notemind", "right")');
+    const reopenedNote = await running.page('/notemind/src/index.html');
+    await waitFor(() => evaluate(reopenedNote, 'Boolean(window.notemind)'), 'the restarted NoteMind bridge');
+    await waitFor(() => evaluate(reopenedNote, 'document.querySelector(".sheet-tabs") !== null && localStorage.getItem("notemind.inputSource")'), 'the restarted drawing workspace');
+    const reopenedDocument = await evaluate(reopenedNote, 'window.notemind.openPath(' + JSON.stringify(file) + ')');
+    assert.match(reopenedDocument.text, /Local NoteMind fixture/);
     await closeAndCheck(running, reopened);
-    console.log('Hidden Mac smoke passed: bundled CalMind, local ScrollMind, exclusive workspace, split layout and restart.');
+    console.log('Hidden Mac smoke passed: three local apps, exclusive workspaces, split layout and restart.');
   } catch (error) {
     if (running) console.error(running.log());
     throw error;
   } finally {
-    if (running?.child.exitCode === null) {
+    if (running && running.child.exitCode === null && running.child.signalCode === null) {
       const exited = once(running.child, 'exit');
-      running.child.kill();
+      running.child.kill('SIGKILL');
       await exited;
     }
     await rm(root, { recursive: true, force: true });

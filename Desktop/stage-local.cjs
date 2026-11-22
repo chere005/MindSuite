@@ -2,6 +2,27 @@
 
 const { access, chmod, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } = require('node:fs/promises');
 const { dirname, join, relative, resolve } = require('node:path');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+
+const exec = promisify(execFile);
+
+async function stageNoteMind(build) {
+  const app = resolve(process.env.MINDSUITE_NOTEMIND_APP || '/Applications/NoteMind.app');
+  await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+  const { stdout: bundleId } = await exec('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', join(app, 'Contents/Info.plist')]);
+  const source = join(app, 'Contents/Resources/app');
+  const pkg = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'));
+  if (bundleId.trim() !== 'com.seancheren.notemind' || pkg.name !== 'notemind'
+      || pkg.version !== '1.2.0' || pkg.main !== 'src/main.cjs') {
+    throw new Error('The hosted NoteMind runtime requires the signed NoteMind 1.2.0 app.');
+  }
+  const target = join(build, 'notemind');
+  await mkdir(target);
+  for (const file of ['src', 'node_modules', 'package.json', 'LICENSE', 'THIRD-PARTY-NOTICES.txt']) {
+    await cp(join(source, file), join(target, file), { recursive: true });
+  }
+}
 
 async function stage() {
   const asar = await import('@electron/asar');
@@ -42,6 +63,7 @@ async function stage() {
     await cp(join(source, 'scroll-pen'), helper);
     await chmod(helper, 0o755);
     await writeFile(join(scrollDir, 'version.json'), JSON.stringify({ version: pkg.version }));
+    await stageNoteMind(build);
     await rm(target, { recursive: true, force: true });
     await rename(build, target);
   } finally {
