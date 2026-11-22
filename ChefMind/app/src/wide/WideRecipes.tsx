@@ -4,23 +4,21 @@
  * pane; the tick picks without opening.
  */
 import { Pressable, StyleSheet, type PressableStateCallbackType, Text, View } from 'react-native';
-import type { Rec } from '@calmind/core';
+import { useFolds } from '../folds';
+import { Chevron } from '../components/Chevron';
 import { themed, T } from '../theme';
 import { Pill, Scroll } from '../ui';
 import { TickBox, okColor } from '../components/chefui';
 import { toBuyLabel } from '../chefflows';
-import { pickedNames, type RecipeFact } from '../wideflows';
+import { groupedNotes, pickedNames, type RecipeFact, type RecipeGroup } from '../wideflows';
 import { PaneHead } from './parts';
 
 export type WideRecipesProps = {
   title: string;
-  rows: Rec<'note'>[];
+  groups: RecipeGroup[];
   facts: ReadonlyMap<string, RecipeFact>;
-  folderName: (folderId: string) => string;
   picked: readonly string[];
   openId: string | null;
-  canMake: boolean;
-  onCanMake: () => void;
   onNew: () => void;
   onPick: (id: string) => void;
   onOpen: (id: string) => void;
@@ -32,16 +30,16 @@ export type WideRecipesProps = {
 
 export function WideRecipes(p: WideRecipesProps) {
   const pickedSet = new Set(p.picked);
+  // The phone's folder fold state, same key: what is shut there is shut here.
+  const folds = useFolds('calmind.foldedFolders.notes');
+  const total = groupedNotes(p.groups).length;
   return (
     <View style={s.root} testID="wide-recipes">
       <PaneHead
         title={p.title}
-        sub={`${p.rows.length} ${p.rows.length === 1 ? 'recipe' : 'recipes'}`}
+        sub={`${total} ${total === 1 ? 'recipe' : 'recipes'}`}
         right={(
           <>
-            <Pressable testID="recipes-canmake" accessibilityRole="button" accessibilityState={{ selected: p.canMake }} onPress={p.onCanMake} style={[s.chip, p.canMake && s.chipOn]}>
-              <Text style={[s.chipText, p.canMake && s.chipTextOn]}>Can make now</Text>
-            </Pressable>
             <Pill testID="recipes-new" primary label="New recipe" onPress={p.onNew} />
           </>
         )}
@@ -49,34 +47,51 @@ export function WideRecipes(p: WideRecipesProps) {
       <View style={s.thead}>
         <View style={s.cPick} />
         <Text style={[s.th, s.cName]}>Recipe</Text>
-        <Text style={[s.th, s.cFolder]}>Folder</Text>
         <Text style={[s.th, s.cIng]} numberOfLines={1}>Ingredients</Text>
         <Text style={[s.th, s.cBuy]} numberOfLines={1}>Still to buy</Text>
       </View>
       <Scroll style={s.list} contentContainerStyle={s.listIn}>
-        {p.rows.length === 0 && (
-          <Text style={s.empty}>{p.canMake ? 'Nothing you can make right now. Turn off Can make now to see every recipe.' : 'No recipes here yet.'}</Text>
-        )}
-        {p.rows.map((n) => {
-          const f = p.facts.get(n.id);
-          const on = pickedSet.has(n.id);
+        {total === 0 && p.groups.length === 0 && <Text style={s.empty}>No recipes here yet.</Text>}
+        {p.groups.map((g) => {
+          const open = folds.isOpen(g.folder.id);
           return (
-            <Pressable
-              key={n.id}
-              testID="recipe-row"
-              accessibilityRole="button"
-              accessibilityState={{ selected: p.openId === n.id }}
-              onPress={() => p.onOpen(n.id)}
-              style={(st: PressableStateCallbackType) => [s.row, on && s.rowPicked, p.openId === n.id && s.rowOpen, (st as { hovered?: boolean }).hovered && s.rowHover]}
-            >
-              <View style={s.cPick}>
-                <TickBox testID={`wide-pick-${n.payload.title}`} on={on} label={`Pick ${n.payload.title}`} onPress={() => p.onPick(n.id)} />
-              </View>
-              <Text style={[s.td, s.cName, s.name]} numberOfLines={1}>{n.payload.title}</Text>
-              <Text style={[s.td, s.cFolder, s.dim]} numberOfLines={1}>{p.folderName(n.payload.folderId)}</Text>
-              <Text style={[s.td, s.cIng, s.num]}>{f && f.buy !== null ? f.ingredients : '–'}</Text>
-              <Text style={[s.td, s.cBuy, f?.buy === 0 && s.have]} numberOfLines={1}>{f && f.buy !== null ? toBuyLabel(f.buy) : '–'}</Text>
-            </Pressable>
+            <View key={g.folder.id}>
+              <Pressable
+                testID={`wide-fold-${g.folder.payload.name}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${g.folder.payload.name}, ${open ? 'collapse' : 'expand'}`}
+                accessibilityState={{ expanded: open }}
+                onPress={() => folds.toggle(g.folder.id)}
+                onLongPress={() => folds.foldAll(p.groups.map((x) => x.folder.id), open)}
+                style={s.head}
+              >
+                <View style={s.chev}><Chevron open={open} color={T.text} /></View>
+                <View style={[s.dot, { backgroundColor: g.folder.payload.color }]} />
+                <Text style={s.headName} numberOfLines={1}>{g.folder.payload.name}</Text>
+                <Text style={s.headCount}>{g.notes.length}</Text>
+              </Pressable>
+              {open && g.notes.map((n) => {
+                const f = p.facts.get(n.id);
+                const on = pickedSet.has(n.id);
+                return (
+                  <Pressable
+                    key={n.id}
+                    testID="recipe-row"
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: p.openId === n.id }}
+                    onPress={() => p.onOpen(n.id)}
+                    style={(st: PressableStateCallbackType) => [s.row, on && s.rowPicked, p.openId === n.id && s.rowOpen, (st as { hovered?: boolean }).hovered && s.rowHover]}
+                  >
+                    <View style={s.cPick}>
+                      <TickBox testID={`wide-pick-${n.payload.title}`} on={on} label={`Pick ${n.payload.title}`} onPress={() => p.onPick(n.id)} />
+                    </View>
+                    <Text style={[s.td, s.cName, s.name]} numberOfLines={1}>{n.payload.title}</Text>
+                    <Text style={[s.td, s.cIng, s.num]}>{f && f.buy !== null ? f.ingredients : '–'}</Text>
+                    <Text style={[s.td, s.cBuy, f?.buy === 0 && s.have]} numberOfLines={1}>{f && f.buy !== null ? toBuyLabel(f.buy) : '–'}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           );
         })}
       </Scroll>
@@ -97,10 +112,6 @@ export function WideRecipes(p: WideRecipesProps) {
 
 const s = themed(() => StyleSheet.create({
   root: { flex: 1, minHeight: 0 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: T.line },
-  chipOn: { backgroundColor: T.accentSoft, borderColor: T.accent },
-  chipText: { color: T.dim, fontSize: 14, fontWeight: '600' },
-  chipTextOn: { color: T.accent },
   thead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: T.line },
   th: { color: T.muted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   list: { flex: 1 },
@@ -109,9 +120,15 @@ const s = themed(() => StyleSheet.create({
   rowPicked: { backgroundColor: T.accentSoft },
   rowOpen: { backgroundColor: T.surface2 },
   rowHover: { backgroundColor: T.surface },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, minHeight: 40, backgroundColor: T.surface, borderBottomWidth: 1, borderBottomColor: T.lineSoft },
+  chev: { width: 20, alignItems: 'center' },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  headName: { color: T.text, fontSize: 15, fontWeight: '700', flexShrink: 1 },
+  headCount: { color: T.muted, fontSize: 13, fontVariant: ['tabular-nums'] },
   cPick: { width: 36 },
-  cName: { flex: 1, minWidth: 120, paddingRight: 12 },
-  cFolder: { width: 112, paddingRight: 8 },
+  // Capped so the numbers stay a reading distance from the names on a wide window
+  // (the owner, 2026-11-21: "keep reasonable distance between columns").
+  cName: { flex: 1, minWidth: 120, maxWidth: 520, paddingRight: 12 },
   cIng: { width: 112, textAlign: 'right', paddingRight: 12 },
   cBuy: { width: 128, textAlign: 'right' },
   td: { color: T.text, fontSize: 15 },

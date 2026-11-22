@@ -53,30 +53,37 @@ export function recipeFolders(recs: readonly AnyRec[]): Rec<'folder'>[] {
     .sort(byRecOrd);
 }
 
+/** One folder's block in the recipe table: its recipes in reading order. */
+export type RecipeGroup = { folder: Rec<'folder'>; notes: Rec<'note'>[] };
+
 /**
- * The notes the table lists, in reading order: folder by folder, section by
- * section, each in its stored order. `folderId` narrows to one folder;
- * `canMake` keeps only recipes with nothing left to buy.
+ * The table's folder blocks, in the phone's order (stored folder order; each
+ * folder's notes section by section, in stored order). `folderId` narrows to
+ * one folder. Empty folders keep their block, as on the phone; a note that is
+ * in no recipe folder's section is not listed, as on the phone.
  */
-export function recipeRows(
-  recs: readonly AnyRec[],
-  opts: { folderId: string | null; canMake: boolean; facts: ReadonlyMap<string, RecipeFact> },
-): Rec<'note'>[] {
+export function recipeGroups(recs: readonly AnyRec[], opts: { folderId: string | null }): RecipeGroup[] {
   const folders = recipeFolders(recs).filter((f) => opts.folderId === null || f.id === opts.folderId);
   const sections = recs.filter((r): r is Rec<'section'> => r.type === 'section' && !r.deleted).sort(byRecOrd);
   const notes = recs.filter((r): r is Rec<'note'> => r.type === 'note' && !r.deleted).sort(byRecOrd);
-  const out: Rec<'note'>[] = [];
-  for (const f of folders) {
+  return folders.map((folder) => {
+    const out: Rec<'note'>[] = [];
     for (const sec of sections) {
-      if (sec.payload.folderId !== f.id) continue;
-      for (const n of notes) {
-        if (n.payload.sectionId !== sec.id) continue;
-        if (opts.canMake && opts.facts.get(n.id)?.buy !== 0) continue;
-        out.push(n);
-      }
+      if (sec.payload.folderId !== folder.id) continue;
+      for (const n of notes) if (n.payload.sectionId === sec.id) out.push(n);
     }
-  }
-  return out;
+    return { folder, notes: out };
+  });
+}
+
+/** The notes the groups hold, flat, in table order. */
+export function groupedNotes(groups: readonly RecipeGroup[]): Rec<'note'>[] {
+  return groups.flatMap((g) => g.notes);
+}
+
+/** The recipes a table shows: every folder's, minus the folders that are shut. */
+export function shownRecipes(groups: readonly RecipeGroup[], shut: ReadonlySet<string>): Rec<'note'>[] {
+  return groups.filter((g) => !shut.has(g.folder.id)).flatMap((g) => g.notes);
 }
 
 /** "To buy" / "In pantry" for one ingredient line; a subheader is neither. */

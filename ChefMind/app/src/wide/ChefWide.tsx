@@ -36,7 +36,7 @@ import { Settings } from '../screens/Settings';
 import { pantryTexts } from '../addToShopping';
 import { listOf } from '../chefflows';
 import { newCook, newReview, useChefSession } from '../session';
-import { hitSection, isTextTarget, recipeFacts, recipeFolders, recipeRows } from '../wideflows';
+import { hitSection, isTextTarget, recipeFacts, recipeFolders, recipeGroups } from '../wideflows';
 import { wideColors } from './parts';
 import { WideRecipes } from './WideRecipes';
 import { RecipeDetail } from './RecipeDetail';
@@ -46,7 +46,7 @@ import { ShoppingRowDetail, WidePantry, WideShopping } from './WideLists';
 type View_ = 'list' | 'edit';
 
 export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
-  const { recs, mutate, session, signOut, undoLastDelete } = useStore();
+  const { recs, mutate, session, undoLastDelete } = useStore();
   const toast = useToast();
   const colors = wideColors();
   const { detailBeside } = useWide();
@@ -54,7 +54,6 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
 
   const [query, setQuery] = useState('');
   const [folderId, setFolderId] = useState<string | null>(null);
-  const [canMake, setCanMake] = useState(false);
   // Picks, Review and Cook are the session's, shared with the phone layout.
   const { picked, setPicked, review, setReview, cook, setCook, setCookState } = useChefSession();
   const [view, setView] = useState<View_>('list');
@@ -73,7 +72,7 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const facts = useMemo(() => recipeFacts(allNotes, pantry, cache.current), [allNotes, pantry]);
   const folders = useMemo(() => recipeFolders(recs), [recs]);
   const folderName = useCallback((id: string) => folders.find((f) => f.id === id)?.payload.name ?? '', [folders]);
-  const rows = useMemo(() => recipeRows(recs, { folderId, canMake, facts }), [recs, folderId, canMake, facts]);
+  const groups = useMemo(() => recipeGroups(recs, { folderId }), [recs, folderId]);
   const noteById = (id: string | null) => (id ? allNotes.find((n) => n.id === id) : undefined);
   const shopCount = listOf(recs, 'shopping')?.rows.length ?? 0;
   const pantryCount = listOf(recs, 'pantry')?.rows.length ?? 0;
@@ -88,7 +87,7 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const go = (t: Tab, fid: string | null = null) => {
     setQuery(''); setView('list'); setReview(null); setFolderId(fid); onTab(t);
   };
-  const openRecipe = (id: string) => { setQuery(''); setView('list'); setFolderId(null); setCanMake(false); setOpenId(id); onTab('notes'); };
+  const openRecipe = (id: string) => { setQuery(''); setView('list'); setFolderId(null); setOpenId(id); onTab('notes'); };
   const togglePick = (id: string) => setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   const startCook = (ids: string[], first?: string, variantId?: string | null) => { setView('list'); setCook(newCook(ids, first, variantId ?? null)); };
   const startReview = () => {
@@ -241,13 +240,10 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
     main = (
       <WideRecipes
         title={folderId ? folderName(folderId) : 'All recipes'}
-        rows={rows}
+        groups={groups}
         facts={facts}
-        folderName={folderName}
         picked={picked}
         openId={openId}
-        canMake={canMake}
-        onCanMake={() => setCanMake((v) => !v)}
         onNew={newRecipe}
         onPick={togglePick}
         onOpen={(id) => setOpenId(id)}
@@ -316,12 +312,13 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
         />
       ))}
       <SidebarLabel label={session?.username ?? 'Account'} colors={colors} />
-      <SidebarItem testID="side-settings" label="Settings" onPress={() => setSettingsOpen(true)} colors={colors} />
+      {/* No Sign out row (the owner, 2026-11-21: "sign out button here is stupid remove it");
+          it stays in Settings. The sync dot rides on Settings instead. */}
+      <SidebarItem testID="side-settings" label="Settings" onPress={() => setSettingsOpen(true)} colors={colors} trailing={<SyncDot withText />} />
       <SidebarItem testID="side-undo" label="Undo last delete" onPress={() => {
         const back = undoLastDelete();
         toast(back === null ? 'Nothing to undo' : `Restored “${back}”`, 2600);
       }} colors={colors} />
-      <SidebarItem testID="side-signout" label="Sign out" onPress={() => { void signOut(); }} colors={colors} trailing={<SyncDot withText />} />
     </>
   );
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { shoppingPlan, type AnyRec, type Rec } from '@calmind/core';
-import { aisleRuns, buyCount, filterRows, hitSection, ingredientStates, isTextTarget, pantrySummary, pickedNames, recipeFacts, recipeRows, rowSave, shoppingSummary, stillToBuyHeading, whereWent } from '../src/wideflows';
+import { aisleRuns, buyCount, filterRows, hitSection, ingredientStates, isTextTarget, pantrySummary, pickedNames, recipeFacts, recipeGroups, groupedNotes, shownRecipes, rowSave, shoppingSummary, stillToBuyHeading, whereWent } from '../src/wideflows';
 
 const note = (id: string, title: string, sec: string, fol: string, ord: string, ing: string[], recipe = true): Rec<'note'> => ({
   id, type: 'note', updated: 1,
@@ -20,11 +20,18 @@ describe('recipe table', () => {
     expect(facts.get('a')).toEqual({ ingredients: 2, buy: 1 });
     expect(facts.get('c')).toEqual({ ingredients: 0, buy: null });
   });
-  test('rows run folder by folder, filter by folder and by can-make', () => {
-    const facts = recipeFacts([a, b, c], ['kosher salt', 'canned tomatoes', 'eggs'], new Map());
-    expect(recipeRows(recs, { folderId: null, canMake: false, facts }).map((n) => n.id)).toEqual(['a', 'b', 'c']);
-    expect(recipeRows(recs, { folderId: 'f2', canMake: false, facts }).map((n) => n.id)).toEqual(['b', 'c']);
-    expect(recipeRows(recs, { folderId: null, canMake: true, facts }).map((n) => n.id)).toEqual(['a', 'b']);
+  test('groups run folder by folder, narrow to one folder, keep empty folders', () => {
+    const g = recipeGroups([...recs, folder('f3', 'c')], { folderId: null });
+    expect(g.map((x) => [x.folder.id, x.notes.map((n) => n.id)])).toEqual([['f1', ['a']], ['f2', ['b', 'c']], ['f3', []]]);
+    expect(groupedNotes(g).map((n) => n.id)).toEqual(['a', 'b', 'c']);
+    expect(recipeGroups(recs, { folderId: 'f2' }).map((x) => x.folder.id)).toEqual(['f2']);
+  });
+  test('a note outside every recipe folder is not listed; shut folders hide their rows only', () => {
+    const stray = note('z', 'Stray', 'sx', 'fx', 'a', ['1 egg']);
+    const g = recipeGroups([...recs, stray], { folderId: null });
+    expect(groupedNotes(g).map((n) => n.id)).not.toContain('z');
+    expect(shownRecipes(g, new Set(['f1'])).map((n) => n.id)).toEqual(['b', 'c']);
+    expect(shownRecipes(g, new Set()).map((n) => n.id)).toEqual(['a', 'b', 'c']);
   });
   test('tags are per line; the pane count is the table count (one function)', () => {
     const lines = ['1 tsp kosher salt', '2 tsp kosher salt', '2 eggs', 'For the sauce:'];
