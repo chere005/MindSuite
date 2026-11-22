@@ -333,13 +333,22 @@ function rs_cipher(array $cfg): string
  */
 function rs_sql_tx(array $cfg, string $space, string $owner, callable $fn): mixed
 {
-    $pdo  = rs_pdo($cfg);
+    $pdo = rs_pdo($cfg);
+    return rs_transaction($pdo, function () use ($pdo, $cfg, $space, $owner, $fn) {
+        $rs = new SqlRecordSet($pdo, rs_cipher($cfg), $space, $owner, true);
+        $out = $fn($rs);
+        $rs->flushHead();
+        return $out;
+    });
+}
+
+/** SQLite reserves the writer up front. MySQL callers lock the rows they change. */
+function rs_transaction(PDO $pdo, callable $fn): mixed
+{
     $lite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     if ($lite) { $pdo->exec('BEGIN IMMEDIATE'); } else { $pdo->beginTransaction(); }
     try {
-        $rs  = new SqlRecordSet($pdo, rs_cipher($cfg), $space, $owner, true);
-        $out = $fn($rs);
-        $rs->flushHead();
+        $out = $fn();
         if ($lite) { $pdo->exec('COMMIT'); } else { $pdo->commit(); }
         return $out;
     } catch (Throwable $e) {

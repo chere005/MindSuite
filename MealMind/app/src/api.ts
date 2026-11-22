@@ -10,6 +10,7 @@
  * API says it takes that, and keep the bearer login otherwise. See "Shared sign-in" below.
  */
 import type { SyncRequest, SyncResponse, Transport } from '@calmind/core';
+import { isPublicAccountId } from './accountmode';
 
 export type Session = {
   token: string;
@@ -21,6 +22,7 @@ export type Session = {
   webLegacy?: true;
   /** A public account has its own bearer and does not follow the suite cookie. */
   publicAccount?: true;
+  accountId?: string;
 };
 
 /**
@@ -332,8 +334,10 @@ export async function probeSharedSignIn(serverUrl: string): Promise<SharedProbe>
  * callers select the returned username before reading any of them. Native/desktop retain their scoped token.
  */
 export async function restoreWebSession(saved: Session): Promise<Session | null> {
+  if (saved.publicAccount === true) {
+    return isPublicAccountId(saved.accountId) && cookieUserOf(saved.token) === null ? saved : null;
+  }
   if (!cookieApi(saved.serverUrl)) return saved;
-  if (saved.publicAccount === true && cookieUserOf(saved.token) === null) return saved;
   const p = await probeSharedSignIn(saved.serverUrl);
   if (p.kind === 'cookie') return { token: cookieToken(p.username), username: p.username, serverUrl: saved.serverUrl };
   if (p.kind === 'legacy') return cookieUserOf(saved.token) === null ? saved : null;

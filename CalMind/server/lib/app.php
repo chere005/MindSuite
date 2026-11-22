@@ -434,6 +434,7 @@ function mail_delivery_status(array $cfg, string $to, string $subject, string $b
 // ---------------------------------------------------------------- accounts & tokens
 
 function accounts_file(array $cfg): string { return $cfg['data_dir'] . '/accounts.json'; }
+function retired_accounts_file(array $cfg): string { return $cfg['data_dir'] . '/retired-accounts.json'; }
 function tokens_file(array $cfg): string   { return $cfg['data_dir'] . '/tokens.json'; }
 function recover_file(array $cfg): string  { return $cfg['data_dir'] . '/recover.json'; }
 function lockouts_file(array $cfg): string { return $cfg['data_dir'] . '/lockouts.json'; }
@@ -551,8 +552,8 @@ function tokens_revoke(array $cfg, string $user): void
 
 function account_exists(array $cfg, string $user): bool
 {
-    // A public account is checked first, in its own table: never the suite's file (lib/public-accounts.php).
-    if (pa_enabled($cfg) && pa_account($cfg, $user) !== null) { return true; }
+    // Public owner IDs occupy their own namespace, including after revocation and feature switch-off.
+    if (pa_is_owner($user)) { return pa_enabled($cfg) && pa_owner_state($cfg, $user) === 0; }
     $suite = suite_auth($cfg);
     if ($suite['shared']) {
         // Exactly the canonical (lowercase) name: a record file is named by it, so 'Alex' must not pass for 'alex'.
@@ -764,7 +765,10 @@ function suite_session(array $suite, bool $read = false): array
 /** The signed-in user, from the Authorization: Bearer header, or a 401. */
 function require_auth(array $cfg): string
 {
-    if (pa_enabled($cfg) && ($public = pa_bearer_user($cfg)) !== null) { return $public; }
+    if (pa_enabled($cfg) && ($public = pa_bearer_account($cfg)) !== null) {
+        pa_require_active((int) $public['deleting']);
+        return $public['owner'];
+    }
     $suite = suite_auth($cfg);
     if ($suite['shared']) { return (string) suite_session($suite)['user']; }
     $hdr = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -822,6 +826,11 @@ function handle_delete_account(array $cfg): never
         $accounts = store_read($cfg, accounts_file($cfg));
         if (!isset($accounts[$user])) { fail(401, 'account no longer exists'); }
         $email = (string) ($accounts[$user]['email'] ?? '');
+        // Legacy snapshots are keyed by username. Reserve it before deleting credentials so a later account cannot
+        // inherit a snapshot on another installation, even if this deletion's cleanup is interrupted.
+        $retired = store_read($cfg, retired_accounts_file($cfg));
+        $retired[hash('sha256', strtolower($user))] = true;
+        store_write($cfg, retired_accounts_file($cfg), $retired);
         unset($accounts[$user]);
         store_write($cfg, accounts_file($cfg), $accounts);
         return $email;
@@ -954,7 +963,7 @@ function handle_signup(array $cfg, array $in): never
     if ($suite['shared']) { handle_signup_shared($cfg, $suite, $user, $email, $pass); }
     $token = with_lock($cfg, 'accounts', function () use ($cfg, $user, $email, $pass) {
         $acc = store_read($cfg, accounts_file($cfg));
-        if (isset($acc[$user])) {
+        if (isset($acc[$user]) || isset(store_read($cfg, retired_accounts_file($cfg))[hash('sha256', strtolower($user))])) {
             fail(409, 'that username is taken');
         }
         $acc[$user] = ['email' => $email, 'hash' => password_hash($pass, PASSWORD_DEFAULT), 'created' => time()];
@@ -1247,7 +1256,11 @@ function handle_sync(array $cfg, array $in): never
     // writing one lock name would serialise for no reason, and — worse — a
     // lock named for the wrong file protects nothing at all.
     $out = rs_tx($cfg, $user, $space, function (RecordSet $rs) use ($cfg, $user, $cursor, $changes) {
-        if (!account_exists($cfg, $user)) { fail(401, 'account no longer exists'); }
+        if (pa_is_owner($user)) {
+            pa_require_active(pa_owner_state($cfg, $user));
+        } elseif (!account_exists($cfg, $user)) {
+            fail(401, 'account no longer exists');
+        }
         $rejected = [];
         $why      = [];   // id => one of spec/protocol.json rejectReasons
         $dropped  = 0;    // rows with no string id to name them by
@@ -1397,11 +1410,12 @@ function share_sel(array $share, string $viewer): array
  *  so removal on either side ends all sharing instantly, both ways. */
 function share_mutual(array $cfg, string $me, string $partner, string $space = ''): bool
 {
-    if ($me === $partner || $partner === '') { return false; }
+    if ($me === $partner || (!pa_is_owner($partner) && !preg_match(USERNAME_RE, $partner))) { return false; }
     // BOTH lists are read in the SAME space. Reading one side in CalMind and
     // the other in MealMind would make a CalMind partnership authorise a
     // MealMind read, which is the leak this parameter exists to close.
     return in_array($partner, share_of($cfg, $me, $space)['partners'], true)
+        && account_exists($cfg, $me) && account_exists($cfg, $partner)
         && in_array($me, share_of($cfg, $partner, $space)['partners'], true);
 }
 
@@ -1848,7 +1862,7 @@ function handle_passkey_login_finish_shared(array $cfg, array $suite, array $in)
 function handle_signin_info(array $cfg): never
 {
     $suite = suite_auth($cfg);
-    $public = pa_enabled($cfg) ? ['public_accounts' => true] : [];
+    $public = pa_enabled($cfg) ? ['public_accounts' => true, 'public_account_ids' => true] : [];
     if (!$suite['shared']) { reply(200, ['ok' => true, 'shared' => false, 'app_signin' => false] + $public); }
     suite_cfg($suite);   // 503 shared:true when the store or key cannot be read
     reply(200, ['ok' => true, 'shared' => true, 'app_signin' => function_exists('msa_app_signin_redeem')] + $public);

@@ -22,6 +22,7 @@ const RETURN = `${SCHEME}:/signin`;
 const API = 'https://seancheren.com/calmind/api/index.php';
 const STATE = 'S'.repeat(43);
 const CODE = 'ab'.repeat(32);
+const PUBLIC_ID = '~p-' + 'a'.repeat(24);
 
 type Call = { url: string; body: Record<string, unknown>; headers: Record<string, string> };
 type Reply = { status?: number; body?: unknown; raw?: string } | Error;
@@ -246,6 +247,7 @@ describe('signInFacts and gateFor', () => {
   test('only account-optional builds use the public capability', async () => {
     const shared = { ok: true, shared: true, app_signin: true };
     const { flow } = await load([
+      { body: { ...shared, public_accounts: true, public_account_ids: true } },
       { body: { ...shared, public_accounts: true } },
       { body: { ...shared, public_accounts: 'true' } },
     ]);
@@ -253,20 +255,22 @@ describe('signInFacts and gateFor', () => {
     expect(flow.gateFor(facts)).toBe('app');
     expect(flow.gateFor(facts, true)).toBe('public');
     expect(flow.gateFor(await flow.signInFacts(API), true)).toBe('app');
+    expect(flow.gateFor(await flow.signInFacts(API), true)).toBe('app');
   });
 });
 
 describe('public accounts', () => {
   test('sign-up and sign-in send isolated actions and keep the public session on same-origin reload', async () => {
-    const reply = { body: { ok: true, public: true, token: CODE, username: 'alex' } };
+    const reply = { body: { ok: true, public: true, token: CODE, username: 'alex', account_id: PUBLIC_ID } };
     const { flow, api, calls } = await load([reply, reply]);
     vi.stubGlobal('location', { href: new URL('/calmind/', API).href });
     expect(api.cookieApi(API)).toBe(true);
     const session = await flow.signInPublicAccount(API, 'Alex', 'passw0rd', 'alex@example.invalid');
-    expect(session).toEqual({ token: CODE, username: 'alex', serverUrl: API, publicAccount: true });
+    expect(session).toEqual({ token: CODE, username: 'alex', serverUrl: API, publicAccount: true, accountId: PUBLIC_ID });
     expect(await api.restoreWebSession(session)).toEqual(session);
     expect(await flow.signInPublicAccount(API, 'Alex', 'passw0rd')).toEqual(session);
     expect(calls.map((call) => call.body.action)).toEqual(['public_signup', 'public_login']);
+    expect(calls.map((call) => call.body.account_ids)).toEqual([true, true]);
     expect(calls[0]!.body.email).toBe('alex@example.invalid');
     expect(calls[1]!.body).not.toHaveProperty('email');
   });
@@ -274,10 +278,26 @@ describe('public accounts', () => {
   test('a disabled server or a reply without a public credential cannot create a session', async () => {
     const { flow } = await load([
       { status: 403, body: { ok: false, error: 'public accounts are unavailable' } },
-      { body: { ok: true, token: CODE, username: 'alex' } },
+      { body: { ok: true, public: true, token: CODE, username: 'alex' } },
     ]);
     await expect(flow.signInPublicAccount(API, 'alex', 'passw0rd')).rejects.toThrow('public accounts are unavailable');
     await expect(flow.signInPublicAccount(API, 'alex', 'passw0rd')).rejects.toThrow('could not confirm');
+  });
+
+  test('a recycled handle cannot reopen the first account cache or the household cache', async () => {
+    const { api } = await load();
+    const { snapshotKey, snapshotOwner } = await import('../src/accountmode');
+    const former = { token: CODE, username: 'alex', serverUrl: API, publicAccount: true as const };
+    expect(await api.restoreWebSession(former)).toBeNull();
+    expect(() => snapshotOwner(former)).toThrow('identity is missing');
+
+    const prior = { ...former, accountId: PUBLIC_ID };
+    const next = { ...former, accountId: '~p-' + 'b'.repeat(24) };
+    const key = (session: Parameters<typeof snapshotOwner>[0]) => snapshotKey(app.expo.slug, snapshotOwner(session), 'test');
+    const cache = new Map([[key(prior), 'pending edits'], [key({ username: former.username }), 'household edits']]);
+    expect(await api.restoreWebSession(next)).toEqual(next);
+    expect(cache.get(key(next))).toBeUndefined();
+    expect(cache.get(key(prior))).toBe('pending edits');
   });
 });
 

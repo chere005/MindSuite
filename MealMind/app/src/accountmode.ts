@@ -38,6 +38,17 @@ export function snapshotKey(prefix: string, user: string, tag: string): string {
   return `${prefix}.snapshot.${user}@${tag}`;
 }
 
+/** These IDs are also share addresses. They occupy a separate namespace from usernames and local mode. */
+export function isPublicAccountId(value: unknown): value is string {
+  return typeof value === 'string' && /^~p-[a-f0-9]{24}$/.test(value) && value.length === 27;
+}
+
+export function snapshotOwner(session: { username: string; publicAccount?: true; accountId?: string }): string {
+  if (!session.publicAccount) return session.username;
+  if (!isPublicAccountId(session.accountId)) throw new Error('Public account identity is missing. Sign in again.');
+  return session.accountId;
+}
+
 /** The local store's key. LOCAL_USER starts with '~', which no username can. */
 export function localSnapshotKey(prefix: string, tag: string): string {
   return snapshotKey(prefix, LOCAL_USER, tag);

@@ -165,7 +165,9 @@ checkout beside this repository's).
 
 ### Public accounts
 
-When `public_accounts` is enabled, `signin_info` also returns `public_accounts: true`. Account-optional CalMind and MealMind builds use that capability to offer their public account form. `public_signup` takes `username`, `email`, and `password`. `public_login` takes `username` and `password`. Both return `{ ok, token, username, public: true }`, with a bearer for the two apps' shared API. Disabled servers refuse both actions. The actions use public account credentials exclusively, and suite account names remain reserved during an app hold.
+When `public_accounts` is enabled, `signin_info` adds `public_accounts: true` and `public_account_ids: true`. `public_signup` takes `username`, `email`, `password`, and `account_ids: true`. `public_login` takes `username`, `password`, and `account_ids: true`. Both return `{ ok, token, username, account_id, public: true }`. The ID is stable for that account's lifetime and appears in `whoami`. Clients use it for public account snapshots and as the share address when adding that account as a partner. Reusing a deleted username gives the new account a different ID. Older requests without `account_ids: true` receive `409`. Disabled servers refuse both actions.
+
+Public account deletion suspends sync and keeps the name reserved until cleanup completes. While deletion is pending, `delete_account` can be retried with the existing bearer and other authenticated actions return `423`. Ordinary `signup` and `login` continue to use household credentials.
 
 ## Actions
 

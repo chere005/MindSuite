@@ -15,7 +15,7 @@ import { drainWatchTicks, drainWidgetTicks, onWatchTick, pushWatchIfWidgetMoved,
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
 import { SharedWrites, type SharedTrouble } from './sharedwrites';
-import { accountOptional, damagedKey, localSnapshotKey, snapshotKey } from './accountmode';
+import { accountOptional, damagedKey, localSnapshotKey, snapshotKey, snapshotOwner } from './accountmode';
 
 /**
  * Storage is per-INSTANCE, because on the web it is per-ORIGIN and prod, test
@@ -467,6 +467,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const s = sessionRef.current;
     if (!s) return;
     if (syncing.current) { syncAgain.current = true; return; }
+    const engine = engineRef.current;
+    const recipes = chefRef.current;
     syncing.current = true;
     setSyncState('syncing');
     // The OUTER try exists only for the finally: the 401 path below returns
@@ -474,7 +476,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // for the life of the page — a worse bug than the pile-up it prevents.
     try {
     try {
-      await engineRef.current.sync(syncTransport(s));
+      await engine.sync(syncTransport(s));
+      if (sessionRef.current !== s) return;
       hydratedRef.current = true; // the server has spoken — seeding is safe now
       // Signed in from local mode: only now does this device know every
       // starter the account already had, so fold the adopted ones into them
@@ -516,11 +519,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // offline — my own records just synced fine. The last pulled copy
       // stands, as any local-first read does, and the next pass tries again.
       try {
-        await chefRef.current.sync(syncTransport(s, CHEF_SPACE));
+        await recipes.sync(syncTransport(s, CHEF_SPACE));
       } catch {
         // deliberately quiet — see above
       }
     } catch (e) {
+      if (sessionRef.current !== s) return;
       // Offline is normal for a local-first app; a dead token is not.
       setSyncState('offline');
       if (e instanceof ApiError && e.status === 401) {
@@ -537,8 +541,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
     }
+    if (sessionRef.current !== s) return;
     refresh();
-    if (sessionRef.current === s) persistNow(s.username);
+    persistNow(snapshotOwner(s));
     } finally {
       syncing.current = false;
       // Only if there is still a session: the 401 path above clears it and
@@ -595,7 +600,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       fn(engineRef.current);
       refresh();
       if (sessionRef.current) {
-        persistNow(sessionRef.current.username);
+        persistNow(snapshotOwner(sessionRef.current));
         syncSoon();
       } else if (localRef.current) {
         persistNow(LOCAL_USER); // local mode: saved, never sent
@@ -686,7 +691,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // TODO(local mode): a second tab still in local mode after this one
       // signed in writes the local key back; the next sign-in merges it again
       // (a no-op for what already landed), so it costs a reappearance, not data.
-      const user = s ? s.username : localRef.current ? LOCAL_USER : null;
+      const user = s ? snapshotOwner(s) : localRef.current ? LOCAL_USER : null;
       if (!user || !ev.newValue) return;
       // Which engine the other tab wrote — mine or MealMind's. Anything else
       // in storage is not a snapshot of ours.
@@ -743,6 +748,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(
     async (s: Session) => {
+      const owner = snapshotOwner(s);
       // From local mode, the local store is frozen FIRST: nothing writes its
       // key from here on, and a write still in flight lands before the merge
       // below can remove the key (landing after, it would bring it back).
@@ -764,7 +770,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s))
         .then(() => setPersistFailed(false))
         .catch(() => setPersistFailed(true));
-      const snap = await AsyncStorage.getItem(snapKey(s.username)).catch(() => null);
+      const snap = await AsyncStorage.getItem(snapKey(owner)).catch(() => null);
       // The PARSE needs guarding as much as the read did — guarding only the
       // read was this same bug one layer in. A corrupt snapshot threw here,
       // signIn threw, and Login showed 'something went wrong' every single
@@ -777,8 +783,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         restored = null;
       }
       engineRef.current = SyncEngine.fromSnapshot(restored as never);
-      chefRef.current = SyncEngine.fromSnapshot(await readChefSnapshot(s.username) as never);
-      if (OPTIONAL) await adoptLocal(s.username, localSnap, keepLocal);
+      chefRef.current = SyncEngine.fromSnapshot(await readChefSnapshot(owner) as never);
+      if (OPTIONAL) await adoptLocal(owner, localSnap, keepLocal);
       hydratedRef.current = engineRef.current.toSnapshot().cursor > 0;
       } catch (e) {
         if (fromLocal) {
@@ -854,7 +860,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession, afterAccount]);
 
   const clearDeletedAccount = useCallback(async () => {
-    const user = sessionRef.current?.username;
+    const s = sessionRef.current;
+    const user = s ? snapshotOwner(s) : null;
     sessionRef.current = null;
     clearTimeout(timers.current.persist);
     clearTimeout(timers.current.sync);
@@ -916,7 +923,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           else await AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
         }
         if (s) {
-          const snap = await AsyncStorage.getItem(snapKey(s.username)).catch(() => null);
+          const owner = snapshotOwner(s);
+          const snap = await AsyncStorage.getItem(snapKey(owner)).catch(() => null);
           let parsed: unknown = null;
           try {
             parsed = snap ? JSON.parse(snap) : null;
@@ -926,10 +934,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             parsed = null;
           }
           engineRef.current = SyncEngine.fromSnapshot(parsed as never);
-          chefRef.current = SyncEngine.fromSnapshot(await readChefSnapshot(s.username) as never);
+          chefRef.current = SyncEngine.fromSnapshot(await readChefSnapshot(owner) as never);
           // A local store still on disk beside a session: a sign-in from
           // local mode that did not finish. Finish it (a no-op if it had).
-          if (OPTIONAL) await adoptLocal(s.username, null, false);
+          if (OPTIONAL) await adoptLocal(owner, null, false);
           hydratedRef.current = engineRef.current.toSnapshot().cursor > 0;
           setSessionState(s);
           sessionRef.current = s;

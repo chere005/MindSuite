@@ -12,14 +12,18 @@
  */
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { byRecOrd, SHARE_ID, shareOf, shareSelFor, type AnyRec, type Rec, type Share } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
 import { CircleBtn, ConfirmDelete, Field, Pill, Scroll } from '../ui';
 import { Dropdown } from './Dropdown';
+import { useToast } from './Toast';
 
 export function ShareModal({ onClose }: { onClose: () => void }) {
-  const { recs, mutate, partners, syncNow } = useStore();
+  const { recs, mutate, partners, syncNow, session } = useStore();
+  const toast = useToast();
+  const shareAddress = session?.publicAccount ? session.accountId : undefined;
   const share = shareOf(recs);
   const [newPartner, setNewPartner] = useState('');
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -74,6 +78,15 @@ export function ShareModal({ onClose }: { onClose: () => void }) {
         <Pressable style={s.card} onPress={() => {}}>
           <Text style={s.h2}>Sharing</Text>
           <Scroll style={s.scroll}>
+            {shareAddress && (
+              <View style={s.row}>
+                <Pill label="Copy my share address" onPress={() => {
+                  void Clipboard.setStringAsync(shareAddress)
+                    .then(() => toast('Share address copied'))
+                    .catch(() => toast('Could not copy the share address'));
+                }} />
+              </View>
+            )}
             {share.partners.length === 0 && (
               <Text style={s.empty}>
                 Sharing is a handshake: add someone below, and it starts only once they add you back.
@@ -118,7 +131,7 @@ export function ShareModal({ onClose }: { onClose: () => void }) {
                 testID="share-add-partner"
                 value={newPartner}
                 onChangeText={setNewPartner}
-                placeholder="Add a partner by username"
+                placeholder="Partner username or share address"
                 autoCapitalize="none"
                 style={s.addField}
                 onSubmitEditing={() => {

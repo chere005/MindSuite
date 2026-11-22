@@ -15,7 +15,7 @@ import { apiPost, SYNC_SPACE, type Session, syncTransport, ApiError, restoreWebS
 import { applyTheme, type ThemeName } from './theme';
 import { defaultServerUrl } from './config';
 import { SharedWrites, type SharedTrouble } from './sharedwrites';
-import { accountOptional, damagedKey, localSnapshotKey, snapshotKey } from './accountmode';
+import { accountOptional, damagedKey, localSnapshotKey, snapshotKey, snapshotOwner } from './accountmode';
 
 /**
  * Storage is per-INSTANCE, because on the web it is per-ORIGIN and prod, test
@@ -352,6 +352,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const s = sessionRef.current;
     if (!s) return;
     if (syncing.current) { syncAgain.current = true; return; }
+    const engine = engineRef.current;
     syncing.current = true;
     setSyncState('syncing');
     // The OUTER try exists only for the finally: the 401 path below returns
@@ -359,7 +360,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // for the life of the page — a worse bug than the pile-up it prevents.
     try {
     try {
-      await engineRef.current.sync(syncTransport(s));
+      await engine.sync(syncTransport(s));
+      if (sessionRef.current !== s) return;
       hydratedRef.current = true; // the server has spoken — seeding is safe now
       // Signed in from local mode: only now does this device know every
       // starter the account already had (its shopping list and pantry), so
@@ -390,6 +392,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSyncState(refusals.length > 0 ? 'refused' : 'idle');
       void pullShared();
     } catch (e) {
+      if (sessionRef.current !== s) return;
       // Offline is normal for a local-first app; a dead token is not.
       setSyncState('offline');
       if (e instanceof ApiError && e.status === 401) {
@@ -407,7 +410,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     }
     refresh();
-    persistNow(s.username);
+    persistNow(snapshotOwner(s));
     } finally {
       syncing.current = false;
       // Only if there is still a session: the 401 path above clears it and
@@ -462,7 +465,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       fn(engineRef.current);
       refresh();
       if (sessionRef.current) {
-        persistNow(sessionRef.current.username);
+        persistNow(snapshotOwner(sessionRef.current));
         syncSoon();
       } else if (localRef.current) {
         persistNow(LOCAL_USER); // local mode: saved, never sent
@@ -498,7 +501,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const onStorage = (ev: StorageEvent) => {
       const s = sessionRef.current;
       // Local mode is a store of its own, on the same terms.
-      const user = s ? s.username : localRef.current ? LOCAL_USER : null;
+      const user = s ? snapshotOwner(s) : localRef.current ? LOCAL_USER : null;
       if (!user || ev.key !== (s ? snapKey(user) : localKey()) || !ev.newValue) return;
       let snap: Snapshot | null = null;
       try {
@@ -548,6 +551,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(
     async (s: Session) => {
+      const owner = snapshotOwner(s);
       // From local mode, the local store is frozen FIRST: nothing writes its
       // key from here on, and a write still in flight lands before the merge
       // below can remove the key (landing after, it would bring it back).
@@ -569,7 +573,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s))
         .then(() => setPersistFailed(false))
         .catch(() => setPersistFailed(true));
-      const snap = await readMealStorage(snapKey(s.username));
+      const snap = await readMealStorage(snapKey(owner));
       // The PARSE needs guarding as much as the read did — guarding only the
       // read was this same bug one layer in. A corrupt snapshot threw here,
       // signIn threw, and Login showed 'something went wrong' every single
@@ -582,7 +586,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         restored = null;
       }
       engineRef.current = SyncEngine.fromSnapshot(restored as never);
-      if (OPTIONAL) await adoptLocal(s.username, localSnap, keepLocal);
+      if (OPTIONAL) await adoptLocal(owner, localSnap, keepLocal);
       hydratedRef.current = engineRef.current.toSnapshot().cursor > 0;
       } catch (e) {
         if (fromLocal) {
@@ -656,7 +660,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession, afterAccount]);
 
   const clearDeletedAccount = useCallback(async () => {
-    const user = sessionRef.current?.username;
+    const s = sessionRef.current;
+    const user = s ? snapshotOwner(s) : null;
     sessionRef.current = null;
     clearTimeout(timers.current.persist);
     clearTimeout(timers.current.sync);
@@ -715,7 +720,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           else await forgetSession();
         }
         if (s) {
-          const snap = await readMealStorage(snapKey(s.username));
+          const owner = snapshotOwner(s);
+          const snap = await readMealStorage(snapKey(owner));
           let parsed: unknown = null;
           try {
             parsed = snap ? JSON.parse(snap) : null;
@@ -727,7 +733,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           engineRef.current = SyncEngine.fromSnapshot(parsed as never);
           // A local store still on disk beside a session: a sign-in from
           // local mode that did not finish. Finish it (a no-op if it had).
-          if (OPTIONAL) await adoptLocal(s.username, null, false);
+          if (OPTIONAL) await adoptLocal(owner, null, false);
           hydratedRef.current = engineRef.current.toSnapshot().cursor > 0;
           setSessionState(s);
           sessionRef.current = s;

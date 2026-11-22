@@ -542,7 +542,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(true, call($public, ['action' => 'signin_info'])['body']['public_accounts'] ?? null, 'public form on a shared server');
         site(ON + ['mindsuite_auth_hold' => ['test' => ['calmind', 'mealmind']]]);
         foreach (['', 'chef'] as $space) {
-            $r = call($public, ['action' => 'public_signup', 'space' => $space,
+            $r = call($public, ['action' => 'public_signup', 'space' => $space, 'account_ids' => true,
                 'username' => 'alex', 'email' => 'alex@example.invalid', 'password' => 'passw0rd']);
             eq(409, $r['status'], 'existing suite name is still reserved');
         }

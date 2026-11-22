@@ -35,6 +35,9 @@ function boot(array $env): array
 
 function call(int $port, array $body, string $token = ''): array
 {
+    if (in_array($body['action'], ['public_signup', 'public_login'], true) || !empty($body['public'])) {
+        $body += ['account_ids' => true];
+    }
     $hdr = "Content-Type: application/json\r\n" . ($token !== '' ? "Authorization: Bearer $token\r\n" : '');
     $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => $hdr, 'content' => json_encode($body), 'ignore_errors' => true]]);
     $raw = (string) @file_get_contents("http://127.0.0.1:$port/api/index.php", false, $ctx);
@@ -77,6 +80,7 @@ echo "\n\033[1mon\033[0m\n";
 $cfg = ['data_dir' => $dir, 'storage' => 'sql'];
 $reset = fn() => array_map('unlink', glob($dir . '/{abuse,caps}-pa-*.json', GLOB_BRACE) ?: []);
 $tok = '';
+$owner = '';
 
 t('a household account still signs up and syncs beside them', function () use ($port, $rec) {
     $h = call($port, ['action' => 'signup', 'username' => 'sam', 'email' => 'sam@example.com', 'password' => 'sampassword']);
@@ -85,19 +89,24 @@ t('a household account still signs up and syncs beside them', function () use ($
     eq(200, call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('h1')]], $h['body']['token'])['status'], 'household sync');
 });
 
-t('public sign-up: a token, whoami says public, sync lands in the database in both spaces', function () use ($port, $cfg, $rec, &$tok) {
+t('public sign-up: a token, whoami says public, sync lands in the database in both spaces', function () use ($port, $cfg, $rec, &$tok, &$owner) {
     foreach (['', 'chef'] as $space) {
-        eq(true, call($port, ['action' => 'signin_info', 'space' => $space])['body']['public_accounts'] ?? null, 'public forms are advertised in both spaces');
+        $info = call($port, ['action' => 'signin_info', 'space' => $space])['body'];
+        eq([true, true], [$info['public_accounts'] ?? null, $info['public_account_ids'] ?? null], 'both spaces advertise account identities');
     }
     $r = call($port, ['action' => 'public_signup', 'space' => 'chef', 'username' => 'Ana', 'email' => 'ana@example.com', 'password' => 'anapassword']);
     eq(200, $r['status'], 'sign-up');
     eq(['ana', true], [$r['body']['username'], $r['body']['public']], 'canonical name, public');
     $tok = $r['body']['token'];
-    eq(['ana', true], [call($port, ['action' => 'whoami'], $tok)['body']['username'], call($port, ['action' => 'whoami'], $tok)['body']['public'] ?? null], 'whoami');
+    $owner = $r['body']['account_id'];
+    ok(preg_match('/\A~p-[a-f0-9]{24}\z/', $owner) === 1, 'an owner ID in its own namespace');
+    $who = call($port, ['action' => 'whoami'], $tok)['body'];
+    eq(['ana', true, $owner], [$who['username'], $who['public'], $who['account_id']], 'whoami');
+    eq(409, call($port, ['action' => 'public_login', 'account_ids' => false, 'username' => 'ana', 'password' => 'anapassword'])['status'], 'old clients cannot get a token that would reuse a username cache');
     eq(200, call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('n1')]], $tok)['status'], 'calmind sync');
     eq(200, call($port, ['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('soup')]], $tok)['status'], 'chef sync');
-    eq(['n1'], array_keys(rs_view($cfg, 'ana', '')->all()), 'calmind store');
-    eq(['soup'], array_keys(rs_view($cfg, 'ana', 'chef')->all()), 'chef store');
+    eq(['n1'], array_keys(rs_view($cfg, $owner, '')->all()), 'calmind store');
+    eq(['soup'], array_keys(rs_view($cfg, $owner, 'chef')->all()), 'chef store');
 });
 
 t('names: taken anywhere, reserved, or badly formed are refused; a race is decided by the key', function () use ($port, $reset) {
@@ -125,36 +134,36 @@ t('login: right, wrong, and locked after ten failures — locked answers the sam
     eq(true, call($port, $public + ['password' => 'anapassword'])['body']['public'] ?? null, 'right');
     eq(401, call($port, $public + ['password' => 'nope'])['status'], 'wrong');
     $s = call($port, ['action' => 'signup', 'public' => true, 'username' => 'locky', 'email' => 'l@example.com', 'password' => 'lockypass']);
-    for ($i = 0; $i < 10; $i++) { call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'bad']); }
-    eq(429, call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'bad'])['status'], 'locked, wrong');
-    eq(429, call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'lockypass'])['status'], 'locked, right');
+    for ($i = 0; $i < 10; $i++) { call($port, ['action' => 'public_login', 'username' => 'locky', 'password' => 'bad']); }
+    eq(429, call($port, ['action' => 'public_login', 'username' => 'locky', 'password' => 'bad'])['status'], 'locked, wrong');
+    eq(429, call($port, ['action' => 'public_login', 'username' => 'locky', 'password' => 'lockypass'])['status'], 'locked, right');
     eq(200, call($port, ['action' => 'whoami'], $s['body']['token'])['status'], 'an existing token is untouched by the lock');
 });
 
 t('change password: the old one is checked, other devices are signed out, this one stays', function () use ($port) {
-    $a = call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'anapassword'])['body']['token'];
-    $b = call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'anapassword'])['body']['token'];
+    $a = call($port, ['action' => 'public_login', 'username' => 'ana', 'password' => 'anapassword'])['body']['token'];
+    $b = call($port, ['action' => 'public_login', 'username' => 'ana', 'password' => 'anapassword'])['body']['token'];
     eq(403, call($port, ['action' => 'change_password', 'old' => 'wrong', 'new' => 'newanapass'], $a)['status'], 'wrong old');
     eq(200, call($port, ['action' => 'change_password', 'old' => 'anapassword', 'new' => 'newanapass'], $a)['status'], 'changed');
     eq(200, call($port, ['action' => 'whoami'], $a)['status'], 'this device');
     eq(401, call($port, ['action' => 'whoami'], $b)['status'], 'the other device');
-    eq(200, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'the new password');
+    eq(200, call($port, ['action' => 'public_login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'the new password');
 });
 
 t('what is not built yet answers 501 for a public account, never a household path', function () use ($port, &$tok) {
-    $tok = call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'newanapass'])['body']['token'];
+    $tok = call($port, ['action' => 'public_login', 'username' => 'ana', 'password' => 'newanapass'])['body']['token'];
     foreach (['passkey_list', 'passkey_register_begin', 'meetreq_mail'] as $a) {
         eq(501, call($port, ['action' => $a], $tok)['status'], $a);
     }
 });
 
-t('sharing works between a public account and a household one, by name, both ways mutual', function () use ($port, $rec, &$tok) {
+t('a public share address works with a household username, both ways mutual', function () use ($port, $rec, &$tok, &$owner) {
     $house = call($port, ['action' => 'login', 'username' => 'sam', 'password' => 'sampassword'])['body']['token'];
     $share = fn($partner) => $rec('share', ['partners' => [$partner], 'calendars' => [], 'folders' => ['f1'], 'notefolders' => []], 'share', 2000);
     call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('sam'), $rec('f1', ['name' => 'Groceries'], 'folder')]], $tok);
-    call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('ana')]], $house);
+    call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share($owner)]], $house);
     $pull = call($port, ['action' => 'shared_pull'], $house);
-    eq('ana', $pull['body']['partner'] ?? null, 'the household side sees the public partner');
+    eq($owner, $pull['body']['partner'] ?? null, 'the household side sees the public partner');
     ok(in_array('f1', array_column($pull['body']['records'], 'id'), true), 'and the shared folder');
 });
 
@@ -167,15 +176,98 @@ t('recipe import: an account is held to an hour of PA_FETCH_HOUR fetches', funct
     eq(60, count(array_filter($codes, fn($c) => $c === 400)), 'sixty judged');
 });
 
-t('delete: tokens dead, every space gone, partners scrubbed, the name free and empty', function () use ($port, $cfg, $rec, &$tok) {
-    eq(200, call($port, ['action' => 'delete_account'], $tok)['status'], 'deleted');
-    eq(401, call($port, ['action' => 'whoami'], $tok)['status'], 'token dead');
-    eq(401, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'no sign-in');
-    eq([null, null], [rs_export($cfg, 'ana', ''), rs_export($cfg, 'ana', 'chef')], 'both spaces');
-    eq([], rs_view($cfg, 'sam', '')->get('share')['payload']['partners'], "the household account's share no longer names it");
-    $again = call($port, ['action' => 'signup', 'public' => true, 'username' => 'ana', 'email' => 'ana2@example.com', 'password' => 'secondana']);
-    eq(200, $again['status'], 'the name can be taken again');
-    eq([], call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => []], $again['body']['token'])['body']['changes'], '…and starts empty');
+t('an interrupted deletion blocks sign-in and can be retried with the original token', function () use ($port, $cfg, &$tok, &$owner) {
+    $pdo = rs_pdo($cfg);
+    $pdo->exec('CREATE TRIGGER interrupt_purge BEFORE DELETE ON rs_records WHEN OLD.owner = ' . $pdo->quote($owner)
+        . " BEGIN SELECT RAISE(ABORT, 'test cleanup interruption'); END");
+    try {
+        eq(503, call($port, ['action' => 'delete_account'], $tok)['status'], 'interrupted purge');
+        eq(423, call($port, ['action' => 'sync', 'cursor' => 0], $tok)['status'], 'normal use is suspended without signing out the retrying client');
+        eq(401, call($port, ['action' => 'public_login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'cannot sign in');
+        eq(409, call($port, ['action' => 'public_signup', 'username' => 'ana',
+            'email' => 'ana@example.com', 'password' => 'newanapass'])['status'], 'name remains reserved');
+    } finally {
+        $pdo->exec('DROP TRIGGER interrupt_purge');
+    }
+});
+
+t('a reused name gets fresh records, sessions and sharing in both spaces', function () use ($port, $cfg, $rec, $reset, &$tok, &$owner) {
+    $reset();
+    eq(200, call($port, ['action' => 'delete_account'], $tok)['status'], 'retry finished deletion');
+    eq(401, call($port, ['action' => 'whoami'], $tok)['status'], 'old token dead');
+    eq(401, call($port, ['action' => 'public_login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'old credentials dead');
+    eq([null, null], [rs_export($cfg, $owner, ''), rs_export($cfg, $owner, 'chef')], 'old records gone in both spaces');
+    eq([], rs_view($cfg, 'sam', '')->get('share')['payload']['partners'], 'old share removed');
+    $again = call($port, ['action' => 'public_signup', 'username' => 'ana', 'email' => 'ana2@example.com', 'password' => 'secondana']);
+    eq(200, $again['status'], 'the name may be reused');
+    ok($owner !== $again['body']['account_id'], 'the new account has a distinct lifetime');
+    $new = $again['body']['token'];
+    $house = call($port, ['action' => 'login', 'username' => 'sam', 'password' => 'sampassword'])['body']['token'];
+    foreach (['', 'chef'] as $space) {
+        $scope = ['space' => $space];
+        eq([], call($port, ['action' => 'sync', 'cursor' => 0] + $scope, $new)['body']['changes'], 'new account starts empty');
+        $share = fn(string $partner) => $rec('share', ['partners' => [$partner], 'folders' => ['f1']], 'share', 5000000000);
+        call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share($owner), $rec('f1', ['name' => 'Private'], 'folder')]] + $scope, $house);
+        call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('sam')]] + $scope, $new);
+        eq(null, call($port, ['action' => 'shared_pull'] + $scope, $new)['body']['partner'], 'a stale share still names only the old owner');
+        eq(403, call($port, ['action' => 'shared_put', 'partner' => $owner, 'record' => $rec('a')] + $scope, $house)['status'], 'stale partner write refused');
+    }
+});
+
+t('household and public credentials with the same display name stay separate', function () use ($port, $cfg, $rec, $reset) {
+    $reset();
+    $fields = ['username' => 'max', 'email' => 'max@example.com', 'password' => 'maxpassword'];
+    $public = call($port, ['action' => 'public_signup'] + $fields)['body'];
+    $private = call($port, ['action' => 'signup'] + $fields)['body'];
+    ok(!isset($private['account_id']), 'household session stays a household session');
+    foreach (['', 'chef'] as $space) {
+        $sync = ['action' => 'sync', 'cursor' => 0, 'space' => $space];
+        foreach ([[$public, 'public-note'], [$private, 'household-note']] as [$session, $id]) {
+            $r = call($port, $sync + ['changes' => [$rec($id)]], $session['token']);
+            eq([$id], array_column($r['body']['changes'], 'id'), 'writes are isolated');
+        }
+    }
+    eq(200, call($port, ['action' => 'public_login'] + $fields)['status'], 'public explicit login still works');
+    ok(!isset(call($port, ['action' => 'login'] + $fields)['body']['public']), 'plain login never issues a public bearer');
+    eq(200, call($port, ['action' => 'delete_account'], $public['token'])['status'], 'public deletion');
+    eq(['household-note'], array_keys(rs_view($cfg, 'max', '')->all()), 'household records survived');
+    eq(200, call($port, ['action' => 'whoami'], $private['token'])['status'], 'household token survived');
+});
+
+t('earlier public credentials get an identity after proof and username-keyed trial records stay unassigned', function () use ($port, $cfg, $rec) {
+    $pdo = rs_pdo($cfg);
+    $pdo->prepare('INSERT INTO pa_accounts (name, email, hash, created) VALUES (?, ?, ?, ?)')
+        ->execute(['alex', 'alex@example.com', password_hash('alexpassword', PASSWORD_BCRYPT), time()]);
+    $token = bin2hex(random_bytes(32));
+    $pdo->prepare('INSERT INTO pa_tokens (id, name, created, last_seen) VALUES (?, ?, ?, ?)')
+        ->execute([hash('sha256', $token), 'alex', time(), time()]);
+    rs_tx($cfg, 'alex', '', fn(RecordSet $rs) => $rs->put($rec('unspecified-owner')));
+    eq(401, call($port, ['action' => 'whoami'], $token)['status'], 'old bearer cannot open a username-keyed store');
+    $login = ['action' => 'public_login', 'username' => 'alex', 'password' => 'alexpassword'];
+    $new = call($port, $login)['body'];
+    eq($new['account_id'], call($port, $login)['body']['account_id'], 'the verified credentials keep one identity');
+    eq([], call($port, ['action' => 'sync', 'cursor' => 0], $new['token'])['body']['changes'], 'ambiguous rows are never assigned automatically');
+    eq(['unspecified-owner'], array_keys(rs_view($cfg, 'alex', '')->all()), 'original rows are preserved for recovery');
+});
+
+t('the JSON driver isolates public records by lifetime too', function () use ($rec) {
+    [$jsonPort, $jsonDir] = boot(['CALMIND_PUBLIC_ACCOUNTS' => '1', 'CALMIND_STORAGE' => 'json']);
+    $cfg = ['data_dir' => $jsonDir, 'storage' => 'json'];
+    $signup = ['action' => 'public_signup', 'username' => 'max', 'email' => 'max@example.com', 'password' => 'maxpassword'];
+    $first = call($jsonPort, $signup)['body'];
+    foreach (['', 'chef'] as $space) {
+        $sync = ['action' => 'sync', 'space' => $space, 'cursor' => 0];
+        eq(200, call($jsonPort, $sync + ['changes' => [$rec('old-note')]], $first['token'])['status'], 'write old records');
+        eq(['old-note'], array_keys(rs_view($cfg, $first['account_id'], $space)->all()), 'stored under the owner ID');
+        eq(null, rs_export($cfg, 'max', $space), 'username store untouched');
+    }
+    eq(200, call($jsonPort, ['action' => 'delete_account'], $first['token'])['status'], 'deleted');
+    $next = call($jsonPort, $signup)['body'];
+    ok($first['account_id'] !== $next['account_id'], 'new lifetime');
+    foreach (['', 'chef'] as $space) {
+        eq(null, rs_export($cfg, $first['account_id'], $space), 'old owner purged');
+        eq([], call($jsonPort, ['action' => 'sync', 'space' => $space, 'cursor' => 0], $next['token'])['body']['changes'], 'new store empty');
+    }
 });
 
 echo "\n────────────────────────────────\n$pass passed, $fail failed\n";

@@ -10,6 +10,7 @@
  */
 import { bytesToB64u, pkceChallenge } from '@calmind/core';
 import { ApiError, apiPost, apiProbe, type Session } from './api';
+import { isPublicAccountId } from './accountmode';
 
 /** What signin_info said. */
 export type SignInFacts =
@@ -27,7 +28,7 @@ export async function signInFacts(serverUrl: string): Promise<SignInFacts> {
     if (status === 200 && data?.ok === true) {
       return {
         kind: 'answer', shared: data.shared === true, appSignIn: data.app_signin === true,
-        ...(data.public_accounts === true ? { publicAccounts: true } : {}),
+        ...(data.public_accounts === true && data.public_account_ids === true ? { publicAccounts: true } : {}),
       };
     }
     if (status === 400) return { kind: 'answer', shared: false, appSignIn: false };
@@ -55,11 +56,14 @@ export async function signInPublicAccount(
   serverUrl: string, username: string, password: string, email?: string,
 ): Promise<Session> {
   const credentials = email === undefined ? { action: 'public_login' } : { action: 'public_signup', email };
-  const r = await apiPost<{ public?: unknown; token?: unknown; username?: unknown }>(serverUrl, { ...credentials, username, password });
-  if (r.public !== true || typeof r.token !== 'string' || !r.token || typeof r.username !== 'string' || !r.username) {
+  const r = await apiPost<{ public?: unknown; token?: unknown; username?: unknown; account_id?: unknown }>(
+    serverUrl, { ...credentials, username, password, account_ids: true },
+  );
+  if (r.public !== true || typeof r.token !== 'string' || !r.token || typeof r.username !== 'string' || !r.username
+      || !isPublicAccountId(r.account_id)) {
     throw new Error('The server could not confirm your public account.');
   }
-  return { token: r.token, username: r.username, serverUrl, publicAccount: true };
+  return { token: r.token, username: r.username, serverUrl, publicAccount: true, accountId: r.account_id };
 }
 
 /** https://host[/test|/dev]/account/ of the API's instance (never the page's origin), or null when the API is not http(s). */

@@ -226,6 +226,7 @@ t('account deletion removes account data, shared references, and credentials', f
     eq(401, api(['action' => 'delete_account'])['status'], 'auth required');
     eq(200, api(['action' => 'delete_account'], $token)['status'], 'delete succeeds');
     eq(401, api(['action' => 'whoami'], $token)['status'], 'old token is invalid');
+    eq(409, api(['action' => 'signup', 'username' => 'DELETEME', 'email' => 'deleteme@example.com', 'password' => 'freshpass'])['status'], 'legacy username cannot be reassigned');
     eq(403, api(['action' => 'reset', 'username' => 'deleteme', 'code' => '123456', 'password' => 'newpass'])['status'], 'a recovery code cannot recreate a deleted account');
     $accounts = store_read($cfg, $scratch . '/accounts.json');
     $tokens = store_read($cfg, $scratch . '/tokens.json');
