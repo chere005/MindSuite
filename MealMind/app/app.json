@@ -3,7 +3,7 @@
     "name": "MealMind",
     "slug": "chefmind",
     "scheme": "com.seancheren.chefmind",
-    "version": "1.51.0",
+    "version": "1.52.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
