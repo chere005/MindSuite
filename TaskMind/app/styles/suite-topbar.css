@@ -36,14 +36,20 @@
 .ms-app-bar .ms-app-icon:hover .ms-app-icon-face { border-color: var(--accent); color: var(--text); }
 .ms-app-bar .ms-app-user { position: relative; flex: 0 0 auto; }
 .ms-app-bar .ms-app-account-face {
-  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   height: var(--ms-face-size); min-width: var(--ms-face-size); padding: 0 10px;
   border: 2px solid var(--ms-account-border, var(--accent)); border-radius: 999px;
   background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600;
 }
 .ms-app-bar .ms-app-account-label { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ms-app-bar .ms-app-caret { flex: 0 0 auto; font-size: 10px; line-height: 1; }
-.ms-app-bar .ms-app-caret svg { display: block; width: 10px; height: 10px; }
+/* The chevron is drawn, not a glyph or an icon, so every app's pill matches CalMind's (SuiteTopBar.tsx): a 7px corner,
+   1.5px strokes in the dim text colour, turned 45 degrees and lifted 2px. Whatever an app puts inside is not shown. */
+.ms-app-bar .ms-app-caret {
+  box-sizing: border-box; display: block; flex: 0 0 auto; width: 7px; height: 7px; overflow: hidden;
+  border: 0 solid var(--text-dim, var(--dim)); border-right-width: 1.5px; border-bottom-width: 1.5px;
+  transform: translateY(-2px) rotate(45deg); font-size: 0; line-height: 0; color: transparent;
+}
+.ms-app-bar .ms-app-caret > * { display: none; }
 .ms-app-bar .ms-app-menu {
   box-sizing: border-box; position: absolute; right: 0; top: calc(100% + 6px); z-index: 90;
   width: var(--ms-menu-width); min-width: 0; max-width: calc(100vw - 32px); padding: 4px;
