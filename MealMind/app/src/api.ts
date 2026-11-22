@@ -52,7 +52,7 @@ async function rawPost(
     const res = await fetch(serverUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
-      // Every call names this app's space, not only sync: the server follows the chefmind hold for it (CalMind
+      // Every call names this app's space, not only sync: the server follows the mealmind hold for it (CalMind
       // server/lib/app.php, SUITE_SPACE_APPS), so sign-in and sync are judged on the same switch.
       body: JSON.stringify({ ...body, space: SYNC_SPACE }),
       signal: ctl.signal,

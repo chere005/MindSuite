@@ -135,7 +135,7 @@ async function signupAndSeed(ctx) {
   await page.getByText('Sign up', { exact: true }).click();
   await page.getByTestId('tab-shopping').waitFor({ timeout: 30000 });
   await page.waitForTimeout(1500);
-  const tok = await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('chefmind.session@')) return JSON.parse(localStorage.getItem(k)).token; });
+  const tok = await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('mealmind.session@')) return JSON.parse(localStorage.getItem(k)).token; });
   const post = async (changes) => (await (await fetch(API, { method: 'POST', headers: { Authorization: `Bearer ${tok}` }, body: JSON.stringify({ action: 'sync', space: 'chef', cursor: 0, changes }) })).json());
   let snap = (await post([])).changes;
   for (let i = 0; i < 30 && !(snap.some((r) => r.type === 'folder' && r.payload.pantry) && snap.some((r) => r.type === 'folder' && r.payload.shopping)); i++) { await page.waitForTimeout(1000); snap = (await post([])).changes; }

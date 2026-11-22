@@ -26,7 +26,7 @@ function Root() {
   // The tab survives a refresh, and every switch feeds the back stack.
   const [tab, setTabState] = useState<Tab>(() => {
     if (typeof localStorage !== 'undefined') {
-      const t = localStorage.getItem('chefmind.tab');
+      const t = localStorage.getItem('mealmind.tab') ?? localStorage.getItem('chefmind.tab');
       // 'reminders' and 'add' are deliberately absent, and the absence does
       // work: a browser that used an older build has one of those strings in
       // localStorage, and accepting it would land on a tab that no longer
@@ -43,14 +43,14 @@ function Root() {
       setCanBack(true);
     }
     setTabState(t);
-    if (typeof localStorage !== 'undefined') localStorage.setItem('chefmind.tab', t);
+    if (typeof localStorage !== 'undefined') localStorage.setItem('mealmind.tab', t);
   };
   const goBack = () => {
     const prev = backStack.current.pop();
     setCanBack(backStack.current.length > 0);
     if (prev) {
       setTabState(prev);
-      if (typeof localStorage !== 'undefined') localStorage.setItem('chefmind.tab', prev);
+      if (typeof localStorage !== 'undefined') localStorage.setItem('mealmind.tab', prev);
     }
   };
   // A note made anywhere opens in its editor — Search hands the id over.

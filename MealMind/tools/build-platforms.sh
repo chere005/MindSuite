@@ -67,7 +67,7 @@ BUILD_SCRATCH="$ROOT/$APPDIR/ios"
 
 if [ "$DRY" = 1 ]; then
   [ "$WANT_MAC" = 1 ]     && echo "would: npm -w $DESKTOP_WS run build, then install to /Applications"
-  [ "$WANT_IOS" = 1 ]     && echo "would: prebuild $APPDIR (ios) if it has no workspace, sync app.json's version into it, xcodebuild Release against one of this app's phones, check the built version, devicectl install to each of them that answers"
+  [ "$WANT_IOS" = 1 ]     && echo "would: prebuild $APPDIR (ios) if it has no workspace or builds another bundle id than app.json's, sync app.json's version into it, xcodebuild Release against one of this app's phones, check the built version and bundle id, devicectl install to each of them that answers"
   [ "$WANT_ANDROID" = 1 ] && echo "would: prebuild $APPDIR (android), gradlew assembleRelease, adb install"
   exit 0
 fi
@@ -202,6 +202,32 @@ app_version() {
   esac
   printf '%s\n' "$_v"
 }
+# The bundle id app.json gives the iOS app: what prebuild writes into the
+# generated project, and what the built .app must carry before any phone gets
+# it. Same refusal as the version: node -p prints "undefined" for a missing key.
+app_bundle_id() {
+  _b=$( cd "$ROOT/$APPDIR" && node -p "require('./app.json').expo.ios.bundleIdentifier" 2>/dev/null ) || _b=""
+  case "$_b" in
+    undefined|''|.*|*.|*..*|*[!A-Za-z0-9.-]*) ;;
+    *.*) printf '%s\n' "$_b"; return 0 ;;
+  esac
+  echo "no usable expo.ios.bundleIdentifier in $APPDIR/app.json (got '$_b')" >&2
+  return 1
+}
+# The first bundle id a generated project builds that is not this app's — the
+# app's own id, or <id>.<suffix> for an extension of it — "<none>" when the
+# project builds none at all, and nothing when it matches.
+ios_project_foreign_id() { # pbxproj bundle-id
+  [ -f "$1" ] || { printf '<none>'; return 0; }
+  WANT_BUNDLE="$2" perl -ne '
+    BEGIN { $w = $ENV{WANT_BUNDLE}; }
+    if (/^\s*PRODUCT_BUNDLE_IDENTIFIER = "?([^";]*)"?;/) {
+      $id = $1;
+      if ($id eq $w) { $own = 1 } elsif (index($id, "$w.") != 0) { $odd = $id unless defined $odd }
+    }
+    END { print defined $odd ? $odd : ($own ? "" : "<none>") }
+  ' "$1"
+}
 sync_ios_version() {
   V=$(app_version) || return 1
   PBX=$(ls "$ROOT/$APPDIR"/ios/*.xcodeproj/project.pbxproj 2>/dev/null | head -1)
@@ -238,9 +264,25 @@ prebuild_ios() {
     ''|*[!A-Za-z0-9]*) echo "no plain expo.name in $APPDIR/app.json (got '$IOS_NAME')" >&2; return 1 ;;
   esac
   IOS_WS="$ROOT/$APPDIR/ios/$IOS_NAME.xcworkspace"
+  # THE BUNDLE ID IS BAKED IN THE SAME WAY: prebuild writes app.json's
+  # ios.bundleIdentifier into the pbxproj (PRODUCT_BUNDLE_IDENTIFIER) and the
+  # scheme into Info.plist, and a reused project keeps whatever it was
+  # generated with. A project that builds another id would install as another
+  # app and send sign-in back to another scheme, so it is regenerated too.
+  WANT_BUNDLE_ID=$(app_bundle_id) || return 1
+  REGEN=0
   if [ ! -d "$IOS_WS" ]; then
+    REGEN=1
     STALE=$(ls -d "$ROOT/$APPDIR"/ios/*.xcworkspace 2>/dev/null | head -1)
     [ -z "$STALE" ] || echo "    the generated project is $(basename "$STALE"), and the app is $IOS_NAME — generating it afresh"
+  else
+    FOREIGN=$(ios_project_foreign_id "$ROOT/$APPDIR/ios/$IOS_NAME.xcodeproj/project.pbxproj" "$WANT_BUNDLE_ID")
+    if [ -n "$FOREIGN" ]; then
+      REGEN=1
+      echo "    the generated project builds bundle id $FOREIGN, and app.json says $WANT_BUNDLE_ID — generating it afresh"
+    fi
+  fi
+  if [ "$REGEN" = 1 ]; then
     # LANG is not optional: CocoaPods dies in unicode_normalize without a UTF-8
     # locale, naming nothing useful. And note app/ios/build/ is NOT disposable —
     # ReactCodegen's generated sources live under it and are written by
@@ -251,6 +293,8 @@ prebuild_ios() {
     ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 SDKROOT=macosx npx expo prebuild --platform ios --clean ) \
       || { echo "prebuild failed" >&2; return 1; }
     [ -d "$IOS_WS" ] || { echo "prebuild produced no $IOS_NAME.xcworkspace" >&2; return 1; }
+    FOREIGN=$(ios_project_foreign_id "$ROOT/$APPDIR/ios/$IOS_NAME.xcodeproj/project.pbxproj" "$WANT_BUNDLE_ID")
+    [ -z "$FOREIGN" ] || { echo "prebuild produced a project building bundle id $FOREIGN, not $WANT_BUNDLE_ID" >&2; return 1; }
   fi
   # The JS bundle loads both sign-in modules at startup. A reused workspace
   # can compile with stale autolinking and leave the installed app blank.
@@ -532,6 +576,16 @@ PY
   if [ "$GOT_V" != "$WANT_V" ]; then
     echo "the built $SCHEME.app says version '${GOT_V:-<none>}', and app.json says $WANT_V — not installing it on any phone" >&2
     echo "  the sync into app/ios did not reach the build; look at $BUNDLE/Info.plist" >&2
+    exit 1
+  fi
+  # AND THE BUNDLE ID IT WILL INSTALL UNDER, off the same Info.plist. Another id
+  # is another app on the phone — a second icon beside the real one, signing in
+  # through a scheme the server does not know — so it goes to no phone either.
+  WANT_ID=$(app_bundle_id) || exit 1
+  GOT_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUNDLE/Info.plist" 2>/dev/null) || GOT_ID=""
+  if [ "$GOT_ID" != "$WANT_ID" ]; then
+    echo "the built $SCHEME.app says bundle id '${GOT_ID:-<none>}', and app.json says $WANT_ID — not installing it on any phone" >&2
+    echo "  the generated app/ios was not regenerated for it; look at $BUNDLE/Info.plist" >&2
     exit 1
   fi
   echo "    built: $SCHEME.app $GOT_V"

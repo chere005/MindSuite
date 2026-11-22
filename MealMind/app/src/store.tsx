@@ -8,6 +8,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { forgetMealStorage, readMealStorage } from './storage';
 import { watchForUpdate } from './update';
 import { SyncEngine, lastDeleted, normalize, prefsOf, folderApp, recLabel, shareOf, undeleted, type AnyRec, type Rec, type Snapshot } from '@calmind/core';
 import { apiPost, SYNC_SPACE, type Session, syncTransport, ApiError, restoreWebSession } from './api';
@@ -40,7 +41,7 @@ const instanceTag = (): string => {
 };
 
 /**
- * `chefmind.`, not `calmind.` — and this matters more here than the comment
+ * `mealmind.`, not `calmind.` — and this matters more here than the comment
  * above already says. MealMind is served from the SAME ORIGIN as CalMind
  * (seancheren.com), so the two share one localStorage exactly the way prod and
  * test used to. Under the CalMind prefix this app would read CalMind's
@@ -51,13 +52,11 @@ const instanceTag = (): string => {
  * tag is what separates a device that has switched servers from one that has
  * not.
  *
- * And `chefmind.`, not `mealmind.`: these keys hold the sign-in and the device's
- * only copy of unsynced edits. Renaming them would sign every device out and
- * strand those edits; a move would need a read-old, write-new step kept for
- * several releases.
+ * readMealStorage migrates these keys on first read to preserve existing
+ * sessions and the device's copy of unsynced edits.
  */
-const SESSION_KEY = `chefmind.session@${instanceTag()}`;
-const snapKey = (user: string) => `chefmind.snapshot.${user}@${instanceTag()}`;
+const SESSION_KEY = `mealmind.session@${instanceTag()}`;
+const snapKey = (user: string) => `mealmind.snapshot.${user}@${instanceTag()}`;
 
 /**
  * Forget the stored session — and if storage refuses to delete it, leave
@@ -76,16 +75,10 @@ const snapKey = (user: string) => `chefmind.snapshot.${user}@${instanceTag()}`;
  * no network — but the whole point of the rule about silent write failures
  * is that this is the shape they take.
  *
- * The launch path already drops a session that will not parse, so a value
- * that cannot parse is the answer. If the store refuses this write too we
- * are exactly where we were, which is why it is best-effort in turn.
+ * A null marker also leaves the launch path signed out if deletion fails.
  */
 async function forgetSession(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(SESSION_KEY);
-  } catch {
-    await AsyncStorage.setItem(SESSION_KEY, 'signed out').catch(() => {});
-  }
+  await forgetMealStorage(SESSION_KEY);
 }
 
 // 'refused' is not a kind of offline: the connection is fine and the server
@@ -419,7 +412,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s))
         .then(() => setPersistFailed(false))
         .catch(() => setPersistFailed(true));
-      const snap = await AsyncStorage.getItem(snapKey(s.username)).catch(() => null);
+      const snap = await readMealStorage(snapKey(s.username));
       // The PARSE needs guarding as much as the read did — guarding only the
       // read was this same bug one layer in. A corrupt snapshot threw here,
       // signIn threw, and Login showed 'something went wrong' every single
@@ -494,7 +487,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await persistQueue.current;
       // The account is gone on the server; its local cache must not survive
       // sign-out or be restored if the same username is later registered.
-      await AsyncStorage.removeItem(snapKey(user)).catch(() => {});
+      await forgetMealStorage(snapKey(user));
     }
     await forgetSession();
     clearSession();
@@ -523,27 +516,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // session means signed out, an unreadable snapshot means a fresh
       // engine. Damaged data costs you a login, never the app.
       try {
-        // No legacy-key adoption here. CalMind carries one because its keys
-        // were un-namespaced before instances existed; this app has never had
-        // a key of any other shape, and adopting `calmind.session` would be
-        // adopting the OTHER APP's session off the shared origin.
-        const raw = await AsyncStorage.getItem(SESSION_KEY).catch(() => null);
+        const raw = await readMealStorage(SESSION_KEY);
         let s: Session | null = null;
         try {
           s = raw ? (JSON.parse(raw) as Session) : null;
         } catch {
           // A session that will not parse is not a session. Drop it rather
           // than meet it again on every launch.
-          await AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
+          await forgetSession();
         }
         if (s) {
           s = await restoreWebSession(s);
           // Only session metadata changes. Every unsent snapshot stays on disk, and none is hydrated before identity is known.
           if (s) await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s)).catch(() => {});
-          else await AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
+          else await forgetSession();
         }
         if (s) {
-          const snap = await AsyncStorage.getItem(snapKey(s.username)).catch(() => null);
+          const snap = await readMealStorage(snapKey(s.username));
           let parsed: unknown = null;
           try {
             parsed = snap ? JSON.parse(snap) : null;

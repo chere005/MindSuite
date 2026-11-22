@@ -68,9 +68,9 @@ try {
         'S256 reproduces the RFC 7636 appendix B challenge');
 
     // 2. The return-address table.
-    $good = [['calmind', 'com.seancheren.calmind:/signin'], ['chefmind', 'com.seancheren.chefmind:/signin'],
-        ['calmind', 'http://127.0.0.1:1024/signin'], ['chefmind', 'http://127.0.0.1:65535/signin']];
-    $bad = [['calmind', 'com.seancheren.chefmind:/signin'], ['chefmind', 'com.seancheren.calmind:/signin'],
+    $good = [['calmind', 'com.seancheren.calmind:/signin'], ['mealmind', 'com.seancheren.mealmind:/signin'],
+        ['calmind', 'http://127.0.0.1:1024/signin'], ['mealmind', 'http://127.0.0.1:65535/signin']];
+    $bad = [['calmind', 'com.seancheren.mealmind:/signin'], ['mealmind', 'com.seancheren.calmind:/signin'],
         ['calmind', 'com.seancheren.calmind:/signin/'], ['calmind', 'com.seancheren.calmind://signin'],
         ['calmind', 'com.seancheren.calmind:/signin?x=1'], ['calmind', 'com.seancheren.calmind:/signin#x'],
         ['calmind', 'COM.SEANCHEREN.CALMIND:/signin'], ['calmind', 'http://127.0.0.1:1023/signin'],
@@ -80,13 +80,14 @@ try {
         ['calmind', 'http://127.0.0.1:8080/other'], ['calmind', 'http://user@127.0.0.1:8080/signin'],
         ['calmind', 'http://127.0.0.1:8080/signin?a=b'], ['calmind', 'http://127.0.0.1:8080/signin#a'],
         ['calmind', 'http://127.0.0.1:8080/signin' . "\n"], ['calmind', ''], ['unknown', 'com.seancheren.calmind:/signin'],
-        ['CalMind', 'com.seancheren.calmind:/signin']];
+        ['CalMind', 'com.seancheren.calmind:/signin'], ['nosuchapp', 'com.seancheren.nosuchapp:/signin']];
     $wrongGood = array_filter($good, static fn($r) => !msa_app_signin_redirect_ok($r[0], $r[1]));
     $wrongBad = array_filter($bad, static fn($r) => msa_app_signin_redirect_ok($r[0], $r[1]));
     check(!$wrongGood && !$wrongBad, 'the return-address table: ' . count($good) . ' allowed, ' . count($bad) . ' refused');
-    check(msa_app_signin_client('calmind')['name'] === 'CalMind' && msa_app_signin_client('chefmind')['scheme'] === 'com.seancheren.chefmind' &&
-        msa_app_signin_client('chefmind')['name'] === 'MealMind' &&
-        msa_app_signin_client('CalMind') === null && msa_app_signin_client('') === null, 'the client registry is exact');
+    check(msa_app_signin_client('calmind')['name'] === 'CalMind' && msa_app_signin_client('mealmind')['scheme'] === 'com.seancheren.mealmind' &&
+        msa_app_signin_client('mealmind')['name'] === 'MealMind' &&
+        msa_app_signin_client('CalMind') === null && msa_app_signin_client('nosuchapp') === null && msa_app_signin_client('') === null,
+        'the client registry is exact');
     check(msa_app_signin_challenge_ok($challenge) && !msa_app_signin_challenge_ok(substr($challenge, 1)) && !msa_app_signin_challenge_ok($challenge . '=') &&
         msa_app_signin_state_ok(str_repeat('a', 16)) && !msa_app_signin_state_ok(str_repeat('a', 15)) && !msa_app_signin_state_ok(str_repeat('a', 129)) &&
         !msa_app_signin_state_ok('a+b' . str_repeat('c', 20)), 'challenge and state shapes');
@@ -150,7 +151,7 @@ try {
 
     // 8. Wrong app and wrong return address.
     $code = $issue($alex)['code'];
-    check($redeem($code, 'chefmind') === null && $redeem($code) === null, 'a calmind code redeemed as chefmind is refused and burned');
+    check($redeem($code, 'mealmind') === null && $redeem($code) === null, 'a calmind code redeemed as mealmind is refused and burned');
     $code = $issue($alex)['code'];
     check($redeem($code, 'calmind', null, 'http://127.0.0.1:5000/signin') === null && $redeem($code) === null, 'a different return address is refused and burns the code');
 
@@ -230,8 +231,8 @@ try {
     check(count($db['app_codes']) === 1, 'expired and spent rows are pruned at the next issue');
     $db['app_codes'] = [hash('sha256', 'x') => ['spent' => hash('sha256', 'y'), 'until' => 1]];
     msa_store_write($cfg, $db);
-    $code = $issue($alex, 'chefmind', 'com.seancheren.chefmind:/signin');
-    $s = msa_app_signin_redeem($cfg, 'chefmind', $code['code'], $verifier, 'com.seancheren.chefmind:/signin', 'MealMind test', 'calmind', time());
+    $code = $issue($alex, 'mealmind', 'com.seancheren.mealmind:/signin');
+    $s = msa_app_signin_redeem($cfg, 'mealmind', $code['code'], $verifier, 'com.seancheren.mealmind:/signin', 'MealMind test', 'calmind', time());
     $db = msa_store_read($cfg);
     check($s !== null && count($db['app_codes'] ?? []) === 1 && array_key_exists('spent', array_values($db['app_codes'])[0]), 'a redeem leaves one spent marker');
     $db['app_codes'] = [];

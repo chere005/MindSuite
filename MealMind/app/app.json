@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "MealMind",
-    "slug": "chefmind",
-    "scheme": "com.seancheren.chefmind",
+    "slug": "mealmind",
+    "scheme": "com.seancheren.mealmind",
     "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,11 +10,11 @@
     "backgroundColor": "#111111",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.seancheren.chefmind",
+      "bundleIdentifier": "com.seancheren.mealmind",
       "buildNumber": "3"
     },
     "android": {
-      "package": "com.seancheren.chefmind",
+      "package": "com.seancheren.mealmind",
       "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#111111",

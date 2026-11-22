@@ -26,7 +26,7 @@ export const APP_MARK_PATH: string | undefined = (
   app.expo as { extra?: { markPath?: string } }
 ).extra?.markPath;
 
-/** The app's suite name (expo.slug: "calmind", "chefmind"): what /account/app/ and the API call it. */
+/** The app's suite name (expo.slug: "calmind", "mealmind"): what /account/app/ and the API call it. */
 export const APP_ID: string = app.expo.slug;
 
 /** The private-use URL scheme (expo.scheme, the bundle id) the system browser returns to; undefined in a build without one. */
