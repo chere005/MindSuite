@@ -641,11 +641,12 @@ function suite_lib_dir(array $cfg): string
  *  key that cannot be read, answered 503 by suite_cfg().
  * The site config is kept on the legacy answer too, for mindsuite_signup_closed (sign-up closes before the import).
  */
-function suite_auth(array $cfg): array
+function suite_auth(array $cfg, ?string $app = null): array
 {
     static $memo = [];
     $lib = suite_lib_dir($cfg);
-    $key = suite_app() . "\0" . $lib;
+    $app ??= suite_app();
+    $key = $app . "\0" . $lib;
     if (array_key_exists($key, $memo)) { return $memo[$key]; }
     $legacy = ['shared' => false, 'site' => null];
     $files = ['mindsuite-site-auth.php', 'mindsuite-auth.php', 'mindsuite-passkeys.php'];
@@ -668,7 +669,7 @@ function suite_auth(array $cfg): array
         return $memo[$key] = ['shared' => true, 'site' => null, 'auth' => null];
     }
     try {
-        $auth = mss_app_auth_config($site, suite_app());
+        $auth = mss_app_auth_config($site, $app);
         // Switched on: the store must read with this key now, under the store's own shared lock (the library opens it
         // 'c+'), so a damaged store, a lost key or a lock file that will not open read-write is one 503 here rather than
         // a library throw deep inside a handler (which would come back as a 500 with the library's words).
@@ -1847,9 +1848,10 @@ function handle_passkey_login_finish_shared(array $cfg, array $suite, array $in)
 function handle_signin_info(array $cfg): never
 {
     $suite = suite_auth($cfg);
-    if (!$suite['shared']) { reply(200, ['ok' => true, 'shared' => false, 'app_signin' => false]); }
+    $public = pa_enabled($cfg) ? ['public_accounts' => true] : [];
+    if (!$suite['shared']) { reply(200, ['ok' => true, 'shared' => false, 'app_signin' => false] + $public); }
     suite_cfg($suite);   // 503 shared:true when the store or key cannot be read
-    reply(200, ['ok' => true, 'shared' => true, 'app_signin' => function_exists('msa_app_signin_redeem')]);
+    reply(200, ['ok' => true, 'shared' => true, 'app_signin' => function_exists('msa_app_signin_redeem')] + $public);
 }
 
 /** Public, and worth nothing alone: a code from /account/app/ plus its PKCE verifier -> a calmind-scoped bearer, the reply `login` gives. */

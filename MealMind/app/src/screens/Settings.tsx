@@ -58,13 +58,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
   // which reads as "you have no passkeys" — so you add another one you did
   // not need, and end up with two on a device that only ever wanted one.
   const [keysKnown, setKeysKnown] = useState(false);
+  const publicAccount = session?.publicAccount === true;
   useEffect(() => {
+    if (localMode || publicAccount) return;
     void passkeyAvailable().then(setCanPasskey);
-    if (localMode) return; // no account, no passkeys, and no request to ask
     void listPasskeys(session!)
       .then((k) => { setKeys(k); setKeysKnown(true); })
       .catch(() => setKeysKnown(false));
-  }, [session, localMode]);
+  }, [session, localMode, publicAccount]);
   const [confirmPass, setConfirmPass] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -75,14 +76,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
   // A cookie session is the suite's; a bearer one learns it from the server's 403 `shared: true` below.
   const [sharedSeen, setSharedSeen] = useState(false);
   // A session made through the account page (app sign-in) is the suite's too.
-  const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
+  const shared = !publicAccount && (sharedSeen || sharedAccount(session?.token) || session?.suite === true);
   // An install upgraded from the old form still holds a scoped token with no mark: ask the server once (native and desktop only).
   useEffect(() => {
-    if (shared || !session || returnBrowser() === null) return;
+    if (shared || publicAccount || !session || returnBrowser() === null) return;
     let live = true;
     void signInFacts(session.serverUrl).then((f) => { if (live && f.kind === 'answer' && f.shared) setSharedSeen(true); });
     return () => { live = false; };
-  }, [session?.serverUrl, shared]);
+  }, [session?.serverUrl, shared, publicAccount]);
 
   // The suite's account page: same tab on the web (it comes back here by `next`), the system browser elsewhere.
   const openAccount = () => {
@@ -227,7 +228,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </>
           )}
           </>)}
-          {canPasskey && !shared && !inDesktopShell() && !localMode && (
+          {canPasskey && !shared && !inDesktopShell() && !localMode && !publicAccount && (
             <View testID="passkey-section" style={s.pkSection}>
               <Text style={s.pkHead}>Passkeys</Text>
               {!keysKnown && (

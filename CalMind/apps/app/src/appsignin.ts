@@ -13,7 +13,7 @@ import { ApiError, apiPost, apiProbe, type Session } from './api';
 
 /** What signin_info said. */
 export type SignInFacts =
-  | { kind: 'answer'; shared: boolean; appSignIn: boolean }
+  | { kind: 'answer'; shared: boolean; appSignIn: boolean; publicAccounts?: true }
   | { kind: 'unavailable'; message: string }   // shared, but it cannot answer now (503 shared:true)
   | { kind: 'unknown' };                       // no usable answer: offline, timeout, not JSON, another status
 
@@ -24,7 +24,12 @@ export type SignInFacts =
 export async function signInFacts(serverUrl: string): Promise<SignInFacts> {
   try {
     const { status, data } = await apiProbe(serverUrl, { action: 'signin_info' });
-    if (status === 200 && data?.ok === true) return { kind: 'answer', shared: data.shared === true, appSignIn: data.app_signin === true };
+    if (status === 200 && data?.ok === true) {
+      return {
+        kind: 'answer', shared: data.shared === true, appSignIn: data.app_signin === true,
+        ...(data.public_accounts === true ? { publicAccounts: true } : {}),
+      };
+    }
     if (status === 400) return { kind: 'answer', shared: false, appSignIn: false };
     if (data && data.ok !== true && data.shared === true) {
       return { kind: 'unavailable', message: typeof data.error === 'string' && data.error ? data.error : 'sign-in is unavailable right now' };
@@ -36,12 +41,25 @@ export async function signInFacts(serverUrl: string): Promise<SignInFacts> {
 }
 
 /** What the sign-in card shows: the one button, the old form, a refusal, or "could not reach the server". */
-export type LoginGate = 'app' | 'form' | 'unavailable' | 'offline';
+export type LoginGate = 'app' | 'form' | 'public' | 'unavailable' | 'offline';
 
-/** answer shared and app_signin -> 'app'; any other answer -> 'form'; unavailable -> 'unavailable'; unknown -> 'offline'. */
-export function gateFor(f: SignInFacts): LoginGate {
+/** Public forms require both an account-optional build and an explicit server capability. */
+export function gateFor(f: SignInFacts, accountOptional = false): LoginGate {
+  if (f.kind === 'answer' && accountOptional && f.publicAccounts) return 'public';
   if (f.kind === 'answer') return f.shared && f.appSignIn ? 'app' : 'form';
   return f.kind === 'unavailable' ? 'unavailable' : 'offline';
+}
+
+/** Use the isolated credential routes. An email selects account creation. */
+export async function signInPublicAccount(
+  serverUrl: string, username: string, password: string, email?: string,
+): Promise<Session> {
+  const credentials = email === undefined ? { action: 'public_login' } : { action: 'public_signup', email };
+  const r = await apiPost<{ public?: unknown; token?: unknown; username?: unknown }>(serverUrl, { ...credentials, username, password });
+  if (r.public !== true || typeof r.token !== 'string' || !r.token || typeof r.username !== 'string' || !r.username) {
+    throw new Error('The server could not confirm your public account.');
+  }
+  return { token: r.token, username: r.username, serverUrl, publicAccount: true };
 }
 
 /** https://host[/test|/dev]/account/ of the API's instance (never the page's origin), or null when the API is not http(s). */

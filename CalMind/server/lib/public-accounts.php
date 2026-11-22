@@ -19,10 +19,10 @@
  *
  * ON: config `public_accounts` => true (or CALMIND_PUBLIC_ACCOUNTS=1), which also needs the database (`storage` =>
  * 'sql' for the records is the intended pairing; the tables work with either records driver). OFF changes nothing:
- * pa_route() is never called and require_auth() never looks here.
+ * pa_route() refuses explicit public sign-in and sign-up without opening the database.
  *
  * NOT BUILT (docs/PUBLIC-MODEL.md): email verification, password reset by email, passkeys, per-account storage
- * quota, the app's sign-up screen for this path. The actions that would need them answer 501 for a public account.
+ * quota. The actions that would need those features answer 501 for a public account.
  */
 
 require_once __DIR__ . '/records.php';
@@ -75,7 +75,7 @@ function pa_name_elsewhere(array $cfg, string $name): bool
     foreach (array_keys(store_read($cfg, accounts_file($cfg))) as $legacy) {
         if (strtolower((string) $legacy) === $name) { return true; }
     }
-    $suite = suite_auth($cfg);
+    $suite = suite_auth($cfg, 'site');
     if ($suite['shared']) {
         if (($suite['auth'] ?? null) === null) { fail_shared(503, 'sign-in unavailable'); }
         if (msa_account_exists(suite_cfg($suite), $name) || msa_account_deleted(suite_cfg($suite), $name)) { return true; }
@@ -112,10 +112,20 @@ function pa_bearer_user(array $cfg): ?string
 function pa_route(array $cfg, array $in): void
 {
     $action = (string) ($in['action'] ?? '');
-    $who = in_array($action, ['signup', 'login'], true) ? null : pa_bearer_user($cfg);
+    $signup = $action === 'public_signup' || ($action === 'signup' && !empty($in['public']));
+    $login = $action === 'public_login';
+    if (!pa_enabled($cfg)) {
+        if ($signup || $login) { fail(403, 'public accounts are unavailable'); }
+        return;
+    }
+    if ($signup) { pa_signup($cfg, $in); }
+    if ($login || $action === 'login') {
+        pa_login_if_public($cfg, $in);
+        if ($login) { fail(401, 'wrong username or password'); }
+        return;
+    }
+    $who = $action === 'signup' ? null : pa_bearer_user($cfg);
     match (true) {
-        $action === 'signup' && !empty($in['public']) => pa_signup($cfg, $in),
-        $action === 'login'                           => pa_login_if_public($cfg, $in),
         $who === null                                 => null,
         $action === 'whoami'                          => reply(200, ['ok' => true, 'username' => $who, 'public' => true]),
         $action === 'logout'                          => pa_logout($cfg, $who),

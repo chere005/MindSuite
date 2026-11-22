@@ -532,6 +532,21 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(200, call($port, ['action' => 'whoami'], bearer($alex))['status'], 'writable again');
         site([]);
     });
+
+    t('public sign-up reserves suite names even when both apps are held', function () use ($scratch, $siteLib, $siteConfig) {
+        $data = $scratch . '/data-public';
+        mkdir($data, 0700);
+        $public = boot(['CALMIND_DATA_DIR' => $data, 'CALMIND_SITE_LIB' => $siteLib, 'CALMIND_SITE_CONFIG' => $siteConfig,
+            'SUITE_DATA_DIR' => $scratch . '/site', 'CALMIND_PUBLIC_ACCOUNTS' => '1', 'CALMIND_STORAGE' => 'sql']);
+        site(ON);
+        eq(true, call($public, ['action' => 'signin_info'])['body']['public_accounts'] ?? null, 'public form on a shared server');
+        site(ON + ['mindsuite_auth_hold' => ['test' => ['calmind', 'mealmind']]]);
+        foreach (['', 'chef'] as $space) {
+            $r = call($public, ['action' => 'public_signup', 'space' => $space,
+                'username' => 'alex', 'email' => 'alex@example.invalid', 'password' => 'passw0rd']);
+            eq(409, $r['status'], 'existing suite name is still reserved');
+        }
+    });
 }
 
 foreach (glob($scratch . '/server-*.log') ?: [] as $log) {

@@ -26,14 +26,15 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
   const nav = useNav();
   const { wide } = useWide();
   const { session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode, openSignIn } = useStore();
+  const publicAccount = session?.publicAccount === true;
   const [sharedSeen, setSharedSeen] = useState(false);
-  const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
+  const shared = !publicAccount && (sharedSeen || sharedAccount(session?.token) || session?.suite === true);
   useEffect(() => {
-    if (shared || !session) return;
+    if (shared || publicAccount || !session) return;
     let live = true;
     void signInFacts(session.serverUrl).then((f) => { if (live && f.kind === 'answer' && f.shared) setSharedSeen(true); });
     return () => { live = false; };
-  }, [session?.serverUrl, shared]);
+  }, [session?.serverUrl, shared, publicAccount]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const toast = useToast();
   const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode);

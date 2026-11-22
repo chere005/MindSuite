@@ -163,12 +163,17 @@ Tests: `server/tools/shared-login-test.php` (every mode), `server/tools/app-sign
 reads the site lib from `CALMIND_SITE_LIB_TEST` (default: a `seancheren-site`
 checkout beside this repository's).
 
+### Public accounts
+
+When `public_accounts` is enabled, `signin_info` also returns `public_accounts: true`. Account-optional CalMind and MealMind builds use that capability to offer their public account form. `public_signup` takes `username`, `email`, and `password`. `public_login` takes `username` and `password`. Both return `{ ok, token, username, public: true }`, with a bearer for the two apps' shared API. Disabled servers refuse both actions. The actions use public account credentials exclusively, and suite account names remain reserved during an app hold.
+
 ## Actions
 
 | Action | Auth | Purpose |
 | --- | --- | --- |
 | `signup` | — | Create an account → `{ token, username }`. |
 | `login` | — | `{ username, password }` → `{ token, username }`. |
+| `public_signup` / `public_login` | — | Create or sign in to a public account when public accounts are enabled. |
 | `logout` | Bearer | Revoke the calling token. |
 | `whoami` | Bearer | `{ username }` for the token. |
 | `signin_info` | — | `{ shared, app_signin }`: does this server take app sign-in (see above). |

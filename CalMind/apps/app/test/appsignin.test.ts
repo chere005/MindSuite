@@ -243,6 +243,42 @@ describe('signInFacts and gateFor', () => {
     expect(calls[0]!.body.action).toBe('signin_info');
     expect(calls[0]!.headers.Authorization).toBeUndefined();
   });
+  test('only account-optional builds use the public capability', async () => {
+    const shared = { ok: true, shared: true, app_signin: true };
+    const { flow } = await load([
+      { body: { ...shared, public_accounts: true } },
+      { body: { ...shared, public_accounts: 'true' } },
+    ]);
+    const facts = await flow.signInFacts(API);
+    expect(flow.gateFor(facts)).toBe('app');
+    expect(flow.gateFor(facts, true)).toBe('public');
+    expect(flow.gateFor(await flow.signInFacts(API), true)).toBe('app');
+  });
+});
+
+describe('public accounts', () => {
+  test('sign-up and sign-in send isolated actions and keep the public session on same-origin reload', async () => {
+    const reply = { body: { ok: true, public: true, token: CODE, username: 'alex' } };
+    const { flow, api, calls } = await load([reply, reply]);
+    vi.stubGlobal('location', { href: new URL('/calmind/', API).href });
+    expect(api.cookieApi(API)).toBe(true);
+    const session = await flow.signInPublicAccount(API, 'Alex', 'passw0rd', 'alex@example.invalid');
+    expect(session).toEqual({ token: CODE, username: 'alex', serverUrl: API, publicAccount: true });
+    expect(await api.restoreWebSession(session)).toEqual(session);
+    expect(await flow.signInPublicAccount(API, 'Alex', 'passw0rd')).toEqual(session);
+    expect(calls.map((call) => call.body.action)).toEqual(['public_signup', 'public_login']);
+    expect(calls[0]!.body.email).toBe('alex@example.invalid');
+    expect(calls[1]!.body).not.toHaveProperty('email');
+  });
+
+  test('a disabled server or a reply without a public credential cannot create a session', async () => {
+    const { flow } = await load([
+      { status: 403, body: { ok: false, error: 'public accounts are unavailable' } },
+      { body: { ok: true, token: CODE, username: 'alex' } },
+    ]);
+    await expect(flow.signInPublicAccount(API, 'alex', 'passw0rd')).rejects.toThrow('public accounts are unavailable');
+    await expect(flow.signInPublicAccount(API, 'alex', 'passw0rd')).rejects.toThrow('could not confirm');
+  });
 });
 
 describe('appsignin-browser', () => {

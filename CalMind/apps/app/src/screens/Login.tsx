@@ -10,7 +10,8 @@
  * (appsignin.ts, signin_info): one "Sign in" opens the suite's /account/app/ in
  * the system's authentication browser, where passwords, passkeys and password
  * managers work, and comes back signed in. The form below is for a server that
- * is not on shared sign-in (and for one too old to say).
+ * is not on shared sign-in (and for one too old to say). An account-optional
+ * build can also offer the public account form when the API advertises it.
  *
  * In an account-optional build (accountmode.ts) this card is opened from
  * local mode, by Settings → "Sign in to sync and share", and it always offers
@@ -23,7 +24,7 @@ import { defaultServerUrl } from '../config';
 import { login, signup, recover, reset, cookieApi, cookieToken, claimAccountRedirect, probeSharedSignIn, type SharedProbe } from '../api';
 import { useStore } from '../store';
 import { Field, Pill, ErrorLine } from '../ui';
-import { gateFor, signInFacts, signInThroughAccount, type LoginGate } from '../appsignin';
+import { gateFor, signInFacts, signInPublicAccount, signInThroughAccount, type SignInFacts } from '../appsignin';
 import { inDesktopShell, randomBytes, returnBrowser } from '../appsignin-browser';
 import { passkeyAvailable, signInWithPasskey } from '../passkey';
 import { themed, T } from '../theme';
@@ -39,6 +40,7 @@ type Mode = 'signin' | 'signup' | 'recover' | 'reset';
 type Gate =
   | { at: 'checking' }
   | { at: 'form' }
+  | { at: 'public'; household: boolean }
   | { at: 'app' }
   | { at: 'waiting' }
   | { at: 'offline' }
@@ -63,8 +65,7 @@ export function Login() {
   const serverUrl = defaultServerUrl();
   // The system browser this build signs in with (native, the desktop shell), or null (the web build).
   const browser = useMemo(returnBrowser, []);
-  // A build with a system browser asks signin_info first, a page that may use the suite cookie asks whoami; any other opens on the form.
-  const [gate, setGate] = useState<Gate>(() => (browser || cookieApi(serverUrl) ? { at: 'checking' } : { at: 'form' }));
+  const [gate, setGate] = useState<Gate>(() => (localMode || browser || cookieApi(serverUrl) ? { at: 'checking' } : { at: 'form' }));
 
   /**
    * Act on what the sign-in check found. True when it was handled here (the
@@ -94,7 +95,6 @@ export function Login() {
     setGate({ at: 'form' });
     return false;
   };
-  const check = () => probeSharedSignIn(serverUrl).then(apply);
   // A failed probe cannot authorize a second, bearer-based web login or mark it as a known legacy session.
   const legacyFormAllowed = async (): Promise<boolean> => {
     if (!cookieApi(serverUrl)) return true;
@@ -104,30 +104,37 @@ export function Login() {
     setError('Could not check your sign-in. Check your connection and try again.');
     return false;
   };
-  /** Native and desktop: what does the API say it takes? Only a fresh 'form' answer permits password submission. */
-  const probeApp = async (): Promise<LoginGate> => {
-    const f = await signInFacts(serverUrl);
-    const g = gateFor(f);
-    setGate(g === 'unavailable' && f.kind === 'unavailable' ? { at: 'unavailable', message: f.message } : { at: g === 'unavailable' ? 'offline' : g });
-    return g;
+  const appGate = (facts: SignInFacts): Gate => {
+    if (facts.kind === 'unavailable') return { at: 'unavailable', message: facts.message };
+    const at = gateFor(facts, localMode);
+    if (at === 'public') {
+      const household = facts.kind === 'answer' && facts.shared && (browser ? facts.appSignIn : cookieApi(serverUrl));
+      return { at, household };
+    }
+    return { at: at === 'unavailable' ? 'offline' : at };
   };
-  const retry = () => { setGate({ at: 'checking' }); void (browser ? probeApp() : check()).catch(() => setGate({ at: browser ? 'offline' : 'form' })); };
+  const checkSignIn = async (isLive: () => boolean) => {
+    if (localMode || browser) {
+      const next = appGate(await signInFacts(serverUrl));
+      if (!isLive()) return;
+      if (browser || next.at === 'public') {
+        setGate(next);
+        return;
+      }
+    }
+    const p = await probeSharedSignIn(serverUrl);
+    if (isLive()) await apply(p);
+  };
+  const retry = () => {
+    setGate({ at: 'checking' });
+    void checkSignIn(() => true).catch(() => setGate({ at: browser ? 'offline' : 'form' }));
+  };
   useEffect(() => {
     if (gate.at !== 'checking') return;
     let live = true;
-    if (browser) {
-      void signInFacts(serverUrl).then((f) => {
-        if (!live) return;
-        const g = gateFor(f);
-        setGate(f.kind === 'unavailable' ? { at: 'unavailable', message: f.message } : { at: g === 'unavailable' ? 'offline' : g });
-      });
-      return () => { live = false; };
-    }
-    void probeSharedSignIn(serverUrl)
-      .then((p) => (live ? apply(p) : undefined))
-      .catch(() => { if (live) setGate({ at: 'form' }); });
+    void checkSignIn(() => live).catch(() => { if (live) setGate({ at: browser ? 'offline' : 'form' }); });
     return () => { live = false; };
-    // Once per mount: the check is the page load's, and `apply` only calls setters and signIn.
+    // The initial check runs once per mount.
   }, []);
 
   const run = async (fn: () => Promise<void>) => {
@@ -144,7 +151,7 @@ export function Login() {
 
   /** Press Sign in: the system browser, then the code redeemed. A second press while waiting does nothing. */
   const startSignIn = async () => {
-    if (!browser || gate.at !== 'app') return;
+    if (!browser || (gate.at !== 'app' && gate.at !== 'public')) return;
     setError('');
     setGate({ at: 'waiting' });
     try {
@@ -153,25 +160,37 @@ export function Login() {
         await signIn(r.session);
         return;
       }
-      setGate({ at: 'app' });
+      setGate(gate);
       if (r.kind === 'error') setError(r.message);
     } catch (e) {
-      setGate({ at: 'app' });
+      setGate(gate);
       setError(e instanceof Error ? e.message : 'something went wrong');
     }
   };
 
+  const publicForm = gate.at === 'public';
   const submit = () => {
+    if (busy) return;
     if ((mode === 'signup' || mode === 'reset') && password !== confirmPw) {
       setError("those passwords don't match");
       return;
     }
     return run(async () => {
+      if (publicForm) {
+        if (mode !== 'signin' && mode !== 'signup') return;
+        await signIn(await signInPublicAccount(serverUrl, username, password, mode === 'signup' ? email : undefined));
+        return;
+      }
       // The form is for servers that are not on shared sign-in. Ask again before it is used: a check that found
       // nothing (offline at load) must not let a password sign in with a token against a server that is.
       if (!(await legacyFormAllowed())) return;
       // Native and desktop: a server that now takes app sign-in switches the card and posts nothing.
-      if (browser && (await probeApp()) !== 'form') return;
+      if (browser) {
+        const next = appGate(await signInFacts(serverUrl));
+        setGate(next);
+        if (next.at === 'public') setMode('signin');
+        if (next.at !== 'form') return;
+      }
       if (mode === 'signin') {
         const r = await login(serverUrl, username, password);
         await signIn({ token: r.token, username: r.username, serverUrl, ...(cookieApi(serverUrl) ? { webLegacy: true as const } : {}) });
@@ -188,7 +207,7 @@ export function Login() {
     });
   };
 
-  if (gate.at !== 'form') {
+  if (gate.at !== 'form' && gate.at !== 'public') {
     return (
       <View style={s.page}>
         <View style={s.card}>
@@ -295,7 +314,7 @@ export function Login() {
             onPress={submit}
           />
         </View>
-        {mode === 'signin' && canPasskey && !inDesktopShell() && (
+        {mode === 'signin' && !publicForm && canPasskey && !inDesktopShell() && (
           <View style={s.actions}>
             <Pill
               testID="passkey-signin"
@@ -310,22 +329,35 @@ export function Login() {
           </View>
         )}
         <View style={s.links}>
-          {mode !== 'signin' && <Pill label="Sign in" onPress={() => setMode('signin')} />}
-          {mode === 'signin' && <Pill label="Sign up" onPress={() => setMode('signup')} />}
-          {mode === 'signin' && <Pill label="Forgot?" onPress={() => setMode('recover')} />}
+          {mode !== 'signin' && <Pill disabled={busy} label="Sign in" onPress={() => setMode('signin')} />}
+          {mode === 'signin' && <Pill disabled={busy} label="Sign up" onPress={() => setMode('signup')} />}
+          {mode === 'signin' && !publicForm && <Pill label="Forgot?" onPress={() => setMode('recover')} />}
+          {gate.at === 'public' && gate.household && mode === 'signin' && (
+            <Pill disabled={busy} label="Use a MindSuite account" onPress={() => {
+              if (browser) { void startSignIn(); return; }
+              void run(async () => {
+                const p = await probeSharedSignIn(serverUrl);
+                if (p.kind === 'legacy' || p.kind === 'unknown') {
+                  setError('Could not check your MindSuite sign-in. Try again.');
+                  return;
+                }
+                await apply(p);
+              });
+            }} />
+          )}
         </View>
-        {localMode && <LocalWayBack onPress={closeSignIn} />}
+        {localMode && <LocalWayBack onPress={closeSignIn} disabled={busy} />}
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 /** Local mode only: what signing in does with this device's records, and the way back to them. */
-function LocalWayBack({ onPress }: { onPress: () => void }) {
+function LocalWayBack({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
   return (
     <View style={s.local}>
       <Text style={s.hint}>What you made on this device comes with you when you sign in or sign up.</Text>
-      <Pill testID="use-locally" label="Continue without an account" onPress={onPress} />
+      <Pill testID="use-locally" label="Continue without an account" onPress={onPress} disabled={disabled} />
     </View>
   );
 }

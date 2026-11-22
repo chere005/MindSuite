@@ -38,15 +38,16 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
   const { wide } = useWide();
   const below = React.useContext(BelowTopBar);
   const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode, openSignIn } = useStore();
-  const requests = useMemo(() => meetreqBadgeCount(recs), [recs]);
+  const publicAccount = session?.publicAccount === true;
+  const requests = useMemo(() => publicAccount ? 0 : meetreqBadgeCount(recs), [recs, publicAccount]);
   const [sharedSeen, setSharedSeen] = useState(false);
-  const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
+  const shared = !publicAccount && (sharedSeen || sharedAccount(session?.token) || session?.suite === true);
   useEffect(() => {
-    if (shared || !session) return;
+    if (shared || publicAccount || !session) return;
     let live = true;
     void signInFacts(session.serverUrl).then((f) => { if (live && f.kind === 'answer' && f.shared) setSharedSeen(true); });
     return () => { live = false; };
-  }, [session?.serverUrl, shared]);
+  }, [session?.serverUrl, shared, publicAccount]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const toast = useToast();
@@ -74,7 +75,7 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
   const items: AccountMenuItem[] = localMode
     ? [{ key: 'signin', label: 'Sign in to sync and share', testID: 'menu-signin', onPress: openSignIn },
       ...accountItems.filter((i) => i.key !== 'account' && i.key !== 'requests' && i.key !== 'signout')]
-    : accountItems;
+    : publicAccount ? accountItems.filter((i) => i.key !== 'requests') : accountItems;
   return <>
     <TopBarFrame title={title} titleAfter={titleAfter} colors={colors}
       left={wide ? undefined : <TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
@@ -85,7 +86,7 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
     />
     {wide && below}
     {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
-    {requestsOpen && !localMode && <Requests onClose={() => setRequestsOpen(false)} />}
+    {requestsOpen && !localMode && !publicAccount && <Requests onClose={() => setRequestsOpen(false)} />}
   </>;
 }
 

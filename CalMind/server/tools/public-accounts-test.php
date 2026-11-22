@@ -61,11 +61,14 @@ $rec = fn(string $id, $payload = ['t' => 'x'], string $type = 'note', int $updat
     ['id' => $id, 'type' => $type, 'updated' => $updated, 'payload' => $payload];
 
 echo "\n\033[1moff\033[0m\n";
-[$offPort, $offDir] = boot([]);
-t('off: a sign-up that asks to be public is the household sign-up, and no public table exists', function () use ($offPort, $offDir) {
-    $r = call($offPort, ['action' => 'signup', 'public' => true, 'username' => 'max', 'email' => 'max@example.com', 'password' => 'maxpassword']);
-    eq(200, $r['status'], 'legacy sign-up as today');
-    ok(!array_key_exists('public', $r['body']), 'not a public account');
+[$offPort, $offDir] = boot(['CALMIND_PUBLIC_ACCOUNTS' => '0']);
+t('off: public credentials are refused without opening a database or falling through to household sign-up', function () use ($offPort, $offDir) {
+    $fields = ['username' => 'max', 'email' => 'max@example.com', 'password' => 'maxpassword'];
+    ok(!isset(call($offPort, ['action' => 'signin_info'])['body']['public_accounts']), 'off is not advertised');
+    eq(403, call($offPort, ['action' => 'public_signup'] + $fields)['status'], 'public sign-up');
+    eq(403, call($offPort, ['action' => 'signup', 'public' => true] + $fields)['status'], 'earlier public sign-up');
+    eq(403, call($offPort, ['action' => 'public_login'] + $fields)['status'], 'public sign-in');
+    eq(200, call($offPort, ['action' => 'signup'] + $fields)['status'], 'household name remains free');
     ok(!is_file($offDir . '/records.sqlite'), 'no database was opened');
 });
 
@@ -78,11 +81,15 @@ $tok = '';
 t('a household account still signs up and syncs beside them', function () use ($port, $rec) {
     $h = call($port, ['action' => 'signup', 'username' => 'sam', 'email' => 'sam@example.com', 'password' => 'sampassword']);
     eq(200, $h['status'], 'household sign-up');
+    eq(401, call($port, ['action' => 'public_login', 'username' => 'sam', 'password' => 'sampassword'])['status'], 'public form cannot sign into a household account');
     eq(200, call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('h1')]], $h['body']['token'])['status'], 'household sync');
 });
 
 t('public sign-up: a token, whoami says public, sync lands in the database in both spaces', function () use ($port, $cfg, $rec, &$tok) {
-    $r = call($port, ['action' => 'signup', 'public' => true, 'username' => 'Ana', 'email' => 'ana@example.com', 'password' => 'anapassword']);
+    foreach (['', 'chef'] as $space) {
+        eq(true, call($port, ['action' => 'signin_info', 'space' => $space])['body']['public_accounts'] ?? null, 'public forms are advertised in both spaces');
+    }
+    $r = call($port, ['action' => 'public_signup', 'space' => 'chef', 'username' => 'Ana', 'email' => 'ana@example.com', 'password' => 'anapassword']);
     eq(200, $r['status'], 'sign-up');
     eq(['ana', true], [$r['body']['username'], $r['body']['public']], 'canonical name, public');
     $tok = $r['body']['token'];
@@ -114,8 +121,9 @@ t('sign-up caps: the sixth from one address in an hour is refused', function () 
 });
 
 t('login: right, wrong, and locked after ten failures — locked answers the same for the right password', function () use ($port) {
-    eq(200, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'anapassword'])['status'], 'right');
-    eq(401, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'nope'])['status'], 'wrong');
+    $public = ['action' => 'public_login', 'username' => 'ana'];
+    eq(true, call($port, $public + ['password' => 'anapassword'])['body']['public'] ?? null, 'right');
+    eq(401, call($port, $public + ['password' => 'nope'])['status'], 'wrong');
     $s = call($port, ['action' => 'signup', 'public' => true, 'username' => 'locky', 'email' => 'l@example.com', 'password' => 'lockypass']);
     for ($i = 0; $i < 10; $i++) { call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'bad']); }
     eq(429, call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'bad'])['status'], 'locked, wrong');

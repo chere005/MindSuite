@@ -19,6 +19,8 @@ export type Session = {
   suite?: boolean;
   /** A successful legacy form sign-in on the web; permits its local cache to reopen offline. */
   webLegacy?: true;
+  /** A public account has its own bearer and does not follow the suite cookie. */
+  publicAccount?: true;
 };
 
 /**
@@ -331,6 +333,7 @@ export async function probeSharedSignIn(serverUrl: string): Promise<SharedProbe>
  */
 export async function restoreWebSession(saved: Session): Promise<Session | null> {
   if (!cookieApi(saved.serverUrl)) return saved;
+  if (saved.publicAccount === true && cookieUserOf(saved.token) === null) return saved;
   const p = await probeSharedSignIn(saved.serverUrl);
   if (p.kind === 'cookie') return { token: cookieToken(p.username), username: p.username, serverUrl: saved.serverUrl };
   if (p.kind === 'legacy') return cookieUserOf(saved.token) === null ? saved : null;
