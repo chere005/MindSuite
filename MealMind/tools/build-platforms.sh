@@ -279,8 +279,13 @@ if [ "$WANT_MAC" = 1 ]; then
   ensure_dist || exit 1
   ( cd "$ROOT" && npm -w "$DESKTOP_WS" run build ) \
     || { echo "the macOS bundle failed to build" >&2; exit 1; }
-  APPBUNDLE=$(ls -d "$ROOT"/desktop/src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -1)
-  [ -n "$APPBUNDLE" ] || { echo "the build reported success and produced no .app" >&2; exit 1; }
+  # BY NAME, never the first *.app in the folder: a ChefMind.app left there by
+  # a pre-rename build (a carried-over target/) sorts before MealMind.app, and
+  # would be the one signed, smoked and installed.
+  PRODUCT=$(cd "$ROOT" && node -p "require('./desktop/src-tauri/tauri.conf.json').productName") && [ -n "$PRODUCT" ] \
+    || { echo "could not read productName from desktop/src-tauri/tauri.conf.json" >&2; exit 1; }
+  APPBUNDLE="$ROOT/desktop/src-tauri/target/release/bundle/macos/$PRODUCT.app"
+  [ -d "$APPBUNDLE" ] || { echo "the build reported success and produced no $PRODUCT.app" >&2; exit 1; }
   echo "    $APPBUNDLE"
   # Local Tauri bundles need a complete ad-hoc signature before any smoke may launch them.
   codesign --force --deep --sign - "$APPBUNDLE" \
@@ -321,16 +326,18 @@ if [ "$WANT_MAC" = 1 ]; then
   # /Applications/ChefMind.app under the SAME bundle identifier MealMind.app
   # carries (com.seancheren.chefmind.desktop, kept because it owns the sign-in
   # and the offline data). Two bundles with one identifier confuse
-  # LaunchServices about which one it opens. So the old one is quit the way
-  # MealMind is below (asked, never killed) and moved to the Trash, from where
-  # it can be put back. Matched on the exact path AND the identifier, so
+  # LaunchServices about which one it opens. So the old one is quit here, the
+  # way MealMind is below (asked, never killed), and moved to the Trash, from
+  # where it can be put back, only AFTER MealMind.app is installed and its
+  # signature verified: a failed copy must not leave neither app in
+  # /Applications. Matched on the exact path AND the identifier, so
   # TestChefMind.app, or a ChefMind.app that is something else, is never
   # touched. One that will not quit stays put, and the next build tries again.
   OLD_APP="/Applications/ChefMind.app"
-  OLD_REOPEN=0
+  OLD_REOPEN=0; OLD_GONE=0; OLD_WAS_RUNNING=0
   if [ -d "$OLD_APP" ] &&
       [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$OLD_APP/Contents/Info.plist" 2>/dev/null)" = com.seancheren.chefmind.desktop ]; then
-    OLD_GONE=1; OLD_WAS_RUNNING=0
+    OLD_GONE=1
     if pgrep -f "$OLD_APP/Contents/MacOS/" >/dev/null 2>&1; then
       OLD_WAS_RUNNING=1
       echo "    quitting ChefMind — it is MealMind now"
@@ -341,17 +348,6 @@ if [ "$WANT_MAC" = 1 ]; then
         sleep 1
         WAITED=$((WAITED + 1))
       done
-    fi
-    if [ "$OLD_GONE" = 1 ]; then
-      # trash(8) is macOS 15's; NSFileManager does the same thing before it.
-      { [ -x /usr/bin/trash ] && /usr/bin/trash -s "$OLD_APP" >/dev/null 2>&1; } ||
-        osascript -l JavaScript -e "ObjC.import('Foundation'); \$.NSFileManager.defaultManager.trashItemAtURLResultingItemURLError(\$.NSURL.fileURLWithPath('$OLD_APP'), null, null)" >/dev/null 2>&1 || true
-      if [ -e "$OLD_APP" ]; then
-        echo "warning: /Applications/ChefMind.app could not be moved to the Trash — it stays until the next build" >&2
-      else
-        echo "    moved /Applications/ChefMind.app to the Trash: MealMind.app replaces it"
-        OLD_REOPEN=$OLD_WAS_RUNNING
-      fi
     fi
   fi
   APPNAME=$(basename "$APPBUNDLE" .app)
@@ -392,6 +388,18 @@ if [ "$WANT_MAC" = 1 ]; then
       || { echo 'the installed app signature could not be verified' >&2; exit 1; }
   fi
   echo "    installed: /Applications/$(basename "$APPBUNDLE")"
+  # The old ChefMind.app (quit above), now that MealMind.app is in its place.
+  if [ "$OLD_GONE" = 1 ]; then
+    # trash(8) is macOS 15's; NSFileManager does the same thing before it.
+    { [ -x /usr/bin/trash ] && /usr/bin/trash -s "$OLD_APP" >/dev/null 2>&1; } ||
+      osascript -l JavaScript -e "ObjC.import('Foundation'); \$.NSFileManager.defaultManager.trashItemAtURLResultingItemURLError(\$.NSURL.fileURLWithPath('$OLD_APP'), null, null)" >/dev/null 2>&1 || true
+    if [ -e "$OLD_APP" ]; then
+      echo "warning: /Applications/ChefMind.app could not be moved to the Trash — it stays until the next build" >&2
+    else
+      echo "    moved /Applications/ChefMind.app to the Trash: MealMind.app replaces it"
+      OLD_REOPEN=$OLD_WAS_RUNNING
+    fi
+  fi
   # AND GIVE HIM HIS WINDOW BACK — only if it was there to begin with. An app
   # he had closed stays closed: a release that conjures windows onto his
   # desktop is its own kind of rude. Best-effort from here down, like every

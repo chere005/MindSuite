@@ -11,7 +11,7 @@ Feel free to deploy this on your own website, build and deploy the iOS version, 
 ## Quick start / Install
 
 - Web: [seancheren.com/MealMind](https://seancheren.com/MealMind). Installs as a PWA. Sign in with a CalMind account.
-- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/ChefMind/releases). Unsigned.
+- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/MindSuite/releases) (the `MealMind/` tags; `ChefMind/` up to 1.51.0). Unsigned.
 - iOS and Android: build from source, see Building.
 
 ## Platforms

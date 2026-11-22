@@ -164,5 +164,33 @@ fi
 unset CHEF_TARGET_WRONG_PAGE
 if run --dry-run && grep -q '^rsync .*--dry-run.*tools/old-path/ fixture.invalid:/home/public/ChefMind.next/' "$CHEF_TARGET_LOG" &&
     ! grep -q '^ssh .*mv ' "$CHEF_TARGET_LOG" && ! grep -q '/ChefMind.next/sw.js' "$CHEF_TARGET_LOG"; then ok 'a dry run previews the old-path upload and swaps nothing'; else bad 'dry-run retirement'; fi
+
+# The redirect folder's own rewrite rules replace the site root's, so it must
+# route test. and dev. hosts to their own instance BEFORE it redirects;
+# otherwise PROD's /ChefMind/ answers every test.seancheren.com/ChefMind/
+# request (the sandbox, TEST's retirement probes) with prod's redirect. The
+# curl stub above treats the instances as independent and cannot see that, so
+# this reads the file. Checked against two broken copies too, so it can fail.
+routes_hosts() { # routes_hosts <htaccess>: host routing and the sw.js pass-through come before the 302
+  awk '
+    /^[[:space:]]*(#|$)/ { next }
+    { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); n++; L[n] = $0 }
+    END {
+      for (i = 1; i <= n; i++) if (L[i] ~ /R=302/) { r = i; break }
+      if (!r) exit 1
+      for (i = 1; i + 2 < r; i++) {
+        if (L[i] == "RewriteCond %{HTTP_HOST} ^test\\. [NC]" && L[i+1] == "RewriteCond %{REQUEST_URI} !^/test/" &&
+            L[i+2] == "RewriteRule ^ /test%{REQUEST_URI} [L]") t = 1
+        if (L[i] == "RewriteCond %{HTTP_HOST} ^dev\\. [NC]" && L[i+1] == "RewriteCond %{REQUEST_URI} !^/dev/" &&
+            L[i+2] == "RewriteRule ^ /dev%{REQUEST_URI} [L]") d = 1
+      }
+      for (i = 1; i < r; i++) if (L[i] == "RewriteRule ^sw\\.js$ - [L]") s = 1
+      exit !(t && d && s)
+    }' "$1"
+}
+if routes_hosts tools/old-path/.htaccess; then ok 'the redirect folder sends test. and dev. hosts to their own instance before it redirects'; else bad 'old-path host routing'; fi
+grep -v '/test%{REQUEST_URI}' tools/old-path/.htaccess > "$TMP/no-test.htaccess"
+{ grep 'R=302' tools/old-path/.htaccess; grep -v 'R=302' tools/old-path/.htaccess; } > "$TMP/late.htaccess"
+if ! routes_hosts "$TMP/no-test.htaccess" && ! routes_hosts "$TMP/late.htaccess"; then ok 'and that check fails a copy without the test. rule, or with the 302 first'; else bad 'the old-path host-routing check cannot fail'; fi
 printf '%s\n' "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
