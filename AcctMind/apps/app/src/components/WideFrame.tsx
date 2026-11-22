@@ -29,10 +29,12 @@ export function useWide(): { wide: boolean; detailBeside: boolean; width: number
   return { wide: width >= WIDE_MIN_WIDTH, detailBeside: width >= DETAIL_BESIDE_MIN_WIDTH, width };
 }
 
-export function WideFrame({ sidebar, main, detail, onCloseDetail, colors, testID = 'wide-frame' }: {
+export function WideFrame({ sidebar, main, detail, detailResting = false, onCloseDetail, colors, testID = 'wide-frame' }: {
   sidebar: React.ReactNode; main: React.ReactNode; detail?: React.ReactNode | null;
   /** Called by the backdrop when the detail pane is open OVER the main pane. */
   onCloseDetail?: () => void; colors: WideColors; testID?: string;
+  /** The pane is the screen's resting content (no item open): it is not "the detail" a spec or test looks for. */
+  detailResting?: boolean;
 }) {
   const { detailBeside } = useWide();
   const hasDetail = detail != null && detail !== false;
@@ -45,12 +47,12 @@ export function WideFrame({ sidebar, main, detail, onCloseDetail, colors, testID
         <ScrollView contentContainerStyle={s.sidebarInner}>{sidebar}</ScrollView>
       </View>
       <View testID="wide-main" style={s.main}>{main}</View>
-      {hasDetail && !detailBeside && (
+      {hasDetail && !detailBeside && !detailResting && (
         <Pressable key="backdrop" testID="wide-detail-backdrop" accessibilityLabel="Close" onPress={onCloseDetail}
           style={[StyleSheet.absoluteFill, s.backdrop]} />
       )}
       {hasDetail && (
-        <View key="detail" testID="wide-detail"
+        <View key="detail" testID={detailResting ? 'wide-rest' : 'wide-detail'}
           style={[s.detail, !detailBeside && s.detailOver, { backgroundColor: colors.surface, borderLeftColor: colors.line }]}>
           {detail}
         </View>

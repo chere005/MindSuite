@@ -172,7 +172,7 @@ const s = StyleSheet.create({
   bar: { height: TOP_BAR_HEIGHT, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { flex: 1, minWidth: 0, fontSize: 24, fontWeight: '800' },
   titleRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline', gap: 12 },
-  titleSolo: { flex: 0, flexShrink: 0 },
+  titleSolo: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   target: { width: TOP_BAR_TARGET, height: TOP_BAR_TARGET, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   ring: { width: TOP_BAR_FACE, height: TOP_BAR_FACE, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
