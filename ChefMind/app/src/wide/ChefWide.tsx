@@ -18,15 +18,22 @@
  * adds to the set (`tapRecipe` / `tickRecipe` / `shownRecipe` in wideflows).
  * Cook is one recipe; another is added from inside Cook. Below 900 App never
  * mounts this.
+ *
+ * The main pane wears the suite's top bar (chrome.tsx's TopBar, as CalMind's
+ * wide layout does): the section's title, the folder pie on Recipes, and the
+ * username pill with Account, Settings, Search, Undo last delete and Sign out.
+ * The sidebar holds navigation only.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { byRecOrd, duplicateItem, newId, ordBetween, defaultNoteTitle, searchRecords, type Rec } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
 import { Field, Scroll } from '../ui';
 import { SidebarItem, SidebarLabel, SidebarTitle, WideFrame, useWide } from '../components/WideFrame';
-import { SyncDot } from '../components/SyncDot';
+import { AccountMenu, type AccountMenuItem } from '../components/SuiteTopBar';
+import { PieDot } from '../components/PieDot';
+import { FolderManager } from '../components/FolderManager';
 import { useToast } from '../components/Toast';
 import { ShoppingReview } from '../components/ShoppingReview';
 import { DoneShopping } from '../components/DoneShopping';
@@ -35,7 +42,7 @@ import { CookView } from '../components/CookView';
 import { PageIcon, TickCircleIcon } from '../components/KindIcons';
 import { NavCtx, type Tab } from '../nav';
 import { Notes } from '../screens/Notes';
-import { Settings } from '../screens/Settings';
+import { TopBar } from '../chrome';
 import { pantryTexts } from '../addToShopping';
 import { listOf } from '../chefflows';
 import { addToCook, dropFromCook, newCook, newReview, useChefSession } from '../session';
@@ -49,7 +56,7 @@ import { ShoppingRowDetail, WidePantry, WideShopping } from './WideLists';
 type View_ = 'list' | 'edit';
 
 export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
-  const { recs, mutate, session, undoLastDelete } = useStore();
+  const { recs, mutate } = useStore();
   const toast = useToast();
   const colors = wideColors();
   const { detailBeside } = useWide();
@@ -66,7 +73,9 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const [doneOpen, setDoneOpen] = useState(false);
   const [rowId, setRowId] = useState<string | null>(null);
   const [itemId, setItemId] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [manageFolders, setManageFolders] = useState(false);
+  // The sidebar's search field, so the account menu's Search can focus it.
+  const searchField = useRef<TextInput | null>(null);
 
   /* ── Data ── */
   const pantry = useMemo(() => pantryTexts(recs), [recs]);
@@ -159,7 +168,10 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   }, [escOk]);
 
   const noop = useCallback(() => {}, []);
-  const nav = useMemo(() => ({ canBack: false, goBack: () => {}, openSearch: () => {}, openTab: (t: Tab) => go(t), openNote: openRecipe }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Search, from the account menu: after the menu has closed and handed focus
+  // back to its button, the sidebar's field takes it.
+  const openSearch = () => { setTimeout(() => searchField.current?.focus(), 60); };
+  const nav = useMemo(() => ({ canBack: false, goBack: () => {}, openSearch, openTab: (t: Tab) => go(t), openNote: openRecipe }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Cook takes the whole window ── */
   if (cook) {
@@ -201,7 +213,6 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
     main = (
       <View style={s.fill} testID="wide-search">
         <View style={s.searchHead}>
-          <Text style={s.h1}>Search</Text>
           <Text style={s.sub}>{hits.length === 0 ? 'Nothing matches.' : `${hits.length} ${hits.length === 1 ? 'match' : 'matches'} for “${query.trim()}”`}</Text>
         </View>
         <Scroll style={s.fill} contentContainerStyle={s.searchIn}>
@@ -322,7 +333,8 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const sidebar = (
     <>
       <SidebarTitle title="ChefMind" colors={colors} />
-      <Field testID="wide-search-field" value={query} onChangeText={setQuery} placeholder="Search" style={s.search} />
+      <Field testID="wide-search-field" {...({ ref: (el: TextInput | null) => { searchField.current = el; } } as object)}
+        value={query} onChangeText={setQuery} placeholder="Search" style={s.search} />
       <SidebarItem testID="side-recipes" label="Recipes" count={allNotes.length} active={onRecipes && folderId === null} onPress={() => go('notes')} colors={colors} />
       <SidebarItem testID="side-shopping" label="Shopping" count={shopCount} active={query.trim() === '' && tab === 'shopping'} onPress={() => go('shopping')} colors={colors} />
       <SidebarItem testID="side-pantry" label="Pantry" count={pantryCount} active={query.trim() === '' && tab === 'pantry'} onPress={() => go('pantry')} colors={colors} />
@@ -339,21 +351,39 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
           leading={<View style={[s.dot, { backgroundColor: f.payload.color }]} />}
         />
       ))}
-      <SidebarLabel label={session?.username ?? 'Account'} colors={colors} />
-      {/* No Sign out row (the owner, 2026-11-21: "sign out button here is stupid remove it");
-          it stays in Settings. The sync dot rides on Settings instead. */}
-      <SidebarItem testID="side-settings" label="Settings" onPress={() => setSettingsOpen(true)} colors={colors} trailing={<SyncDot withText />} />
-      <SidebarItem testID="side-undo" label="Undo last delete" onPress={() => {
-        const back = undoLastDelete();
-        toast(back === null ? 'Nothing to undo' : `Restored “${back}”`, 2600);
-      }} colors={colors} />
     </>
   );
 
+  /* ── The bar over the main pane: the phone's title, the folder pie, the username pill ── */
+  const barTitle = query.trim() !== '' ? 'Search' : tab === 'shopping' ? 'Shopping' : tab === 'pantry' ? 'Pantry' : 'Recipes';
+  const shownFolder = folderId ? folders.find((f) => f.id === folderId) : undefined;
+  const folderItems: AccountMenuItem[] = [
+    { key: 'all', label: 'All recipes', testID: 'wide-folder-all', leading: <PieDot rainbow colors={[]} size={14} />,
+      trailing: !shownFolder ? <Text style={s.tick}>✓</Text> : undefined, onPress: () => go('notes') },
+    ...folders.map((f) => ({
+      key: f.id, label: f.payload.name, testID: `wide-folder-${f.payload.name}`,
+      leading: <View style={[s.dot, { backgroundColor: f.payload.color }]} />,
+      trailing: shownFolder?.id === f.id ? <Text style={s.tick}>✓</Text> : undefined, onPress: () => go('notes', f.id),
+    })),
+    { key: 'manage', label: 'Manage folders…', testID: 'wide-folder-manage', onPress: () => setManageFolders(true) },
+  ];
+  const picker = onRecipes && !review ? (
+    <AccountMenu
+      colors={{ background: T.bg, surface: T.surface, line: T.line, text: T.text, dim: T.dim, accent: T.accent }}
+      testID="pick-notes"
+      label={`Folders: ${shownFolder ? shownFolder.payload.name : 'All recipes'}`}
+      trigger={shownFolder
+        ? <PieDot colors={[shownFolder.payload.color]} size={16} />
+        : <PieDot rainbow colors={folders.map((f) => f.payload.color)} size={16} />}
+      items={folderItems}
+    />
+  ) : undefined;
+
   return (
     <NavCtx.Provider value={nav}>
-      <WideFrame sidebar={sidebar} main={main} detail={detail} onCloseDetail={closeDetail} colors={colors} />
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      <WideFrame sidebar={sidebar} main={<View style={s.fill}><TopBar title={barTitle} controls={picker} />{main}</View>}
+        detail={detail} onCloseDetail={closeDetail} colors={colors} />
+      {manageFolders && <FolderManager app="notes" onClose={() => setManageFolders(false)} />}
     </NavCtx.Provider>
   );
 }
@@ -365,14 +395,15 @@ const s = themed(() => StyleSheet.create({
   finishPanel: { position: 'absolute', top: 0, right: 0, bottom: 0, width: 380, backgroundColor: T.surface, borderLeftWidth: 1, borderLeftColor: T.line },
   search: { marginHorizontal: 4, marginBottom: 10, fontSize: 14, paddingVertical: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  backRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  backLink: { alignSelf: 'flex-start', paddingHorizontal: 24, paddingTop: 18, paddingBottom: 2 },
+  tick: { color: T.accent, fontSize: 14, fontWeight: '700' },
+  // The Review's back row and its column are one block, centred in the pane.
+  backRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: 760, alignSelf: 'center' },
+  backLink: { alignSelf: 'flex-start', paddingHorizontal: 24, paddingTop: 2, paddingBottom: 2 },
   backText: { color: T.accent, fontSize: 14, fontWeight: '700' },
-  reviewCol: { flex: 1, minHeight: 0, width: '100%', maxWidth: 760, paddingHorizontal: 8 },
+  reviewCol: { flex: 1, minHeight: 0, width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 8 },
   editWrap: { flex: 1, alignItems: 'center' },
   editCol: { flex: 1, width: '100%', maxWidth: 760 },
-  searchHead: { paddingHorizontal: 24, paddingTop: 18, paddingBottom: 8 },
-  h1: { color: T.text, fontSize: 24, fontWeight: '800' },
+  searchHead: { paddingHorizontal: 24, paddingTop: 2, paddingBottom: 8 },
   sub: { color: T.dim, fontSize: 14, marginTop: 2 },
   searchIn: { paddingHorizontal: 24, paddingBottom: 24 },
   hit: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, borderBottomWidth: 1, borderBottomColor: T.lineSoft },

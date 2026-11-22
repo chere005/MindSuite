@@ -12,17 +12,19 @@ import { Settings } from './screens/Settings';
 import { syncLook } from './components/SyncDot';
 import { useToast } from './components/Toast';
 import { useNav } from './nav';
+import { useWide } from './components/WideFrame';
 
-export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, onToggleCompleted, folders }: {
+export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, onToggleCompleted }: {
   title: string;
   controls?: React.ReactNode;
+  /** The folder pie: the 32px ring left of the username, as CalMind's. */
   picker?: React.ReactNode;
   copyMarkdown?: () => string;
   showCompleted?: boolean;
   onToggleCompleted?: () => void;
-  folders?: { dot: React.ReactNode; onOpen: () => void };
 }) {
   const nav = useNav();
+  const { wide } = useWide();
   const { session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
   const [sharedSeen, setSharedSeen] = useState(false);
   const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
@@ -46,7 +48,6 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
       const back = undoLastDelete();
       toast(back === null ? 'Nothing to undo' : `Restored “${back}”`, 2600);
     } },
-    ...(folders ? [{ key: 'folders', label: 'Folders', testID: 'menu-folders', leading: folders.dot, onPress: folders.onOpen }] : []),
     ...(copyMarkdown ? [{ key: 'markdown', label: 'Copy as Markdown', testID: 'menu-copymd', onPress: () => {
       void Clipboard.setStringAsync(copyMarkdown()).then(() => toast('Copied as Markdown')).catch(() => toast('Could not copy'));
     } }] : []),
@@ -55,7 +56,7 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
   ];
   return <>
     <TopBarFrame title={title} colors={colors}
-      left={<TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
+      left={wide ? undefined : <TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
       controls={controls} picker={picker}
       account={<AccountMenu colors={colors} username={session?.username} statusColor={look.color} statusLabel={look.text}
         label={`${session?.username ?? ''} — account menu. ${look.text}`}

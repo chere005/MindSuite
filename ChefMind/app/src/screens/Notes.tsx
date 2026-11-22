@@ -20,7 +20,7 @@ import { RichText } from '../components/RichText';
 import { useNav } from '../nav';
 import { themed, T } from '../theme';
 import { TopBar } from '../chrome';
-import { FolderDot, FolderPick, useFolderView } from '../components/FolderPick';
+import { FolderPick, useFolderView } from '../components/FolderPick';
 import { CircleBtn, ConfirmDelete, DayPickBtn, DeletePill, Field, FoldCaret, Pill, Scroll, TOPBAR_CTRL, TOPBAR_DOT_TOP, WebHitSlop } from '../ui';
 import { useFolds } from '../folds';
 import { DayPick } from '../components/DayPick';
@@ -183,8 +183,6 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
     if (openId) wideOpened.current = true;
     else if (wideOpened.current) { wideOpened.current = false; wide.onExit(); }
   }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
-  /** The folder picker's card, raised from the username menu's Folders row. */
-  const [pickOpen, setPickOpen] = useState(false);
   const [sel, setSel] = useNoteScoped(openId, { start: 0, end: 0 });
   const [dateOpen, setDateOpen] = useNoteScoped(openId, false);
   const [bodyEditing, setBodyEditing] = useNoteScoped(openId, false);
@@ -1457,14 +1455,10 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
           2026-08-21, when hold-tap was the only route and that is a gesture
           you have to already know about; what makes it discoverable now is
           that the three screens agree. */}
-      {/* No picker ring in the bar: it is a row in the username menu now
-          (the owner, 2026-09-16), so the card is raised from there and rendered
-          here, buttonless. */}
-      <TopBar
-        title="Recipes"
-        folders={{ dot: <FolderDot app="notes" />, onOpen: () => setPickOpen(true) }}
-      />
-      <FolderPick app="notes" button={false} open={pickOpen} onClose={() => setPickOpen(false)} />
+      {/* The folder pie is back in the bar, left of the username (the owner,
+          2026-11-21: "if there are folders this is where they should be as an
+          icon this size"), the same 32px ring CalMind's folders wear. */}
+      <TopBar title="Recipes" picker={<FolderPick app="notes" />} />
       <View style={s.filterRow}>
         <Pressable
           testID="recipes-canmake"
@@ -1824,8 +1818,6 @@ function SharedNotes({ viewKey, partner }: { viewKey: string; partner: string })
     sharedRecs
       .filter((r): r is Rec<'note'> => r.type === 'note' && r.payload.sectionId === sid)
       .sort(byRecOrd);
-  /** The folder picker's card, raised from the username menu's Folders row. */
-  const [pickOpen, setPickOpen] = useState(false);
   const [openShared, setOpenShared] = useState<Rec<'note'> | null>(null);
   const [sharedBodyEdit, setSharedBodyEdit] = useNoteScoped(openShared?.id ?? null, false);
   const [draft, setDraft] = useNoteScoped(openShared?.id ?? null, '');
@@ -1901,8 +1893,7 @@ function SharedNotes({ viewKey, partner }: { viewKey: string; partner: string })
 
   return (
     <View style={s.page}>
-      <TopBar title="Recipes" folders={{ dot: <FolderDot app="notes" />, onOpen: () => setPickOpen(true) }} />
-      <FolderPick app="notes" button={false} open={pickOpen} onClose={() => setPickOpen(false)} />
+      <TopBar title="Recipes" picker={<FolderPick app="notes" />} />
       <Scroll contentContainerStyle={s.scroll}>
         <View style={s.folderHead}>
           <Text style={s.sharedFolderChip}>@{shown}: {folder?.payload.name ?? '…'}</Text>

@@ -142,6 +142,25 @@ export function aisleRuns<T extends { text: string }>(rows: readonly T[]): { ais
   return AISLES.filter((a) => by.has(a)).map((aisle) => ({ aisle, rows: by.get(aisle)! }));
 }
 
+/**
+ * The pantry's aisle grid is `repeat(auto-fill, minmax(min, 1fr))` across the
+ * pane. With fewer aisles than the tracks that fit, the spare tracks stay empty
+ * and the columns sit left beside a dead strip; this is the width of just the
+ * used tracks, at the same track width, so the grid can be capped to it and
+ * centred (the owner, 2026-11-21: narrower things are centred). null = the
+ * aisles fill the row (or nothing is measured yet): leave the grid full width.
+ * Capped to this width, auto-fill finds exactly `groups` tracks again; the half
+ * pixel over keeps a browser's rounding from dropping one (a whole extra track
+ * would need hundreds of them).
+ */
+export function pantryGridWidth(avail: number, groups: number, min = 210, gap = 28): number | null {
+  if (!(avail > 0) || groups <= 0) return null;
+  const tracks = Math.max(1, Math.floor((avail + gap) / (min + gap)));
+  if (groups >= tracks) return null;
+  const track = (avail - (tracks - 1) * gap) / tracks;
+  return groups * track + (groups - 1) * gap + 0.5;
+}
+
 /** The pantry's "Find in pantry" filter: a case-insensitive substring of the row. */
 export function filterRows<T extends { text: string }>(rows: readonly T[], query: string): T[] {
   const q = query.trim().toLowerCase();

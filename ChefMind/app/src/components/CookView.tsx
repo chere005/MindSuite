@@ -412,7 +412,8 @@ const s = themed(() => StyleSheet.create({
   wideBody: { flex: 1, flexDirection: 'row', minHeight: 0 },
   wideLeft: { width: 340, flexGrow: 0, flexShrink: 0, borderRightWidth: 1, borderRightColor: T.line },
   wideRight: { flex: 1, minWidth: 0 },
-  wideRightIn: { paddingHorizontal: 32, paddingTop: 20, paddingBottom: 40, maxWidth: 860 },
+  // The steps' reading column, centred in what the Gather panel leaves.
+  wideRightIn: { paddingHorizontal: 32, paddingTop: 20, paddingBottom: 40, width: '100%', maxWidth: 860, alignSelf: 'center' },
   stepTextWide: { fontSize: 28, lineHeight: 40 },
   stepNWide: { fontSize: 28, width: 40 },
   emptyText: { color: T.dim, fontSize: 16, padding: 24 },

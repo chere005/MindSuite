@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { shoppingPlan, type AnyRec, type Rec } from '@calmind/core';
-import { aisleRuns, buyCount, closeRecipePane, cookPickGroups, filterRows, hitSection, ingredientStates, isTextTarget, NO_SELECTION, pantrySummary, pickedNames, recipeBarActions, recipeFacts, recipeGroups, groupedNotes, selectOnly, shownRecipe, shownRecipes, rowSave, selectedLabel, shoppingSummary, stillToBuyHeading, tapRecipe, tickRecipe, whereWent } from '../src/wideflows';
+import { aisleRuns, buyCount, closeRecipePane, cookPickGroups, filterRows, hitSection, ingredientStates, isTextTarget, NO_SELECTION, pantryGridWidth, pantrySummary, pickedNames, recipeBarActions, recipeFacts, recipeGroups, groupedNotes, selectOnly, shownRecipe, shownRecipes, rowSave, selectedLabel, shoppingSummary, stillToBuyHeading, tapRecipe, tickRecipe, whereWent } from '../src/wideflows';
 
 const note = (id: string, title: string, sec: string, fol: string, ord: string, ing: string[], recipe = true): Rec<'note'> => ({
   id, type: 'note', updated: 1,
@@ -87,6 +87,22 @@ describe('lists', () => {
     expect(shoppingSummary(1, 0)).toBe('1 item · in aisle order');
     expect(pantrySummary(20)).toBe('20 things you have · in aisle order');
     expect(pickedNames(['A', 'B', 'C', 'D', 'E'])).toBe('A, B, C and 2 more');
+  });
+  test('pantry grid: only the used aisle tracks, at the same width, so it can be centred', () => {
+    const fits = (w: number) => Math.floor((w + 28) / (210 + 28));
+    // 1720 px fits 7 tracks of 221.7 px; 6 aisles use 6 of them.
+    const w6 = pantryGridWidth(1720, 6)!;
+    expect(w6).toBeCloseTo(6 * ((1720 - 6 * 28) / 7) + 5 * 28 + 0.5, 5);
+    expect(fits(w6)).toBe(6);
+    // Every under-filled case caps to a width auto-fill fills exactly.
+    for (const avail of [300, 476, 920, 1200, 1720, 2400]) {
+      for (let g = 1; g < fits(avail); g++) expect(fits(pantryGridWidth(avail, g)!)).toBe(g);
+    }
+    // Aisles fill the row, nothing measured, or nothing to show: full width.
+    expect(pantryGridWidth(1720, 7)).toBeNull();
+    expect(pantryGridWidth(1720, 12)).toBeNull();
+    expect(pantryGridWidth(0, 3)).toBeNull();
+    expect(pantryGridWidth(920, 0)).toBeNull();
   });
   test('where it went', () => {
     const plan = shoppingPlan([{ title: 'A', ingredients: ['1 tsp kosher salt', '3 cloves garlic'] }, { title: 'B', ingredients: ['3 cloves garlic'] }], ['kosher salt'], []);

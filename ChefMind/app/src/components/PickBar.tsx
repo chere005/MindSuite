@@ -34,12 +34,12 @@
  * owed to that copy.
  */
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { themed, T } from '../theme';
 import { WebHitSlop } from '../ui';
 
 export function PickBar({
-  prefix, count, onAll, onClear, onDelete, action, actions,
+  prefix, count, onAll, onClear, onDelete, action, actions, maxWidth,
 }: {
   /** Names the testIDs, so each screen's controls stay findable by name. */
   prefix: string;
@@ -58,6 +58,12 @@ export function PickBar({
    * is the primary, drawn last (nearest the thumb's right edge).
    */
   actions?: { label: string; testID: string; onPress: () => void }[];
+  /**
+   * Desktop size: the bar still spans the pane, but its controls are capped
+   * to this width and centred, in line with a capped list above it. Omitted
+   * on the phone, where the bar is the screen's width anyway.
+   */
+  maxWidth?: number;
 }) {
   /**
    * Two presses, and the first one turns it red — the suite's delete gesture,
@@ -83,9 +89,10 @@ export function PickBar({
     onDelete();
   };
 
+  const cap: ViewStyle | null = maxWidth !== undefined ? { width: '100%', maxWidth, alignSelf: 'center' } : null;
   return (
-    <View style={actions ? s.barCol : undefined}>
-    <View style={s.bar}>
+    <View style={[actions ? s.barCol : undefined, cap && s.barSpan]}>
+    <View style={[s.bar, cap && s.barCapped, cap]}>
       <Text style={s.count} numberOfLines={1}>{count} selected</Text>
       {/* Two buttons, not one toggle: "select none" and "select all" are
           opposite intentions and a control that silently swaps between them
@@ -143,7 +150,7 @@ export function PickBar({
       )}
     </View>
     {actions && (
-      <View style={s.actionsRow}>
+      <View style={[s.actionsRow, cap]}>
         {actions.slice().reverse().map((a, i, all) => (
           <Pressable key={a.testID} testID={a.testID} accessibilityRole="button" onPress={a.onPress} style={i === all.length - 1 ? s.go : s.goQuiet}>
             <Text style={i === all.length - 1 ? s.goText : s.goQuietText} numberOfLines={1}>{a.label}</Text>
@@ -190,6 +197,9 @@ const s = themed(() => StyleSheet.create({
   delText: { color: T.muted, fontSize: 14, fontWeight: '600' },
   delTextArmed: { color: '#fff' },
   barCol: { backgroundColor: T.surface },
+  // Capped (desktop): the line and the fill move out to a full-width span.
+  barSpan: { borderTopWidth: 1, borderTopColor: T.line, backgroundColor: T.surface },
+  barCapped: { borderTopWidth: 0 },
   actionsRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 12, paddingBottom: 10 },
   goQuiet: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: T.accent },
   goQuietText: { color: T.accent, fontSize: 14, fontWeight: '700' },

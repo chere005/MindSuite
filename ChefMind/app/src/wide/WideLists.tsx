@@ -18,8 +18,8 @@ import { TickBox } from '../components/chefui';
 import { useToast } from '../components/Toast';
 import { OCR_UNSUPPORTED, ocrImages, ocrSupported, pickPhotoUris } from '../components/ocr';
 import { applyOps, listOf, newRow, toggleCartOp, type ListKind } from '../chefflows';
-import { aisleOfRow, aisleRuns, filterRows, pantrySummary, rowSave, shoppingSummary } from '../wideflows';
-import { DetailTop, PaneHead } from './parts';
+import { aisleOfRow, aisleRuns, filterRows, pantryGridWidth, pantrySummary, rowSave, shoppingSummary } from '../wideflows';
+import { DetailTop, PaneHead, centred, gutterMatch, scrollGutter } from './parts';
 
 function useList(kind: ListKind) {
   const { recs } = useStore();
@@ -43,6 +43,10 @@ function useAdder(kind: ListKind) {
 }
 
 /* ── Shopping ───────────────────────────────────────────────────────────── */
+
+// The list's column, and the pane's 24 either side of it: the header and the
+// selection bar wear the same width, so all three are one centred block.
+const LIST_MAX = 720;
 
 export function WideShopping({ openRowId, onOpenRow, doneOpen, onDoneShopping }: {
   openRowId: string | null;
@@ -74,17 +78,21 @@ export function WideShopping({ openRowId, onOpenRow, doneOpen, onDoneShopping }:
 
   return (
     <View style={s.root} testID="wide-shopping">
-      <PaneHead
-        title="Shopping"
-        sub={shoppingSummary(rows.length, inCart)}
-        right={(
-          <>
-            <Pill testID="shopping-select" label={selecting ? 'Stop selecting' : 'Select'} onPress={() => { setSelecting((v) => !v); setSelected([]); }} />
-            <Pill testID="shopping-done" primary disabled={inCart === 0 || doneOpen} label="Done shopping" onPress={onDoneShopping} />
-          </>
-        )}
-      />
-      <Scroll style={s.scroll} contentContainerStyle={s.scrollIn} keyboardShouldPersistTaps="handled">
+      {/* Header and bar keep the list's scrollbar gutter (`gutterMatch`), so
+          all three centre on the same line. */}
+      <View style={gutterMatch}>
+        <PaneHead
+          maxWidth={LIST_MAX + 48}
+          sub={shoppingSummary(rows.length, inCart)}
+          right={(
+            <>
+              <Pill testID="shopping-select" label={selecting ? 'Stop selecting' : 'Select'} onPress={() => { setSelecting((v) => !v); setSelected([]); }} />
+              <Pill testID="shopping-done" primary disabled={inCart === 0 || doneOpen} label="Done shopping" onPress={onDoneShopping} />
+            </>
+          )}
+        />
+      </View>
+      <Scroll style={[s.scroll, scrollGutter]} contentContainerStyle={s.scrollIn} keyboardShouldPersistTaps="handled">
         <View style={s.column}>
           <View style={s.addRow}>
             <Field testID="shopping-add" value={field} onChangeText={setField} placeholder="Add an item" onSubmitEditing={submit} style={s.addField} />
@@ -108,7 +116,9 @@ export function WideShopping({ openRowId, onOpenRow, doneOpen, onDoneShopping }:
         </View>
       </Scroll>
       {selecting && (
-        <PickBar prefix="shopping" count={picked.length} onAll={() => setSelected(rows.map((r) => r.id))} onClear={() => setSelected([])} onDelete={deleteSelected} />
+        <View style={gutterMatch}>
+          <PickBar prefix="shopping" maxWidth={LIST_MAX + 24} count={picked.length} onAll={() => setSelected(rows.map((r) => r.id))} onClear={() => setSelected([])} onDelete={deleteSelected} />
+        </View>
       )}
     </View>
   );
@@ -175,6 +185,16 @@ export function WidePantry({ openItemId, onOpenItem }: { openItemId: string | nu
   const runs = useMemo(() => aisleRuns(shown), [shown]);
   const ids = new Set(rows.map((r) => r.id));
   const picked = selected.filter((id) => ids.has(id));
+  // The width the grid could fill, read off a full-width spacer above it (the
+  // grid itself shrinks once capped). Fewer aisles than fit: capped to just the
+  // used columns and centred. The header and the selection bar count the WHOLE
+  // pantry, so typing in Find never moves them; the grid counts the aisles it
+  // SHOWS, so a Find's matches sit in the middle, not at the left of a block
+  // sized for aisles that are hidden.
+  const [gridAvail, setGridAvail] = useState(0);
+  const aisleCount = useMemo(() => new Set(rows.map((r) => aisleOfRow(r.payload.text))).size, [rows]);
+  const blockCap = Platform.OS === 'web' ? pantryGridWidth(gridAvail, aisleCount) : null;
+  const gridCap = Platform.OS === 'web' ? pantryGridWidth(gridAvail, runs.length) : null;
 
   const submit = () => { if (add(field)) setField(''); };
   const say = (msg: string) => { setBusy(msg); setTimeout(() => setBusy((cur) => (cur === msg ? '' : cur)), 5000); };
@@ -226,23 +246,25 @@ export function WidePantry({ openItemId, onOpenItem }: { openItemId: string | nu
 
   return (
     <View style={s.root} testID="wide-pantry">
-      <PaneHead
-        title="Pantry"
-        sub={pantrySummary(rows.length)}
-        right={(
-          <>
-            <Pill testID="pantry-scan" label="Scan receipt" onPress={() => void scan()} />
-            <Pill testID="pantry-select" label={selecting ? 'Stop selecting' : 'Select'} onPress={() => { setSelecting((v) => !v); setSelected([]); }} />
-          </>
-        )}
-      />
-      <Scroll style={s.scroll} contentContainerStyle={s.scrollIn} keyboardShouldPersistTaps="handled">
+      <View style={gutterMatch}>
+        <PaneHead
+          {...(blockCap !== null ? { maxWidth: blockCap + 48 } : {})}
+          sub={pantrySummary(rows.length)}
+          right={(
+            <>
+              <Pill testID="pantry-scan" label="Scan receipt" onPress={() => void scan()} />
+              <Pill testID="pantry-select" label={selecting ? 'Stop selecting' : 'Select'} onPress={() => { setSelecting((v) => !v); setSelected([]); }} />
+            </>
+          )}
+        />
+      </View>
+      <Scroll style={[s.scroll, scrollGutter]} contentContainerStyle={s.scrollIn} keyboardShouldPersistTaps="handled">
         <View style={s.toolRow}>
           <Field testID="pantry-add" value={field} onChangeText={setField} placeholder="Add something you have" onSubmitEditing={submit} style={s.toolField} />
           <Pill testID="pantry-add-go" label="Add" onPress={submit} />
           <Field testID="pantry-find" value={find} onChangeText={setFind} placeholder="Find in pantry" style={s.toolField} />
         </View>
-        {busy !== '' && <Text testID="pantry-scan-busy" style={s.busy}>{busy}</Text>}
+        {busy !== '' && <Text testID="pantry-scan-busy" style={[s.busy, s.centreText]}>{busy}</Text>}
         {scanned && (
           <View style={s.proposal} testID="pantry-proposal">
             <Text style={s.propH}>Found on your receipt · {scanned.length}</Text>
@@ -262,9 +284,10 @@ export function WidePantry({ openItemId, onOpenItem }: { openItemId: string | nu
             </View>
           </View>
         )}
-        {rows.length === 0 && <Text style={s.empty}>Nothing on hand yet. Anything listed here is left off the shopping list.</Text>}
-        {rows.length > 0 && shown.length === 0 && <Text style={s.empty}>Nothing in the pantry matches that.</Text>}
-        <View style={[s.grid, gridStyle]}>
+        {rows.length === 0 && <Text style={[s.empty, s.centreText]}>Nothing on hand yet. Anything listed here is left off the shopping list.</Text>}
+        {rows.length > 0 && shown.length === 0 && <Text style={[s.empty, s.centreText]}>Nothing in the pantry matches that.</Text>}
+        <View onLayout={(e) => setGridAvail(e.nativeEvent.layout.width)} />
+        <View style={[s.grid, gridStyle, gridCap !== null && centred(gridCap)]}>
           {runs.map((g) => (
             <View key={g.aisle} style={s.pgroup}>
               <Text testID={`pantry-aisle-${g.aisle}`} style={s.aisle}>{g.aisle}</Text>
@@ -281,7 +304,9 @@ export function WidePantry({ openItemId, onOpenItem }: { openItemId: string | nu
         </View>
       </Scroll>
       {selecting && (
-        <PickBar prefix="pantry" count={picked.length} onAll={() => setSelected(rows.map((r) => r.id))} onClear={() => setSelected([])} onDelete={deleteSelected} />
+        <View style={gutterMatch}>
+          <PickBar prefix="pantry" {...(blockCap !== null ? { maxWidth: blockCap + 24 } : {})} count={picked.length} onAll={() => setSelected(rows.map((r) => r.id))} onClear={() => setSelected([])} onDelete={deleteSelected} />
+        </View>
       )}
     </View>
   );
@@ -291,12 +316,13 @@ const s = themed(() => StyleSheet.create({
   root: { flex: 1, minHeight: 0 },
   scroll: { flex: 1 },
   scrollIn: { paddingHorizontal: 24, paddingBottom: 32 },
-  column: { maxWidth: 720, width: '100%' },
+  column: centred(LIST_MAX),
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   addField: { flex: 1 },
-  toolRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  toolRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   toolField: { flexGrow: 1, flexBasis: 220, maxWidth: 340 },
   empty: { color: T.muted, fontSize: 14, marginTop: 18, lineHeight: 20 },
+  centreText: { textAlign: 'center' },
   group: { marginTop: 8 },
   aisle: { color: T.dim, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 12, marginBottom: 4, paddingLeft: 2 },
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 40, paddingHorizontal: 8, borderRadius: 8 },
@@ -308,7 +334,7 @@ const s = themed(() => StyleSheet.create({
   pgroup: { minWidth: 0 },
   prow: { flexDirection: 'row', alignItems: 'center', minHeight: 34, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   busy: { color: T.dim, fontSize: 14, marginBottom: 8 },
-  proposal: { borderWidth: 1, borderColor: T.accent, backgroundColor: T.surface, borderRadius: 12, padding: 16, marginTop: 6, marginBottom: 12, maxWidth: 720 },
+  proposal: { ...centred(720), borderWidth: 1, borderColor: T.accent, backgroundColor: T.surface, borderRadius: 12, padding: 16, marginTop: 6, marginBottom: 12 },
   propH: { color: T.text, fontSize: 16, fontWeight: '800' },
   propNote: { color: T.dim, fontSize: 13, marginTop: 2, marginBottom: 6 },
   propList: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 24 },

@@ -58,14 +58,11 @@ export function useFolderView(app: 'reminders' | 'notes'): FolderView {
 
 /**
  * The picker's FACE, on its own — one folder shows its colour, several show
- * the pie, everything on shows the rainbow.
+ * the pie, everything on shows the rainbow. It reads the one `useFolderView`,
+ * so the selection logic is not duplicated to draw it.
  *
- * Split out when the picker left the top bar for the username menu (the owner,
- * 2026-09-16, ChefMind only): the menu row still wants the dot, because "a
- * pie" and "one blue" answer "which folder am I looking at" before the row
- * is read, and that was the whole point of the ring it replaces. The
- * selection logic is NOT duplicated to get it — both this and the picker
- * read the one `useFolderView`.
+ * (From 2026-09-16 the picker was a row in the username menu, ChefMind only;
+ * since 2026-11-21 it is the bar's ring again, as in every suite app.)
  */
 export function FolderDot({ app, size = 14 }: { app: 'reminders' | 'notes'; size?: number }) {
   const { view, hidden, folders, visible, hiddenShared } = useFolderView(app);
@@ -82,8 +79,8 @@ export function FolderDot({ app, size = 14 }: { app: 'reminders' | 'notes'; size
 export function FolderPick({ app, open: openProp, onClose, button = true }: {
   app: 'reminders' | 'notes';
   /**
-   * Driven from OUTSIDE — the username menu's Folders row — instead of by a
-   * button of its own. Leave both off and it behaves as it always did.
+   * Driven from OUTSIDE instead of by a button of its own. Leave both off and
+   * it behaves as it always did: the bar's ring opens it.
    */
   open?: boolean | undefined;
   onClose?: (() => void) | undefined;
