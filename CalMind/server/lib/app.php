@@ -10,6 +10,8 @@
  */
 
 require_once __DIR__ . '/store.php';
+// Where the synced records live (one file per store today; a database when an instance switches): lib/records.php.
+require_once __DIR__ . '/records.php';
 require_once __DIR__ . '/webauthn.php';
 // Mail is log-only unless the instance explicitly enables SMTP.
 require_once __DIR__ . '/mail.php';
@@ -468,28 +470,7 @@ function lockout_clear(array $cfg, string $user): void
         }
     });
 }
-/**
- * One record file per user PER SPACE.
- *
- * The default space is CalMind's and its filename is unchanged, byte for byte,
- * because every existing store is already at that path.
- *
- * MealMind (the owner, 2026-08-21) is a second app on this same server that reuses
- * these accounts and keeps its own reminders and notes. It sends space='chef'
- * and lands in records-chef-<user>.json. Nothing else about it is different:
- * same auth, same tokens, same merge, same lock discipline — the space is only
- * WHICH FILE.
- *
- * Sharing, the meeting-request pair and the widget feed all call this with no
- * space and therefore always mean CalMind's store. That is deliberate rather
- * than an oversight: a partnership is between two CalMind accounts, and a
- * MealMind note is not something either of them has agreed to share.
- */
-function records_file(array $cfg, string $user, string $space = ''): string
-{
-    $prefix = $space === '' ? 'records-' : 'records-' . $space . '-';
-    return $cfg['data_dir'] . '/' . $prefix . $user . '.json';
-}
+// records_file() — one file per user per space — lives in lib/records.php with the rest of the storage seam.
 
 /**
  * The space a request names, or '' for CalMind's.
@@ -877,44 +858,28 @@ function handle_delete_account(array $cfg): never
     }
 
     foreach (array_merge([''], SYNC_SPACES) as $space) {
-        $file = records_file($cfg, $user, $space);
-        with_lock($cfg, 'records-' . ($space === '' ? '' : $space . '-') . $user, function () use ($file) {
-            if (is_file($file) && !unlink($file)) { throw new RuntimeException('could not delete account records'); }
-        });
+        rs_drop($cfg, $user, $space);
     }
 
     // Remove the deleted username from the other account's share settings.
-    foreach (glob($cfg['data_dir'] . '/records-*.json') ?: [] as $file) {
-        if (in_array($file, array_map(fn($space) => records_file($cfg, $user, $space), array_merge([''], SYNC_SPACES)), true)) { continue; }
-        $name = basename($file, '.json');
-        with_lock($cfg, $name, function () use ($cfg, $file, $user) {
-            if (!is_file($file)) { return; }
-            $db = store_read($cfg, $file);
-            $changed = false;
-            foreach ($db['recs'] as $id => &$record) {
-                if (($record['type'] ?? '') !== 'share' || !is_array($record['payload'] ?? null)) { continue; }
-                $rowChanged = false;
-                $payload =& $record['payload'];
-                $partners = is_array($payload['partners'] ?? null) ? $payload['partners'] : [];
-                $newPartners = array_values(array_filter($partners, fn($partner) => $partner !== $user));
-                if ($newPartners !== $partners) { $payload['partners'] = $newPartners; $rowChanged = true; }
-                foreach (['labels', 'sel'] as $field) {
-                    if (isset($payload[$field]) && is_array($payload[$field]) && array_key_exists($user, $payload[$field])) {
-                        unset($payload[$field][$user]); $rowChanged = true;
-                    }
-                }
-                unset($payload);
-                if ($rowChanged) {
-                    $changed = true;
-                    $record['updated'] = max((int) ($record['updated'] ?? 0), time());
-                    $record['seq'] = (int) ($db['seq'] ?? 0) + 1;
-                    $db['seq'] = $record['seq'];
+    rs_each_with_type($cfg, 'share', $user, function (RecordSet $rs) use ($user) {
+        foreach ($rs->all('share') as $record) {
+            if (!is_array($record['payload'] ?? null)) { continue; }
+            $payload = $record['payload'];
+            $rowChanged = false;
+            $partners = is_array($payload['partners'] ?? null) ? $payload['partners'] : [];
+            $newPartners = array_values(array_filter($partners, fn($partner) => $partner !== $user));
+            if ($newPartners !== $partners) { $payload['partners'] = $newPartners; $rowChanged = true; }
+            foreach (['labels', 'sel'] as $field) {
+                if (isset($payload[$field]) && is_array($payload[$field]) && array_key_exists($user, $payload[$field])) {
+                    unset($payload[$field][$user]); $rowChanged = true;
                 }
             }
-            unset($record);
-            if ($changed) { store_write($cfg, $file, $db); }
-        });
-    }
+            if ($rowChanged) {
+                $rs->put(['payload' => $payload, 'updated' => max((int) ($record['updated'] ?? 0), time())] + $record);
+            }
+        }
+    });
 
     $usagePath = $cfg['data_dir'] . '/usage.log';
     $userToken = fn(string $s) => preg_replace('/[^\w.@-]/', '_', $s);
@@ -938,10 +903,9 @@ function handle_delete_account(array $cfg): never
  */
 function calsub_cache_files(array $cfg, string $user): array
 {
-    $db = store_read($cfg, records_file($cfg, $user));
     $files = [];
-    foreach (is_array($db['recs'] ?? null) ? $db['recs'] : [] as $r) {
-        if (($r['type'] ?? '') !== 'calsub' || !is_array($r['payload'] ?? null)) { continue; }
+    foreach (rs_view($cfg, $user, '')->all('calsub') as $r) {
+        if (!is_array($r['payload'] ?? null)) { continue; }
         $p = $r['payload'];
         if (($p['source'] ?? '') === 'caldav') {
             try { [$url, $username, $password] = caldav_credentials($p); }
@@ -965,6 +929,7 @@ function handle_signup(array $cfg, array $in): never
     $email = trim((string) ($in['email'] ?? ''));
     $pass  = (string) ($in['password'] ?? '');
     if (!preg_match(USERNAME_RE, $user))                    { fail(400, 'username: 2-20 letters, numbers, - or _'); }
+    if (rs_name_reserved($user))                            { fail(400, 'that username is reserved'); }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL))         { fail(400, 'that email address doesn\'t look right'); }
     if (strlen($pass) < 6)                                  { fail(400, 'password: at least 6 characters'); }
     $suite = suite_auth($cfg);
@@ -1265,11 +1230,8 @@ function handle_sync(array $cfg, array $in): never
     // The LOCK is per space as well as per user, and has to be: two apps
     // writing one lock name would serialise for no reason, and — worse — a
     // lock named for the wrong file protects nothing at all.
-    $out = with_lock($cfg, 'records-' . ($space === '' ? '' : $space . '-') . $user, function () use ($cfg, $user, $space, $cursor, $changes) {
+    $out = rs_tx($cfg, $user, $space, function (RecordSet $rs) use ($cfg, $user, $cursor, $changes) {
         if (!account_exists($cfg, $user)) { fail(401, 'account no longer exists'); }
-        $db   = store_read($cfg, records_file($cfg, $user, $space));
-        $seq  = (int) ($db['seq'] ?? 0);
-        $recs = is_array($db['recs'] ?? null) ? $db['recs'] : [];
         $rejected = [];
         $why      = [];   // id => one of spec/protocol.json rejectReasons
         $dropped  = 0;    // rows with no string id to name them by
@@ -1304,7 +1266,7 @@ function handle_sync(array $cfg, array $in): never
                 $why[$id] = 'too_large';
                 continue;
             }
-            $cur = $recs[$id] ?? null;
+            $cur = $rs->get($id);
             // THE TIE-BREAK, and the reason this is not just `>`.
             //
             // Strictly-newer on both sides meant an equal stamp left every
@@ -1324,8 +1286,7 @@ function handle_sync(array $cfg, array $in): never
                 && !rec_same($cur, $c);
             if ($cur === null || $updated > (int) $cur['updated'] || $tie) {
                 $row = ['id' => $id, 'type' => $type, 'updated' => $updated,
-                        'deleted' => !empty($c['deleted']), 'payload' => $c['payload'] ?? null,
-                        'seq' => ++$seq];
+                        'deleted' => !empty($c['deleted']), 'payload' => $c['payload'] ?? null];
                 // A record is REBUILT from this fixed list of keys, so anything
                 // else a client sends is dropped here without a word. That is
                 // the right default — it is what keeps a malformed row from
@@ -1340,13 +1301,13 @@ function handle_sync(array $cfg, array $in): never
                 // byte, and left out of rec_same() above because it says why a
                 // record went, not what it holds.
                 if (!empty($c['superseded'])) { $row['superseded'] = true; }
-                $recs[$id] = $row;
+                $rs->put($row);
             }
         }
-        store_write($cfg, records_file($cfg, $user, $space), ['seq' => $seq, 'recs' => $recs]);
-        $tail = array_values(array_filter($recs, fn($r) => (int) ($r['seq'] ?? 0) > $cursor));
-        usort($tail, fn($a, $b) => $a['seq'] <=> $b['seq']);
-        return ['cursor' => $seq, 'rejected' => $rejected, 'why' => $why, 'dropped' => $dropped,
+        // Only the rows past the client's cursor: in the database that is an
+        // index range, not a walk of the whole store.
+        $tail = $rs->since($cursor);
+        return ['cursor' => $rs->seq(), 'rejected' => $rejected, 'why' => $why, 'dropped' => $dropped,
             'changes' => array_map(function ($r) {
                 unset($r['seq']);
                 return $r;
@@ -1384,8 +1345,7 @@ function handle_sync(array $cfg, array $in): never
  */
 function share_of(array $cfg, string $user, string $space = ''): array
 {
-    $db  = store_read($cfg, records_file($cfg, $user, $space));
-    $rec = ($db['recs'] ?? [])['share'] ?? null;
+    $rec = rs_view($cfg, $user, $space)->get('share');
     $p   = (is_array($rec) && empty($rec['deleted']) && is_array($rec['payload'] ?? null)) ? $rec['payload'] : [];
     $names = fn($k) => array_values(array_filter((array) ($p[$k] ?? []), 'is_string'));
     $sel   = [];
@@ -1448,9 +1408,8 @@ function share_in_scope(array $share, string $type, string $id, ?array $payload)
 function shared_records(array $cfg, string $owner, string $space, string $viewer): array
 {
     $share = share_sel(share_of($cfg, $owner, $space), $viewer);
-    $db    = store_read($cfg, records_file($cfg, $owner, $space));
     $out   = [];
-    foreach (($db['recs'] ?? []) as $r) {
+    foreach (rs_view($cfg, $owner, $space)->all() as $r) {
         if (!is_array($r) || !empty($r['deleted'])) { continue; }
         $p = is_array($r['payload'] ?? null) ? $r['payload'] : null;
         if (share_in_scope($share, (string) $r['type'], (string) $r['id'], $p)) {
@@ -1515,11 +1474,9 @@ function handle_shared_put(array $cfg, array $in): never
     $payload = is_array($c['payload'] ?? null) ? $c['payload'] : null;
     // The lock name carries the space for the same reason handle_sync's does:
     // a lock named for the wrong file protects nothing.
-    with_lock($cfg, 'records-' . ($space === '' ? '' : $space . '-') . $partner, function () use ($cfg, $me, $partner, $space, $share, $c, $id, $type, $updated, $payload) {
+    rs_tx($cfg, $partner, $space, function (RecordSet $rs) use ($cfg, $me, $partner, $share, $c, $id, $type, $updated, $payload) {
         if (!account_exists($cfg, $me) || !account_exists($cfg, $partner)) { fail(401, 'account no longer exists'); }
-        $db   = store_read($cfg, records_file($cfg, $partner, $space));
-        $recs = is_array($db['recs'] ?? null) ? $db['recs'] : [];
-        $cur  = $recs[$id] ?? null;
+        $cur  = $rs->get($id);
         $curPayload = is_array($cur['payload'] ?? null) ? $cur['payload'] : null;
         if ($cur !== null && !share_in_scope($share, (string) $cur['type'], $id, $curPayload)) {
             fail(403, 'outside what they share');
@@ -1548,10 +1505,8 @@ function handle_shared_put(array $cfg, array $in): never
             && $updated === (int) $cur['updated']
             && !rec_same($cur, ['deleted' => !empty($c['deleted']), 'payload' => $payload]);
         if ($cur === null || $updated > (int) $cur['updated'] || $tie) {
-            $seq       = (int) ($db['seq'] ?? 0) + 1;
-            $recs[$id] = ['id' => $id, 'type' => $type, 'updated' => $updated,
-                          'deleted' => !empty($c['deleted']), 'payload' => $payload, 'seq' => $seq];
-            store_write($cfg, records_file($cfg, $partner, $space), ['seq' => $seq, 'recs' => $recs]);
+            $rs->put(['id' => $id, 'type' => $type, 'updated' => $updated,
+                      'deleted' => !empty($c['deleted']), 'payload' => $payload]);
         }
     });
     usage_log($cfg, 'shared_put', $me);
@@ -2131,8 +2086,7 @@ function meetreq_recs(array $cfg, string $user): array
 {
     static $cache = [];
     if (!array_key_exists($user, $cache)) {
-        $db = store_read($cfg, records_file($cfg, $user));
-        $cache[$user] = is_array($db['recs'] ?? null) ? $db['recs'] : [];
+        $cache[$user] = rs_view($cfg, $user, '')->all();
     }
     return $cache[$user];
 }
@@ -2351,23 +2305,18 @@ function handle_meetreq_create(array $cfg, array $in): never
         fail(409, 'that time is no longer open — pick another');
     }
 
-    with_lock($cfg, 'records-' . $user, function () use ($cfg, $user, $name, $email, $date, $time) {
-        $db   = store_read($cfg, records_file($cfg, $user));
-        $seq  = (int) ($db['seq'] ?? 0);
-        $recs = is_array($db['recs'] ?? null) ? $db['recs'] : [];
+    rs_tx($cfg, $user, '', function (RecordSet $rs) use ($name, $email, $date, $time) {
         $pending = 0;
-        foreach ($recs as $r) {
-            if (($r['type'] ?? '') === 'meetreq' && empty($r['deleted'])) { $pending++; }
+        foreach ($rs->all('meetreq') as $r) {
+            if (empty($r['deleted'])) { $pending++; }
         }
         if ($pending >= MEETREQ_PENDING_MAX) { fail(429, 'the calendar is not taking requests right now'); }
         $id = 'mr' . bin2hex(random_bytes(5));
-        $recs[$id] = [
+        $rs->put([
             'id' => $id, 'type' => 'meetreq',
             'updated' => (int) (microtime(true) * 1000), 'deleted' => false,
             'payload' => ['name' => $name, 'email' => $email, 'date' => $date, 'time' => $time, 'status' => 'new'],
-            'seq' => ++$seq,
-        ];
-        store_write($cfg, records_file($cfg, $user), ['seq' => $seq, 'recs' => $recs]);
+        ]);
     });
     // The owner's heads-up, only with mail on and only to the configured owner's own account address (never to anything the visitor
     // typed, and the text names no visitor: just the slot). It follows a request that was actually written, so the
@@ -2416,9 +2365,8 @@ function handle_meetreq_mail(array $cfg, array $in): never
 
     $allow = false;
     if ($user === meetreq_user($cfg)) {
-        $db = store_read($cfg, records_file($cfg, $user));
-        foreach ((array) ($db['recs'] ?? []) as $r) {
-            if (($r['type'] ?? '') !== 'meetreq' || ($id !== '' && ($r['id'] ?? '') !== $id)) { continue; }
+        foreach (rs_view($cfg, $user, '')->all('meetreq') as $r) {
+            if ($id !== '' && ($r['id'] ?? '') !== $id) { continue; }
             if (strtolower((string) ($r['payload']['email'] ?? '')) === strtolower($to)) { $allow = true; break; }
         }
     }

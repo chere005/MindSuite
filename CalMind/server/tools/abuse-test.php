@@ -8,6 +8,7 @@
  *   php server/tools/abuse-test.php
  */
 require_once dirname(__DIR__) . '/lib/store.php';
+require_once dirname(__DIR__) . '/lib/records.php';
 
 date_default_timezone_set('America/Chicago');
 $ROOT = dirname(__DIR__);
@@ -730,7 +731,7 @@ function mr_create(array $s, string $user, string $addr, string $time = '16:00')
 }
 function record_count(array $s, string $user): int
 {
-    return count((array) (store_read($s['cfg'], $s['data'] . "/records-$user.json")['recs'] ?? []));
+    return count((array) (rs_export($s['cfg'], $user, '')['recs'] ?? []));
 }
 
 t('caps: recover is capped for the whole site (30 an hour) however many addresses the requests claim', function () {

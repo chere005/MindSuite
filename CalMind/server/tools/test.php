@@ -24,6 +24,11 @@ require_once $root . '/lib/webauthn.php';
 // an empty array while proving nothing — which is exactly how the first
 // version of the cap spec below went green against a cap that did not work.
 require_once $root . '/lib/store.php';
+// The records seam (lib/records.php). The harness seeds and inspects stores through it rather than by filename, so
+// the same run proves either driver: `CALMIND_STORAGE=sql php server/tools/test.php` runs every spec on the database.
+require_once $root . '/lib/records.php';
+$driver = getenv('CALMIND_STORAGE') ?: 'json';
+echo "records driver: $driver\n";
 // Pure functions, no state: the SSRF guard is worth testing directly rather
 // than through an endpoint that does not exist yet.
 require_once $root . '/lib/fetchurl.php';
@@ -190,7 +195,7 @@ t('account deletion removes account data, shared references, and credentials', f
     ]);
     store_write($cfg, $scratch . '/recover.json', ['deleteme' => ['code' => '123456'], 'alice' => ['code' => '654321']]);
     store_write($cfg, $scratch . '/lockouts.json', ['deleteme' => ['fails' => 4], 'alice' => ['fails' => 2]]);
-    store_write($cfg, $scratch . '/records-bob.json', ['seq' => 4, 'recs' => ['share' => [
+    rs_import($cfg, 'bob', '', ['seq' => 4, 'recs' => ['share' => [
         'id' => 'share', 'type' => 'share', 'updated' => 1000,
         'payload' => ['partners' => ['alice', 'deleteme'], 'labels' => ['alice' => 'A', 'deleteme' => 'D'],
                       'sel' => ['deleteme' => ['calendars' => [], 'folders' => [], 'notefolders' => []]], 'calendars' => [], 'folders' => [], 'notefolders' => []],
@@ -225,8 +230,8 @@ t('account deletion removes account data, shared references, and credentials', f
     $accounts = store_read($cfg, $scratch . '/accounts.json');
     $tokens = store_read($cfg, $scratch . '/tokens.json');
     ok(!isset($accounts['deleteme']), 'account is gone');
-    foreach (['records-deleteme.json', 'records-chef-deleteme.json'] as $f) {
-        ok(!file_exists($scratch . '/' . $f), "$f is gone");
+    foreach (['', 'chef'] as $space) {
+        ok(rs_export($cfg, 'deleteme', $space) === null, "the '$space' store is gone");
     }
     foreach ([['passkeys.json', 'delete-key'], ['challenges.json', 'delete-challenge']] as [$f, $key]) {
         $rows = store_read($cfg, $scratch . '/' . $f);
@@ -238,7 +243,7 @@ t('account deletion removes account data, shared references, and credentials', f
         ok(isset($rows['alice']), "$f retains other users");
     }
     ok(!isset($tokens[hash('sha256', $token)]), 'bearer token is gone');
-    $bob = store_read($cfg, $scratch . '/records-bob.json');
+    $bob = rs_export($cfg, 'bob', '');
     eq(['alice'], $bob['recs']['share']['payload']['partners'], "other user's share no longer names deleted account");
     ok(!isset($bob['recs']['share']['payload']['labels']['deleteme']), 'the deleted label is gone');
     ok(!isset($bob['recs']['share']['payload']['sel']['deleteme']), 'the deleted selection is gone');
@@ -252,7 +257,21 @@ t('account deletion removes account data, shared references, and credentials', f
     ok(!file_exists($davCache), "the CalDAV cache keyed to this account's credentials is gone");
     ok(file_exists($otherCache), "a cache no subscription of theirs names is kept");
     ok(str_contains((string) file_get_contents($scratch . '/mail.log'), 'alice@example.com'), 'other mail log is retained');
-    @unlink($scratch . '/records-bob.json');
+    rs_drop($cfg, 'bob', '');
+});
+
+t('a name that begins with a space and a dash is refused — its CalMind file would be that space\'s store of another name', function () use ($rec) {
+    $victim = api(['action' => 'signup', 'username' => 'collide', 'email' => 'collide@example.com', 'password' => 'collidepass']);
+    eq(200, $victim['status'], 'the victim signs up');
+    api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('recipe1', 1000, 'private recipe')]], $victim['body']['token']);
+    foreach (['chef-collide', 'CHEF-collide', 'Chef-x'] as $name) {
+        eq(400, api(['action' => 'signup', 'username' => $name, 'email' => 'x@example.com', 'password' => 'attackpass'])['status'], "sign-up refuses $name");
+    }
+    global $scratch;
+    $threw = false;
+    try { records_file(['data_dir' => $scratch], 'chef-collide'); } catch (RuntimeException) { $threw = true; }
+    ok($threw, 'and no road reaches the file: records_file refuses the name for CalMind\'s space');
+    eq('recipe1', rs_view(['data_dir' => $scratch], 'collide', 'chef')->get('recipe1')['id'] ?? null, "the victim's recipe is where it was");
 });
 
 echo "\n\033[1msync\033[0m\n";
@@ -411,9 +430,17 @@ t('an oversized batch is refused whole; an oversized payload drops alone', funct
     ok(!in_array('fat', $ids, true), 'the fat row was dropped');
     ok(in_array('slim', $ids, true), 'the slim row landed');
 });
-t('records rest encrypted — ENC1 on disk, no plaintext content', function () use ($scratch) {
-    $raw = (string) file_get_contents($scratch . '/records-alice.json');
-    ok(str_starts_with($raw, 'ENC1:'), 'the store prefix');
+t('records rest encrypted — no plaintext content on disk', function () use ($scratch, $driver) {
+    if ($driver === 'sql') {
+        $raw = (string) file_get_contents($scratch . '/records.sqlite');
+        $pdo = new PDO('sqlite:' . $scratch . '/records.sqlite');
+        $seals = $pdo->query("SELECT payload FROM rs_records WHERE owner = 'alice'")->fetchAll(PDO::FETCH_COLUMN);
+        ok($seals !== [], 'alice has rows');
+        ok(array_filter($seals, fn($p) => !str_starts_with((string) $p, 'ENC2:')) === [], 'every payload sealed (ENC2)');
+    } else {
+        $raw = (string) file_get_contents($scratch . '/records-alice.json');
+        ok(str_starts_with($raw, 'ENC1:'), 'the store prefix');
+    }
     ok(!str_contains($raw, 'buy milk') && !str_contains($raw, 'newer'), 'no reminder text readable');
 });
 t('logout revokes exactly that token', function () {
@@ -647,19 +674,33 @@ t('a damaged store file refuses rather than reading as empty', function () {
          'payload' => ['title' => 'keep me', 'body' => '', 'date' => null,
                        'folderId' => 'f', 'sectionId' => 's', 'ord' => 'a']],
     ]], $tok);
-    global $scratch;
-    $file = $scratch . '/records-bent.json';
-    ok(is_file($file), 'the records file exists');
-
-    // Truncate it the way a killed process would.
-    $whole = (string) file_get_contents($file);
-    file_put_contents($file, substr($whole, 0, 24));
+    global $scratch, $driver;
+    if ($driver === 'sql') {
+        // The database's version of the same damage: a row whose sealed payload
+        // will not open. It must refuse, not read as a record with no content.
+        $pdo = new PDO('sqlite:' . $scratch . '/records.sqlite');
+        $get = fn() => (string) $pdo->query("SELECT payload FROM rs_records WHERE owner = 'bent' AND id = 'keepme'")->fetchColumn();
+        $whole = $get();
+        ok(str_starts_with($whole, 'ENC2:'), 'the row exists, sealed');
+        $put = function (string $v) use ($pdo) {
+            $q = $pdo->prepare("UPDATE rs_records SET payload = ? WHERE owner = 'bent' AND id = 'keepme'");
+            $q->execute([$v]);
+        };
+        $put(substr($whole, 0, 24));
+    } else {
+        $file = $scratch . '/records-bent.json';
+        ok(is_file($file), 'the records file exists');
+        // Truncate it the way a killed process would.
+        $whole = (string) file_get_contents($file);
+        $put = fn(string $v) => file_put_contents($file, $v);
+        $put(substr($whole, 0, 24));
+    }
     $r = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok);
-    ok($r['status'] >= 500, 'a truncated file is an error, not an empty account — got ' . $r['status']);
+    ok($r['status'] >= 500, 'a truncated store is an error, not an empty account — got ' . $r['status']);
 
     // Put it back and the records are still there, which is the point: the
     // damage was refused rather than written over.
-    file_put_contents($file, $whole);
+    $put($whole);
     $back = api(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tok);
     eq(200, $back['status'], 'and it reads again once whole');
     ok(in_array('keepme', array_column($back['body']['changes'], 'id'), true), 'the note survived');

@@ -108,6 +108,9 @@ function wait_code(string $dir, int $before): string
 }
 
 require_once $root . '/lib/store.php';
+require_once $root . '/lib/records.php';
+/** Does $user have a store in $space under $data — whichever records driver the run uses (CALMIND_STORAGE). */
+function has_store(string $data, string $user, string $space = ''): bool { return rs_export(['data_dir' => $data], $user, $space) !== null; }
 
 echo "CalMind shared sign-in, mode by mode\n";
 
@@ -204,7 +207,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq('alex', call($port, ['action' => 'whoami'], bearer($alex))['body']['username'] ?? null, 'whoami');
         $sync = call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [['id' => 'r1', 'type' => 'reminder', 'updated' => 5, 'payload' => ['t' => 1]]]], bearer($alex));
         eq(200, $sync['status'], 'sync');
-        ok(is_file($data . '/records-alex.json'), 'records under the canonical name');
+        ok(has_store($data, 'alex'), 'records under the canonical name');
     });
 
     t('on: a name still held by a legacy CalMind account (any case) is never signed up to someone new', function () use ($port) {
@@ -367,9 +370,9 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         $account('mrowner', 'owner-pw-123');
         $date = date('Y-m-d', strtotime('next monday'));
         eq(200, call($port, ['action' => 'meetreq_create', 'user' => 'MROWNER', 'name' => 'A', 'email' => 'a@example.invalid', 'date' => $date, 'time' => '11:00'])['status'], 'quiet ok');
-        ok(!is_file($data . '/records-MROWNER.json'), 'no record file for a spelling that is not the account');
+        ok(!has_store($data, 'MROWNER'), 'no record file for a spelling that is not the account');
         eq(200, call($port, ['action' => 'meetreq_create', 'user' => 'mrowner', 'name' => 'A', 'email' => 'a@example.invalid', 'date' => $date, 'time' => '11:00'])['status'], 'owner');
-        ok(is_file($data . '/records-mrowner.json'), 'stored for the owner');
+        ok(has_store($data, 'mrowner'), 'stored for the owner');
     });
 
     // ------------------------------------------------------------ held
@@ -442,8 +445,10 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
             $r = call($port, ['action' => 'whoami'] + $chef, bearer($tok));
             eq([401, 'bad token', true], [$r['status'], $r['body']['error'] ?? null, $r['body']['shared'] ?? null], "chef space, $what");
         }
-        eq(200, call($port, ['action' => 'sync'] + $chef + $sync, bearer($shared))['status'], 'chef space, the calmind-scoped row');
-        ok(is_file($data . '/records-chef-alex.json'), 'chef records under the canonical name');
+        // With a record: a sync that changes nothing no longer rewrites (or creates) the store (lib/records.php).
+        $one = ['cursor' => 0, 'changes' => [['id' => 'c1', 'type' => 'note', 'updated' => 5, 'payload' => ['t' => 1]]]];
+        eq(200, call($port, ['action' => 'sync'] + $chef + $one, bearer($shared))['status'], 'chef space, the calmind-scoped row');
+        ok(has_store($data, 'alex', 'chef'), 'chef records under the canonical name');
         // An unknown space follows calmind's hold (and sync still refuses it).
         site(ON + ['mindsuite_auth_hold' => ['test' => ['chefmind']]]);
         eq(200, call($port, ['action' => 'whoami', 'space' => 'Chef'], bearer($shared))['status'], 'an unknown space is calmind\'s');
