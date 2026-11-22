@@ -1,6 +1,6 @@
 # Google Play checklist: CalMind and MealMind
 
-Preparation only; nothing is created or submitted. Package names stay `com.seancheren.calmind` and `com.seancheren.chefmind`.
+Preparation only; nothing is created or submitted. Package names are `com.seancheren.calmind` and `com.seancheren.mealmind`.
 
 ## Developer account
 

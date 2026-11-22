@@ -1,6 +1,6 @@
 # App Store Connect checklist: CalMind and MealMind
 
-Nothing here is submitted; this is the preparation list. Bundle ids, slugs and schemes stay as they are.
+Nothing here is submitted; this is the preparation list. Bundle ids: `com.seancheren.calmind`, `com.seancheren.mealmind`.
 
 ## Listing
 

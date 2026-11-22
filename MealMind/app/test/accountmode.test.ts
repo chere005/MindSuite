@@ -32,7 +32,7 @@ describe('the flag', () => {
 describe('keys', () => {
   test('an account key is unchanged by local mode', () => {
     expect(snapshotKey('calmind', 'owner_1', 'host_calmind')).toBe('calmind.snapshot.owner_1@host_calmind');
-    expect(snapshotKey('chefmind', 'owner_1', 'host_calmind')).toBe('chefmind.snapshot.owner_1@host_calmind');
+    expect(snapshotKey('mealmind', 'owner_1', 'host_calmind')).toBe('mealmind.snapshot.owner_1@host_calmind');
   });
 
   test('the local key can never be an account key', () => {
@@ -40,7 +40,7 @@ describe('keys', () => {
     expect(local).toBe('calmind.snapshot.~local@host_calmind');
     const user = local.slice('calmind.snapshot.'.length, local.indexOf('@'));
     expect(USERNAME_PATTERN.test(user)).toBe(false);
-    expect(localSnapshotKey('chefmind', 't')).toBe('chefmind.snapshot.~local@t');
+    expect(localSnapshotKey('mealmind', 't')).toBe('mealmind.snapshot.~local@t');
   });
 
   test('damaged bytes go to a key of their own, never back over the store', () => {
