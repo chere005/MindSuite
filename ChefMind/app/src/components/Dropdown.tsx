@@ -20,6 +20,7 @@ export function Dropdown({
   gold = false,
   placeholder = '—',
   testID,
+  optionTestIDPrefix,
   deferSelection = false,
 }: {
   value: string | null;
@@ -28,6 +29,8 @@ export function Dropdown({
   gold?: boolean;
   placeholder?: string;
   testID?: string;
+  /** When set, each menu row gets testID `${prefix}${option.id}`. */
+  optionTestIDPrefix?: string;
   /** Finish dismissing the iOS menu before opening another modal. */
   deferSelection?: boolean;
 }) {
@@ -50,7 +53,7 @@ export function Dropdown({
         </Text>
         <Text style={[s.chev, gold && s.textGold]}>⌄</Text>
       </Pressable>
-        <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}
+        {(open || Platform.OS !== 'web') && <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}
           onDismiss={() => {
             const id = pendingPick.current;
             pendingPick.current = null;
@@ -62,6 +65,7 @@ export function Dropdown({
                 {options.map((o) => (
                   <Pressable
                     key={o.id}
+                    testID={optionTestIDPrefix ? `${optionTestIDPrefix}${o.id}` : undefined}
                     accessibilityRole="button"
                     accessibilityLabel={o.label}
                     style={s.row}
@@ -78,7 +82,7 @@ export function Dropdown({
               </Scroll>
             </Pressable>
           </Pressable>
-        </Modal>
+        </Modal>}
     </>
   );
 }

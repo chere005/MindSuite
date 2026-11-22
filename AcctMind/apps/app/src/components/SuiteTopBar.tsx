@@ -14,14 +14,19 @@ export const TOP_BAR_HEIGHT = 64;
 export const TOP_BAR_TARGET = 44;
 export const TOP_BAR_FACE = 32;
 
-export function TopBarFrame({ title, titleTestID, left, controls, picker, account, colors }: {
-  title: string; titleTestID?: string; left?: React.ReactNode; controls?: React.ReactNode;
+export function TopBarFrame({ title, titleTestID, titleAfter, left, controls, picker, account, colors }: {
+  title: string; titleTestID?: string; /** Rendered right after the title, baseline-aligned with it. */ titleAfter?: React.ReactNode; left?: React.ReactNode; controls?: React.ReactNode;
   picker?: React.ReactNode; account?: React.ReactNode; colors: TopBarColors;
 }) {
   return <>
     <View testID="suite-topbar" style={[s.bar, { backgroundColor: colors.background }]}>
       {left}
-      <Text testID={titleTestID} style={[s.title, { color: colors.text }]} numberOfLines={1}>{title}</Text>
+      {titleAfter
+        ? <View style={s.titleRow}>
+            <Text testID={titleTestID} style={[s.title, s.titleSolo, { color: colors.text }]} numberOfLines={1}>{title}</Text>
+            {titleAfter}
+          </View>
+        : <Text testID={titleTestID} style={[s.title, { color: colors.text }]} numberOfLines={1}>{title}</Text>}
       <View style={s.controls}>
         {controls}
         {picker && <View style={s.target}><View pointerEvents="none" style={[s.ring, s.pickerRing, { backgroundColor: colors.surface, borderColor: colors.line }]} />{picker}</View>}
@@ -166,6 +171,8 @@ export function AccountMenu({ colors, username, label, statusColor, statusLabel,
 const s = StyleSheet.create({
   bar: { height: TOP_BAR_HEIGHT, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { flex: 1, minWidth: 0, fontSize: 24, fontWeight: '800' },
+  titleRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline', gap: 12 },
+  titleSolo: { flex: 0, flexShrink: 0 },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   target: { width: TOP_BAR_TARGET, height: TOP_BAR_TARGET, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   ring: { width: TOP_BAR_FACE, height: TOP_BAR_FACE, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
