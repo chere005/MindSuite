@@ -1,6 +1,5 @@
 /**
- * The wide Reports pane: the read-only banner when there is one and the same
- * `ReportsBody` the phone draws (the title is the top bar's, in WideApp),
+ * The wide Reports pane uses the same `ReportsBody` the phone draws,
  * capped at a reading width and centred in the pane like the Budget table so
  * a 2000 px window does not stretch a bar chart edge to edge. Read-only by
  * construction: it is handed the store and nothing that writes.
@@ -17,10 +16,9 @@ import { CHART_MAX, ReportsBody } from '../ReportsScreen';
  */
 const PANE_MAX = CHART_MAX;
 
-export function WideReports({ store, banner }: { store: Store; banner: React.ReactNode }) {
+export function WideReports({ store }: { store: Store }) {
   return (
     <View style={styles.fill} testID="wide-reports">
-      {banner}
       <ScrollView style={styles.fill} contentContainerStyle={styles.scroll}>
         <View style={styles.cap}>
           <ReportsBody store={store} wide />

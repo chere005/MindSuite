@@ -209,12 +209,12 @@ test.describe('read-only (the phone\'s copy through CloudKit)', () => {
 
   test.describe('phone width', () => {
     test.use({ viewport: { width: 420, height: 860 } });
-    test('the Reports tab reads the copy the same way, under the banner', async ({ page }) => {
+    test('the Reports tab reads the copy the same way and shows the status badge', async ({ page }) => {
       const f = figures();
       await asCopy(page, reportsLedger());
       await page.goto('./');
       await page.getByTestId('tab-reports').click();
-      await expect(page.getByTestId('readonly-banner')).toBeVisible();
+      await expect(page.getByTestId('readonly-badge')).toBeVisible();
       await expect(page.getByTestId('report-spending-total')).toHaveText(formatAmount(f.breakdown.total));
       await page.getByTestId('report-tab-flow').click();
       await expect(page.getByTestId('report-flow-net')).toHaveText(formatAmount(f.flow.total.net));
@@ -229,7 +229,7 @@ test.describe('read-only (the phone\'s copy through CloudKit)', () => {
       await asCopy(page, reportsLedger());
       await page.goto('./');
       await page.getByTestId('wide-nav-reports').click();
-      await expect(page.getByTestId('readonly-banner')).toBeVisible();
+      await expect(page.getByTestId('readonly-badge')).toBeVisible();
       await expect(page.getByTestId('report-spending-total')).toHaveText(formatAmount(f.breakdown.total));
       expect(await stored(page)).toBeNull();
     });

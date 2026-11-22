@@ -43,7 +43,7 @@ const step = (m: string, by: number) => {
 };
 
 export function WideBudget({
-  groups, totals, budgetMonth, onMonth, selectedId, readOnly, banner, onSelect, onAddLine,
+  groups, totals, budgetMonth, onMonth, selectedId, readOnly, onSelect, onAddLine,
 }: {
   groups: readonly SheetGroup[];
   totals: { unassigned: number; overspent: number; short: number };
@@ -51,14 +51,12 @@ export function WideBudget({
   onMonth: (m: string) => void;
   selectedId: string | null;
   readOnly: boolean;
-  banner: React.ReactNode;
   onSelect: (lineId: string) => void;
   onAddLine: () => void;
 }) {
   const snooze = useContext(SnoozeLineContext);
   return (
     <View style={styles.fill} testID="wide-budget">
-      {banner}
       {/*
         One centred column, capped: the month row, the totals and the table
         share its edges, so "+ Line" ends where the Snooze column does and the

@@ -68,6 +68,8 @@ export function makeTxn(draft: Draft, id: string, created: number): Txn {
     date: draft.date,
     account: draft.account,
     ...filing(draft, amount, 'makeTxn'),
+    ...(draft.splits === undefined && draft.category !== null && draft.categoryNeedsReview
+      ? { categoryNeedsReview: true } : {}),
     // A new row has never been dragged. Zero means "use the date order",
     // which is what makes an untouched list identical in every sort mode.
     order: 0,
@@ -275,7 +277,7 @@ export function patchTxn(txn: Txn, patch: TxnPatch, now: number): Txn {
   let next: Txn = patch.amount === undefined ? txn : withAmount(txn, patch.amount);
   if (patch.name !== undefined) next = { ...next, name: patch.name };
   if (patch.category !== undefined) {
-    const { splits: _was, ...rest } = next;
+    const { splits: _was, categoryNeedsReview: _pending, ...rest } = next;
     next = { ...rest, category: patch.category };
   }
   return touch(next, now);
@@ -474,7 +476,7 @@ export function applyDraft(txn: Txn, draft: Draft, now: number): Txn {
   if (amount === null) throw new Error('applyDraft: the draft has not been validated');
   // The old parts come off first, so an edit that un-splits a row leaves NO
   // key behind rather than one holding nothing — see Txn.splits.
-  const { splits: _was, ...rest } = txn;
+  const { splits: _was, categoryNeedsReview, ...rest } = txn;
   return touch({
     ...rest,
     name: draft.name.trim(),
@@ -483,6 +485,8 @@ export function applyDraft(txn: Txn, draft: Draft, now: number): Txn {
     date: draft.date,
     account: draft.account,
     ...filing(draft, amount, 'applyDraft'),
+    ...(draft.splits === undefined && draft.category === txn.category && categoryNeedsReview
+      ? { categoryNeedsReview } : {}),
   }, now);
 }
 
@@ -508,6 +512,7 @@ export function duplicateTxn(txn: Txn, id: string, now: number): Txn {
     date: txn.date,
     account: txn.account,
     category: txn.category,
+    ...(txn.categoryNeedsReview ? { categoryNeedsReview: true } : {}),
     // Split the same way: the second coffee went where the first one did.
     ...(txn.splits === undefined ? {} : { splits: txn.splits.map((p) => ({ ...p })) }),
     // Not the original's place in a hand-made order: it is a new row, and

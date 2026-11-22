@@ -209,13 +209,14 @@ test('a page left open re-reads every minute, which a hidden MindSuite frame nee
   await expect.poll(() => rows(page)).toHaveLength(2);
 });
 
-test('the banner says how old the copy is, and when the iPhone app is older than the page', async ({ page }) => {
+test('the badge opens copy age and iPhone version details', async ({ page }) => {
   // `bytes` as the phone declares it: the unpacked length must match, or the copy is refused as damaged.
   await withCloudKit(page, {
     signedIn: true, record: PACKED, tag: 't1', modified: Date.now() - 2 * 3600_000, bytes: Buffer.byteLength(PHONE, 'utf8'),
   });
   await openLedger(page);
-  const text = page.getByTestId('readonly-banner-text');
+  await page.getByTestId('readonly-badge').click();
+  const text = page.getByTestId('readonly-status-text');
   await expect(text).toContainText('iPhone copy from 2 hours ago');
   await expect.poll(() => rows(page)).toHaveLength(1);
   // No `app` on the record: written by an iPhone build from before the field.
@@ -233,7 +234,8 @@ test('a copy in a newer format than the page reads says the page needs updating'
   const newer = deflateRawSync(Buffer.from(JSON.stringify({ v: STORE_VERSION + 1, txns: [] }), 'utf8')).toString('base64');
   await withCloudKit(page, { signedIn: true, record: newer });
   await page.goto('./');
-  await expect(page.getByTestId('readonly-banner-text')).toContainText(`newer format (v${STORE_VERSION + 1})`);
+  await page.getByTestId('readonly-badge').click();
+  await expect(page.getByTestId('readonly-status-text')).toContainText(`newer format (v${STORE_VERSION + 1})`);
 });
 
 test('a copy whose unpacked length is not what the phone declared is not shown', async ({ page }) => {

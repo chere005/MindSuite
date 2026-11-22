@@ -30,6 +30,7 @@ import { TxnEditor } from './TxnEditor';
 import { WideBudget } from './WideBudget';
 import { WideReports } from './WideReports';
 import { WideTransactions } from './WideTransactions';
+import { useReadOnly } from '../readonly';
 import { WIDE_COLORS } from './shared';
 
 export type WideActions = {
@@ -40,7 +41,7 @@ export type WideActions = {
 };
 
 export function WideApp({
-  store, commit, tab, onTab, budgetMonth, onBudgetMonth, mode, rules, choices, readOnly, banner, info,
+  store, commit, tab, onTab, budgetMonth, onBudgetMonth, mode, rules, choices, readOnly, onAcceptCategory, info,
   menu, actions,
 }: {
   store: Store;
@@ -53,11 +54,12 @@ export function WideApp({
   rules: readonly CategoryRule[];
   choices: readonly CategoryChoice[];
   readOnly: boolean;
-  banner: React.ReactNode;
+  onAcceptCategory: (txn: Txn) => void;
   info: SyncInfo;
   menu: React.ReactNode;
   actions: WideActions;
 }) {
+  const { badge } = useReadOnly();
   const [account, setAccount] = useState<string | null>(null);
   /** A transaction id, 'new' for a blank form, or null. */
   const [selTxn, setSelTxn] = useState<string | null>(null);
@@ -191,7 +193,7 @@ export function WideApp({
   const c = WIDE_COLORS;
   const sidebar = (
     <>
-      <SidebarTitle title="AcctMind" colors={c} />
+      <SidebarTitle title="AcctMind" colors={c} right={badge} />
       <Text style={styles.sync} numberOfLines={2} testID="wide-sync">{syncLine(info, Date.now())}</Text>
       <View style={styles.gap} />
       <SidebarItem label="Budget" active={tab === 'budget'} onPress={() => goTab('budget')} colors={c} testID="wide-nav-budget" />
@@ -219,17 +221,18 @@ export function WideApp({
   );
 
   const shownCat = budgetCat !== null && categories.some((x) => x.id === budgetCat) ? budgetCat : null;
-  const content = tab === 'reports' ? <WideReports store={store} banner={banner} /> : tab === 'budget' ? (
+  const content = tab === 'reports' ? <WideReports store={store} /> : tab === 'budget' ? (
     <WideBudget
       groups={shownCat === null ? sheet.groups : sheet.groups.filter((g) => g.category.id === shownCat)} totals={sheet} budgetMonth={budgetMonth} onMonth={(m) => { closeDetail(); onBudgetMonth(m); }}
-      selectedId={selLine} readOnly={readOnly} banner={banner} onSelect={selectLine} onAddLine={addLine}
+      selectedId={selLine} readOnly={readOnly} onSelect={selectLine} onAddLine={addLine}
     />
   ) : (
     <WideTransactions
       txns={txns} accounts={accounts} account={shownAccount} choices={choices} rules={rules} mode={mode}
-      selectedId={selTxn} readOnly={readOnly} banner={banner} quickAccount={firstAccount}
+      selectedId={selTxn} readOnly={readOnly} quickAccount={firstAccount}
       onSelect={(t) => setSelTxn(t.id)}
       onCleared={(t, v) => { if (!readOnly) commit(updateTxn(store, setCleared(t, v, Date.now()))); }}
+      onAcceptCategory={onAcceptCategory}
       onQuickAdd={quickAdd} onNew={() => setSelTxn('new')}
     />
   );
@@ -250,7 +253,7 @@ export function WideApp({
   const title = tab === 'reports' ? 'Reports' : tab === 'budget' ? 'Budget' : 'Transactions';
   const main = (
     <View style={styles.main}>
-      <TopBar title={title} titleTestID="wide-title" picker={picker} menu={menu} />
+      <TopBar title={title} titleTestID="wide-title" picker={picker} menu={menu} showAppStatus={false} />
       {content}
     </View>
   );

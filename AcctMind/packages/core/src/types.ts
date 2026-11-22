@@ -126,6 +126,8 @@ export type Txn = Record_ & {
    * that then syncs, gets renamed, and can be deleted out from under its rows.
    */
   category: string | null;
+  /** A rule assigned this category and it still needs the user's approval. */
+  categoryNeedsReview?: true;
   /**
    * CLEARED — it has shown up on the bank's statement. The owner, 2026-09-15: "add
    * a cleared check box as the far right column in transactions."
@@ -191,7 +193,7 @@ export type SplitPart = {
  */
 export type DraftPart = { category: string | null; amount: string };
 
-/** What the add form holds while it is being typed — all strings, all raw. */
+/** What the transaction form holds while it is being typed. */
 export type Draft = {
   name: string;
   description: string;
@@ -202,6 +204,8 @@ export type Draft = {
   account: string;
   /** The category id, or null for one nobody has filed yet. Ignored while split. */
   category: string | null;
+  /** Set when a rule fills the category on a new transaction. */
+  categoryNeedsReview?: true;
   /** The parts, while the person is splitting it; absent otherwise. */
   splits?: DraftPart[] | undefined;
 };

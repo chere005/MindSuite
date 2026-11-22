@@ -30,7 +30,7 @@ import {
   REORDER_GAP, assignMany, budgetCsv, budgetStart, putBudgetStart, suggestedStart, planSync, serialize, undoTo, linesIn, monthlyBudgetAmounts,
   budgetMonthForView, monthOf, monthSet, setMonth, today, tombstone, tombstoneMany, touch,
   txnText, updateTxn, setCleared, patchTxn,
-  categoryChoices, categoryRules, putSnooze, removeCategoryRule, saveCategoryRule,
+  acceptCategory, categoryChoices, categoryRules, putSnooze, removeCategoryRule, saveCategoryRule,
   type AssignMode, type CsvRow, type Draft, type ImportMode, type Line, type Store, type Txn,
 } from '@acctmind/core';
 import * as Clipboard from 'expo-clipboard';
@@ -58,7 +58,7 @@ import { WideApp } from './src/wide/WideApp';
 import { SnoozeLineContext } from './src/wide/snooze';
 import { ReportsScreen } from './src/ReportsScreen';
 import { useLedgerAccess } from './src/access';
-import { ReadOnlyBanner, ReadOnlyContext } from './src/readonly';
+import { ReadOnlyBadge, ReadOnlyContext } from './src/readonly';
 
 /** What the line editor's bar says: the category the line lives in. */
 type Phase =
@@ -85,6 +85,7 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   /** The row the form is editing, or null when it is adding a new one. */
   const [editing, setEditing] = useState<Txn | null>(null);
+  const [startInSplit, setStartInSplit] = useState(false);
   /**
    * The account a new transaction goes into.
    *
@@ -169,7 +170,7 @@ export default function App() {
    */
   const { access, info } = useLedgerAccess();
   const readOnly = access.readOnly;
-  /** The banner's Sign in opens the cog menu, where the Apple ID button is. */
+  /** The status badge can open the cog menu if Apple sign-in is unavailable. */
   const [menuAsk, setMenuAsk] = useState(0);
 
   useEffect(() => {
@@ -488,20 +489,27 @@ export default function App() {
 
   const onSave = useCallback((draft: Draft) => {
     if (phase.k !== 'ready') return;
+    const store = storeRef.current ?? phase.store;
+    const current = editing === null ? null : store.txns.find((txn) => txn.id === editing.id && !txn.deleted);
+    if (current === undefined) {
+      setAdding(false);
+      setEditing(null);
+      return;
+    }
     // The impure parts live here, at the edge — core takes the id and the
     // clock as arguments so a test can pin both.
-    const next = editing === null
-      ? addTxn(phase.store, makeTxn(draft, newId(), Date.now()))
-      : updateTxn(phase.store, applyDraft(editing, draft, Date.now()));
+    const next = current === null
+      ? addTxn(store, makeTxn(draft, newId(), Date.now()))
+      : updateTxn(store, applyDraft(current, draft, Date.now()));
     setAdding(false);
     setEditing(null);
-    commit(phase, next);
+    commit({ ...phase, store }, next);
   }, [phase, commit, editing]);
 
   /**
    * What a held-down row offers.
    *
-   * Three of the four change the ledger and go through `commit`, which is the
+   * Ledger edits go through `commit`, which is the
    * only path that saves, publishes to peers and pushes to the wrist — so a
    * duplicate or a delete syncs exactly like an add, without this file
    * remembering to do three things each time.
@@ -624,12 +632,24 @@ export default function App() {
     />
   );
 
+  const onAcceptCategory = useCallback((txn: Txn) => {
+    if (phase.k !== 'ready') return;
+    const store = storeRef.current ?? phase.store;
+    const next = acceptCategory(store, txn, Date.now());
+    if (next !== store) commit({ ...phase, store }, next);
+  }, [phase, commit]);
+
   const onRowAction = useCallback((action: RowAction, txn: Txn) => {
     if (phase.k !== 'ready') return;
     switch (action) {
       case 'edit':
+      case 'split':
+        setStartInSplit(action === 'split');
         setEditing(txn);
         setAdding(true);
+        return;
+      case 'accept-category':
+        onAcceptCategory(txn);
         return;
       case 'duplicate':
         commit(phase, addTxn(phase.store, duplicateTxn(txn, newId(), Date.now())));
@@ -644,10 +664,10 @@ export default function App() {
         commit(phase, updateTxn(phase.store, tombstone(txn, Date.now())));
         return;
     }
-  }, [phase, commit]);
+  }, [phase, commit, onAcceptCategory]);
 
-  const banner = readOnly ? (
-    <ReadOnlyBanner
+  const badge = readOnly ? (
+    <ReadOnlyBadge
       info={{ ...info, unreadable: copyMeta.unreadable, cachedAt: copyMeta.cachedAt }}
       onReload={() => { void reconcileShared(); }}
       onSignIn={() => { if (!shared.startSignIn()) setMenuAsk((n) => n + 1); }}
@@ -656,7 +676,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <ReadOnlyContext.Provider value={{ readOnly, banner }}>
+      <ReadOnlyContext.Provider value={{ readOnly, badge }}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'left', 'right']}>
         {phase.k === 'loading' && (
@@ -896,7 +916,7 @@ export default function App() {
                 rules={rules}
                 choices={choices}
                 readOnly={readOnly}
-                banner={banner}
+                onAcceptCategory={onAcceptCategory}
                 info={{ ...info, unreadable: copyMeta.unreadable, cachedAt: copyMeta.cachedAt }}
                 menu={appMenu}
                 actions={{
@@ -1112,6 +1132,7 @@ export default function App() {
             {!wide && <AddTransaction
               visible={adding}
               editing={editing ?? undefined}
+              startInSplit={editing !== null && startInSplit}
               mode={prefs.amountMode}
               account={addingTo}
               category={addingIn}

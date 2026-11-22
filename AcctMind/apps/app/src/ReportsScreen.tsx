@@ -23,7 +23,6 @@ import {
 } from '@acctmind/core';
 import { Dot } from './Dot';
 import { ColumnChart, Donut, type Column } from './ReportCharts';
-import { useReadOnly } from './readonly';
 import { TopBar } from './TopBar';
 import { SPACE, T, TAP } from './theme';
 
@@ -402,13 +401,11 @@ function Table({ head, rows, foot, footNeg = false, narrow = false, testID }: {
   );
 }
 
-/** The phone's Reports tab: the bar, the read-only banner when there is one, and the body. */
+/** The phone's Reports tab. */
 export function ReportsScreen({ store, menu }: { store: Store; menu: ReactNode }) {
-  const { banner } = useReadOnly();
   return (
     <View style={styles.fill}>
       <TopBar title="Reports" titleTestID="reports-title" menu={menu} />
-      {banner}
       <ScrollView contentContainerStyle={styles.phoneList}>
         <ReportsBody store={store} />
       </ScrollView>

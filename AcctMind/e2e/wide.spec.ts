@@ -194,6 +194,24 @@ test.describe('1280x820, editable', () => {
     await expect(page.getByTestId('quick-error')).toBeVisible();
   });
 
+  test('quick-entry rules ask for approval beside the category', async ({ page }) => {
+    const ledger = JSON.parse(wideLedger());
+    const dining = ledger.lines.find((line: { name: string }) => line.name === 'Dining');
+    ledger.settings.push({ id: 'categoryMatch:bagel', value: dining.id, created: 1, updated: 1 });
+    await withStore(page, JSON.stringify(ledger));
+    await page.getByTestId('wide-account-a-chk').click();
+    await page.getByTestId('quick-name').fill('Bagel');
+    await page.getByTestId('quick-amount').fill('3.50');
+    await page.getByTestId('quick-amount').press('Enter');
+    const row = page.getByTestId('wide-row').filter({ hasText: 'Bagel' });
+    await expect(row.getByTestId('wide-row-category')).toHaveText('Dining');
+    await row.getByRole('button', { name: 'Accept Dining for Bagel' }).press('Enter');
+    await expect(row.getByTestId('accept-category')).toHaveCount(0);
+    await expect(page.getByTestId('txn-detail')).toHaveCount(0);
+    await expect.poll(async () => (await storedTxns(page)).find((t) => (t as { name: string }).name === 'Bagel'))
+      .not.toHaveProperty('categoryNeedsReview');
+  });
+
   test('the Cleared checkbox in the table still flips and persists', async ({ page }) => {
     await withStore(page, wideLedger());
     await page.getByTestId('wide-account-a-chk').click();
@@ -411,13 +429,16 @@ test.describe('read-only (the phone\'s copy through CloudKit)', () => {
   test.use(REAL_HOST);
   test.describe('wide', () => {
     test.use({ viewport: { width: 1280, height: 820 } });
-    test('no add or edit controls, a banner, and a text detail pane', async ({ page }) => {
+    test('a sidebar badge and a text detail pane with no add or edit controls', async ({ page }) => {
       await asCopy(page, wideLedger());
       await page.goto('./');
-      await expect(page.getByTestId('readonly-banner')).toBeVisible();
-      await expect(page.getByTestId('readonly-banner')).toContainText('Read-only');
-      await expect(page.getByTestId('readonly-banner')).toContainText('iPhone');
+      const badge = page.getByTestId('wide-sidebar').getByTestId('readonly-badge');
+      await expect(badge).toHaveText('Read-only');
+      await expect(page.getByTestId('readonly-status')).toHaveCount(0);
+      await badge.click();
+      await expect(page.getByTestId('readonly-status-text')).toContainText('iPhone');
       await expect(page.getByTestId('readonly-reload')).toBeVisible();
+      await page.getByTestId('readonly-close').click();
       // Read-only never seeds and never writes: only the copy's three accounts, no default
       // "Account", and nothing at all saved into the browser's ledger.
       await page.getByTestId('wide-account-all').click();
@@ -470,16 +491,18 @@ test.describe('read-only (the phone\'s copy through CloudKit)', () => {
 
   test.describe('phone width', () => {
     test.use({ viewport: { width: 420, height: 860 } });
-    test('banner under the bar, no + and no pencil', async ({ page }) => {
+    test('badge next to the app name, no + and no pencil', async ({ page }) => {
       await asCopy(page, wideLedger());
       await page.goto('./');
       await expect(page.getByTestId('wide-frame')).toHaveCount(0);
-      await expect(page.getByTestId('readonly-banner')).toBeVisible();
+      const bar = page.getByTestId('suite-topbar');
+      await expect(bar).toContainText('AcctMind');
+      await expect(bar.getByTestId('readonly-badge')).toBeVisible();
       await expect(page.getByTestId('add-button')).toHaveCount(0);
       await expect(page.getByTestId('budget-edit-toggle')).toHaveCount(0);
       await expect(page.getByTestId('undo-button')).toHaveCount(0);
       await page.getByTestId('tab-transactions').click();
-      await expect(page.getByTestId('readonly-banner')).toBeVisible();
+      await expect(bar.getByTestId('readonly-badge')).toBeVisible();
       await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
       await expect(page.getByTestId('account-add-a-chk')).toHaveCount(0);
       // No selection circles, no pick bar, and Cleared is a plain tick, not a checkbox.
@@ -515,22 +538,25 @@ test.describe('read-only states on a real host', () => {
     expect(await page.evaluate(() => localStorage.getItem('acctmind.store.v1'))).toBe(old);
   });
 
-  test('offline with a cached copy: amber banner, the cached copy, still read-only', async ({ page }) => {
+  test('offline with a cached copy: the badge opens its age and reload action', async ({ page }) => {
     const written = Date.now() - 2 * 86_400_000;
     await page.addInitScript(([k, v]) => localStorage.setItem(k as string, v as string),
       ['acctmind.copycache.v1', JSON.stringify({ text: wideLedger(), writtenAt: written, cachedAt: written })] as const);
     await offline(page);
     await page.goto('./');
-    await expect(page.getByTestId('readonly-banner-text')).toContainText("Couldn't reach iCloud; showing the copy from");
+    await page.getByTestId('readonly-badge').click();
+    await expect(page.getByTestId('readonly-status-text')).toContainText("Couldn't reach iCloud; showing the copy from");
+    await expect(page.getByTestId('readonly-reload')).toBeVisible();
+    await page.getByTestId('readonly-close').click();
     await page.getByTestId('wide-account-all').click();
     await expect(page.getByTestId('wide-row').first()).toBeVisible();
     await expect(page.getByTestId('quick-entry')).toHaveCount(0);
     await expect(page.getByTestId('wide-new')).toHaveCount(0);
-    await expect(page.getByTestId('readonly-reload')).toBeVisible();
     expect(await stored(page)).toBeNull();
-    // Phone width: the same banner, no + button.
+    // Phone width: the same status details and no + button.
     await page.setViewportSize({ width: 420, height: 860 });
-    await expect(page.getByTestId('readonly-banner-text')).toContainText("Couldn't reach iCloud");
+    await page.getByTestId('readonly-badge').click();
+    await expect(page.getByTestId('readonly-status-text')).toContainText("Couldn't reach iCloud");
     await expect(page.getByTestId('add-button')).toHaveCount(0);
   });
 
@@ -538,7 +564,9 @@ test.describe('read-only states on a real host', () => {
     await oldBrowserData(page, oldLedger());
     await offline(page);
     await page.goto('./');
-    await expect(page.getByTestId('readonly-banner-text')).toContainText('no saved copy');
+    await page.getByTestId('readonly-badge').click();
+    await expect(page.getByTestId('readonly-status-text')).toContainText('no saved copy');
+    await page.getByTestId('readonly-close').click();
     await page.getByTestId('wide-account-all').click();
     await expect(page.getByTestId('wide-empty')).toBeVisible();
     await expect(page.getByText('Old browser coffee')).toHaveCount(0);
@@ -550,13 +578,16 @@ test.describe('read-only states on a real host', () => {
   test('an unparseable copy is an error, not an empty ledger "being read"', async ({ page }) => {
     await asCopy(page, '', { record: 'this is not a ledger' });
     await page.goto('./');
-    const text = page.getByTestId('readonly-banner-text');
+    await page.getByTestId('readonly-badge').click();
+    const text = page.getByTestId('readonly-status-text');
     await expect(text).toContainText("Your iPhone's copy couldn't be read (");
     await expect(text).not.toContainText("Reading your iPhone's copy");
     await expect(page.getByTestId('wide-sync')).toContainText('could not be read');
     await expect(page.getByTestId('readonly-reload')).toBeVisible();
+    await page.getByTestId('readonly-close').click();
     await page.setViewportSize({ width: 420, height: 860 });
-    await expect(page.getByTestId('readonly-banner-text')).toContainText("couldn't be read");
+    await page.getByTestId('readonly-badge').click();
+    await expect(text).toContainText("couldn't be read");
     await expect(page.getByTestId('add-button')).toHaveCount(0);
   });
 
@@ -564,6 +595,7 @@ test.describe('read-only states on a real host', () => {
     await page.setViewportSize({ width: 1000, height: 800 });
     await asCopy(page, wideLedger(), { signedIn: false });
     await page.goto('./');
+    await page.getByTestId('readonly-badge').click();
     await page.getByTestId('readonly-signin').click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __signInClicks?: number }).__signInClicks ?? 0)).toBe(1);
     await expect(page.getByTestId('menu-whole')).toHaveCount(0);
@@ -642,7 +674,7 @@ test.describe('420 wide, editable: the phone layout is unchanged', () => {
     await expect(page.getByTestId('tab-budget')).toBeVisible();
     await expect(page.getByTestId('tab-transactions')).toBeVisible();
     await expect(page.getByTestId('add-button')).toBeVisible();
-    await expect(page.getByTestId('readonly-banner')).toHaveCount(0);
+    await expect(page.getByTestId('readonly-badge')).toHaveCount(0);
     await expect(page.getByTestId('edit-toggle')).toBeVisible();
     await page.getByTestId('tab-budget').click();
     await expect(page.getByTestId('budget-edit-toggle')).toBeVisible();

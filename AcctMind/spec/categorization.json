@@ -1,12 +1,12 @@
 {
   "matches": [
-    ["GROCERY SHOP", "", null, "food"],
-    ["Purchase", "Card: Grocery Shop #515", null, "food"],
-    ["Shop", "refund", "rent", "rent"],
-    ["Book Shop", "store", null, "books"],
-    ["Workshop", "", null, "food"],
-    ["Reconcile", "shop", null, null],
-    ["Coffee", "", null, null]
+    ["GROCERY SHOP", "", null, "food", true],
+    ["Purchase", "Card: Grocery Shop #515", null, "food", true],
+    ["Shop", "refund", "rent", "rent", false],
+    ["Book Shop", "store", null, "books", true],
+    ["Workshop", "", null, "food", true],
+    ["Reconcile", "shop", null, null, false],
+    ["Coffee", "", null, null, false]
   ],
   "frequency": {
     "lines": ["rent", "food", "books"],

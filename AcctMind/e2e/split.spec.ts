@@ -13,7 +13,7 @@
 import { deflateRawSync } from 'node:zlib';
 import { expect, test, type Page } from '@playwright/test';
 import { CK_FIELD, CK_RECORD_NAME } from '@acctmind/core';
-import { setSign, stored, withStore } from './helpers';
+import { addTransaction, setSign, stored, withStore } from './helpers';
 
 const stamp = { created: 1, updated: 1 };
 const today = (): string => {
@@ -59,6 +59,45 @@ async function pick(page: Page, button: string, line: string): Promise<void> {
 }
 
 test.describe('phone', () => {
+  test('approves a suggestion in the row and accepts a manually corrected category', async ({ page }) => {
+    const seed = JSON.parse(ledger());
+    seed.settings = [{ id: 'categoryMatch:market', value: 'l-groc', ...stamp }];
+    await withStore(page, JSON.stringify(seed));
+    await addTransaction(page, { name: 'Market one', amount: '-600' });
+    const first = page.getByTestId('txn-row').filter({ hasText: 'Market one' });
+    await first.getByRole('button', { name: 'Accept Groceries for Market one' }).click();
+    await expect(first.getByTestId('accept-category')).toHaveCount(0);
+    await expect(first.getByTestId('txn-category')).toHaveText('Groceries');
+
+    await addTransaction(page, { name: 'Market two', amount: '-600' });
+    const second = page.getByTestId('txn-row').filter({ hasText: 'Market two' });
+    await expect(second.getByTestId('accept-category')).toBeVisible();
+    const t = await txnNamed(page, 'Market two');
+    await pick(page, `txn-category-tap-${t.id}`, 'l-house');
+    await expect(second.getByTestId('accept-category')).toHaveCount(0);
+    await expect(second.getByTestId('txn-category')).toHaveText('Household');
+    expect(await txnNamed(page, 'Market one')).not.toHaveProperty('categoryNeedsReview');
+    expect(await txnNamed(page, 'Market two')).not.toHaveProperty('categoryNeedsReview');
+    await addTransaction(page, { name: 'Market three', amount: '-600' });
+    const third = page.getByTestId('txn-row').filter({ hasText: 'Market three' });
+    await expect(third.getByRole('button', { name: 'Accept Groceries for Market three' })).toBeVisible();
+  });
+
+  test('starts splitting an existing transaction from the row category picker', async ({ page }) => {
+    const { splits: _split, ...shop } = splitShop();
+    await withStore(page, ledger([{ ...shop, category: 'l-groc', categoryNeedsReview: true }]));
+    await page.getByTestId('txn-category-tap-shop').click();
+    await page.getByTestId('category-split').click();
+    await expect(page.getByTestId('split-category-0-value')).toHaveText('Groceries');
+    await type(page, 'split-amount-0', '6000');
+    await pick(page, 'split-category-1', 'l-house');
+    await page.getByTestId('save-button').click();
+    await expect(page.getByTestId('save-button')).toBeHidden();
+    const edited = await txnNamed(page, 'Market');
+    expect(parts(edited)).toEqual([['l-groc', -6000], ['l-house', -4000]]);
+    expect(edited).not.toHaveProperty('categoryNeedsReview');
+  });
+
   test('split a new transaction, edit the split, then un-split it', async ({ page }) => {
     await withStore(page, ledger());
     await page.getByTestId('add-button').click();
@@ -196,7 +235,7 @@ test.describe('wide', () => {
   test('read-only shows the split and offers nothing to change it', async ({ page }) => {
     await asCopy(page, ledger([splitShop()]));
     await page.goto('./');
-    await expect(page.getByTestId('readonly-banner')).toBeVisible();
+    await expect(page.getByTestId('readonly-badge')).toBeVisible();
     await page.getByTestId('wide-nav-transactions').click();
     const row = page.getByTestId('wide-row').filter({ hasText: 'Market' });
     await expect(row.getByTestId('wide-row-category')).toHaveText('Split · Groceries, Household');

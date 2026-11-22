@@ -6,7 +6,7 @@
  * and how a quick-entry row is read lives here, with a test (test/wide.test.ts).
  */
 import { budgetOverspent, lineTone, linesIn, stillNeeded, unassigned, availableOf, type LineTone } from './budget';
-import { autoCategory, type CategoryRule } from './categorization';
+import { autoCategoryAssignment, type CategoryRule } from './categorization';
 import { copyAge, phoneOlder } from './copy';
 import { isDay, today as todayDay } from './day';
 import { amountDigits, amountInput, signedCents, type AmountMode } from './money';
@@ -389,13 +389,12 @@ export function quickDraft(
 ): { draft: Draft; errors: DraftErrors } {
   const day = parseDayInput(f.date, ctx.today);
   const amount = quickAmount(f.amount, ctx.mode);
-  const draft: Draft = {
-    name: f.name, description: '', amount: amount ?? f.amount.trim(),
-    date: day ?? f.date.trim(), account: ctx.account, category: null,
-  };
   const typed = quickCategory(f.category, ctx.choices);
-  if (typed.kind === 'auto') draft.category = autoCategory(draft, ctx.rules);
-  else if (typed.kind === 'ok') draft.category = typed.id;
+  const entry: Draft = {
+    name: f.name, description: '', amount: amount ?? f.amount.trim(),
+    date: day ?? f.date.trim(), account: ctx.account, category: typed.kind === 'ok' ? typed.id : null,
+  };
+  const draft = typed.kind === 'auto' ? { ...entry, ...autoCategoryAssignment(entry, ctx.rules) } : entry;
   const errors = validateDraft(draft);
   if (amount === null && draft.amount !== '' && errors.amount === undefined) errors.amount = 'That is not an amount';
   if (typed.kind === 'none') errors.category = `No category matches "${typed.text}"`;

@@ -18,7 +18,7 @@ import {
 import { isDay } from './day';
 import { PALETTE } from './palette';
 import { sameValue, tombstone, touch } from './merge';
-import { splitProblem } from './txn';
+import { patchTxn, splitProblem } from './txn';
 
 /** A load either produced a store, or failed and must not be written over. */
 export type LoadResult =
@@ -151,7 +151,12 @@ export function parseStore(raw: string | null | undefined): LoadResult {
   // is a state the model already has, so there is nothing to fabricate.
   // INCOME is there without a record — see its note in types.ts.
   const knownLines = new Set([INCOME, ...lines.map((l) => l.id)]);
-  for (const t of txns) if (t.category !== null && !knownLines.has(t.category)) t.category = null;
+  for (const t of txns) {
+    if (t.category !== null && !knownLines.has(t.category)) {
+      t.category = null;
+      delete t.categoryNeedsReview;
+    }
+  }
   // And for each PART of a split, the same rule one level down: the part
   // goes unfiled, its money and the other parts' filing stay where they are.
   for (const t of txns) {
@@ -439,8 +444,9 @@ export function normalizeTxn(row: unknown): Txn | null {
   const description = r['description'];
 
   const account = r['account'];
-  const category = r['category'];
   const splits = normalizeSplits(r['splits'], amount);
+  const rawCategory = r['category'];
+  const category = splits === null && typeof rawCategory === 'string' && rawCategory !== '' ? rawCategory : null;
 
   return {
     id,
@@ -453,7 +459,8 @@ export function normalizeTxn(row: unknown): Txn | null {
     // one place that can see the whole store and choose a home.
     account: typeof account === 'string' ? account : '',
     // Null beside a split, whatever was stored there — see Txn.splits.
-    category: splits === null && typeof category === 'string' && category !== '' ? category : null,
+    category,
+    ...(category !== null && r['categoryNeedsReview'] === true ? { categoryNeedsReview: true as const } : {}),
     // Absent in every store before custom ordering existed. Zero is not a
     // fallback here, it is the real value for "never dragged".
     order: typeof r['order'] === 'number' && Number.isFinite(r['order']) ? r['order'] : 0,
@@ -720,7 +727,7 @@ export function removeCategoryDeep(store: Store, categoryId: string, now: number
     // an edit that does not move the merge clock is an edit another device
     // will overwrite with its own stale copy.
     txns: store.txns.map((t) => {
-      if (t.category !== null && doomed.has(t.category)) return touch({ ...t, category: null }, now);
+      if (t.category !== null && doomed.has(t.category)) return patchTxn(t, { category: null }, now);
       // A split's parts the same way, one by one: the part that was filed
       // here goes to no category, and the others stay filed where they were.
       if (t.splits?.some((p) => p.category !== null && doomed.has(p.category)) === true) {
