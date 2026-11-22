@@ -38,6 +38,7 @@ async function overflow(page: Page): Promise<number> {
 
 /** An event for today, filed through the wide layout's own quick-add field. */
 async function quickAddEvent(page: Page, line: string) {
+  await page.getByTestId('quick-kind').click();
   await page.getByTestId('quick-kind-event').click();
   await page.getByTestId('quick-add').fill(line);
   await page.getByTestId('quick-add').press('Enter');

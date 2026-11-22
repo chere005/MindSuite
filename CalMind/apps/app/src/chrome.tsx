@@ -17,8 +17,9 @@ import { useToast } from './components/Toast';
 import { useNav } from './nav';
 import { useWide } from './components/WideFrame';
 
-export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, onToggleCompleted }: {
+export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, showCompleted, onToggleCompleted }: {
   title: string;
+  titleAfter?: React.ReactNode;
   controls?: React.ReactNode;
   picker?: React.ReactNode;
   copyMarkdown?: () => string;
@@ -60,7 +61,7 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
     { key: 'signout', label: 'Sign out', onPress: async () => { if (session) void logout(session); await signOut(); } },
   ];
   return <>
-    <TopBarFrame title={title} colors={colors}
+    <TopBarFrame title={title} titleAfter={titleAfter} colors={colors}
       left={wide ? undefined : <TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
       controls={controls} picker={picker}
       account={<AccountMenu colors={colors} username={session?.username} statusColor={look.color} statusLabel={look.text}

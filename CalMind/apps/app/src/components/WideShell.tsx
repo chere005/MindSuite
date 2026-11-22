@@ -18,6 +18,7 @@ import { useAddLine, type AddKind } from '../addline';
 import { calSelectedDay } from '../screens/Calendar';
 import { SearchBody } from '../screens/Search';
 import { Field, Pill } from '../ui';
+import { Dropdown } from './Dropdown';
 import type { Tab } from '../nav';
 import { useCalendarView } from './CalendarPick';
 import { useFolderView } from './FolderPick';
@@ -210,10 +211,14 @@ function QuickAdd({ tab, onNoteCreated }: { tab: Section; onNoteCreated: (id: st
           placeholder="Add a reminder or event, like “dentist thu 2pm”"
           style={s.addField}
         />
-        {(['event', 'reminder', 'note'] as AddKind[]).map((k) => (
-          <Pill key={k} testID={`quick-kind-${k}`} compact label={k[0]!.toUpperCase() + k.slice(1)} primary={kind === k} onPress={() => setPicked(k)} />
-        ))}
-        <Pill testID="quick-add-go" compact label="Add" onPress={submit} />
+        <Dropdown
+          testID="quick-kind"
+          optionTestIDPrefix="quick-kind-"
+          value={kind}
+          options={[{ id: 'event', label: 'Event' }, { id: 'reminder', label: 'Reminder' }, { id: 'note', label: 'Note' }]}
+          onPick={(k) => setPicked(k as AddKind)}
+        />
+        <Pill testID="quick-add-go" compact primary label="Add" onPress={submit} />
       </View>
       {err !== '' && <Text style={s.err}>{err}</Text>}
     </View>

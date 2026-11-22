@@ -655,6 +655,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           same place rather than the bar having a hole on one tab. */}
       <TopBar
         title="Calendar"
+        titleAfter={wide ? <Text testID="cal-day-title" style={s.panelTitle}>{dayLabel}</Text> : undefined}
         copyMarkdown={() => viewMarkdown(dayLabel, [
           { name: 'Events', lines: items.events.map((e) => ({ text: e.payload.text, chip: eventDayLabel(e.payload.date, e.payload.time, e.payload.endDate, e.payload.end, day, clock24) })) },
           { name: 'Reminders', lines: myReminders.map(({ rec: r }) => ({ text: r.payload.text, chip: r.payload.time ? timeLabel(r.payload.time, clock24) : null })) },
@@ -873,12 +874,12 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
           onExit={() => { if (swipe.swiped !== null) swipe.clear(); else setPanelEdit(false); }}
           style={s.panelInner}
         >
-        <View style={s.panelHead}>
+        {!wide && <View style={s.panelHead}>
           {/* Just the day now: the "+ Add" pill that sat beside it was "the
               additional add button" (the owner, 2026-08-20) — the Add tab, which
               defaults to this selected day, is the one way to add. */}
           <Text testID="cal-day-title" style={s.panelTitle}>{dayLabel}</Text>
-        </View>
+        </View>}
         {items.events.length > 0 && (
           <Pressable
             testID="dp-group-head"

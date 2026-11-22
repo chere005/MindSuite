@@ -33,6 +33,7 @@ async function recs(page: Page, user: string): Promise<R[]> {
 const byText = (rs: R[], text: string) => rs.find((r) => (r.payload.text ?? r.payload.title) === text);
 
 async function quick(page: Page, kind: 'event' | 'reminder' | 'note', line: string) {
+  await page.getByTestId('quick-kind').click();
   await page.getByTestId(`quick-kind-${kind}`).click();
   await page.getByTestId('quick-add').fill(line);
   await page.getByTestId('quick-add').press('Enter');
