@@ -19,7 +19,7 @@
 // Options: --repo DIR (the MindSuite checkout; default this script's), --no-push (commit and tag
 // locally only), --dry-run (print the entry, change nothing).
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -207,9 +207,59 @@ function readAt(git, rev, path) {
   return r.status === 0 ? r.stdout : null;
 }
 
+/** MindSuite versions already tagged (the fetch before this prunes local tags origin lacks). */
 function takenVersions(git) {
   const out = git(['tag', '--list', `${TAG_PREFIX}*`]);
   return new Set(out.split('\n').filter(Boolean).map((t) => t.slice(TAG_PREFIX.length)));
+}
+
+/**
+ * Other MindSuite release lanes running now, from `ps -axo pid=,ppid=,command=` output: the
+ * shells running an app's tools/dtp.sh or tdtp.sh, or CoreMind's bin/dtp.sh, that are not this
+ * process or one of its ancestors (the lane that called us). `cwdOf(pid)` names each one's folder,
+ * and `sameRepo(dir)` keeps those in a checkout of this repository.
+ */
+export function otherLanes(psText, selfPid, cwdOf, sameRepo) {
+  const rows = psText.split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3] }));
+  const byPid = new Map(rows.map((r) => [r.pid, r]));
+  const mine = new Set();
+  for (let p = selfPid; p > 1 && byPid.has(p) && !mine.has(p); p = byPid.get(p).ppid) mine.add(p);
+  return rows.filter((r) => !mine.has(r.pid)
+    && /^(\S*\/)?(sh|bash|dash|zsh)\s+(\S*\/)?(tools\/)?t?dtp\.sh(\s|$)/.test(r.cmd))
+    .filter((r) => { const dir = cwdOf(r.pid); return dir && sameRepo(dir); });
+}
+
+function systemLanes(repo, env) {
+  const ps = spawnSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' });
+  if (ps.status !== 0) return [];
+  const common = (dir) => {
+    const r = spawnSync('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', env });
+    if (r.status !== 0) return '';
+    try { return realpathSync(r.stdout.trim()); } catch { return ''; }
+  };
+  const ours = common(repo);
+  return otherLanes(ps.stdout, process.pid, (pid) => {
+    const r = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' });
+    const line = (r.stdout || '').split('\n').find((l) => l.startsWith('n'));
+    return line ? line.slice(1) : '';
+  }, (dir) => Boolean(ours) && common(dir) === ours);
+}
+
+/**
+ * A record moves origin's main, and a lane that is deploying in another checkout would then have
+ * its own atomic push refused with production already live. So wait (up to `maxMs`) for any other
+ * MindSuite lane to finish first.
+ */
+export function waitForLanes({ lanes, log = console.log, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms), maxMs = 45 * 60 * 1000, stepMs = 20 * 1000 }) {
+  let waited = 0;
+  for (let busy = lanes(); busy.length; busy = lanes()) {
+    if (waited >= maxMs) { log(`MindSuite: still ${busy.length} other lane(s) running after ${Math.round(waited / 60000)} min; recording anyway`); return waited; }
+    if (waited % (6 * stepMs) === 0) log(`MindSuite: waiting for another release lane to finish (${busy.map((b) => `pid ${b.pid}: ${b.cmd}`).join('; ')})`);
+    sleep(stepMs);
+    waited += stepMs;
+  }
+  return waited;
 }
 
 /** Commit `files` (path -> text) on top of `base` without touching any index or working tree. */
@@ -229,6 +279,7 @@ export function commitFiles(git, base, files, message) {
   }
 }
 
+/** The worktrees that have main checked out and are on disk (a prunable entry has no tree to move). */
 function worktreesOnMain(git) {
   const trees = [];
   let cur = null;
@@ -236,8 +287,9 @@ function worktreesOnMain(git) {
     if (line.startsWith('worktree ')) { cur = { path: line.slice(9) }; trees.push(cur); }
     else if (cur && line.startsWith('branch ')) cur.branch = line.slice(7);
     else if (cur && line === 'bare') cur.bare = true;
+    else if (cur && line.startsWith('prunable')) cur.prunable = true;
   }
-  return trees.filter((t) => t.branch === 'refs/heads/main' && !t.bare);
+  return trees.filter((t) => t.branch === 'refs/heads/main' && !t.bare && !t.prunable && existsSync(t.path));
 }
 
 /**
@@ -253,6 +305,13 @@ export function fastForwardCheckouts(git, target, log = console.log, env = proce
   if (!old || old === target) return;
   if (git(['merge-base', '--is-ancestor', old, target], { allowFail: true }).status !== 0) {
     log(`MindSuite: local main has commits origin/main lacks; left it at ${old.slice(0, 7)}`);
+    return;
+  }
+  // Only past MindSuite's own commits: a lane still running in a checkout (its device builds come
+  // after this) must not be handed someone else's code under the version it just tagged.
+  const moved = git(['diff', '--name-only', old, target]).split('\n').filter(Boolean);
+  if (moved.some((f) => f !== STATE && f !== NOTES)) {
+    log(`MindSuite: origin/main also has other new commits; left local main at ${old.slice(0, 7)} for the next pull`);
     return;
   }
   const oldTree = git(['rev-parse', `${old}^{tree}`]).trim();
@@ -291,10 +350,13 @@ function today() {
  * Fetch origin's main and MindSuite tags, build the change from origin/main, tag and push both
  * atomically. `change(state, notes, taken)` returns {state, notes, message} or null.
  */
-export function publish({ repo, change, push = true, dryRun = false, log = console.log, env = process.env, tries = 3 }) {
+export function publish({ repo, change, push = true, dryRun = false, log = console.log, env = process.env, tries = 3, lanes }) {
   const git = makeGit(repo, env);
+  if (push && !dryRun) waitForLanes({ lanes: lanes || (() => systemLanes(repo, env)), log });
   for (let attempt = 1; attempt <= tries; attempt++) {
-    git(['fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main',
+    // --prune drops local MindSuite tags origin lacks (a run stopped before its push), so they
+    // never use up a version.
+    git(['fetch', '--quiet', '--prune', 'origin', '+refs/heads/main:refs/remotes/origin/main',
       `+refs/tags/${TAG_PREFIX}*:refs/tags/${TAG_PREFIX}*`]);
     const base = git(['rev-parse', 'refs/remotes/origin/main']).trim();
     const stateText0 = readAt(git, base, STATE);
@@ -304,7 +366,10 @@ export function publish({ repo, change, push = true, dryRun = false, log = conso
     if (dryRun) { log(result.notes.split(MARK)[1]?.trim().split('\n## ')[0] ?? ''); return { ...result, dryRun: true }; }
     const tag = `${TAG_PREFIX}${result.state.version}`;
     const commit = commitFiles(git, base, { [STATE]: stateText(result.state), [NOTES]: result.notes }, result.message);
-    git(['tag', '-a', tag, '-m', `MindSuite ${result.state.version}`, commit]);
+    if (git(['tag', '-a', tag, '-m', `MindSuite ${result.state.version}`, commit], { allowFail: true }).status !== 0) {
+      log(`MindSuite: ${tag} was taken meanwhile (attempt ${attempt}/${tries}); trying again`);
+      continue;
+    }
     if (!push) return { ...result, commit, tag };
     const r = git(['push', '--atomic', '--quiet', 'origin', `${commit}:refs/heads/main`, `refs/tags/${tag}`], { allowFail: true });
     if (r.status === 0) {
@@ -316,7 +381,7 @@ export function publish({ repo, change, push = true, dryRun = false, log = conso
     git(['tag', '-d', tag], { allowFail: true });
     log(`MindSuite: push refused (attempt ${attempt}/${tries}): ${(r.stderr || '').trim()}`);
   }
-  throw new Error('MindSuite: gave up after repeated push refusals');
+  throw new Error('MindSuite: gave up after repeated refusals');
 }
 
 /** The app's tag must be on its own origin before MindSuite names it. */
@@ -341,7 +406,7 @@ function parseArgs(argv) {
   return opts;
 }
 
-export function main(argv = process.argv.slice(2), { env = process.env, log = console.log } = {}) {
+export function main(argv = process.argv.slice(2), { env = process.env, log = console.log, lanes } = {}) {
   const opts = parseArgs(argv);
   const here = dirname(fileURLToPath(import.meta.url));
   const repo = resolve(opts.repo || join(here, '..'));
@@ -356,7 +421,7 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
       throw new Error(`${tag} is not on ${app}'s origin yet; push it first`);
     }
     const out = publish({
-      repo, push: opts.push, dryRun: opts.dryRun, log, env,
+      repo, push: opts.push, dryRun: opts.dryRun, log, env, lanes,
       change: (state, notes, taken) => {
         if (!state) { log(`MindSuite has no version yet; ${tag} not recorded`); return null; }
         const r = record(state, notes, { app, tag, date, taken });
@@ -376,7 +441,7 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
     }
     const intro = opts.intro || 'The first numbered MindSuite release: every app at its first major-version release.';
     return publish({
-      repo, push: opts.push, dryRun: opts.dryRun, log, env,
+      repo, push: opts.push, dryRun: opts.dryRun, log, env, lanes,
       change: (state, notes) => init(state, notes, { version, apps, date, intro }),
     });
   }
@@ -393,7 +458,7 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
   throw new Error('usage: mindsuite-release.mjs record <App> <tag> | init <x.y.z> <App>=<repo>:<tag>... | check');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     main();
   } catch (e) {

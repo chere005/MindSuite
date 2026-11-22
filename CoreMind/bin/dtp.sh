@@ -191,7 +191,10 @@ for T in $PLAN; do
       LANE_RC=0
       # Every tag the repo carries BEFORE its lane runs — what the verdict
       # below measures against. See there for why HEAD's tags alone are not.
-      TAGS_BEFORE=$(git -C "$R" tag --list "$T/*")
+      # Origin's too: a lane's own pull fetches tags, and one that only arrived that way was
+      # never this lane's (2026-11-22).
+      TAGS_BEFORE=$( { git -C "$R" tag --list "$T/*"
+        git -C "$R" ls-remote --tags --refs origin "refs/tags/$T/*" 2>/dev/null | sed 's|^.*refs/tags/||'; } )
       if [ "$FULL" = 1 ]; then
         ( cd "$R" && sh tools/tdtp.sh $LANE_ARGS ) || LANE_RC=$?
       else

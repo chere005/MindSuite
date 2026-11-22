@@ -2,13 +2,13 @@
 // a temp folder, git with no user or system config, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  NOTES, STATE, checkTag, insertEntry, main, nextMinor, publish, record, tagVersion, init,
+  NOTES, STATE, checkTag, insertEntry, main, nextMinor, otherLanes, publish, record, tagVersion, init, waitForLanes,
 } from './mindsuite-release.mjs';
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'mindsuite-release.mjs');
@@ -61,7 +61,7 @@ function fixture(t, files = { 'README.md': 'suite\n' }) {
 }
 
 function run(repo, args, logs = []) {
-  return main([...args, '--repo', repo, '--date', DATE], { env: ENV, log: (m) => logs.push(m) });
+  return main([...args, '--repo', repo, '--date', DATE], { env: ENV, log: (m) => logs.push(m), lanes: () => [] });
 }
 
 function initArgs() {
@@ -189,7 +189,7 @@ test('a push race is retried from the new tip and a taken version is skipped', (
   let raced = false;
   const logs = [];
   const out = publish({
-    repo: work, env: ENV, log: (m) => logs.push(m),
+    repo: work, env: ENV, log: (m) => logs.push(m), lanes: () => [],
     change: (state, notes, taken) => {
       if (!raced) {          // someone else moves main after our fetch
         raced = true;
@@ -277,4 +277,104 @@ test('check validates the recorded state, and the CLI runs as a script', (t) => 
   const bad = spawnSync(process.execPath, [SCRIPT, 'record', 'CalMind'], { env: ENV, encoding: 'utf8' });
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /usage/);
+});
+
+test('run through a symlinked path, the script still runs (and still fails loudly)', (t) => {
+  const { dir, work } = fixture(t);
+  run(work, initArgs());
+  const link = join(dir, 'linked-tools');
+  symlinkSync(dirname(SCRIPT), link);
+  const ok = spawnSync(process.execPath, [join(link, 'mindsuite-release.mjs'), 'check', '--repo', work], { env: ENV, encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /MindSuite 1\.0\.0/);
+  const bad = spawnSync(process.execPath, [join(link, 'mindsuite-release.mjs'), 'record', 'CalMind'], { env: ENV, encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+});
+
+test('a worktree of main whose folder is gone does not fail the record', (t) => {
+  const { dir, origin, work } = fixture(t);
+  run(work, initArgs());
+  const gone = join(dir, 'gone');
+  git(work, 'worktree', 'add', '--quiet', '--force', gone, 'main');
+  rmSync(gone, { recursive: true, force: true });
+  git(work, 'tag', '-a', 'CalMind/2.1.0', '-m', 'x');
+  git(work, 'push', '--quiet', 'origin', 'refs/tags/CalMind/2.1.0');
+  const r = run(work, ['record', 'CalMind', 'CalMind/2.1.0']);
+  assert.equal(r.state.version, '1.1.0');
+  assert.equal(git(work, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'main'));
+});
+
+test('a stray local MindSuite tag never uses up a version', (t) => {
+  const { origin, work } = fixture(t);
+  run(work, initArgs());
+  git(work, 'tag', '-a', 'CalMind/2.1.0', '-m', 'x');
+  git(work, 'push', '--quiet', 'origin', 'refs/tags/CalMind/2.1.0');
+  run(work, ['record', 'CalMind', 'CalMind/2.1.0', '--no-push']);       // leaves a local MindSuite/1.1.0
+  assert.equal(git(work, 'tag', '--list', 'MindSuite/1.1.0'), 'MindSuite/1.1.0');
+  const r = run(work, ['record', 'CalMind', 'CalMind/2.1.0']);
+  assert.equal(r.state.version, '1.1.0');
+  assert.equal(git(origin, 'rev-parse', 'MindSuite/1.1.0^{commit}'), git(origin, 'rev-parse', 'main'));
+});
+
+test('a tag taken meanwhile in another worktree is retried', (t) => {
+  const { work } = fixture(t);
+  run(work, initArgs());
+  let first = true;
+  const logs = [];
+  const out = publish({
+    repo: work, env: ENV, log: (m) => logs.push(m), lanes: () => [],
+    change: (state, notes, taken) => {
+      if (first) { first = false; git(work, 'tag', 'MindSuite/1.1.0', 'HEAD'); }   // another run's local tag
+      return record(state, notes, { app: 'PlanMind', tag: 'PlanMind/1.1.0', date: DATE, taken });
+    },
+  });
+  assert.match(logs.join('\n'), /taken meanwhile \(attempt 1\/3\)/);
+  assert.equal(out.state.version, '1.1.0', 'the stray local tag was pruned, not skipped past');
+});
+
+test('local main moves only past MindSuite commits, never onto someone else\'s', (t) => {
+  const { origin, work, seed } = fixture(t);
+  run(work, initArgs());
+  git(seed, 'pull', '--quiet', 'origin', 'main');
+  put(seed, 'other.txt', 'not yet deployed\n');
+  git(seed, 'add', 'other.txt');
+  git(seed, 'commit', '--quiet', '-m', 'other');
+  git(seed, 'push', '--quiet', 'origin', 'main');
+  const before = git(work, 'rev-parse', 'HEAD');
+  git(work, 'tag', '-a', 'CalMind/2.1.0', '-m', 'x');
+  git(work, 'push', '--quiet', 'origin', 'refs/tags/CalMind/2.1.0');
+  const logs = [];
+  const r = run(work, ['record', 'CalMind', 'CalMind/2.1.0'], logs);
+  assert.equal(git(origin, 'rev-parse', 'main'), r.commit);
+  assert.equal(git(work, 'rev-parse', 'HEAD'), before, 'the checkout keeps the tree it tagged');
+  assert.match(logs.join('\n'), /also has other new commits/);
+});
+
+test('other lanes: running dtp shells in this repo, never this process or its callers', () => {
+  const ps = [
+    '  100     1 /bin/zsh -l',
+    '  200   100 sh tools/dtp.sh --mac',                 // our caller
+    '  300   200 node tools/mindsuite-release.mjs record CalMind CalMind/2.1.0',
+    '  400     1 sh tools/dtp.sh --mac --ios',           // another lane, in this repo
+    '  500     1 sh dtp.sh --full',                      // tdtp's exec, in this repo
+    '  600     1 sh CoreMind/bin/dtp.sh all',            // the orchestrator, elsewhere
+    '  700     1 sh tools/dtp.sh',                       // DisplayMind's lane: another repo
+    '  800     1 vim tools/dtp.sh',
+  ].join('\n');
+  const cwd = { 200: '/r/CalMind', 400: '/r2/PlanMind', 500: '/r/TaskMind', 600: '/x', 700: '/dm', 800: '/r/CalMind' };
+  const lanes = otherLanes(ps, 300, (pid) => cwd[pid], (dir) => dir.startsWith('/r/') || dir.startsWith('/r2/'));
+  assert.deepEqual(lanes.map((l) => l.pid), [400, 500]);
+});
+
+test('waiting for other lanes: until they are gone, or the limit', () => {
+  const logs = [];
+  let calls = 0;
+  let slept = 0;
+  const waited = waitForLanes({ lanes: () => (++calls <= 3 ? [{ pid: 9, cmd: 'sh tools/dtp.sh' }] : []), log: (m) => logs.push(m), sleep: (ms) => { slept += ms; }, stepMs: 10, maxMs: 1000 });
+  assert.equal(waited, 30);
+  assert.equal(slept, 30);
+  assert.match(logs[0], /waiting for another release lane/);
+  const capped = waitForLanes({ lanes: () => [{ pid: 9, cmd: 'x' }], log: (m) => logs.push(m), sleep: () => {}, stepMs: 10, maxMs: 50 });
+  assert.equal(capped, 50);
+  assert.match(logs.at(-1), /recording anyway/);
 });
