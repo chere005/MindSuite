@@ -8,6 +8,7 @@ const { openScrollMind } = require('./scrollmind.cjs');
 const { flag, runLease } = require('./scroll-lease.cjs');
 const { configurePermissions, external, lockWebContents, preferences } = require('./web-contents.cjs');
 const { apps, restore, select, toggle, paneBounds, ratioFor } = require('./workspace.cjs');
+const picker = require('./picker.js');
 
 if (process.argv.includes(flag) && process.env.MINDSUITE_SCROLL_PROFILE) {
   runLease(app);
@@ -35,7 +36,7 @@ function start() {
   try { initial = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { /* a new workspace */ }
   let state = restore(initial);
   let window, calmindSession, scroll, closing = false, cleanClose = false, quitting = false;
-  let saveTimer;
+  let saveTimer, editingPicker = false;
   const views = new Map(), pending = new Map(), errors = new Map();
 
   const appFor = key => apps.find(entry => entry.key === key);
@@ -53,7 +54,7 @@ function start() {
     const [width, height] = window.getContentSize();
     const bounds = paneBounds(width, height, state.split, state.ratio);
     for (const [key, view] of views) {
-      view.setVisible(isOpen(key) && !errors.has(key));
+      view.setVisible(isOpen(key) && !errors.has(key) && !editingPicker);
       if (isOpen(key)) view.setBounds(bounds[key === state.right ? 1 : 0]);
     }
     if (!window.webContents.isDestroyed()) window.webContents.send('suite:state', snapshot());
@@ -92,8 +93,10 @@ function start() {
     contents.on('before-input-event', (event, input) => {
       const match = /^Digit([1-7])$/.exec(input.code || '');
       if (input.type === 'keyDown' && input.alt && !input.control && !input.meta && !input.shift && match) {
+        const key = picker.visible(state.picker)[Number(match[1]) - 1];
+        if (!key) return;
         event.preventDefault();
-        selectApp(apps[Number(match[1]) - 1].key);
+        selectApp(key, 'left');
       }
     });
   }
@@ -184,6 +187,7 @@ function start() {
     if (window) { if (window.isMinimized()) window.restore(); window.focus(); return; }
     cleanClose = false;
     closing = false;
+    editingPicker = false;
     window = new BrowserWindow({
       title: 'MindSuite', width: 1200, height: 820, minWidth: 600, minHeight: 440,
       icon, show: false, backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181a' : '#eeeeeb',
@@ -223,6 +227,8 @@ function start() {
 
     const actions = {
       state: snapshot, select: selectApp, split: () => update(toggle(state)), resize: resizeSplit, retry,
+      picker: config => update({ ...state, picker: picker.normalize(apps.map(app => app.key), config) }),
+      editing: editing => { editingPicker = editing === true; publish(); },
       external: () => { if (!testing) external(origin + appFor(state.active).path); },
     };
     for (const [verb, action] of Object.entries(actions)) {

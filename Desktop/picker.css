@@ -1,0 +1,15 @@
+.ms-picker-options { width: min(390px, calc(100% - 24px)); max-height: min(650px, calc(100% - 24px));
+  box-sizing: border-box; padding: 18px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 14px; color: var(--text, var(--fg)); background: var(--surface, var(--bar)); font: inherit; }
+.ms-picker-options::backdrop { background: #0008; }
+.ms-picker-options h2 { font-size: 18px; margin: 0 0 12px; }
+.ms-picker-options ol { list-style: none; padding: 0; margin: 0 0 12px; }
+.ms-picker-options li { display: flex; align-items: center; gap: 4px; min-height: 35px; cursor: grab;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 13%, transparent); }
+.ms-picker-options li label, .ms-picker-options li span { flex: 1; display: flex; align-items: center; gap: 8px; }
+.ms-picker-options button { color: inherit; background: color-mix(in srgb, currentColor 10%, transparent);
+  border: 0; border-radius: 7px; min-width: 28px; padding: 6px 8px; font: inherit; cursor: pointer; }
+.ms-picker-options button:disabled { opacity: .4; cursor: default; }
+.ms-picker-options footer { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.ms-picker-options footer button:first-child { margin-right: auto; }
+.ms-picker-options [data-picker-save] { font-weight: 650; }

@@ -1,6 +1,6 @@
 # MindSuite for macOS
 
-MindSuite opens CalMind and ScrollMind inside one workspace window. Select the split button and choose apps from the icon row above each pane. Drag the divider to resize the panes, or double-click it to return to an even split. Arrow keys resize the focused divider and Enter resets it. On narrower windows the panes stack. Option+1 through Option+7 select the app tabs.
+MindSuite opens CalMind and ScrollMind inside one workspace window. In split view, the labelled tabs select the left pane and the top-bar icons select the right. App picker options let you choose apps, add spacers, and reorder both pickers. Drag the divider to resize the panes and move the right app picker with it. Double-click the divider to return to an even split. Arrow keys resize the focused divider and Enter resets it. On narrower windows the panes stack. Option+1 through Option+7 select the app tabs.
 
 CalMind runs its bundled local Expo export. It keeps a local snapshot in MindSuite and can sign in to sync through the same CalMind backend. Its Chromium storage and the standalone CalMind app’s Tauri storage are separate. ScrollMind uses the installed ScrollMind build’s renderer, document store, and Mac pen helper. Its editing pane opens the existing `~/Documents/ScrollMind` workspace. The two apps share ScrollMind’s single-instance lock, so open that workspace in either MindSuite or standalone ScrollMind. Other tabs load the suite’s live web apps.
 

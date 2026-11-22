@@ -31,6 +31,8 @@
 			"shell.html",
 			"shell.css",
 			"shell.js",
+			"picker.js",
+			"picker.css",
 			"assets/icon.png",
 			"assets/apps/*.svg"
 		],

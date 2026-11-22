@@ -1,5 +1,6 @@
 'use strict';
 
+const appPicker = require('./picker.js');
 const apps = [
   ['calmind', 'CalMind', '/calmind/', '#34d399'],
   ['mealmind', 'MealMind', '/MealMind/', '#ff8a47'],
@@ -17,7 +18,8 @@ function restore(value) {
   const left = known(value?.left) ? value.left : 'calmind';
   const split = value?.split === true;
   const right = split && known(value.right) && value.right !== left ? value.right : null;
-  return { left, right, split, active: value?.active === right && right ? right : left, ratio: ratioFor(value?.ratio) };
+  return { left, right, split, active: value?.active === right && right ? right : left, ratio: ratioFor(value?.ratio),
+    picker: appPicker.normalize(apps.map(app => app.key), value?.picker) };
 }
 
 function select(state, key, side) {
@@ -40,14 +42,14 @@ function toggle(state) {
 }
 
 function paneBounds(width, height, split, ratio = .5) {
-  const bar = 46, tools = 34, gap = 8;
+  const bar = 46, gap = 8;
   if (!split) return [{ x: 0, y: bar, width, height: Math.max(0, height - bar) }];
-  const y = bar + tools;
+  const y = bar;
   if (width <= 760) {
-    const available = Math.max(0, height - bar - 2 * tools - gap);
+    const available = Math.max(0, height - bar - gap);
     const first = Math.floor(available * ratio);
     return [{ x: 0, y, width, height: first },
-      { x: 0, y: y + first + gap + tools, width, height: available - first }];
+      { x: 0, y: y + first + gap, width, height: available - first }];
   }
   const first = Math.floor((width - gap) * ratio);
   const available = Math.max(0, height - y);
