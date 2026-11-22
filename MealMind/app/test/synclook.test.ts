@@ -43,3 +43,12 @@ test('a lost reply says unconfirmed until the partner list can be checked', () =
   expect(syncWord('idle', false, 'unconfirmed')).toBe('Unconfirmed');
   expect(syncWord('refused', false, 'unconfirmed')).toBe('Not saved');
 });
+
+test('local mode (no account) never claims to be synced, and never hides a failed save', () => {
+  const local = syncLook('idle', false, [], 'too_large', false, true);
+  expect(local.text).toMatch(/this device only/i);
+  expect(local.text).not.toMatch(/synced/i);
+  expect(local.color).toBe('dim');
+  expect(syncLook('idle', true, [], 'too_large', false, true).text).toMatch(/cannot save its copy/);
+  expect(syncLook('idle', false).text).toMatch(/^Online/); // off by default
+});

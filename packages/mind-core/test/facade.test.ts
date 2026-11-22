@@ -87,7 +87,7 @@ const APPS: { app: string; stubs: string[]; owns: string[] }[] = [
   {
     app: 'CalMind',
     stubs: [
-      'b64u', 'backup', 'chefdate', 'dailylog', 'day', 'folds', 'habit', 'ical', 'layout',
+      'b64u', 'backup', 'chefdate', 'dailylog', 'day', 'folds', 'habit', 'ical', 'layout', 'localmerge',
       'manage', 'markdown', 'notesplit', 'order', 'parse', 'pkce', 'recipe', 'repeats', 'richtext',
       'rrule', 'rules', 'search', 'sort', 'sync', 'types', 'undo', 'update', 'watch',
     ],
@@ -96,8 +96,8 @@ const APPS: { app: string; stubs: string[]; owns: string[] }[] = [
   {
     app: 'MealMind',
     stubs: [
-      'b64u', 'backup', 'dailylog', 'day', 'folds', 'manage', 'notesplit', 'order', 'parse', 'pkce',
-      'recipe', 'repeats', 'richtext', 'rules', 'search', 'sort', 'sync', 'types', 'undo', 'update',
+      'b64u', 'backup', 'dailylog', 'day', 'folds', 'localmerge', 'manage', 'notesplit', 'order', 'parse',
+      'pkce', 'recipe', 'repeats', 'richtext', 'rules', 'search', 'sort', 'sync', 'types', 'undo', 'update',
     ],
     owns: ['normalize'],
   },

@@ -197,6 +197,11 @@
       "copies": ["MealMind/app/src/folds.ts"]
     },
     {
+      "id": "app-src-accountmode-ts",
+      "origin": "CalMind/apps/app/src/accountmode.ts",
+      "copies": ["MealMind/app/src/accountmode.ts"]
+    },
+    {
       "id": "app-src-appsignin-ts",
       "origin": "CalMind/apps/app/src/appsignin.ts",
       "copies": ["MealMind/app/src/appsignin.ts"]
@@ -255,6 +260,11 @@
       "id": "app-src-useclock24-ts",
       "origin": "CalMind/apps/app/src/useClock24.ts",
       "copies": ["MealMind/app/src/useClock24.ts"]
+    },
+    {
+      "id": "app-test-accountmode-test-ts",
+      "origin": "CalMind/apps/app/test/accountmode.test.ts",
+      "copies": ["MealMind/app/test/accountmode.test.ts"]
     },
     {
       "id": "app-test-appsignin-test-ts",

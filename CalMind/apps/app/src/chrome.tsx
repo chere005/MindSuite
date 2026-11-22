@@ -37,7 +37,7 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
   const nav = useNav();
   const { wide } = useWide();
   const below = React.useContext(BelowTopBar);
-  const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
+  const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode, openSignIn } = useStore();
   const requests = useMemo(() => meetreqBadgeCount(recs), [recs]);
   const [sharedSeen, setSharedSeen] = useState(false);
   const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
@@ -50,9 +50,9 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const toast = useToast();
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode);
   const colors = { background: T.bg, surface: T.surface, line: T.line, text: T.text, dim: T.dim, accent: T.accent };
-  const items: AccountMenuItem[] = [
+  const accountItems: AccountMenuItem[] = [
     ...(shared ? [{ key: 'account', label: 'Account', testID: 'menu-account', onPress: () => {
       if (session) void openAccountPage(session.serverUrl).catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not open the account page.'));
     } }] : []),
@@ -69,17 +69,23 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
     ...(onToggleCompleted ? [{ key: 'completed', label: 'Show completed', testID: 'menu-completed', checked: !!showCompleted, onPress: onToggleCompleted }] : []),
     { key: 'signout', label: 'Sign out', onPress: async () => { if (session) void logout(session); await signOut(); } },
   ];
+  // Local mode (account-optional builds, no account): no account page, no
+  // meeting requests (the server writes those), no sign-out; Sign in instead.
+  const items: AccountMenuItem[] = localMode
+    ? [{ key: 'signin', label: 'Sign in to sync and share', testID: 'menu-signin', onPress: openSignIn },
+      ...accountItems.filter((i) => i.key !== 'account' && i.key !== 'requests' && i.key !== 'signout')]
+    : accountItems;
   return <>
     <TopBarFrame title={title} titleAfter={titleAfter} colors={colors}
       left={wide ? undefined : <TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
       controls={controls} picker={picker}
-      account={<AccountMenu colors={colors} username={session?.username} statusColor={look.color} statusLabel={look.text}
-        label={`${session?.username ?? ''} — account menu. ${look.text}` + (requests > 0 ? ` ${requests} new meeting request${requests === 1 ? '' : 's'}.` : '')}
+      account={<AccountMenu colors={colors} username={localMode ? 'Local' : session?.username} statusColor={look.color} statusLabel={look.text}
+        label={`${localMode ? 'Local' : session?.username ?? ''} — account menu. ${look.text}` + (requests > 0 ? ` ${requests} new meeting request${requests === 1 ? '' : 's'}.` : '')}
         badge={requests > 0 ? <View testID="who-badge" style={s.badge} pointerEvents="none"><Text style={s.badgeText}>{requests > 99 ? '99+' : requests}</Text></View> : undefined} items={items} />}
     />
     {wide && below}
     {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
-    {requestsOpen && <Requests onClose={() => setRequestsOpen(false)} />}
+    {requestsOpen && !localMode && <Requests onClose={() => setRequestsOpen(false)} />}
   </>;
 }
 

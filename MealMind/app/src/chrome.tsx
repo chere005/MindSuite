@@ -25,7 +25,7 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
 }) {
   const nav = useNav();
   const { wide } = useWide();
-  const { session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
+  const { session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode, openSignIn } = useStore();
   const [sharedSeen, setSharedSeen] = useState(false);
   const shared = sharedSeen || sharedAccount(session?.token) || session?.suite === true;
   useEffect(() => {
@@ -36,9 +36,9 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
   }, [session?.serverUrl, shared]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const toast = useToast();
-  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble);
+  const look = syncLook(syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, localMode);
   const colors = { background: T.bg, surface: T.surface, line: T.line, text: T.text, dim: T.dim, accent: T.accent };
-  const items: AccountMenuItem[] = [
+  const accountItems: AccountMenuItem[] = [
     ...(shared ? [{ key: 'account', label: 'Account', testID: 'menu-account', onPress: () => {
       if (session) void openAccountPage(session.serverUrl).catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not open the account page.'));
     } }] : []),
@@ -54,12 +54,18 @@ export function TopBar({ title, controls, picker, copyMarkdown, showCompleted, o
     ...(onToggleCompleted ? [{ key: 'completed', label: 'Show completed', testID: 'menu-completed', checked: !!showCompleted, onPress: onToggleCompleted }] : []),
     { key: 'signout', label: 'Sign out', onPress: async () => { if (session) void logout(session); await signOut(); } },
   ];
+  // Local mode (account-optional builds, no account): no account page and no
+  // sign-out; Sign in instead.
+  const items: AccountMenuItem[] = localMode
+    ? [{ key: 'signin', label: 'Sign in to sync and share', testID: 'menu-signin', onPress: openSignIn },
+      ...accountItems.filter((i) => i.key !== 'account' && i.key !== 'signout')]
+    : accountItems;
   return <>
     <TopBarFrame title={title} colors={colors}
       left={wide ? undefined : <TopBarIconButton colors={colors} label="Back" testID="nav-back" onPress={nav.goBack}><DrawnGlyph glyph="‹" size={17.6} color={T.dim} /></TopBarIconButton>}
       controls={controls} picker={picker}
-      account={<AccountMenu colors={colors} username={session?.username} statusColor={look.color} statusLabel={look.text}
-        label={`${session?.username ?? ''} — account menu. ${look.text}`}
+      account={<AccountMenu colors={colors} username={localMode ? 'Local' : session?.username} statusColor={look.color} statusLabel={look.text}
+        label={`${localMode ? 'Local' : session?.username ?? ''} — account menu. ${look.text}`}
         items={items} />}
     />
     {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}

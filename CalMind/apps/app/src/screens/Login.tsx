@@ -11,6 +11,11 @@
  * the system's authentication browser, where passwords, passkeys and password
  * managers work, and comes back signed in. The form below is for a server that
  * is not on shared sign-in (and for one too old to say).
+ *
+ * In an account-optional build (accountmode.ts) this card is opened from
+ * local mode, by Settings → "Sign in to sync and share", and it always offers
+ * the way back. What was made on the device comes along: signing in or up
+ * folds it into the account (store.tsx, signIn).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
@@ -42,7 +47,7 @@ type Gate =
   | { at: 'unavailable'; message: string };
 
 export function Login() {
-  const { signIn } = useStore();
+  const { signIn, localMode, closeSignIn } = useStore();
   const [mode, setMode] = useState<Mode>('signin');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -241,6 +246,7 @@ export function Login() {
               </View>
             </>
           )}
+          {localMode && <LocalWayBack onPress={closeSignIn} />}
         </View>
       </View>
     );
@@ -308,8 +314,19 @@ export function Login() {
           {mode === 'signin' && <Pill label="Sign up" onPress={() => setMode('signup')} />}
           {mode === 'signin' && <Pill label="Forgot?" onPress={() => setMode('recover')} />}
         </View>
+        {localMode && <LocalWayBack onPress={closeSignIn} />}
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+/** Local mode only: what signing in does with this device's records, and the way back to them. */
+function LocalWayBack({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={s.local}>
+      <Text style={s.hint}>What you made on this device comes with you when you sign in or sign up.</Text>
+      <Pill testID="use-locally" label="Continue without an account" onPress={onPress} />
+    </View>
   );
 }
 
@@ -330,4 +347,5 @@ const s = themed(() => StyleSheet.create({
   hint: { color: T.dim, fontSize: 13 },
   actions: { marginTop: 4, alignItems: 'stretch' },
   links: { flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 4 },
+  local: { gap: 8, marginTop: 6, borderTopWidth: 1, borderTopColor: T.line, paddingTop: 10, alignItems: 'stretch' },
 }));
