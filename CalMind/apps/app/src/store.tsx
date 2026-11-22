@@ -250,7 +250,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    *  over them (and Settings says the device cannot save). */
   const holdLocalRef = useRef(false);
   /** Ids adopted from the local store at sign-in, folded once more against
-   *  the account after its first sync (localmerge.ts, foldAdopted). */
+   *  the account after its first sync (localmerge.ts, foldAdopted).
+   *  TODO(local mode): held in memory only, so an app closed between the
+   *  sign-in and that sync skips the second fold and can keep a duplicate
+   *  starter (nothing is lost; the merge-time fold still ran on the cache). */
   const pendingFoldRef = useRef<Set<string> | null>(null);
   /** The local key must go once an account snapshot holding the merge is on
    *  disk; set when that did not happen at sign-in. */
@@ -680,6 +683,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const onStorage = (ev: StorageEvent) => {
       const s = sessionRef.current;
       // Local mode is a store of its own, on the same terms (no MealMind space).
+      // TODO(local mode): a second tab still in local mode after this one
+      // signed in writes the local key back; the next sign-in merges it again
+      // (a no-op for what already landed), so it costs a reappearance, not data.
       const user = s ? s.username : localRef.current ? LOCAL_USER : null;
       if (!user || !ev.newValue) return;
       // Which engine the other tab wrote — mine or MealMind's. Anything else

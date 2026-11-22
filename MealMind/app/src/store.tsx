@@ -182,7 +182,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [signInOpen, setSignInOpen] = useState(false);
   /** The local key holds bytes this device could neither read nor move aside: never written over. */
   const holdLocalRef = useRef(false);
-  /** Ids adopted from the local store at sign-in, folded once more after the first sync. */
+  /** Ids adopted from the local store at sign-in, folded once more after the first sync.
+   *  TODO(local mode): memory only; see CalMind's store for what closing the app before that sync costs. */
   const pendingFoldRef = useRef<Set<string> | null>(null);
   /** The local key must go once an account snapshot holding the merge is on disk. */
   const pendingLocalClearRef = useRef(false);
