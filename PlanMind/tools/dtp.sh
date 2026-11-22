@@ -37,6 +37,11 @@ if [ "$FULL" = 1 ]; then sh tools/deploy.sh --prod --yes-prod; else sh tools/dep
 git tag "$TAG"
 git push --atomic origin main "refs/tags/$TAG"
 echo "PlanMind $VERSION is deployed, tagged and pushed."
+# MindSuite's minor follows every app release, with a note naming this tag (../tools/mindsuite-release.mjs).
+# Not fatal: the version is live and tagged; a missed record is reported and ends the lane non-zero at the foot.
+SUITE_OWED=0
+node "${MINDSUITE_RELEASE_TOOL:-../tools/mindsuite-release.mjs}" record PlanMind "$TAG" || {
+  SUITE_OWED=1; echo "MindSuite does not name $TAG yet; from the suite root: node tools/mindsuite-release.mjs record PlanMind $TAG" >&2; }
 if [ "$PLATFORMS" = 1 ]; then
   # build-platforms.sh says what it still owes through this file: a failed build, or a phone that was offline or locked.
   OWED_FILE=$(mktemp "${TMPDIR:-/tmp}/planmind-owed.XXXXXX")
@@ -51,3 +56,4 @@ if [ "$PLATFORMS" = 1 ]; then
   if [ -n "$_owed" ]; then printf 'The device builds are done, but still owed:\n%s\nRun: sh tools/build-platforms.sh\n' "$_owed" >&2; fi
 
 fi
+[ "$SUITE_OWED" = 0 ] || exit 1

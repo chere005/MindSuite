@@ -141,6 +141,11 @@ for T in $PLAN; do
         exit 1
       fi
       echo "==> CoreMind $VER tagged and pushed"
+      # MindSuite's minor follows every release here too (../tools/mindsuite-release.mjs);
+      # a miss is reported at the end, and the batch goes on: CoreMind is tagged either way.
+      node "${MINDSUITE_RELEASE_TOOL:-../tools/mindsuite-release.mjs}" record CoreMind "$TAG" ||
+        { echo "   MindSuite does not name $TAG yet; from the suite root: node tools/mindsuite-release.mjs record CoreMind $TAG" >&2
+          PLATFORM_BAD="$PLATFORM_BAD CoreMind"; }
       ;;
     *)
       R="$PARENT/$T"
@@ -213,12 +218,15 @@ for T in $PLAN; do
         # tagged, so a lane that died at the drift gate, the dirty check, the
         # tdtp tests or "tag already exists" was read as shipped — the batch
         # went on shipping the repos after it.
+        # Reachable from HEAD, not AT it: after the push the lane records the tag in
+        # MindSuite's version (tools/mindsuite-release.mjs), which fast-forwards the
+        # checkout one commit past the tag (2026-11-22).
         SHIPPED=""
-        for TG in $(git -C "$R" tag --points-at HEAD --list "$T/*" 2>/dev/null); do
+        for TG in $(git -C "$R" tag --merged HEAD --list "$T/*" 2>/dev/null); do
           printf '%s\n' "$TAGS_BEFORE" | grep -qxF "$TG" || SHIPPED="$TG"
         done
         if [ -n "$SHIPPED" ]; then
-          echo "   $T shipped; a platform build did not finish (its lane said so)" >&2
+          echo "   $T shipped; something after its push did not finish (its lane said what)" >&2
           PLATFORM_BAD="$PLATFORM_BAD $T"
         else
           echo "   $T FAILED before it shipped — stopping the batch" >&2
@@ -258,7 +266,7 @@ fi
 
 trap - EXIT INT TERM
 
-if [ "$PLATFORMS" = 1 ] && [ -n "$PLATFORM_BAD" ]; then
-  echo "platforms FAILED:$PLATFORM_BAD (their releases shipped; the builds did not)" >&2
+if [ -n "$PLATFORM_BAD" ]; then
+  echo "unfinished after shipping:$PLATFORM_BAD (their releases shipped; see each one's report above)" >&2
   exit 1
 fi

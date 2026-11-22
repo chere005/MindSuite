@@ -36,6 +36,8 @@ $MIND_PYTHON "$CHECK" "$ROOT"
 node --test tools/test-mac-architecture.mjs
 node tools/check-shared.mjs
 node --test tools/test-check-shared.mjs
+node --test tools/test-mindsuite-release.mjs
+node tools/mindsuite-release.mjs check --repo "$ROOT"
 # @mind/core has no install of its own; it borrows CoreMind's tsc and vitest.
 [ -f CoreMind/node_modules/vitest/vitest.mjs ] ||
   { echo "packages/mind-core needs CoreMind's tools: run npm ci in CoreMind." >&2; exit 1; }

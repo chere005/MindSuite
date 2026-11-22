@@ -1411,12 +1411,21 @@ echo "platforms tag=$(git tag -l PlanMind/5.0.0) pushed=$(git ls-remote --tags o
 [ -z "${STUB_OWE:-}" ] || printf '%s\n' "$STUB_OWE" > "$PLANMIND_OWED_FILE"
 [ -z "${STUB_FAIL:-}" ] || exit 3
 EOF
+  # the stub MindSuite tool (MINDSUITE_RELEASE_TOOL) notes its arguments and whether the app tag was on origin when it ran
+  SUITE_LOG=$D/suite-calls; : > "$SUITE_LOG"
+  cat > "$D/suite-tool.cjs" <<'EOF'
+const { execFileSync } = require('node:child_process');
+const tag = process.argv[4] || '';
+const pushed = execFileSync('git', ['ls-remote', '--tags', 'origin', tag], { encoding: 'utf8' }).trim() ? 1 : 0;
+require('node:fs').appendFileSync(process.env.SUITE_LOG, `${process.argv.slice(2).join(' ')} pushed=${pushed}\n`);
+if (process.env.STUB_SUITE_FAIL) process.exit(1);
+EOF
   printf '{"name":"planmind","version":"5.0.0","scripts":{"test":"echo npm-test >> \\"$DEPLOY_LOG\\""}}\n' > "$W/package.json"
   git -C "$W" add -A; git -C "$W" commit -q -m first; git -C "$W" branch -M main; git -C "$W" push -q -u origin main 2>/dev/null
 }
 dtp_all() {   # with the device builds unless --web is passed
   RC=0
-  (cd "$W" && PATH="$D/bin:$PATH" DEPLOY_LOG=$DLOG sh tools/dtp.sh "$@") > "$D/out" 2>&1 || RC=$?
+  (cd "$W" && PATH="$D/bin:$PATH" DEPLOY_LOG=$DLOG MINDSUITE_RELEASE_TOOL="$D/suite-tool.cjs" SUITE_LOG=$SUITE_LOG sh tools/dtp.sh "$@") > "$D/out" 2>&1 || RC=$?
 }
 dtp() { dtp_all --web "$@"; }
 
@@ -1473,6 +1482,17 @@ t_dtp() {
   check 'a failed push after deploying does not start native builds' test "$RC" -ne 0 -a "$(cat "$DLOG")" = 'deploy --prod --yes-prod --quick'
   dtp_case; STUB_DEPLOY_TERM=1 dtp_all
   check 'an interrupted deploy exits without tagging or building' test "$RC" -gt 128 -a -z "$(git -C "$BARE" tag -l)" -a "$(cat "$DLOG")" = 'deploy --prod --yes-prod --quick'
+  # MindSuite's minor follows the release: recorded once, after the push, and a failed record ends non-zero without undoing it
+  dtp_case; dtp_all
+  check 'dtp records the pushed tag in MindSuite' test "$(cat "$SUITE_LOG")" = 'record PlanMind PlanMind/5.0.0 pushed=1'
+  dtp_case; STUB_DEPLOY_FAIL=1 dtp_all
+  check 'a failed deploy records nothing in MindSuite' test ! -s "$SUITE_LOG"
+  dtp_case; STUB_SUITE_FAIL=1 dtp_all
+  check 'a failed MindSuite record still exits non-zero' test "$RC" -ne 0
+  check 'the version stays tagged on origin' test "$(git -C "$BARE" tag -l PlanMind/5.0.0)" = PlanMind/5.0.0
+  check 'the device builds still ran' grep -q '^platforms ' "$DLOG"
+  check 'it names the command that records the tag' grep -q 'node tools/mindsuite-release.mjs record PlanMind PlanMind/5.0.0' "$D/out"
+  unset STUB_SUITE_FAIL STUB_DEPLOY_FAIL
 
 }
 
@@ -1957,6 +1977,8 @@ git push --atomic origin main "refs/tags/$TAG"'
   mutf dtp-owed-file-not-passed t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#PLANMIND_OWED_FILE=$OWED_FILE ##'
   mutf dtp-term-resumes-release t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^trap .*TERM$#trap cleanup TERM#'
   mutf tdtp-npm-test-twice t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^\# deploy.sh runs the gates itself.*#[ "$FULL" = 0 ] || npm test#'
+  mutf dtp-suite-not-recorded t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^node "${MINDSUITE_RELEASE_TOOL#true || &#'
+  mutf dtp-suite-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^\[ "$SUITE_OWED" = 0 \] || exit 1$#:#'
   # build-platforms.sh: both phones by default, a phone that is away is owed and skipped, anything else fails the run
   mutf platforms-first-phone-only t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" 's#^  \[ -n "${IOS_PHONES:-}" \] || IOS_PHONES=$(machine_phones planmind)#  [ -n "${IOS_PHONES:-}" ] || IOS_PHONES=$(machine_phones planmind | head -1)#'
   mutf platforms-away-not-recognized t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" "s#^PHONE_AWAY=.*#PHONE_AWAY='zzz-never'#"

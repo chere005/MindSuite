@@ -8,21 +8,23 @@
 #
 #   0. refuse a tree with uncommitted TRACKED changes
 #   1. (--full only) php tools/test.php — all or nothing
-#   2. bump the MINOR version tag (x.y.0; this repo has no version FILE — the
+#   2. bump the MINOR version tag (--major: the MAJOR; x.y.0; this repo has no version FILE — the
 #      tag is the version, so a previous bare tag is the counter). A bump that
 #      failed to deploy is reused, not skipped past, same as the apps.
 #   3. ./deploy.sh all   (prod + test + dev; the lint gate lives in there)
 #   4. tag, push the app tag and main atomically
+#   5. record the tag in MindSuite's version (../tools/mindsuite-release.mjs)
 #
 # No devices, no desktop: this is a website. What the apps' lanes spend on
 # platform builds this one spends on deploying three instances.
 set -e
 cd "$(dirname "$0")/.."
 
-FULL=0
+FULL=0; MAJOR=0
 for a in "$@"; do
   case "$a" in
     --full) FULL=1 ;;
+    --major) MAJOR=1 ;;
     *) echo "unknown flag: $a" >&2; exit 1 ;;
   esac
 done
@@ -65,7 +67,8 @@ if [ -n "$CUR_TAG" ] && git diff --quiet "$CUR_TAG" HEAD -- .; then
   exit 1
 fi
 MAJ=${CUR%%.*}; REST=${CUR#*.}; MIN=${REST%%.*}
-NEW="$MAJ.$((MIN + 1)).0"
+# --major: the next MAJOR instead (x+1.0.0), for a suite-wide major release (MindSuite 1.0.0, 2026-11-22).
+if [ "$MAJOR" = 1 ]; then NEW="$((MAJ + 1)).0.0"; else NEW="$MAJ.$((MIN + 1)).0"; fi
 
 # ----------------------------------------------------------------- the deploy
 ./deploy.sh all
@@ -78,5 +81,12 @@ git push --atomic origin main "refs/tags/$TAG" || {
   echo "push rejected — main moved on the remote. Pull and re-run; the deploy already landed." >&2
   exit 1
 }
+
+# MindSuite's minor follows every app release, with a note naming this tag. Not
+# fatal: the site is live and tagged; a missed record is reported, ending non-zero.
+if ! node "${MINDSUITE_RELEASE_TOOL:-../tools/mindsuite-release.mjs}" record ReadMind "$TAG"; then
+  echo "$NEW IS LIVE AND TAGGED, BUT MindSuite does not name $TAG yet; from the suite root: node tools/mindsuite-release.mjs record ReadMind $TAG" >&2
+  exit 1
+fi
 
 echo "==> dtp done: $NEW is live on prod, test and dev"
