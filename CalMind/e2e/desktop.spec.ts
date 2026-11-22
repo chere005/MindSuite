@@ -167,6 +167,8 @@ test('calendar quick add stays pinned above an upcoming section that fits its co
   const selectedDay = pane.getByTestId('cal-pane-day');
   const upcoming = pane.getByTestId('cal-pane-upcoming');
   const agenda = upcoming.getByTestId('cal-up-scroll');
+  const dividers = pane.getByRole('separator');
+  await expect(dividers).toHaveCount(1);
   const addAppointment = async (i: number) => {
     await add.fill(`Appointment ${i} tomorrow at 2pm`);
     await add.press('Enter');
@@ -175,6 +177,8 @@ test('calendar quick add stays pinned above an upcoming section that fits its co
   await addAppointment(1);
   const firstDay = upcoming.getByTestId('cal-up-day');
   await expect(firstDay).toBeVisible();
+  await expect(dividers).toHaveCount(2);
+  for (const divider of await dividers.all()) await expect(divider).toBeVisible();
   const shortCard = (await upcoming.boundingBox())!;
   const firstDayBox = (await firstDay.boundingBox())!;
   const bottomGap = shortCard.y + shortCard.height - (firstDayBox.y + firstDayBox.height);

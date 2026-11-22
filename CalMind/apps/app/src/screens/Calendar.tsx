@@ -996,6 +996,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   }, [beside, day, drawn, today, folderModes, showDone, recs, chefRecs]);
   const restNode = beside ? (
     <View testID="cal-rest-pane" style={s.restPane}>
+      <View role="separator" style={s.restDivider} />
       <View testID="cal-pane-day" style={[s.restDay, upcoming.length > 0 && s.restDayWithUpcoming]}>
         <View style={s.restHead}>
           <Text testID="cal-day-title" accessibilityRole="header" style={s.panelTitle}>{dayLabel}</Text>
@@ -1003,15 +1004,18 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
         {dayPanel(true)}
       </View>
       {upcoming.length > 0 && (
-        <View testID="cal-pane-upcoming" style={s.restUpcoming}>
-          <View style={s.restUpHead}>
-            <CalGlyph color={T.accent} size={16} />
-            <Text accessibilityRole="header" style={s.restUpLabel}>Coming up</Text>
+        <>
+          <View role="separator" style={s.restDivider} />
+          <View testID="cal-pane-upcoming" style={s.restUpcoming}>
+            <View style={s.restUpHead}>
+              <CalGlyph color={T.accent} size={16} />
+              <Text accessibilityRole="header" style={s.restUpLabel}>Coming up</Text>
+            </View>
+            <Scroll testID="cal-up-scroll" contentContainerStyle={s.restUpcomingInner}>
+              {upcoming.map(({ date: d, items: it, chef }) => renderAgendaDay(d, it, chef, UP_IDS, () => setDay(d)))}
+            </Scroll>
           </View>
-          <Scroll testID="cal-up-scroll" contentContainerStyle={s.restUpcomingInner}>
-            {upcoming.map(({ date: d, items: it, chef }) => renderAgendaDay(d, it, chef, UP_IDS, () => setDay(d)))}
-          </Scroll>
-        </View>
+        </>
       )}
     </View>
   ) : null;
@@ -1236,7 +1240,8 @@ const s = themed(() => StyleSheet.create({
   // a width cap only left a dead gap beside the pane.
   wideGridCap: { flex: 1, minHeight: 0, width: '100%' },
   panelInPane: { flexGrow: 0, flexShrink: 1 },
-  restPane: { flex: 1, minHeight: 0, paddingHorizontal: 12, paddingVertical: 16, gap: 16 },
+  restPane: { flex: 1, minHeight: 0, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 16, gap: 8 },
+  restDivider: { height: 2, flexShrink: 0, borderRadius: 1, backgroundColor: T.muted, opacity: 0.45 },
   restDay: { flexShrink: 1, minHeight: 0, borderWidth: 1, borderColor: T.line, borderRadius: 10, backgroundColor: T.bg, overflow: 'hidden' },
   restDayWithUpcoming: { maxHeight: '55%' },
   restHead: { paddingTop: 12, paddingHorizontal: 16, paddingBottom: 2 },
