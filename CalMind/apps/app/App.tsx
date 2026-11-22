@@ -20,9 +20,10 @@ import { useWide } from './src/components/WideFrame';
 import { inlineCarry } from './src/carry';
 import { Request } from './src/screens/Request';
 import { themed, currentTheme, onThemeChange, T, THEMES_LIGHT, PAGE_MAX_WIDTH } from './src/theme';
+import { showsLogin } from './src/accountmode';
 
 function Root() {
-  const { ready, session } = useStore();
+  const { ready, session, localMode, signInOpen } = useStore();
   const { wide } = useWide();
   const detail = useDetail();
   // The commit in which the window crosses 900 px swaps the whole frame and
@@ -97,7 +98,9 @@ function Root() {
   // to give to people").
   if (typeof location !== 'undefined' && /\/request\/?$/.test(location.pathname)) return <Request />;
   if (!ready) return <View style={s.page} />;
-  if (!session) return <Login />;
+  // No session is the Login card — unless the build is account-optional and
+  // this is local mode, where Login is only what Settings → Sign in opens.
+  if (showsLogin({ session: !!session, localMode, signInOpen })) return <Login />;
   if (tickId) return <QuickTick id={tickId} onDone={tickDone} />;
   const goNote = (id: string) => {
     setNoteToOpen(id);
