@@ -35,6 +35,7 @@ import { SyncDot, syncWord } from '../components/SyncDot';
 import { useToast } from '../components/Toast';
 import { ingredientsOf, pantryTexts } from '../addToShopping';
 import { stillToBuyCounts, toBuyLabel } from '../chefflows';
+import { recipeBarActions } from '../wideflows';
 import { okColor } from '../components/chefui';
 import { newCook, newReview, useChefSession } from '../session';
 import { EditExit } from '../components/EditExit';
@@ -220,6 +221,17 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
    */
   const [openVariantId, setOpenVariantId] = useState<string | null>(null);
   const [recipeOpen, setRecipeOpen] = useNoteScoped(openId, false);
+  /**
+   * Reading or editing. A recipe opens READ-ONLY, with Cook its one prominent
+   * action; editing is behind the "⋯" in the header (the owner, 2026-11-21:
+   * "there should be some other interface to enter edit recipe, editing the
+   * recipe is not common"). A note just made opens editing (freshEdit below),
+   * and the wide frame mounts this screen only to edit, so `wide` is always
+   * editing. Note-scoped: the next recipe opens reading again.
+   */
+  const [editing, setEditing] = useNoteScoped(openId, false);
+  const [moreOpen, setMoreOpen] = useNoteScoped(openId, false);
+  const reading = !wide && !editing;
   // The recipe-note editor splits into [above][blob][below] (the owner,
   // 2026-08-18): the blob is the marker region, not editable here and not
   // removable at all — its content is the Recipe page's business. The two
@@ -436,6 +448,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
   React.useEffect(() => {
     if (openId && freshEdit.current === openId) {
       freshEdit.current = null;
+      setEditing(true);
       // The caret goes to the BODY. The owner said '+ should go directly to
       // editing the new note' twice, and the default title exists so the note
       // is not blank in the list — his words about selection were
@@ -458,7 +471,9 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
   // Another screen (Search) opened a note — land in its editor, as prod does.
   React.useEffect(() => {
     if (openNoteId) {
-      freshEdit.current = openNoteId;
+      // The wide frame hands over a recipe to EDIT; on the phone a recipe
+      // opened from elsewhere (Search, the pantry) opens reading, like a tap.
+      if (wide) freshEdit.current = openNoteId;
       cameFromTab.current = !wide;
       setOpenId(openNoteId);
       onOpenConsumed?.();
@@ -740,10 +755,30 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
     if (picked.length === 0) { toast('Tick the recipes you are making first.'); return; }
     setReview(newReview(recs, picked));
   };
-  const cookThese = () => {
+  /** Cook is ONE recipe (another is added from inside Cook): the bar offers it
+   *  only while exactly one is selected. Several are for a shopping list. */
+  const cookOne = () => {
     const picked = selectedNotes();
-    if (picked.length === 0) { toast('Tick the recipes you are cooking first.'); return; }
-    setCook(newCook(picked.map((n) => n.id)));
+    if (picked.length !== 1) return;
+    setCook(newCook([picked[0]!.id], picked[0]!.id, null));
+  };
+  const barActions = recipeBarActions(selected.length).map((a) => (a.id === 'cook'
+    ? { label: a.label, testID: 'recipes-cook', onPress: cookOne }
+    : { label: a.label, testID: 'recipes-to-shopping', onPress: makeShoppingList }));
+  const copyMarkdown = (n: Rec<'note'>) => {
+    Clipboard.setStringAsync(`# ${n.payload.title}\n\n${n.payload.body}`)
+      .then(() => toast('Copied as Markdown'))
+      .catch(() => toast('Could not copy'));
+  };
+  const leaveEditing = () => {
+    cancelFreshFocus();
+    setBodyEditing(false);
+    setDraft(null);
+    setBeforeDraft(null);
+    setAfterDraft(null);
+    setTitleDraft(null);
+    setRecipeOpen(false);
+    setEditing(false);
   };
 
   /**
@@ -862,6 +897,18 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
           >
             <Text style={s.backText}>All notes</Text>
           </Pressable>
+          {reading ? (
+            <View style={s.moreWrap}>
+              <CircleBtn
+                testID="note-more"
+                glyph="⋯"
+                size={TOPBAR_CTRL} targetSize={44}
+                label="More"
+                active={moreOpen}
+                onPress={() => setMoreOpen((v) => !v)}
+              />
+            </View>
+          ) : (<>
           <Dropdown
             value={open.payload.folderId}
             options={noteFolderOptions}
@@ -879,6 +926,18 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
             }}
             gold
           />
+          {!wide && (
+            <Pressable
+              testID="note-done"
+              accessibilityRole="button"
+              accessibilityLabel="Done editing"
+              style={s.ddPill}
+              onPress={leaveEditing}
+            >
+              <Text style={s.backText}>Done</Text>
+            </Pressable>
+          )}
+          </>)}
         </View>
         {/* The owner, 2026-08-11: a status indicator in the editor's top right.
             This is the one screen where it earns its place — a note is the
@@ -894,6 +953,12 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
           <SyncDot testID="editor-sync" withText showPartner={false} />
         </View>
         <Scroll contentContainerStyle={s.editor}>
+          {reading ? (
+            <View style={s.readHead}>
+              <Text testID="note-title-read" style={s.readTitle}>{open.payload.title}</Text>
+              {open.payload.date ? <Text style={s.readDate}>{open.payload.date}</Text> : null}
+            </View>
+          ) : (<>
           <View style={s.titleRow}>
             <TextInput
               ref={titleRef}
@@ -1003,6 +1068,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
               onClose={() => setEdPickOpen(false)}
             />
           )}
+          </>)}
 
           {isRecipe && (
             <View testID="scale-row" style={s.scaleRow}>
@@ -1036,19 +1102,19 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
                       {activeVariant ? activeVariant.name : 'Whole recipe'} ▾
                     </Text>
                   </Pressable>
-                  <CircleBtn
+                  {!reading && <CircleBtn
                     testID="variant-manage"
                     glyph="⚙"
                     label="Manage variants"
                     size={26}
                     color={T.dim}
                     onPress={() => { setVariantMenu(false); setVariantsOpen(true); }}
-                  />
+                  />}
                 </>
               )}
               {scale !== 1 && <Text style={s.scaleNote}>Scaled — 1× to edit</Text>}
               <View style={s.cookBtn}>
-                <Pill testID="note-cook" compact primary label="Cook" onPress={() => (wide ? wide.onCook(open.id, variantId) : setCook(newCook([open.id], open.id, variantId)))} />
+                <Pill testID="note-cook" compact={!reading} primary label="Cook" onPress={() => (wide ? wide.onCook(open.id, variantId) : setCook(newCook([open.id], open.id, variantId)))} />
               </View>
             </View>
           )}
@@ -1156,6 +1222,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
             <Pressable
               testID="note-body-view"
               style={s.body}
+              disabled={reading}
               onPress={() => {
                 // At 2× the text on screen is not the text in the note, so
                 // tapping must not drop you into an editor showing something
@@ -1176,7 +1243,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
               }}
             >
               {shownBody === '' ? (
-                <Text style={s.bodyPlaceholder}>Write…</Text>
+                <Text style={s.bodyPlaceholder}>{reading ? 'Nothing written yet.' : 'Write…'}</Text>
               ) : (
                 <NoteBody body={shownBody} recipe={isRecipe} onLine={(t) => setRemindText(t)} />
               )}
@@ -1197,7 +1264,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
               refused for being too long, and while the app was offline — and
               once the editor grew an honest dot in its top right, the two sat
               three inches apart disagreeing. Same word, same rule, one source. */}
-          <View style={s.footRow}>
+          {!reading && <View style={s.footRow}>
             <Text
               testID="editor-saved"
               style={[s.saved, (persistFailed || syncState === 'refused') && s.savedBad]}
@@ -1231,8 +1298,35 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
                   for the old inline version. */}
               <DeletePill key={open.id} onDelete={() => { setOpenId(null); mutate((e) => e.del(open.id)); }} />
             </View>
-          </View>
+          </View>}
         </Scroll>
+        {reading && moreOpen && (
+          <>
+            <Pressable testID="note-more-backdrop" accessibilityLabel="Close menu" style={StyleSheet.absoluteFill} onPress={() => setMoreOpen(false)} />
+            <View testID="note-more-menu" style={s.moreMenu}>
+              <Pressable testID="note-edit" accessibilityRole="menuitem" style={s.moreRow} onPress={() => { setMoreOpen(false); setEditing(true); }}>
+                <Text style={s.moreRowText}>Edit recipe</Text>
+              </Pressable>
+              <Pressable
+                testID="note-duplicate"
+                accessibilityRole="menuitem"
+                style={s.moreRow}
+                onPress={() => {
+                  setMoreOpen(false);
+                  const res = duplicateItem(recs, open.id, newId);
+                  if ('error' in res) { toast('Could not duplicate that recipe.'); return; }
+                  mutate((e) => res.put.forEach((p) => e.put(p)));
+                  toast('Duplicated — the copy is under it in the list.');
+                }}
+              >
+                <Text style={s.moreRowText}>Duplicate</Text>
+              </Pressable>
+              <Pressable testID="note-copymd-menu" accessibilityRole="menuitem" style={s.moreRow} onPress={() => { setMoreOpen(false); copyMarkdown(open); }}>
+                <Text style={s.moreRowText}>Copy as Markdown</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
         {/* Manage variants, in the EDITOR branch — the gear that opens it sits
             beside the scale pills a few lines up, and a modal rendered in the
             list branch instead would have been unreachable from the only
@@ -1613,6 +1707,9 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
           only thing that said how many were picked and it appeared only once
           something was — so the count you wanted before choosing was the one
           thing you could not see, and All was behind a mode. */}
+      {/* What it offers follows the count (`recipeBarActions`): one selected
+          is Cook and Add to shopping list, several are Make shopping list.
+          Never "Cook these" — a second recipe is added inside Cook. */}
       {(
         <PickBar
           prefix="recipes"
@@ -1620,10 +1717,7 @@ export function Notes({ openNoteId, onOpenConsumed, wide }: { openNoteId?: strin
           onAll={() => setSelected(selectableIds)}
           onClear={() => setSelected([])}
           onDelete={deleteSelected}
-          actions={[
-            { label: 'Make shopping list', testID: 'recipes-to-shopping', onPress: makeShoppingList },
-            { label: 'Cook these', testID: 'recipes-cook', onPress: cookThese },
-          ]}
+          {...(barActions.length > 0 ? { actions: barActions } : {})}
         />
       )}
       {/* Manage variants. A small window, an initially empty list, a + that
@@ -2116,6 +2210,15 @@ const s = themed(() => StyleSheet.create({
   ddPill: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: T.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: T.surface },
   backText: { color: T.accent, fontSize: 15, fontWeight: '600' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // Reading: the title as a heading, not a field.
+  readHead: { gap: 2, marginBottom: 2 },
+  readTitle: { color: T.text, fontSize: 24, fontWeight: '800', lineHeight: 30 },
+  readDate: { color: T.dim, fontSize: 13 },
+  // The ⋯ ends the header row (its paddingRight keeps it clear of the sync dot).
+  moreWrap: { marginLeft: 'auto' },
+  moreMenu: { position: 'absolute', top: 58, right: 88, minWidth: 190, backgroundColor: T.surface, borderWidth: 1, borderColor: T.line, borderRadius: 12, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  moreRow: { paddingHorizontal: 16, paddingVertical: 12 },
+  moreRowText: { color: T.text, fontSize: 15, fontWeight: '600' },
   addDate: { borderWidth: 1, borderColor: T.accent, borderStyle: 'dashed', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
   addDateText: { color: T.accent, fontSize: 14, fontWeight: '600' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },

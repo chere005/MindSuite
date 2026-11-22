@@ -1,9 +1,14 @@
 /**
- * One recipe in the detail pane: folder, title, Cook / Edit / variant, each
- * ingredient tagged In pantry or To buy, and the numbered steps.
+ * One recipe in the detail pane, read-only: folder, title, Cook and the variant,
+ * each ingredient tagged In pantry or To buy, and the numbered steps.
+ *
+ * Cook is the one prominent action. Editing is rare (the owner, 2026-11-21:
+ * "there should be some other interface to enter edit recipe, editing the
+ * recipe is not common"), so Edit recipe and Duplicate sit behind the quiet
+ * "⋯" in the pane's top line.
  */
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { isRecipeNote, type Rec } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
@@ -14,17 +19,27 @@ import { cookSteps, readRecipe } from '../chefflows';
 import { buyCount, ingredientStates, stillToBuyHeading } from '../wideflows';
 import { DetailTop } from './parts';
 
-export function RecipeDetail({ note, folderName, variantId, onVariant, onCook, onEdit, onClose }: {
+export function RecipeDetail({ note, folderName, variantId, onVariant, onCook, onEdit, onDuplicate, onClose }: {
   note: Rec<'note'>;
   folderName: string;
   variantId: string | null;
   onVariant: (id: string | null) => void;
   onCook: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
   onClose: () => void;
 }) {
   const { recs } = useStore();
   const [menu, setMenu] = useState(false);
+  const [more, setMore] = useState(false);
+  // Esc shuts the "⋯" menu before it reaches the frame (which would deselect):
+  // capture phase, and the frame skips a key already handled.
+  useEffect(() => {
+    if (!more || Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setMore(false); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [more]);
   const recipe = isRecipeNote(note.payload);
   const variants = note.payload.variants ?? [];
   const activeVariant = variants.find((v) => v.id === variantId) ?? null;
@@ -35,12 +50,19 @@ export function RecipeDetail({ note, folderName, variantId, onVariant, onCook, o
 
   return (
     <View style={s.root} testID="recipe-detail">
-      <DetailTop label={folderName} onClose={onClose} />
+      <DetailTop
+        label={folderName}
+        onClose={onClose}
+        extra={(
+          <Pressable testID="detail-more" accessibilityRole="button" accessibilityLabel="More" accessibilityState={{ expanded: more }} onPress={() => setMore((m) => !m)} hitSlop={8} style={[s.more, more && s.moreOn]}>
+            <Text style={s.moreText}>⋯</Text>
+          </Pressable>
+        )}
+      />
       <Scroll style={s.body} contentContainerStyle={s.bodyIn}>
         <Text testID="detail-title" style={s.title}>{note.payload.title}</Text>
         <View style={s.actions}>
           {recipe && <Pill testID="detail-cook" primary label="Cook" onPress={onCook} />}
-          <Pill testID="detail-edit" label="Edit" onPress={onEdit} />
           {recipe && variants.length > 0 && (
             <Pressable testID="detail-variant" accessibilityRole="button" onPress={() => setMenu((m) => !m)} style={[s.variant, activeVariant && s.variantOn]}>
               <Text style={[s.variantText, activeVariant && s.variantTextOn]} numberOfLines={1}>{activeVariant ? activeVariant.name : 'Whole recipe'} ▾</Text>
@@ -81,6 +103,19 @@ export function RecipeDetail({ note, folderName, variantId, onVariant, onCook, o
           </>
         )}
       </Scroll>
+      {more && (
+        <>
+          <Pressable testID="detail-more-backdrop" accessibilityLabel="Close menu" onPress={() => setMore(false)} style={StyleSheet.absoluteFill} />
+          <View testID="detail-more-menu" style={s.moreMenu}>
+            <Pressable testID="detail-edit" accessibilityRole="menuitem" onPress={() => { setMore(false); onEdit(); }} style={s.moreRow}>
+              <Text style={s.moreRowText}>Edit recipe</Text>
+            </Pressable>
+            <Pressable testID="detail-duplicate" accessibilityRole="menuitem" onPress={() => { setMore(false); onDuplicate(); }} style={s.moreRow}>
+              <Text style={s.moreRowText}>Duplicate</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -90,6 +125,12 @@ const s = themed(() => StyleSheet.create({
   body: { flex: 1 },
   bodyIn: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 32 },
   title: { color: T.text, fontSize: 24, fontWeight: '800', lineHeight: 30 },
+  more: { width: 32, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 2 },
+  moreOn: { backgroundColor: T.surface2 },
+  moreText: { color: T.dim, fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  moreMenu: { position: 'absolute', top: 44, right: 44, minWidth: 170, backgroundColor: T.surface, borderWidth: 1, borderColor: T.line, borderRadius: 10, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  moreRow: { paddingHorizontal: 14, paddingVertical: 10 },
+  moreRowText: { color: T.text, fontSize: 14, fontWeight: '600' },
   actions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   variant: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: T.line, maxWidth: 180 },
   variantOn: { backgroundColor: T.accentSoft, borderColor: T.accent },

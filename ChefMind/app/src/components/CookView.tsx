@@ -1,7 +1,11 @@
 /**
  * Cook — a recipe's steps in big type, one at a time, with the screen kept on.
  *
- * Tabs across the top are the recipes being cooked tonight. Each has a Gather
+ * Cook opens on ONE recipe. Tabs across the top are the recipes being cooked
+ * tonight, and "+ Add a recipe" at the end of them puts another on the stove
+ * (`CookAddPicker`); with two or more, each tab has a ✕ to take it off. The
+ * owner, 2026-11-21: "usually it would just be one recipe, then some other ux to
+ * add another one for simultaneous cooking". Each tab has a Gather
  * list (ticks are screen state, never saved), its steps with the current one
  * lit, Back / Next step, and a variant picker when the card has variants. On
  * the web Space is next and Shift+Space back, only while this is mounted.
@@ -26,6 +30,7 @@ import { newCookState, type CookState, type CookTabState } from '../session';
 import { applyOps, cookKey, cookSteps, finishCookingOps, gatherItems, readRecipe, stepTo } from '../chefflows';
 import { useScreenAwake } from '../keepawake';
 import { PhoneSheet, TickBox, okColor } from './chefui';
+import { CookAddPicker } from './CookAddPicker';
 
 export type CookViewProps = {
   /** The recipes to cook, one tab each. */
@@ -47,11 +52,19 @@ export type CookViewProps = {
    *  layout change. Omit both and the view keeps it itself. */
   state?: CookState;
   onState?: (fn: (s: CookState) => CookState) => void;
+  /** Put another recipe on the stove (its own tab). Given, the tab row ends in
+   *  "+ Add a recipe". */
+  onAdd?: (id: string) => void;
+  /** Take one off; offered on each tab once there are two or more. */
+  onDrop?: (id: string) => void;
+  /** Wraps the "+ Add a recipe" picker, as `wrapFinish` wraps Finish; defaults
+   *  to it. */
+  wrapAdd?: (panel: React.ReactNode, close: () => void) => React.ReactNode;
 };
 
 type Tab = CookTabState;
 
-export function CookView({ notes, initialId, initialVariantId = null, onClose, wrapFinish, wide = false, closeLabel = 'Recipes', state, onState }: CookViewProps) {
+export function CookView({ notes, initialId, initialVariantId = null, onClose, wrapFinish, wide = false, closeLabel = 'Recipes', state, onState, onAdd, onDrop, wrapAdd }: CookViewProps) {
   const awake = useScreenAwake();
   const [local, setLocal] = useState<CookState>(() => newCookState(Math.max(0, notes.findIndex((n) => n.id === initialId))));
   const cs = state ?? local;
@@ -60,6 +73,7 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
   const setActive = (i: number) => setCs((x) => ({ ...x, active: i }));
   const setFinishOpen = (v: boolean) => setCs((x) => ({ ...x, finishOpen: v }));
   const [gatherOpen, setGatherOpen] = useState(true);
+  const [adding, setAdding] = useState(false);
   const note = notes[active] ?? notes[0];
   const tabDefault = (id: string): Tab => ({ step: 0, gathered: [], variantId: id === (initialId ?? notes[0]?.id) ? initialVariantId : null });
   const tab = (id: string): Tab => tabs[id] ?? tabDefault(id);
@@ -79,7 +93,7 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
   const goRef = useRef(go);
   goRef.current = go;
   const blocked = useRef(false);
-  blocked.current = finishOpen;
+  blocked.current = finishOpen || adding;
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     const onKey = (e: KeyboardEvent) => {
@@ -96,7 +110,7 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
 
   // Desktop: Esc closes Finish if it is open, otherwise leaves Cook.
   const escRef = useRef<() => void>(() => {});
-  escRef.current = () => { if (finishOpen) setFinishOpen(false); else onClose(); };
+  escRef.current = () => { if (adding) setAdding(false); else if (finishOpen) setFinishOpen(false); else onClose(); };
   useEffect(() => {
     if (!wide || Platform.OS !== 'web' || typeof document === 'undefined') return;
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) escRef.current(); };
@@ -125,13 +139,22 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
           )}
           <Text style={s.topTitle}>Cook</Text>
         </View>
-        <Text testID="cook-nothing" style={s.emptyText}>Nothing to cook. The recipes you picked are gone.</Text>
+        <Text testID="cook-nothing" style={s.emptyText}>Nothing to cook. The recipe you were cooking is gone.</Text>
       </View>
     );
   }
   const allIngredients = notes.flatMap((n) => recipeOf(n).ingredients);
   const last = step >= steps.length - 1;
   const variants = note.payload.variants ?? [];
+  const wrapPanel = wrapAdd ?? wrapFinish;
+  const addPanel = (
+    <CookAddPicker
+      tall={wide}
+      cooking={notes.map((n) => n.id)}
+      onClose={() => setAdding(false)}
+      onPick={(id) => { setAdding(false); onAdd?.(id); }}
+    />
+  );
   const finishPanel = (
     <CookFinish tall={wide} ticked={cs.ticked} shop={cs.shop} onTicked={(v) => setCs((x) => ({ ...x, ticked: v }))} onShop={(v) => setCs((x) => ({ ...x, shop: v }))} ingredients={allIngredients} onCancel={() => setFinishOpen(false)} onFinished={() => { setFinishOpen(false); onClose(); }} />
   );
@@ -153,10 +176,25 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsWrap} contentContainerStyle={s.tabs}>
         {notes.map((n, i) => (
-          <Pressable key={n.id} testID={`cook-tab-${i}`} accessibilityRole="tab" accessibilityState={{ selected: i === active }} onPress={() => setActive(i)} style={[s.tab, i === active && s.tabOn]}>
-            <Text style={[s.tabText, i === active && s.tabTextOn]} numberOfLines={1}>{n.payload.title}</Text>
-          </Pressable>
+          <View key={n.id} style={[s.tab, i === active && s.tabOn]}>
+            <Pressable testID={`cook-tab-${i}`} accessibilityRole="tab" accessibilityState={{ selected: i === active }} onPress={() => setActive(i)} style={s.tabHit}>
+              <Text style={[s.tabText, i === active && s.tabTextOn]} numberOfLines={1}>{n.payload.title}</Text>
+            </Pressable>
+            {/* Off the stove: only once there is another to cook, so Cook
+                never empties itself from a tab (the back link leaves). */}
+            {onDrop && notes.length > 1 && (
+              <Pressable testID={`cook-drop-${i}`} accessibilityRole="button" accessibilityLabel={`Stop cooking ${n.payload.title}`} onPress={() => onDrop(n.id)} hitSlop={6} style={s.tabX}>
+                <Text style={[s.tabXText, i === active && s.tabTextOn]}>✕</Text>
+              </Pressable>
+            )}
+          </View>
         ))}
+        {onAdd && (
+          <Pressable testID="cook-add-open" accessibilityRole="button" accessibilityLabel="Add a recipe to cook alongside" onPress={() => { setFinishOpen(false); setAdding(true); }} style={s.addTab}>
+            {/* Shortened on the phone once tabs fill the row, so it stays in view. */}
+            <Text style={s.addTabText} numberOfLines={1}>{!wide && notes.length > 1 ? '+ Add' : '+ Add a recipe'}</Text>
+          </Pressable>
+        )}
       </ScrollView>
 
       {wide ? (
@@ -253,6 +291,7 @@ export function CookView({ notes, initialId, initialVariantId = null, onClose, w
           : <Pill testID="cook-next" primary label="Next step" onPress={() => go(1)} />}
       </View>
       {finishOpen && (wrapFinish ? wrapFinish(finishPanel, () => setFinishOpen(false)) : finishPanel)}
+      {adding && (wrapPanel ? wrapPanel(addPanel, () => setAdding(false)) : addPanel)}
     </View>
   );
 }
@@ -336,7 +375,12 @@ const s = themed(() => StyleSheet.create({
   grow: { flex: 1 },
   tabsWrap: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: T.line },
   tabs: { paddingHorizontal: 12, gap: 6, paddingBottom: 8 },
-  tab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: T.line, maxWidth: 220 },
+  tab: { flexDirection: 'row', alignItems: 'center', borderRadius: 999, borderWidth: 1, borderColor: T.line, maxWidth: 260 },
+  tabHit: { paddingHorizontal: 14, paddingVertical: 8, flexShrink: 1 },
+  tabX: { paddingRight: 12, paddingLeft: 2, paddingVertical: 8 },
+  tabXText: { color: T.muted, fontSize: 13, fontWeight: '700' },
+  addTab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderStyle: 'dashed', borderColor: T.accent },
+  addTabText: { color: T.accent, fontSize: 14, fontWeight: '700' },
   tabOn: { backgroundColor: T.accentSoft, borderColor: T.accent },
   tabText: { color: T.dim, fontSize: 14, fontWeight: '600' },
   tabTextOn: { color: T.accent },

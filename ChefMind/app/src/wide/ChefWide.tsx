@@ -14,11 +14,14 @@
  * The flows themselves (ShoppingReview, DoneShopping, PantryItem, CookView) are
  * the same pane-ready components the phone wraps in sheets; only the frame
  * differs. Selection (what is picked) lives here so the Review's detail pane and
- * the tray agree. Below 900 App never mounts this.
+ * the bar agree: a tap on a row selects that one recipe and shows it, a tick
+ * adds to the set (`tapRecipe` / `tickRecipe` / `shownRecipe` in wideflows).
+ * Cook is one recipe; another is added from inside Cook. Below 900 App never
+ * mounts this.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { byRecOrd, newId, ordBetween, defaultNoteTitle, searchRecords, type Rec } from '@calmind/core';
+import { byRecOrd, duplicateItem, newId, ordBetween, defaultNoteTitle, searchRecords, type Rec } from '@calmind/core';
 import { useStore } from '../store';
 import { themed, T } from '../theme';
 import { Field, Scroll } from '../ui';
@@ -35,8 +38,8 @@ import { Notes } from '../screens/Notes';
 import { Settings } from '../screens/Settings';
 import { pantryTexts } from '../addToShopping';
 import { listOf } from '../chefflows';
-import { newCook, newReview, useChefSession } from '../session';
-import { hitSection, isTextTarget, recipeFacts, recipeFolders, recipeGroups } from '../wideflows';
+import { addToCook, dropFromCook, newCook, newReview, useChefSession } from '../session';
+import { NO_SELECTION, closeRecipePane, hitSection, isTextTarget, recipeFacts, recipeFolders, recipeGroups, selectOnly, shownRecipe, tapRecipe, tickRecipe, type RecipeSel } from '../wideflows';
 import { wideColors } from './parts';
 import { WideRecipes } from './WideRecipes';
 import { RecipeDetail } from './RecipeDetail';
@@ -77,6 +80,13 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const shopCount = listOf(recs, 'shopping')?.rows.length ?? 0;
   const pantryCount = listOf(recs, 'pantry')?.rows.length ?? 0;
   const pickedNotes = picked.map(noteById).filter((n): n is Rec<'note'> => !!n);
+  // The selection: the session's picked set plus the recipe last opened. What
+  // the detail pane shows is READ off the two (`shownRecipe`), so a set cleared
+  // or pruned anywhere else closes the pane by itself.
+  const sel: RecipeSel = { picked, openId };
+  const setSel = (next: RecipeSel) => { setPicked(next.picked as string[]); setOpenId(next.openId); };
+  const shownId = shownRecipe(sel);
+  const variantOf = (id: string) => (variantFor?.id === id ? variantFor.variantId : null);
   const reviewNotes = (review?.ids ?? []).map(noteById).filter((n): n is Rec<'note'> => !!n);
   const hits = useMemo(
     () => (query.trim() === '' ? [] : searchRecords(recs, query, { kinds: ['reminder', 'note'], sort: 'relevance', desc: false })),
@@ -87,9 +97,17 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
   const go = (t: Tab, fid: string | null = null) => {
     setQuery(''); setView('list'); setReview(null); setFolderId(fid); onTab(t);
   };
-  const openRecipe = (id: string) => { setQuery(''); setView('list'); setFolderId(null); setOpenId(id); onTab('notes'); };
-  const togglePick = (id: string) => setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
-  const startCook = (ids: string[], first?: string, variantId?: string | null) => { setView('list'); setCook(newCook(ids, first, variantId ?? null)); };
+  const openRecipe = (id: string) => { setQuery(''); setView('list'); setFolderId(null); setSel(selectOnly(id)); onTab('notes'); };
+  // ONE recipe; a second is added from inside Cook ("+ Add a recipe").
+  const startCook = (id: string, variantId: string | null) => { setView('list'); setCook(newCook([id], id, variantId)); };
+  const duplicate = (id: string) => {
+    const copyId = newId();
+    const res = duplicateItem(recs, id, () => copyId);
+    if ('error' in res) { toast('Could not duplicate that recipe.'); return; }
+    mutate((e) => res.put.forEach((r) => e.put(r)));
+    setSel(selectOnly(copyId));
+    toast('Duplicated.');
+  };
   const startReview = () => {
     if (picked.length === 0) { toast('Tick the recipes you are making first.'); return; }
     setReview(newReview(recs, pickedNotes));
@@ -113,14 +131,15 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
     setEditId(id); setView('edit'); setOpenId(null);
   };
   const closeDetail = () => {
-    if (tab === 'notes') { if (review) setPickedPane(false); else setOpenId(null); }
+    if (tab === 'notes') { if (review) setPickedPane(false); else setSel(closeRecipePane(sel)); }
     else if (tab === 'shopping') { if (doneOpen) setDoneOpen(false); else setRowId(null); }
     else setItemId(null);
   };
 
-  // Esc closes the detail pane (Cook and the editor handle their own).
+  // Esc closes the detail pane (Cook and the editor handle their own); on the
+  // recipe table it deselects, ticks and all.
   const escRef = useRef(closeDetail);
-  escRef.current = closeDetail;
+  escRef.current = tab === 'notes' && !review && query.trim() === '' ? () => setSel(NO_SELECTION) : closeDetail;
   const escOk = !cook && view !== 'edit';
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined' || !escOk) return;
@@ -156,10 +175,18 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
             state={cook.state}
             onState={setCookState}
             onClose={() => setCook(null)}
+            onAdd={(id) => setCook((c) => (c ? addToCook(c, id) : c))}
+            onDrop={(id) => setCook((c) => (c ? dropFromCook(c, id) : c))}
             wrapFinish={(panel, close) => (
               <View style={StyleSheet.absoluteFill}>
                 <Pressable testID="cook-finish-backdrop" accessibilityLabel="Close" onPress={close} style={[StyleSheet.absoluteFill, s.backdrop]} />
                 <View testID="cook-finish-panel" style={s.finishPanel}>{panel}</View>
+              </View>
+            )}
+            wrapAdd={(panel, close) => (
+              <View style={StyleSheet.absoluteFill}>
+                <Pressable testID="cook-add-backdrop" accessibilityLabel="Close" onPress={close} style={[StyleSheet.absoluteFill, s.backdrop]} />
+                <View testID="cook-add-panel" style={s.finishPanel}>{panel}</View>
               </View>
             )}
           />
@@ -229,8 +256,8 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
             openNoteId={editId}
             onOpenConsumed={noop}
             wide={{
-              onExit: () => { setView('list'); setOpenId(editId); },
-              onCook: (id, variantId) => startCook([id], id, variantId),
+              onExit: () => { setView('list'); setSel(selectOnly(editId)); },
+              onCook: (id, variantId) => startCook(id, variantId),
             }}
           />
         </View>
@@ -243,12 +270,12 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
         groups={groups}
         facts={facts}
         picked={picked}
-        openId={openId}
+        shownId={shownId}
         onNew={newRecipe}
-        onPick={togglePick}
-        onOpen={(id) => setOpenId(id)}
-        onClear={() => setPicked([])}
-        onCook={() => startCook(picked)}
+        onTick={(id) => setSel(tickRecipe(sel, id))}
+        onTap={(id) => setSel(tapRecipe(sel, id))}
+        onClear={() => setSel(NO_SELECTION)}
+        onCook={() => { const id = picked[0]; if (id && picked.length === 1) startCook(id, variantOf(id)); }}
         onShop={startReview}
         pickedTitles={pickedNotes.map((n) => n.payload.title)}
       />
@@ -264,9 +291,9 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
       if (detailBeside || pickedPane) detail = <PickedPane review={review} notes={reviewNotes} folderName={folderName} onRemove={removeFromReview} onAnother={() => setReview(null)} onClose={() => setPickedPane(false)} />;
     } else if (tab === 'notes') {
       if (view === 'list') {
-        const n = noteById(openId);
+        const n = noteById(shownId);
         if (n) {
-          const variantId = variantFor?.id === n.id ? variantFor.variantId : null;
+          const variantId = variantOf(n.id);
           detail = (
             <RecipeDetail
               key={n.id}
@@ -274,9 +301,10 @@ export function ChefWide({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) 
               folderName={folderName(n.payload.folderId)}
               variantId={variantId}
               onVariant={(v) => setVariantFor({ id: n.id, variantId: v })}
-              onCook={() => startCook([n.id], n.id, variantId)}
+              onCook={() => startCook(n.id, variantId)}
               onEdit={() => { setEditId(n.id); setView('edit'); }}
-              onClose={() => setOpenId(null)}
+              onDuplicate={() => duplicate(n.id)}
+              onClose={() => setSel(closeRecipePane(sel))}
             />
           );
         }

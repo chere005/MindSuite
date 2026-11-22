@@ -35,11 +35,13 @@ export function PaneHead({ title, sub, right, back }: { title: string; sub?: str
   );
 }
 
-/** The detail pane's top line: a small label and a close. */
-export function DetailTop({ label, onClose }: { label: string; onClose: () => void }) {
+/** The detail pane's top line: a small label, any quiet controls (`extra`, a
+ *  "⋯" menu), and a close. */
+export function DetailTop({ label, onClose, extra }: { label: string; onClose: () => void; extra?: ReactNode }) {
   return (
     <View style={s.detailTop}>
       <Text style={s.detailLabel} numberOfLines={1}>{label}</Text>
+      {extra}
       <Pressable testID="detail-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8} style={s.x}>
         <Text style={s.xText}>✕</Text>
       </Pressable>

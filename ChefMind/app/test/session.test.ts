@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { mergeIntoList, type AnyRec, type Rec } from '@calmind/core';
 import { planFor, reviewLines, shoppingWriteOps } from '../src/chefflows';
 import { addLinesToShopping } from '../src/addToShopping';
-import { createSessionStore, flipIn, newCook, newReview, pruneIds, reviewWriteLines, sessionActions } from '../src/session';
+import { addToCook, createSessionStore, dropFromCook, flipIn, newCook, newReview, pruneIds, reviewWriteLines, sessionActions } from '../src/session';
 
 const folder = (id: string, flag: 'shopping' | 'pantry'): AnyRec =>
   ({ id, type: 'folder', updated: 1, payload: { name: flag, color: '#fff', ord: 'a', app: 'reminders', [flag]: true } } as unknown as AnyRec);
@@ -92,5 +92,44 @@ describe('picked recipes are pruned against live ones', () => {
     expect(pruneIds(ids, new Set(['a', 'c']))).toEqual(['a', 'c']);
     expect(pruneIds(ids, new Set(['a', 'b', 'c']))).toBe(ids);
     expect(pruneIds(ids, new Set())).toEqual([]);
+  });
+});
+
+describe('one recipe on the stove, and another added from inside Cook', () => {
+  test('adding opens a tab for it and shows it; one already cooking is just shown', () => {
+    const one = newCook(['a'], 'a', 'v1');
+    const two = addToCook(one, 'b');
+    expect(two.ids).toEqual(['a', 'b']);
+    expect(two.state.active).toBe(1);
+    expect(two.first).toBe('a');
+    expect(two.variantId).toBe('v1');
+    const back = addToCook(two, 'a');
+    expect(back.ids).toEqual(['a', 'b']);
+    expect(back.state.active).toBe(0);
+    expect(addToCook(back, 'a')).toBe(back);
+  });
+  test('dropping one keeps the tab on screen and the others\' progress', () => {
+    let c = addToCook(addToCook(newCook(['a'], 'a', null), 'b'), 'c'); // active = c (2)
+    c = { ...c, state: { ...c.state, tabs: { a: { step: 1, gathered: [], variantId: null }, c: { step: 4, gathered: [0], variantId: null } } } };
+    const noA = dropFromCook(c, 'a')!;
+    expect(noA.ids).toEqual(['b', 'c']);
+    expect(noA.state.active).toBe(1); // still on c
+    expect(noA.state.tabs).toEqual({ c: { step: 4, gathered: [0], variantId: null } });
+    // Dropping the tab on screen hands it to its neighbour.
+    const noC = dropFromCook(noA, 'c')!;
+    expect(noC.ids).toEqual(['b']);
+    expect(noC.state.active).toBe(0);
+    // A tab after the one on screen leaves the active index alone.
+    const mid = { ...c, state: { ...c.state, active: 0 } };
+    expect(dropFromCook(mid, 'b')!.state.active).toBe(0);
+  });
+  test('the opening variant goes with the first recipe; the last one out ends Cook', () => {
+    const c = addToCook(newCook(['a'], 'a', 'v1'), 'b');
+    const noFirst = dropFromCook(c, 'a')!;
+    expect(noFirst.first).toBeUndefined();
+    expect(noFirst.variantId).toBeNull();
+    expect(dropFromCook(c, 'b')!.variantId).toBe('v1');
+    expect(dropFromCook(newCook(['a'], 'a'), 'a')).toBeNull();
+    expect(dropFromCook(c, 'zz')).toBe(c);
   });
 });

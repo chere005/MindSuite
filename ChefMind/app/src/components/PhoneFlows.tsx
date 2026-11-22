@@ -3,10 +3,11 @@
  * components the wide frame mounts in its panes, in sheets. Mounted at the root
  * (not inside the Recipes screen) so a Review or Cook opened in the wide layout
  * reopens here on whatever tab the phone is showing when the window narrows.
+ * Cook starts on one recipe; "+ Add a recipe" inside it adds another.
  */
 import type { Rec } from '@calmind/core';
 import { useStore } from '../store';
-import { useChefSession } from '../session';
+import { addToCook, dropFromCook, useChefSession } from '../session';
 import { ShoppingReview } from './ShoppingReview';
 import { CookView, phoneFinish } from './CookView';
 import { PhoneSheet } from './chefui';
@@ -38,6 +39,8 @@ export function PhoneFlows({ onShopping }: { onShopping: () => void }) {
             state={cook.state}
             onState={setCookState}
             onClose={() => setCook(null)}
+            onAdd={(id) => setCook((c) => (c ? addToCook(c, id) : c))}
+            onDrop={(id) => setCook((c) => (c ? dropFromCook(c, id) : c))}
             wrapFinish={phoneFinish}
           />
         </PhoneSheet>

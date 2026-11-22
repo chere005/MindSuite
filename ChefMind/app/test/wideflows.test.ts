@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { shoppingPlan, type AnyRec, type Rec } from '@calmind/core';
-import { aisleRuns, buyCount, filterRows, hitSection, ingredientStates, isTextTarget, pantrySummary, pickedNames, recipeFacts, recipeGroups, groupedNotes, shownRecipes, rowSave, shoppingSummary, stillToBuyHeading, whereWent } from '../src/wideflows';
+import { aisleRuns, buyCount, closeRecipePane, cookPickGroups, filterRows, hitSection, ingredientStates, isTextTarget, NO_SELECTION, pantrySummary, pickedNames, recipeBarActions, recipeFacts, recipeGroups, groupedNotes, selectOnly, shownRecipe, shownRecipes, rowSave, selectedLabel, shoppingSummary, stillToBuyHeading, tapRecipe, tickRecipe, whereWent } from '../src/wideflows';
 
 const note = (id: string, title: string, sec: string, fol: string, ord: string, ing: string[], recipe = true): Rec<'note'> => ({
   id, type: 'note', updated: 1,
@@ -92,5 +92,67 @@ describe('lists', () => {
     const plan = shoppingPlan([{ title: 'A', ingredients: ['1 tsp kosher salt', '3 cloves garlic'] }, { title: 'B', ingredients: ['3 cloves garlic'] }], ['kosher salt'], []);
     const w = whereWent(plan, 3);
     expect(w).toMatchObject({ total: 3, toBuy: 1, covered: 1, combined: 1 });
+  });
+});
+
+describe('choosing recipes: a tap selects one, a tick adds to the set', () => {
+  test('a plain tap replaces the set with that one recipe and shows it', () => {
+    const one = tapRecipe(NO_SELECTION, 'a');
+    expect(one).toEqual({ picked: ['a'], openId: 'a' });
+    expect(shownRecipe(one)).toBe('a');
+    // Like a file list: a tap on another row, or on one of several ticked, is that one alone.
+    expect(tapRecipe(one, 'b')).toEqual({ picked: ['b'], openId: 'b' });
+    expect(tapRecipe({ picked: ['a', 'b', 'c'], openId: 'a' }, 'b')).toEqual({ picked: ['b'], openId: 'b' });
+  });
+  test('tapping the only selected row again deselects; with its pane closed it shows it', () => {
+    expect(tapRecipe(selectOnly('a'), 'a')).toEqual(NO_SELECTION);
+    expect(tapRecipe({ picked: ['a'], openId: null }, 'a')).toEqual(selectOnly('a'));
+  });
+  test('a tick adds to the set and never opens the pane', () => {
+    const two = tickRecipe(selectOnly('a'), 'b');
+    expect(two.picked).toEqual(['a', 'b']);
+    expect(shownRecipe(two)).toBe('a');
+    // Ticks are for the shopping list: a first tick selects, the bar comes up, no pane.
+    const ticked = tickRecipe(NO_SELECTION, 'c');
+    expect(ticked.picked).toEqual(['c']);
+    expect(shownRecipe(ticked)).toBeNull();
+    // Unticking the shown one closes the pane; the rest stay ticked.
+    const noA = tickRecipe(two, 'a');
+    expect(noA.picked).toEqual(['b']);
+    expect(shownRecipe(noA)).toBeNull();
+  });
+  test('the pane follows the set when it is cleared or pruned elsewhere', () => {
+    expect(shownRecipe({ picked: [], openId: 'a' })).toBeNull();
+    expect(shownRecipe({ picked: ['b', 'c'], openId: 'a' })).toBeNull();
+    expect(shownRecipe({ picked: ['b', 'a'], openId: 'a' })).toBe('a');
+  });
+  test('closing the pane keeps the selection, one or several, so the bar stays', () => {
+    expect(closeRecipePane({ picked: ['a', 'b'], openId: 'a' })).toEqual({ picked: ['a', 'b'], openId: null });
+    expect(closeRecipePane(selectOnly('a'))).toEqual({ picked: ['a'], openId: null });
+  });
+  test('the bar: Cook and Add for one, Make shopping list for several, never Cook these', () => {
+    expect(recipeBarActions(0)).toEqual([]);
+    expect(recipeBarActions(1).map((a) => [a.id, a.label, a.primary])).toEqual([['cook', 'Cook', true], ['shop', 'Add to shopping list', false]]);
+    expect(recipeBarActions(3).map((a) => [a.id, a.label, a.primary])).toEqual([['shop', 'Make shopping list', true]]);
+    for (const n of [1, 2, 5]) expect(recipeBarActions(n).some((a) => /these/i.test(a.label))).toBe(false);
+    expect(selectedLabel(1)).toBe('1 selected');
+  });
+});
+
+describe('Cook: + Add a recipe', () => {
+  const a = note('a', 'Tomato soup', 's1', 'f1', 'a', ['1 can tomatoes']);
+  const b = note('b', 'Toast', 's2', 'f2', 'a', ['2 eggs']);
+  const c = note('c', 'Memo', 's2', 'f2', 'b', [], false);
+  const d = note('d', 'Pea soup', 's2', 'f2', 'c', ['peas']);
+  const recs = [folder('f1', 'a'), folder('f2', 'b'), folder('f3', 'c'), section('s1', 'f1'), section('s2', 'f2'), a, b, c, d] as AnyRec[];
+  const groups = recipeGroups(recs, { folderId: null });
+  const ids = (g: ReturnType<typeof cookPickGroups>) => g.map((x) => [x.folder.id, x.notes.map((n) => n.id)]);
+  test('recipe cards only, folder by folder, not the ones already cooking; empty folders drop', () => {
+    expect(ids(cookPickGroups(groups, '', []))).toEqual([['f1', ['a']], ['f2', ['b', 'd']]]);
+    expect(ids(cookPickGroups(groups, '', ['a']))).toEqual([['f2', ['b', 'd']]]);
+  });
+  test('the search is a case-insensitive title match', () => {
+    expect(ids(cookPickGroups(groups, '  SOUP ', []))).toEqual([['f1', ['a']], ['f2', ['d']]]);
+    expect(cookPickGroups(groups, 'nothing like it', [])).toEqual([]);
   });
 });

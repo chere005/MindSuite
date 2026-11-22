@@ -59,6 +59,37 @@ export function newCook(ids: string[], first?: string, variantId: string | null 
   return { ids, ...(first !== undefined ? { first } : {}), variantId, state: newCookState(at) };
 }
 
+/**
+ * Cooking is one recipe by default; another is added from inside Cook (the
+ * owner, 2026-11-21: "usually it would just be one recipe, then some other ux
+ * to add another one for simultaneous cooking"). The added recipe gets its own
+ * tab and becomes the one on screen; one already on the stove is just shown.
+ */
+export function addToCook(c: CookSession, id: string): CookSession {
+  const at = c.ids.indexOf(id);
+  if (at >= 0) return at === c.state.active ? c : { ...c, state: { ...c.state, active: at } };
+  return { ...c, ids: [...c.ids, id], state: { ...c.state, active: c.ids.length } };
+}
+
+/**
+ * Take one recipe off the stove: its tab and its progress go, the tab on
+ * screen stays on screen (or its neighbour takes over), and dropping the last
+ * one ends the Cook (null). The variant the session opened with belonged to
+ * the first recipe, so it goes with it rather than passing to whichever tab
+ * is first now.
+ */
+export function dropFromCook(c: CookSession, id: string): CookSession | null {
+  const at = c.ids.indexOf(id);
+  if (at < 0) return c;
+  const ids = c.ids.filter((x) => x !== id);
+  if (ids.length === 0) return null;
+  const tabs = Object.fromEntries(Object.entries(c.state.tabs).filter(([k]) => k !== id));
+  const a = c.state.active;
+  const active = at < a ? a - 1 : Math.min(a, ids.length - 1);
+  const head = c.first === id ? { variantId: null } : { ...(c.first !== undefined ? { first: c.first } : {}), variantId: c.variantId };
+  return { ids, ...head, state: { ...c.state, active, tabs } };
+}
+
 /** Ids that still name a live record, in order. Returns the same array when nothing left. */
 export function pruneIds(ids: readonly string[], live: ReadonlySet<string>): string[] {
   const next = ids.filter((id) => live.has(id));

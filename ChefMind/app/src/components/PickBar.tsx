@@ -52,7 +52,7 @@ export function PickBar({
    *  the lists, where selecting is for deleting and Delete is already here. */
   action?: { label: string; testID: string; onPress: () => void };
   /**
-   * Two or more things the selection is for (Recipes: Cook these, Make
+   * Two or more things the selection is for (Recipes, one picked: Cook, Add to
    * shopping list). They do not fit beside the count, All, Clear and Delete at
    * phone width, so they take a row of their own under it; the first listed
    * is the primary, drawn last (nearest the thumb's right edge).

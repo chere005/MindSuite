@@ -59,6 +59,16 @@ Three tabs: **Recipes · Pantry · Shopping**.
   recipe gets you there too (the owner, 2026-08-21). In it, recipes carry a tick, a
   **Select all** sits beside the pencil, and the bar at the foot offers
   *Delete* (two presses, red on the first) beside *Add to shopping list*.
+- **Choosing, cooking, editing** (the owner, 2026-11-21). At desktop size a tap
+  on a recipe row selects that one recipe, shows it in the detail pane and
+  brings up the bar (Cook, Add to shopping list); ticks add to the set, and
+  several offer Make shopping list. Clear, Esc or a second tap deselects
+  (`wideflows.ts`: `tapRecipe`, `tickRecipe`, `shownRecipe`,
+  `recipeBarActions`). Cook is one recipe; **+ Add a recipe** inside Cook puts
+  another on the stove in its own tab, and ✕ takes one off (`session.tsx`:
+  `addToCook`, `dropFromCook`). A recipe opens read-only with Cook as its one
+  prominent action; Edit recipe sits behind the **⋯** in the pane header, and on
+  the phone's recipe page too.
 - **Shopping** is the list those ticks fill. Pick several recipes, press *Add to
   shopping list*, and their ingredients arrive combined and **grouped by aisle**
   — produce, dairy, meat, dry goods, tins — in the order you walk a shop.

@@ -1,7 +1,13 @@
 /**
  * Recipes at desktop size: the table (pick, recipe, folder, ingredients, still
- * to buy) and the tray of what is picked. Clicking a row opens it in the detail
- * pane; the tick picks without opening.
+ * to buy) and the bar at its foot.
+ *
+ * A tap on a row SELECTS that one recipe, as in a file list: it replaces the
+ * set, the detail pane shows it, and the bar comes up for it — Cook and Add to
+ * shopping list, no tick box needed. The tick adds to the set instead, which is
+ * what several recipes are picked FOR: one grocery list (the owner, 2026-11-21:
+ * "selections are more for the grocery lists"). Tapping the only selected row
+ * again, Clear or Esc deselects. What the bar offers is `recipeBarActions`.
  */
 import { Pressable, StyleSheet, type PressableStateCallbackType, Text, View } from 'react-native';
 import { useFolds } from '../folds';
@@ -10,7 +16,7 @@ import { themed, T } from '../theme';
 import { Pill, Scroll } from '../ui';
 import { TickBox, okColor } from '../components/chefui';
 import { toBuyLabel } from '../chefflows';
-import { groupedNotes, pickedNames, type RecipeFact, type RecipeGroup } from '../wideflows';
+import { groupedNotes, pickedNames, recipeBarActions, selectedLabel, type RecipeFact, type RecipeGroup } from '../wideflows';
 import { PaneHead } from './parts';
 
 export type WideRecipesProps = {
@@ -18,12 +24,17 @@ export type WideRecipesProps = {
   groups: RecipeGroup[];
   facts: ReadonlyMap<string, RecipeFact>;
   picked: readonly string[];
-  openId: string | null;
+  /** The recipe the detail pane shows (`shownRecipe`). */
+  shownId: string | null;
   onNew: () => void;
-  onPick: (id: string) => void;
-  onOpen: (id: string) => void;
+  /** The tick: in or out of the set. */
+  onTick: (id: string) => void;
+  /** The row: select just this one (or, already alone, deselect). */
+  onTap: (id: string) => void;
   onClear: () => void;
+  /** Cook the one selected recipe. */
   onCook: () => void;
+  /** The selected recipes to the Review (one or several). */
   onShop: () => void;
   pickedTitles: string[];
 };
@@ -78,12 +89,12 @@ export function WideRecipes(p: WideRecipesProps) {
                     key={n.id}
                     testID="recipe-row"
                     accessibilityRole="button"
-                    accessibilityState={{ selected: p.openId === n.id }}
-                    onPress={() => p.onOpen(n.id)}
-                    style={(st: PressableStateCallbackType) => [s.row, on && s.rowPicked, p.openId === n.id && s.rowOpen, (st as { hovered?: boolean }).hovered && s.rowHover]}
+                    accessibilityState={{ selected: on }}
+                    onPress={() => p.onTap(n.id)}
+                    style={(st: PressableStateCallbackType) => [s.row, (st as { hovered?: boolean }).hovered && s.rowHover, on && s.rowPicked, p.shownId === n.id && s.rowShown]}
                   >
                     <View style={s.cPick}>
-                      <TickBox testID={`wide-pick-${n.payload.title}`} on={on} label={`Pick ${n.payload.title}`} onPress={() => p.onPick(n.id)} />
+                      <TickBox testID={`wide-pick-${n.payload.title}`} on={on} label={`Pick ${n.payload.title}`} onPress={() => p.onTick(n.id)} />
                     </View>
                     <Text style={[s.td, s.cName, s.name]} numberOfLines={1}>{n.payload.title}</Text>
                     <Text style={[s.td, s.cIng, s.num]}>{f && f.buy !== null ? f.ingredients : '–'}</Text>
@@ -98,12 +109,20 @@ export function WideRecipes(p: WideRecipesProps) {
       {p.picked.length > 0 && (
         <View style={s.tray} testID="recipes-tray">
           <View style={s.trayText}>
-            <Text style={s.trayCount}>{p.picked.length} picked</Text>
-            <Text style={s.trayNames} numberOfLines={1}>{pickedNames(p.pickedTitles)}</Text>
+            <Text style={s.trayCount}>{p.picked.length === 1 ? p.pickedTitles[0] ?? selectedLabel(1) : selectedLabel(p.picked.length)}</Text>
+            <Text style={s.trayNames} numberOfLines={1}>{p.picked.length === 1 ? selectedLabel(1) : pickedNames(p.pickedTitles)}</Text>
           </View>
           <Pill testID="tray-clear" label="Clear" onPress={p.onClear} />
-          <Pill testID="tray-cook" label="Cook these" onPress={p.onCook} />
-          <Pill testID="tray-shop" primary label="Make shopping list" onPress={p.onShop} />
+          {/* Primary last, nearest the right edge — the order the phone bar keeps. */}
+          {recipeBarActions(p.picked.length).slice().reverse().map((a) => (
+            <Pill
+              key={a.id}
+              testID={a.id === 'cook' ? 'tray-cook' : 'tray-shop'}
+              primary={a.primary}
+              label={a.label}
+              onPress={a.id === 'cook' ? p.onCook : p.onShop}
+            />
+          ))}
         </View>
       )}
     </View>
@@ -118,7 +137,8 @@ const s = themed(() => StyleSheet.create({
   listIn: { paddingBottom: 16 },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, minHeight: 46, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: T.lineSoft },
   rowPicked: { backgroundColor: T.accentSoft },
-  rowOpen: { backgroundColor: T.surface2 },
+  // The one the detail pane shows: an accent edge, so it is findable among several ticked.
+  rowShown: { borderLeftWidth: 3, borderLeftColor: T.accent, paddingLeft: 21 },
   rowHover: { backgroundColor: T.surface },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, minHeight: 40, backgroundColor: T.surface, borderBottomWidth: 1, borderBottomColor: T.lineSoft },
   chev: { width: 20, alignItems: 'center' },

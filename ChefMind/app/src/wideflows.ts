@@ -193,3 +193,91 @@ export function isTextTarget(t: unknown): boolean {
   const tag = el?.tagName?.toUpperCase();
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable === true;
 }
+
+/* ── Choosing recipes: tap selects one, a tick adds to the set ─────────── */
+
+/**
+ * The recipe table's selection: `picked` is the set (what a shopping list is
+ * made from, shared with the phone through the session), `openId` the recipe
+ * the detail pane was last asked to show. The owner, 2026-11-21: "tapping on a
+ * thing should be the equivalent of selecting one thing where it just brings
+ * up the buttons like acctmind does" — so a tap needs no tick box, and the
+ * ticks stay what they are for: picking several for the grocery list.
+ */
+export type RecipeSel = { picked: readonly string[]; openId: string | null };
+
+export const NO_SELECTION: RecipeSel = { picked: [], openId: null };
+
+/** Just this one recipe, selected and shown (a tap, a search hit, leaving the
+ *  editor, a duplicate just made). */
+export function selectOnly(id: string): RecipeSel {
+  return { picked: [id], openId: id };
+}
+
+/**
+ * A plain tap on a row, as in a file list: it REPLACES the set with that one
+ * recipe, whatever was ticked, and shows it; tapping the row that is already
+ * the whole selection, and showing, deselects it.
+ */
+export function tapRecipe(sel: RecipeSel, id: string): RecipeSel {
+  if (sel.picked.length === 1 && sel.picked[0] === id && sel.openId === id) return NO_SELECTION;
+  return selectOnly(id);
+}
+
+/** A tick: in or out of the set, the rest left alone. It never opens the pane
+ *  (ticks are for the shopping list, as before); the bar answers to it. */
+export function tickRecipe(sel: RecipeSel, id: string): RecipeSel {
+  const picked = sel.picked.includes(id) ? sel.picked.filter((x) => x !== id) : [...sel.picked, id];
+  return { picked, openId: sel.openId };
+}
+
+/**
+ * The recipe the detail pane shows: the one last tapped, while it is still in
+ * the set. Read off the set so the two cannot disagree — unticking it, or a
+ * selection cleared or pruned elsewhere (the phone, a Review that wrote its
+ * list), closes the pane by itself.
+ */
+export function shownRecipe(sel: RecipeSel): string | null {
+  return sel.openId !== null && sel.picked.includes(sel.openId) ? sel.openId : null;
+}
+
+/**
+ * The pane's ✕, or the backdrop when the pane opens OVER the table (a window
+ * under 1180 px): the pane closes and the selection stays, so the bar under it
+ * is still there to use. Deselecting is Clear, Esc or a second tap.
+ */
+export function closeRecipePane(sel: RecipeSel): RecipeSel {
+  return { picked: sel.picked, openId: null };
+}
+
+/** What the bar at the foot offers. One recipe: Cook (primary) and Add to
+ *  shopping list; several: Make shopping list. Never "Cook these" — cooking is
+ *  one recipe, and another is added from inside Cook. Clear is always there. */
+export type RecipeBarAction = { id: 'cook' | 'shop'; label: string; primary: boolean };
+export function recipeBarActions(count: number): RecipeBarAction[] {
+  if (count === 1) return [{ id: 'cook', label: 'Cook', primary: true }, { id: 'shop', label: 'Add to shopping list', primary: false }];
+  if (count > 1) return [{ id: 'shop', label: 'Make shopping list', primary: true }];
+  return [];
+}
+
+/** The bar's two lines: "1 selected" / "3 selected", then the names. */
+export function selectedLabel(count: number): string {
+  return `${count} selected`;
+}
+
+/**
+ * The recipes Cook's "+ Add a recipe" offers, folder by folder as the table
+ * groups them: recipe cards only (a plain note has no steps to cook), not the
+ * ones already on the stove, narrowed by a case-insensitive title search.
+ * Folders left with nothing are dropped.
+ */
+export function cookPickGroups(groups: readonly RecipeGroup[], query: string, cooking: readonly string[]): RecipeGroup[] {
+  const q = query.trim().toLowerCase();
+  const on = new Set(cooking);
+  return groups
+    .map((g) => ({
+      folder: g.folder,
+      notes: g.notes.filter((n) => isRecipeNote(n.payload) && !on.has(n.id) && (q === '' || n.payload.title.toLowerCase().includes(q))),
+    }))
+    .filter((g) => g.notes.length > 0);
+}
