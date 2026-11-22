@@ -31,7 +31,16 @@ async function asCopy(page: Page, ledger: string, o: Copy = {}): Promise<void> {
       configure() {},
       getDefaultContainer() {
         return {
-          async setUpAuth() { return signedIn ? { userRecordName: '_me' } : null; },
+          async setUpAuth() {
+            const slot = document.getElementById('acctmind-ck-sign-in');
+            if (slot && !signedIn && slot.childElementCount === 0) {
+              const b = document.createElement('div');
+              b.className = 'apple-auth-button';
+              b.onclick = () => { const w = window as unknown as { __signInClicks?: number }; w.__signInClicks = (w.__signInClicks ?? 0) + 1; };
+              slot.appendChild(b);
+            }
+            return signedIn ? { userRecordName: '_me' } : null;
+          },
           whenUserSignsIn() { return new Promise<void>(() => {}); },
           whenUserSignsOut() { return new Promise<void>(() => {}); },
           privateCloudDatabase: {
@@ -385,11 +394,51 @@ test.describe('read-only states on a real host', () => {
     await expect(page.getByTestId('add-button')).toHaveCount(0);
   });
 
-  test('the cog stays closed after Sign in once it is closed, across tab switches', async ({ page }) => {
-    await page.setViewportSize({ width: 420, height: 860 });
+  test('Sign in starts Apple sign-in directly, without opening the menu', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 800 });
     await asCopy(page, wideLedger(), { signedIn: false });
     await page.goto('./');
     await page.getByTestId('readonly-signin').click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __signInClicks?: number }).__signInClicks ?? 0)).toBe(1);
+    await expect(page.getByTestId('menu-whole')).toHaveCount(0);
+  });
+
+  test('the wide menu does not repeat the sidebar, and offers an Apple ID row', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await asCopy(page, wideLedger(), { signedIn: false });
+    await page.goto('./');
+    await page.getByTestId('app-menu-button').click();
+    await expect(page.getByTestId('menu-ck-sign-in')).toBeVisible();
+    await expect(page.getByTestId('menu-export')).toHaveCount(0);
+  });
+
+  test('the budget table keeps its columns near the names at any width', async ({ page }) => {
+    await asCopy(page, wideLedger());
+    await page.goto('./');
+    for (const width of [2000, 1000]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(page.getByTestId('wide-line').first()).toBeVisible();
+      const t = await page.getByTestId('wide-table').boundingBox();
+      const tone = await page.getByTestId('wide-tone').first().boundingBox();
+      expect(t!.width).toBeLessThanOrEqual(900);
+      expect(tone!.x + tone!.width).toBeLessThanOrEqual(t!.x + t!.width);
+    }
+  });
+
+  test('the transactions table is capped too', async ({ page }) => {
+    await page.setViewportSize({ width: 2000, height: 800 });
+    await asCopy(page, wideLedger());
+    await page.goto('./');
+    await page.getByTestId('wide-nav-transactions').click();
+    await expect(page.getByTestId('wide-row').first()).toBeVisible();
+    expect((await page.getByTestId('wide-table').boundingBox())!.width).toBeLessThanOrEqual(1000);
+  });
+
+  test('the cog stays closed once it is closed, across tab switches', async ({ page }) => {
+    await page.setViewportSize({ width: 420, height: 860 });
+    await asCopy(page, wideLedger(), { signedIn: false });
+    await page.goto('./');
+    await page.getByTestId('app-menu-button').click();
     await expect(page.getByTestId('menu-whole')).toBeVisible();
     await page.getByTestId('app-menu-backdrop').click({ position: { x: 5, y: 5 } });
     await expect(page.getByTestId('menu-whole')).toBeHidden();

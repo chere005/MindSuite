@@ -40,7 +40,7 @@ export function TxnEditor({
 
   if (readOnly) {
     if (txn === null) return null;
-    const line = lines.find((l) => l.id === txn.category);
+    const nameOf = (id: string | null) => id === INCOME ? INCOME_NAME : lines.find((l) => l.id === id)?.name ?? 'Uncategorized';
     const acct = accounts.find((a) => a.id === txn.account);
     return (
       <View style={styles.fill} testID="txn-detail-readonly">
@@ -50,7 +50,14 @@ export function TxnEditor({
           <Fact label="Amount">{formatAmount(txn.amount)}</Fact>
           <Fact label="Date">{formatDay(txn.date)}</Fact>
           <Fact label="Account">{acct?.name ?? '—'}</Fact>
-          <Fact label="Category">{txn.category === INCOME ? INCOME_NAME : line?.name ?? 'Uncategorized'}</Fact>
+          {txn.splits === undefined ? (
+            <Fact label="Category">{nameOf(txn.category)}</Fact>
+          ) : (
+            // A split, read-only: each part on its own line, as filed.
+            <Fact label="Split">
+              {txn.splits.map((p, i) => `${i > 0 ? '\n' : ''}${nameOf(p.category)}  ${formatAmount(p.amount)}`).join('')}
+            </Fact>
+          )}
           {txn.description !== '' && <Fact label="Description">{txn.description}</Fact>}
           <Fact label="Cleared">{txn.cleared === true ? 'Yes' : 'No'}</Fact>
           <Text style={styles.note}>Read-only here. Edit this on your iPhone or in the AcctMind Mac app.</Text>

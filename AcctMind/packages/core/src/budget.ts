@@ -33,7 +33,7 @@
  */
 import { MAX_CENTS } from './money';
 import { touch } from './merge';
-import { orderAbove } from './txn';
+import { orderAbove, txnShares } from './txn';
 import type { Line, Txn } from './types';
 
 /**
@@ -289,6 +289,12 @@ export const RECONCILE_NAME = 'Reconcile';
  * imported tomorrow but dated last week would then count while a row typed
  * an hour after the reconcile would not, which is backwards from how a
  * person reads a ledger.
+ *
+ * A SPLIT row counts when any of its parts is unfiled, and what comes back
+ * for it is its unfiled SHARE (`txnShares`): the same id, carrying only the
+ * money that is waiting, so the No category row sums to what is actually
+ * unfiled. A split whose parts are all filed is filed, whatever its null
+ * `category` says. An unsplit row comes back as itself.
  */
 export function unfiledSince(txns: readonly Txn[]): Txn[] {
   const start = new Map<string, string>();
@@ -297,10 +303,11 @@ export function unfiledSince(txns: readonly Txn[]): Txn[] {
     const at = start.get(t.account);
     if (at === undefined || t.date > at) start.set(t.account, t.date);
   }
-  return txns.filter((t) => {
-    if (t.deleted === true || t.category !== null || t.name === RECONCILE_NAME) return false;
+  return txns.flatMap((t) => {
+    if (t.deleted === true || t.name === RECONCILE_NAME) return [];
     const at = start.get(t.account);
-    return at === undefined || t.date > at;
+    if (at !== undefined && t.date <= at) return [];
+    return txnShares(t).filter((s) => s.category === null).map((s) => s.txn);
   });
 }
 

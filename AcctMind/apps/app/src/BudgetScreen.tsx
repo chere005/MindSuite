@@ -308,9 +308,13 @@ export function BudgetScreen({
    * 2026-09-18: after a reconcile he is "starting budgeting and tracking
    * transactions that need to be assigned after the reconcile"). Within the
    * set being looked at, like every other spend on this screen.
+   *
+   * What `unfiledSince` hands back for a SPLIT row is its unfiled share (the
+   * same id, only the money that is waiting), so the heading's total is what
+   * is actually unfiled and not the whole of a row that is half filed.
    */
-  const waiting = useMemo(() => new Set(unfiledSince(txns).map((t) => t.id)), [txns]);
-  const loose = inScope.filter((t) => waiting.has(t.id));
+  const waiting = useMemo(() => new Map(unfiledSince(txns).map((t) => [t.id, t] as const)), [txns]);
+  const loose = inScope.flatMap((t) => { const share = waiting.get(t.id); return share === undefined ? [] : [share]; });
   const showNone = view === null && loose.length > 0;
   /**
    * The one line under the heading that is not a record — the owner, same day:

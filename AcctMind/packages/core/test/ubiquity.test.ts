@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CK_ENVIRONMENT, CK_FIELD, CK_RECORD_NAME, CK_RECORD_TYPE,
+  CK_APP_FIELD, CK_BYTES_FIELD, CK_ENVIRONMENT, CK_FIELD, CK_RECORD_NAME, CK_RECORD_TYPE, CK_WRITTEN_FIELD,
   STORE_FILE, UBIQUITY_CONTAINER, ubiquityFolder, ubiquityPath,
 } from '../src/index';
 
@@ -68,6 +68,15 @@ describe('the CloudKit copy', () => {
     expect(swift).toContain(`recordName: "${CK_RECORD_NAME}"`);
     expect(swift).toContain(`["${CK_FIELD}"]`);
     expect(swift).toContain(`"${UBIQUITY_CONTAINER}"`);
+    // The fields the browser reads beside the ledger: its length, its time, the app that wrote it.
+    for (const f of [CK_BYTES_FIELD, CK_WRITTEN_FIELD, CK_APP_FIELD]) expect(swift).toContain(`record["${f}"] =`);
+  });
+
+  it('is saved at a quality of service CloudKit never defers', () => {
+    // .utility and .background are discretionary once the app is backgrounded:
+    // an edit, then a locked phone, reached the browser hours later.
+    expect(swift).toMatch(/op\.qualityOfService = \.userInitiated/);
+    expect(swift).not.toMatch(/qualityOfService = \.(utility|background)/);
   });
 
   it('is read from the environment a development-signed phone writes to', () => {

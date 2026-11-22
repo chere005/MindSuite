@@ -58,9 +58,17 @@ public class ICloudFileModule: Module {
   /// The last mirror's outcome, in words, for the cog's sync note.
   private static var mirrorNote = "CloudKit copy: not written this launch"
   /// The hash of what the record holds, so an unchanged ledger is not
-  /// re-sent on every read. Kept across launches; a stale value only means
-  /// one save is skipped until the ledger next changes.
+  /// re-sent on every read. Kept across launches, and only set by a save that
+  /// succeeded, so a failed save is retried by the next read or write.
   private static let mirroredKey = "acctmind.cloudkit.mirrored"
+  /// When that save succeeded (seconds since 1970).
+  private static let mirroredAtKey = "acctmind.cloudkit.mirroredAt"
+  /// An UNCHANGED ledger is still re-sent once the record is this old, so the
+  /// record's time says when this phone last looked (the browser shows it as
+  /// the copy's age: "iPhone copy from 2 hours ago"), and a record lost on the
+  /// server (a development-environment reset) comes back without waiting for
+  /// the ledger to change. Until 2026-11-21 the hash alone decided, for ever.
+  private static let mirrorMaxAge: TimeInterval = 3600
   /// One mirror in flight at a time; a newer ledger waits here and goes
   /// when the current save answers, so the record ends on the latest.
   private static let mirrorQueue = DispatchQueue(label: "acctmind.cloudkit.mirror")
@@ -84,7 +92,9 @@ public class ICloudFileModule: Module {
   private static func send(_ text: String) {
     let raw = Data(text.utf8)
     let hash = SHA256.hash(data: raw).map { String(format: "%02x", $0) }.joined()
-    if UserDefaults.standard.string(forKey: mirroredKey) == hash {
+    let savedAt = UserDefaults.standard.double(forKey: mirroredAtKey)
+    if UserDefaults.standard.string(forKey: mirroredKey) == hash,
+       Date().timeIntervalSince1970 - savedAt < mirrorMaxAge {
       mirrorNote = "CloudKit copy: up to date"
       return finish()
     }
@@ -104,16 +114,27 @@ public class ICloudFileModule: Module {
     record["ledger"] = packed as CKRecordValue
     record["bytes"] = raw.count as CKRecordValue
     record["written"] = Date() as CKRecordValue
+    // Which app wrote it, so the browser can say when it computes the budget
+    // with newer rules than this phone (core's `phoneOlder`, `CK_APP_FIELD`).
+    let app = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    record["app"] = app as CKRecordValue
     let op = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
     // Overwrite without fetching first: this record has one writer per
     // ledger and its whole content is replaced every time.
     op.savePolicy = .allKeys
-    op.qualityOfService = .utility
+    // NOT .utility, which CKOperation documents as "discretionary when app
+    // backgrounded" with network errors "internally retried" for up to a week:
+    // an edit followed by locking the phone could reach the browser hours
+    // later, and a stuck save held `mirrorBusy`, so every newer ledger queued
+    // behind it. .userInitiated is never discretionary and fails fast; the
+    // hash is not stored on failure, so the next read or write retries.
+    op.qualityOfService = .userInitiated
     op.modifyRecordsResultBlock = { result in
       mirrorQueue.async {
         switch result {
         case .success:
           UserDefaults.standard.set(hash, forKey: mirroredKey)
+          UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: mirroredAtKey)
           mirrorNote = "CloudKit copy: saved \(raw.count / 1024) KB for the web app"
         case .failure(let error):
           mirrorNote = "CloudKit copy failed: \(error.localizedDescription)"

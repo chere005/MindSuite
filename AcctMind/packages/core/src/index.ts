@@ -25,4 +25,6 @@ export * from './folds';
 export * from './rowslots';
 export * from './views';
 export * from './ubiquity';
+export * from './copy';
 export * from './wide';
+export * from './reports';

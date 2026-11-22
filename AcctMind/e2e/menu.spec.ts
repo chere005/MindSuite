@@ -89,17 +89,22 @@ test('the menu exposes ledger actions and preferences', async ({ page }) => {
   await openMenu(page);
   await expect(page.getByTestId('menu-import')).toHaveText('Import from CSV');
   await expect(page.getByTestId('menu-export')).toHaveText('Export budget');
-  await expect(page.getByTestId('menu-auto-categorize')).toHaveText('Auto-categorize transactions');
+  // Auto-categorize rules live under Categories now.
+  await expect(page.getByTestId('menu-auto-categorize')).toHaveCount(0);
   await expect(page.getByTestId('menu-whole')).toContainText('Whole dollars');
 });
 
-test('matching rules file transactions and the category picker puts used lines first', async ({ page }) => {
+test('matching rules file transactions and the category picker puts used lines first', async ({ page }, info) => {
+  // Reached through the Categories sheet now: the harness cannot drive a Modal list over a Modal on WebKit (see categories.spec.ts).
+  test.skip(info.project.name === 'mobile', 'Modal over Modal on WebKit');
   const store = JSON.parse(STORE());
   store.lines.push({ ...store.lines[0], id: 'l2', name: 'Coffee' });
   store.txns[0].category = null;
   await withStore(page, JSON.stringify(store));
-  await openMenu(page);
-  await page.getByTestId('menu-auto-categorize').click();
+  await page.getByTestId('tab-budget').click();
+  await page.getByTestId('section-pick').click();
+  await page.getByTestId('section-manage').click();
+  await page.getByTestId('manage-rules').click();
   await page.getByTestId('auto-category-match').fill('coffee');
   await page.getByTestId('category-button').click();
   await page.getByTestId('category-opt-l2').click();
@@ -107,6 +112,8 @@ test('matching rules file transactions and the category picker puts used lines f
   await expect(page.getByRole('button', { name: 'Remove rule for coffee' })).toBeVisible();
   await page.getByTestId('auto-category-done').click();
   await expect(page.getByTestId('auto-category-done')).toBeHidden();
+  await page.getByTestId('manage-done').click();
+  await page.getByTestId('tab-transactions').click();
   await expect(page.getByTestId('txn-category')).toHaveText('Coffee');
 
   await addTransaction(page, { name: 'Card purchase', description: 'COFFEE stand', amount: '-3.25' });

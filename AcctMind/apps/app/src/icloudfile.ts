@@ -10,6 +10,7 @@
  * `planSync` in core, and core/src/ubiquity.ts for why a file rather than
  * the key-value store.
  */
+import { AppState } from 'react-native';
 import * as native from '../modules/icloud-file';
 
 import type { LedgerAccess, SyncInfo } from '@acctmind/core';
@@ -26,12 +27,26 @@ export const push: typeof native.push = async (value) => {
   if (ok) markSaved();
   return ok;
 };
-export const onRemoteChange = native.onRemoteChange;
-
-/** CloudKit's Apple ID buttons are a browser's only (icloudfile.web.ts). */
-export function signInSlots(): { signIn: string; signOut: string } | null {
-  return null;
+/**
+ * When the file changes, AND whenever the app comes back to the foreground.
+ *
+ * The metadata query only reports a change it sees while the app runs, and
+ * the CloudKit copy the browser reads is mirrored only when this phone reads
+ * or writes the file. So an edit made on the Mac, or merged in from a peer,
+ * reached the browser only at the phone's next cold launch; reading again on
+ * every return to the foreground puts it there the next time the phone is
+ * opened (the owner, 2026-11-21: "acctmind readonly seems out of date").
+ */
+export function onRemoteChange(handler: () => void): () => void {
+  const off = native.onRemoteChange(handler);
+  const sub = AppState.addEventListener('change', (s) => { if (s === 'active') handler(); });
+  return () => { off(); sub.remove(); };
 }
+
+/** Apple ID sign-in is a browser's only: no state, nothing to start. */
+export function appleIdState(): 'signed-in' | 'signed-out' | null { return null; }
+export function startSignIn(): boolean { return false; }
+export function startSignOut(): boolean { return false; }
 
 /**
  * The same one-line answer the desktop gives, for the Devices screen.

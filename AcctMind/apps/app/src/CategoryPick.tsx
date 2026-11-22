@@ -24,7 +24,7 @@ import { SPACE, T, TAP } from './theme';
 /** What an unfiled transaction reads as — the Budget tab's word for it too. */
 export const NO_CATEGORY = 'No Category';
 
-export function CategoryPick({ categories, lines, value, onPick, allowNone = true, compact = false }: {
+export function CategoryPick({ categories, lines, value, onPick, allowNone = true, compact = false, testID = 'category-button' }: {
   categories: readonly Category[];
   lines: readonly CategoryChoice[];
   value: string | null;
@@ -32,6 +32,8 @@ export function CategoryPick({ categories, lines, value, onPick, allowNone = tru
   allowNone?: boolean;
   /** The wide detail pane's size: the same 14 point value as its Account field. */
   compact?: boolean;
+  /** One per picker when a form draws several — a split's rows. The value is `${testID}-value`. */
+  testID?: string;
 }) {
   const [open, setOpen] = useState(false);
   const line = lines.find((l) => l.id === value) ?? null;
@@ -47,10 +49,10 @@ export function CategoryPick({ categories, lines, value, onPick, allowNone = tru
         style={[styles.field, compact && styles.fieldCompact]}
         accessibilityRole="button"
         accessibilityLabel={label}
-        testID="category-button"
+        testID={testID}
       >
         {chosen !== null && <Dot colors={[chosen.color]} size={12} />}
-        <Text style={[styles.value, compact && styles.valueCompact, chosen === null && styles.none]} numberOfLines={1} testID="category-value">
+        <Text style={[styles.value, compact && styles.valueCompact, chosen === null && styles.none]} numberOfLines={1} testID={testID === 'category-button' ? 'category-value' : `${testID}-value`}>
           {label}
         </Text>
         <Text style={styles.chev}>⌄</Text>

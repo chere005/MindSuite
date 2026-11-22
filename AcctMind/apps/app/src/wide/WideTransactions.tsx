@@ -7,12 +7,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  EMPTY_TXN_FILTER, INCOME, INCOME_NAME, formatAmount, formatDay, ledgerTable, quickDraft, today,
+  EMPTY_TXN_FILTER, INCOME, INCOME_NAME, formatAmount, formatDay, ledgerTable, quickDraft, splitLabel, today,
   type Account, type AmountMode, type CategoryChoice, type CategoryRule, type Draft, type Txn,
 } from '@acctmind/core';
 import { T } from '../theme';
 import { Btn, SELECTED_ROW } from './shared';
 
+/** Widest the table grows, so Amount and Balance stay near the names on a big window. */
+const TABLE_MAX = 1000;
 const W = { date: 72, cat: 124, acct: 112, amount: 104, balance: 104, cleared: 56 } as const;
 
 export function WideTransactions({
@@ -68,6 +70,7 @@ export function WideTransactions({
         {!readOnly && <Btn label="New transaction" primary onPress={onNew} testID="wide-new" />}
       </View>
 
+      <View style={styles.table} testID="wide-table">
       <View style={[styles.row, styles.thead]} testID="wide-thead">
         <Text style={[styles.th, { width: W.date }]}>Date</Text>
         <Text style={[styles.th, styles.grow, styles.nameCol]}>Name</Text>
@@ -86,7 +89,8 @@ export function WideTransactions({
           />
         )}
         {rows.map(({ txn, balance }) => {
-          const cat = catName(txn.category);
+          // A split row says so, and which lines: core's `splitLabel`.
+          const cat = splitLabel(txn, (id) => catName(id) ?? 'Uncategorized') ?? catName(txn.category);
           return (
             <Pressable
               key={txn.id} onPress={() => onSelect(txn)} accessibilityRole="button"
@@ -95,7 +99,7 @@ export function WideTransactions({
             >
               <Text style={[styles.td, styles.dim, { width: W.date }]} numberOfLines={1}>{formatDay(txn.date)}</Text>
               <Text style={[styles.td, styles.grow, styles.nameCol, styles.name]} numberOfLines={1} testID="wide-row-name">{txn.name}</Text>
-              <Text style={[styles.td, cat === null && styles.dim, { width: W.cat }]} numberOfLines={1}>{cat ?? 'Uncategorized'}</Text>
+              <Text style={[styles.td, cat === null && styles.dim, { width: W.cat }]} numberOfLines={1} testID="wide-row-category">{cat ?? 'Uncategorized'}</Text>
               {!one && <Text style={[styles.td, styles.dim, { width: W.acct }]} numberOfLines={1}>{acctName(txn.account)}</Text>}
               <Text style={[styles.td, styles.num, txn.amount > 0 && styles.pos, { width: W.amount }]} numberOfLines={1} testID="wide-row-amount">
                 {txn.amount > 0 ? '+' : ''}{formatAmount(txn.amount)}
@@ -119,6 +123,7 @@ export function WideTransactions({
         })}
         {rows.length === 0 && <Text style={styles.empty} testID="wide-empty">No transactions.</Text>}
       </ScrollView>
+      </View>
 
       <View style={styles.foot} testID="wide-foot">
         <Text style={styles.footText} numberOfLines={1}>
@@ -206,6 +211,7 @@ function QuickRow({ account, accounts, choices, rules, mode, showAccount, showBa
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
   grow: { flex: 1, minWidth: 0 },
+  table: { flex: 1, minHeight: 0, maxWidth: TABLE_MAX },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10, flexWrap: 'wrap' },
   h1: { color: T.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
   search: {

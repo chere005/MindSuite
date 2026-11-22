@@ -180,6 +180,11 @@ function stable(v: unknown): string {
     .map((k) => JSON.stringify(k) + ':' + stable(o[k])).join(',') + '}';
 }
 
+/** Are two field values the same, by value — a split's parts as much as a name. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  return a === b || (typeof a === 'object' && typeof b === 'object' && stable(a) === stable(b));
+}
+
 /** Do these two hold the same ledger? Order-insensitive, by construction. */
 export function sameStore(a: Store, b: Store): boolean {
   return stable(canonical(a)) === stable(canonical(b));

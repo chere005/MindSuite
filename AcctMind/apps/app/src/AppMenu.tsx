@@ -12,14 +12,15 @@ import { suiteAccount, openSuiteAccount, signOutSuiteAccount } from './suiteacco
 const shortDay = (day: string): string =>
   `${monthLabel(day).slice(0, 3)} ${Number(day.slice(8, 10))}, ${day.slice(0, 4)}`;
 
-export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, onMatch, whole, onWhole, start, onStart, offer }: {
+export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, wide = false, whole, onWhole, start, onStart, offer }: {
   /** A read-only ledger: no import, no rules, no budget start. */
   readOnly?: boolean;
   /** Bumped by the read-only banner's Sign in: opens the menu, where the Apple ID button is. */
   openSignal?: number;
   onImport?: (() => void) | undefined;
   onExport: () => void;
-  onMatch: () => void;
+  /** The wide sidebar already lists Import and Export, so the menu drawn over it does not repeat them. */
+  wide?: boolean;
   whole: boolean;
   onWhole: (next: boolean) => void;
   start: string | null;
@@ -29,7 +30,6 @@ export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, 
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState(false);
   const [account] = useState(suiteAccount);
-  const slots = shared.signInSlots();
   // Opens only when the signal CHANGES, never on mount: the menu is rebuilt
   // with each tab, and a remount must not reopen it.
   const handled = useRef(openSignal);
@@ -50,19 +50,27 @@ export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, 
   }, [open]);
   const ledgerOptions = !account || options;
   const items: AccountMenuItem[] = ledgerOptions ? [
+    ...(wide ? [] : [
     ...(onImport ? [{ key: 'import', label: 'Import from CSV', testID: 'menu-import', onPress: onImport }] : []),
     { key: 'export', label: 'Export budget', testID: 'menu-export', onPress: onExport },
-    ...(readOnly ? [] : [{ key: 'match', label: 'Auto-categorize transactions', testID: 'menu-auto-categorize', onPress: onMatch }]),
+    ]),
   ] : [
     { key: 'account', label: 'Account', testID: 'menu-account', onPress: () => openSuiteAccount(account) },
     { key: 'settings', label: 'Settings', testID: 'menu-settings', keepOpen: true, onPress: () => setOptions(true) },
     { key: 'signout', label: 'Sign out', testID: 'menu-signout', onPress: () => signOutSuiteAccount(account) },
   ];
+  // Apple ID, in a browser only: an app-styled row that forwards the press to
+  // CloudKit JS's own (hidden) control, so the popup opens from this click.
+  const apple = shared.appleIdState();
+  const ck: AccountMenuItem[] = apple === null ? [] : apple === 'signed-in'
+    ? [{ key: 'ck-out', label: 'Sign out of Apple ID', testID: 'menu-ck-sign-out', onPress: () => { shared.startSignOut(); } }]
+    : [{ key: 'ck-in', label: 'Sign in with Apple ID', testID: 'menu-ck-sign-in', onPress: () => { shared.startSignIn(); } }];
+  const allItems = [...items, ...ck];
   return <AccountMenu colors={topBarColors} username={account?.username}
     label={account ? `${account.username} — account menu` : 'Settings'}
     statusColor={account ? T.accent : undefined} trigger={account ? undefined : <CogIcon />}
     testID="app-menu-button" backdropTestID="app-menu-backdrop" open={open}
-    onOpenChange={(next) => { if (next) setOptions(false); setOpen(next); }} items={items}
+    onOpenChange={(next) => { if (next) setOptions(false); setOpen(next); }} items={allItems}
     content={ledgerOptions ? <>
               {/*
                 A SETTING, not an action, so it keeps the menu OPEN and shows
@@ -162,15 +170,6 @@ export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, 
               */}
               <View style={styles.note} testID="menu-sync">
                 <Text style={styles.noteText}>{syncNote}</Text>
-                {/* In a browser, CloudKit JS draws its own Apple ID sign-in
-                    and sign-out buttons into these two, by id — it reads the
-                    phone's copy of the ledger (src/cloudkitweb.ts). */}
-                {slots !== null && (
-                  <View style={styles.ck}>
-                    <View nativeID={slots.signIn} testID="menu-ck-sign-in" />
-                    <View nativeID={slots.signOut} testID="menu-ck-sign-out" />
-                  </View>
-                )}
               </View>
 
     </> : null} />;
@@ -184,8 +183,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.cardEdge,
   },
   noteText: { color: T.faint, fontSize: 11, lineHeight: 15 },
-  // The web adapter fits Apple's button to this slot without shrinking its tap target.
-  ck: { marginTop: SPACE.sm, alignSelf: 'stretch', alignItems: 'stretch' },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     minHeight: TAP, paddingHorizontal: SPACE.md, gap: SPACE.sm,

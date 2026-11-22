@@ -10,7 +10,7 @@ import {
 import {
   EMPTY_TXN_FILTER, INCOME, INCOME_NAME, LONG_PRESS_MS, amountDigits, amountInput, amountSeed, claimsSwipe,
   clearedTotal, dropTarget, filterTransactions, foldLevel, formatAmount, formatDay, hasTxnFilter, parseAmount, pickTap, rowTap,
-  selectedTotal, slotEntries,
+  selectedTotal, slotEntries, splitLabel,
   signedCents, sortTxns, swipeArms, toggleSelected, total,
   type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn, type TxnFilter,
 } from '@acctmind/core';
@@ -873,7 +873,7 @@ function Section({
             grip={canMove ? drag.gripFor(i) : undefined}
             lifted={drag.dragIdx === i}
             dy={drag.dragIdx === i ? drag.dragDy : 0}
-            lineName={lineName(t.category)}
+            lineName={splitLabel(t, (id) => lineName(id) || NO_CATEGORY) ?? lineName(t.category)}
             lines={lines}
             categories={categories}
             swiped={swipedId === t.id}
@@ -1116,9 +1116,15 @@ function Row({
 
         Under `rowTap` like the name and the amount: a parked delete or edit
         mode wins, so this is one more field that defers to the row.
+
+        A SPLIT row reads "Split · Groceries, Household" (core's `splitLabel`)
+        and a tap opens the whole editor rather than the one-category list:
+        picking one category here would end the split, which is not what a tap
+        on its name should do.
       */}
       <Pressable
-        onPress={onTap(onInline === undefined ? undefined : () => setFiling(true))}
+        onPress={onTap(onInline === undefined ? undefined
+          : txn.splits !== undefined ? () => onAction('edit') : () => setFiling(true))}
         style={styles.catTap}
         accessibilityRole="button"
         accessibilityLabel={`Category: ${lineName === '' ? NO_CATEGORY : lineName}`}

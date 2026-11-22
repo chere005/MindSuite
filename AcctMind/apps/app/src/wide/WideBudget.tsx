@@ -9,6 +9,8 @@ import { Dot } from '../Dot';
 import { T } from '../theme';
 import { Btn, SELECTED_ROW } from './shared';
 
+/** Widest the table grows: 360 for the line name plus the five fixed columns. */
+const TABLE_MAX = 900;
 const W = { target: 92, alloc: 96, spent: 92, rem: 96, status: 76 } as const;
 
 const TONE: Record<LineTone, { label: string; bg: string; fg: string }> = {
@@ -59,6 +61,8 @@ export function WideBudget({
         <Text style={styles.total}><Text style={styles.dim}>Short of target </Text><Text style={styles.b}>{formatAmount(totals.short)}</Text></Text>
       </View>
 
+      {/* Capped and left-aligned: the numbers sit a reading distance after the names at any window width. */}
+      <View style={styles.table} testID="wide-table">
       <View style={[styles.row, styles.thead]}>
         <Text style={[styles.th, styles.grow]}>Line</Text>
         <Text style={[styles.th, styles.num, { width: W.target }]}>Target</Text>
@@ -99,6 +103,7 @@ export function WideBudget({
           </View>
         ))}
       </ScrollView>
+      </View>
     </View>
   );
 }
@@ -106,6 +111,7 @@ export function WideBudget({
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
   grow: { flex: 1, minWidth: 0 },
+  table: { flex: 1, minHeight: 0, maxWidth: TABLE_MAX },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
   h1: { color: T.text, fontSize: 20, fontWeight: '600' },
   month: { color: T.text, fontSize: 15, fontWeight: '500', minWidth: 120, textAlign: 'center' },

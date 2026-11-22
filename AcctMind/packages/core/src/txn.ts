@@ -1,6 +1,6 @@
 /** Making, checking and ordering transactions. The product's actual rules. */
 
-import type { Draft, DraftErrors, Record_, Txn } from './types';
+import type { Draft, DraftErrors, DraftPart, Record_, SplitPart, Txn } from './types';
 import { isDay } from './day';
 import { amountInput, formatAmount, parseAmount } from './money';
 import { touch } from './merge';
@@ -33,6 +33,15 @@ export function validateDraft(draft: Draft): DraftErrors {
 
   if (draft.account.trim() === '') errors.account = 'Pick an account';
 
+  // A split is judged only once there is an amount to split: "That is not an
+  // amount" on the total already says what is wrong, and a second sentence
+  // about the parts of a number that does not exist would be noise.
+  if (draft.splits !== undefined && errors.amount === undefined) {
+    const parts = draftParts(draft);
+    const problem = parts === null ? 'That is not an amount' : splitProblem(parseAmount(draft.amount) ?? 0, parts);
+    if (problem !== null) errors.splits = problem;
+  }
+
   return errors;
 }
 
@@ -58,7 +67,7 @@ export function makeTxn(draft: Draft, id: string, created: number): Txn {
     amount,
     date: draft.date,
     account: draft.account,
-    category: draft.category,
+    ...filing(draft, amount, 'makeTxn'),
     // A new row has never been dragged. Zero means "use the date order",
     // which is what makes an untouched list identical in every sort mode.
     order: 0,
@@ -67,6 +76,20 @@ export function makeTxn(draft: Draft, id: string, created: number): Txn {
     // was born. Every later change goes through `touch`.
     updated: created,
   };
+}
+
+/**
+ * Where a validated draft files its money: one category, or a split with a
+ * null category beside it (see `Txn.splits` for why null). No `splits` key at
+ * all when it is not split, so an unsplit row is the row it always was.
+ */
+function filing(draft: Draft, amount: number, who: string): Pick<Txn, 'category' | 'splits'> {
+  if (draft.splits === undefined) return { category: draft.category };
+  const parts = draftParts(draft);
+  if (parts === null || splitProblem(amount, parts) !== null) {
+    throw new Error(`${who}: the draft has not been validated`);
+  }
+  return { category: null, splits: parts };
 }
 
 /** A blank draft, dated today. What the + button opens. */
@@ -109,6 +132,251 @@ export function toggleSelected(ids: readonly string[], id: string): string[] {
 export function selectedTotal(txns: readonly Txn[], ids: readonly string[]): number {
   const want = new Set(ids);
   return txns.reduce((sum, t) => (want.has(t.id) ? sum + t.amount : sum), 0);
+}
+
+/* ------------------------------------------------------------------ *
+ * SPLITS — one transaction filed under several lines.
+ *
+ * The owner, 2026-11-21: "add splitting a transaction between multiple
+ * categories in a very trivial interface to use". The record is `Txn.splits`
+ * (types.ts says what it holds, and why `category` is null beside it); the
+ * rules are here, and there are three of them:
+ *
+ *   1. EVERY per-category sum reads a transaction through `txnParts` — budget
+ *      spent and carry, the unfiled rows, the category filter, the ranking of
+ *      category choices, reports. Never through `t.category`.
+ *   2. A split is two or more non-zero parts with the transaction's sign that
+ *      add up to its amount exactly (`splitProblem`). The store drops a split
+ *      that breaks this; the form refuses to save one.
+ *   3. The parts are KEPT AS SIZES and the amount gives them their sign; the
+ *      LAST part is whatever is left (`resplit`). That one sentence is what the
+ *      form draws (the last row is a remainder nobody types), what an amount
+ *      edited in place does, and what an import that changes a row's amount
+ *      does — so the three cannot disagree about where a difference goes.
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a transaction puts into each category: one part per category it is
+ * filed under, amounts in cents summing to `t.amount`. Every per-category sum
+ * (budget spent, reports, exports) reads a transaction through this, never
+ * through `t.category` directly, so a transaction split across categories is
+ * counted the same way everywhere.
+ *
+ * Copies, so a caller that sorts or edits what it was handed cannot reach
+ * into the record. Two parts can name the same category (nothing stops a
+ * person picking Groceries twice); a sum over parts is right either way, and
+ * `txnShares` adds them together where one row per category is wanted.
+ */
+export function txnParts(t: Txn): SplitPart[] {
+  return t.splits === undefined
+    ? [{ category: t.category, amount: t.amount }]
+    : t.splits.map((p) => ({ category: p.category, amount: p.amount }));
+}
+
+/** Is this row split? `Txn.splits` is absent or real, never `[]`. */
+export function isSplit(t: Pick<Txn, 'splits'>): boolean {
+  return t.splits !== undefined;
+}
+
+/**
+ * A transaction as each of its categories sees it: one entry per category,
+ * with a Txn standing for that category's SHARE — the row itself when the
+ * whole amount is there, a copy carrying only that category's amount when it
+ * is split.
+ *
+ * What a budget line lists as "its" transactions and sums as Spent, and what
+ * the No category row lists and sums: a $100 shop split 60/40 shows −$60.00
+ * under Groceries and −$40.00 under Household, and each list still adds up to
+ * the figure beside it. The copy keeps the row's id, so a tap on it opens the
+ * real transaction. Nothing may WRITE a share back to the store.
+ */
+export function txnShares(t: Txn): { category: string | null; txn: Txn }[] {
+  if (t.splits === undefined) return [{ category: t.category, txn: t }];
+  const by = new Map<string | null, number>();
+  for (const p of t.splits) by.set(p.category, (by.get(p.category) ?? 0) + p.amount);
+  return [...by].map(([category, amount]) => ({ category, txn: { ...t, amount } }));
+}
+
+/**
+ * What is wrong with these parts as a split of `amount`, or null when nothing.
+ *
+ * The one statement of what a split IS, read by the store (which drops a
+ * split that fails it, `normalizeTxn`) and by the form (which says it).
+ *
+ * The SAME SIGN as the amount, every part, non-zero. Mixed signs would be a
+ * real thing to want one day (cash back inside a purchase), but the form
+ * types sizes and lets the − button sign them, so the only way a part ends up
+ * the other side of zero is the parts above it adding up to more than the
+ * whole — which is a mistake to point at, not a split to store.
+ */
+export function splitProblem(amount: number, parts: readonly SplitPart[]): string | null {
+  if (parts.length < 2) return 'A split needs two categories';
+  if (amount === 0) return 'There is nothing to split';
+  const sign = Math.sign(amount);
+  let sum = 0;
+  for (const p of parts) {
+    if (!Number.isSafeInteger(p.amount)) return 'That is not an amount';
+    if (p.amount === 0) return 'Every category needs an amount';
+    if (Math.sign(p.amount) !== sign) return 'The other categories come to more than the amount';
+    sum += p.amount;
+  }
+  return sum === amount ? null : 'The categories do not add up to the amount';
+}
+
+/**
+ * The parts after the amount changes — rule 3: every part but the last keeps
+ * its SIZE and takes the amount's sign, and the last is what is left.
+ *
+ * Null when that leaves the last part at zero or past it, i.e. the other parts
+ * already come to the new amount or more. Which of them to cut is a question
+ * for a person; `withAmount` says what an edit with nobody to ask does.
+ */
+export function resplit(parts: readonly SplitPart[], amount: number): SplitPart[] | null {
+  const sign = Math.sign(amount);
+  const head = parts.slice(0, -1).map((p) => ({ category: p.category, amount: sign * Math.abs(p.amount) }));
+  const last = parts[parts.length - 1];
+  if (last === undefined) return null;
+  const rest = head.reduce((n, p) => n - p.amount, amount);
+  const out = [...head, { category: last.category, amount: rest === 0 ? 0 : rest }];
+  return splitProblem(amount, out) === null ? out : null;
+}
+
+/**
+ * A transaction with a new AMOUNT, wherever that comes from without a form —
+ * the amount edited in place in a list, or an import that finds the bank has
+ * settled a pending row for a different figure.
+ *
+ * Unsplit, it is just the amount. Split, `resplit`: the last part absorbs the
+ * difference. When it cannot (the other parts already come to the new amount
+ * or more) the split comes off and the row is left UNFILED — a state every
+ * surface already shows as waiting for a category, with the money exactly
+ * right — rather than refusing the edit, because the list has no room to say
+ * why and an import has nobody to ask. Not touched: the caller stamps it.
+ */
+export function withAmount(txn: Txn, amount: number): Txn {
+  const { splits, ...rest } = txn;
+  if (splits === undefined) return { ...txn, amount };
+  const parts = resplit(splits, amount);
+  return parts === null ? { ...rest, amount, category: null } : { ...rest, amount, category: null, splits: parts };
+}
+
+/** One field changed in place on a row — the list's name, amount or category cell. */
+export type TxnPatch = { name?: string; amount?: number; category?: string | null };
+
+/**
+ * Apply an in-place edit, merge clock and all.
+ *
+ * The amount goes through `withAmount`, so a split row keeps its parts in
+ * step. A CATEGORY picked for a split row files the whole row there and the
+ * split comes off — one category is what that cell means — and a row never
+ * carries a category and parts at once.
+ */
+export function patchTxn(txn: Txn, patch: TxnPatch, now: number): Txn {
+  let next: Txn = patch.amount === undefined ? txn : withAmount(txn, patch.amount);
+  if (patch.name !== undefined) next = { ...next, name: patch.name };
+  if (patch.category !== undefined) {
+    const { splits: _was, ...rest } = next;
+    next = { ...rest, category: patch.category };
+  }
+  return touch(next, now);
+}
+
+/**
+ * What a split row's category cell reads: `Split · Groceries, Household`.
+ *
+ * The names rather than a count, because on a read-only screen the cell is
+ * the only place the split is written down at all; a narrow column truncates
+ * the tail and still says it is a split. Each category once, in part order.
+ */
+export function splitLabel(t: Pick<Txn, 'splits'>, nameOf: (category: string | null) => string): string | null {
+  if (t.splits === undefined) return null;
+  const names = [...new Set(t.splits.map((p) => p.category))].map(nameOf);
+  return `Split · ${names.join(', ')}`;
+}
+
+/* ---- the form's half: parts as typed ---- */
+
+/** A typed amount with its sign taken off — parts are typed as sizes. */
+const unsigned = (text: string): string => text.trim().replace(/^[-\u2212]\s*/, '');
+
+/**
+ * The draft's parts in cents, signed by the draft's amount, the last one the
+ * remainder; null while the amount or any typed part is not an amount yet.
+ *
+ * The remainder is computed, never read, so the parts ALWAYS add up: the one
+ * mistake left is the typed parts coming to more than the whole, which
+ * `splitProblem` names.
+ */
+export function draftParts(draft: Draft): SplitPart[] | null {
+  const parts = draft.splits;
+  const amount = parseAmount(draft.amount);
+  if (parts === undefined || amount === null) return null;
+  const sign = amount < 0 ? -1 : 1;
+  const head: SplitPart[] = [];
+  for (const p of parts.slice(0, -1)) {
+    const typed = unsigned(p.amount);
+    const cents = typed === '' ? 0 : parseAmount(typed);
+    if (cents === null || cents < 0) return null;
+    head.push({ category: p.category, amount: cents === 0 ? 0 : sign * cents });
+  }
+  const last = parts[parts.length - 1];
+  if (last === undefined) return null;
+  const rest = head.reduce((n, p) => n - p.amount, amount);
+  return [...head, { category: last.category, amount: rest === 0 ? 0 : rest }];
+}
+
+/** What the last row shows: the amount less every other part, or null while that is not known. */
+export function draftRemainder(draft: Draft): number | null {
+  const parts = draftParts(draft);
+  return parts === null ? null : parts[parts.length - 1]?.amount ?? null;
+}
+
+/**
+ * Start splitting: the category it had and the WHOLE amount, then a second
+ * category for the rest — which is nothing yet, so the next thing typed into
+ * the first row is the thing that moves money into the second.
+ */
+export function splitDraft(draft: Draft): Draft {
+  return {
+    ...draft,
+    category: null,
+    splits: [{ category: draft.category, amount: unsigned(draft.amount) }, { category: null, amount: '' }],
+  };
+}
+
+/**
+ * One more category at the bottom. The row that WAS last stops being the
+ * remainder, so what it showed is written down as typed, and the new last row
+ * takes over the remainder (nothing, until a row above it is made smaller).
+ */
+export function addDraftPart(draft: Draft): Draft {
+  const parts = draft.splits;
+  if (parts === undefined) return draft;
+  const rest = draftRemainder(draft);
+  const frozen: DraftPart[] = parts.map((p, i) => (
+    i === parts.length - 1 ? { category: p.category, amount: rest === null ? '' : amountInput(Math.abs(rest)) } : p));
+  return { ...draft, splits: [...frozen, { category: null, amount: '' }] };
+}
+
+/**
+ * Take a row out; the remainder absorbs what it held. Down to ONE row is no
+ * split at all: that row's category becomes the transaction's, and the
+ * `splits` key goes, so an un-split draft is the draft it was before.
+ */
+export function removeDraftPart(draft: Draft, index: number): Draft {
+  const parts = draft.splits;
+  if (parts === undefined) return draft;
+  const left = parts.filter((_, i) => i !== index);
+  const { splits: _was, ...rest } = draft;
+  if (left.length <= 1) return { ...rest, category: left[0]?.category ?? null };
+  return { ...rest, splits: left };
+}
+
+/** Change one row's category or typed amount. */
+export function setDraftPart(draft: Draft, index: number, patch: Partial<DraftPart>): Draft {
+  const parts = draft.splits;
+  if (parts === undefined) return draft;
+  return { ...draft, splits: parts.map((p, i) => (i === index ? { ...p, ...patch } : p)) };
 }
 
 /** The sum, in cents. Integers throughout — see money.ts. */
@@ -186,6 +454,10 @@ export function draftOf(txn: Txn): Draft {
     date: txn.date,
     account: txn.account,
     category: txn.category,
+    // Unsigned, like every typed part: the amount above holds the sign.
+    ...(txn.splits === undefined ? {} : {
+      splits: txn.splits.map((p) => ({ category: p.category, amount: amountInput(Math.abs(p.amount)) })),
+    }),
   };
 }
 
@@ -200,14 +472,17 @@ export function draftOf(txn: Txn): Draft {
 export function applyDraft(txn: Txn, draft: Draft, now: number): Txn {
   const amount = parseAmount(draft.amount);
   if (amount === null) throw new Error('applyDraft: the draft has not been validated');
+  // The old parts come off first, so an edit that un-splits a row leaves NO
+  // key behind rather than one holding nothing — see Txn.splits.
+  const { splits: _was, ...rest } = txn;
   return touch({
-    ...txn,
+    ...rest,
     name: draft.name.trim(),
     description: draft.description.trim(),
     amount,
     date: draft.date,
     account: draft.account,
-    category: draft.category,
+    ...filing(draft, amount, 'applyDraft'),
   }, now);
 }
 
@@ -233,6 +508,8 @@ export function duplicateTxn(txn: Txn, id: string, now: number): Txn {
     date: txn.date,
     account: txn.account,
     category: txn.category,
+    // Split the same way: the second coffee went where the first one did.
+    ...(txn.splits === undefined ? {} : { splits: txn.splits.map((p) => ({ ...p })) }),
     // Not the original's place in a hand-made order: it is a new row, and
     // inheriting the position would put two rows in one slot.
     order: 0,
@@ -502,7 +779,7 @@ export function filterTransactions(txns: readonly Txn[], filter: TxnFilter): Txn
   const query = filter.query.trim().toLowerCase();
   const wantCleared = status === 'cleared';
   return txns.filter((txn) => !txn.deleted
-    && (category === undefined || txn.category === category)
+    && (category === undefined || txnParts(txn).some((p) => p.category === category))
     && (status === 'any' || (txn.cleared === true) === wantCleared)
     && (from === null || txn.date >= from)
     && (through === null || txn.date <= through)

@@ -25,6 +25,9 @@
 import { ledgerAccess, isLocalHost, type LedgerAccess, type SyncInfo } from '@acctmind/core';
 import * as ck from './cloudkitweb';
 import { fileTimes, markRead, markSaved, onSyncChange } from './syncinfo';
+// This page's version (held equal to the release by tools/check-version.mjs),
+// so the banner can say when the iPhone that wrote the copy is older.
+import app from '../package.json';
 
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -51,13 +54,14 @@ function bridge(): Invoke | null {
   return w.__TAURI__?.core?.invoke ?? null;
 }
 
-/**
- * Where the cog menu should leave room for CloudKit's Apple ID buttons, or
- * null on a surface that has none (the desktop shell, and every native one).
- */
-export function signInSlots(): { signIn: string; signOut: string } | null {
-  return bridge() === null ? { signIn: ck.SIGN_IN_ID, signOut: ck.SIGN_OUT_ID } : null;
+/** Whether the menu should offer Apple ID sign-in or sign-out; null where there is no CloudKit JS. */
+export function appleIdState(): 'signed-in' | 'signed-out' | null {
+  if (bridge() !== null) return null;
+  return ck.state().signedIn ? 'signed-in' : 'signed-out';
 }
+/** Forward a press to Apple's own control (cloudkitweb.ts); false when it is not drawn yet. */
+export function startSignIn(): boolean { return bridge() === null && ck.clickSignIn(); }
+export function startSignOut(): boolean { return bridge() === null && ck.clickSignOut(); }
 
 /** Who may edit is known once CloudKit has answered; the Tauri shell needs no wait. */
 export async function settled(): Promise<void> {
@@ -121,7 +125,8 @@ export async function status(): Promise<string> {
 
 /**
  * Nothing tells the shell when the file changes (see the header). A browser
- * re-reads the CloudKit copy on sign-in and when the tab comes back.
+ * re-reads the CloudKit copy on sign-in, when the tab or window comes back,
+ * and every minute while visible (`cloudkitweb.onRemoteChange` says why).
  */
 export function onRemoteChange(handler: () => void): () => void {
   if (bridge() === null) return ck.onRemoteChange(handler);
@@ -155,6 +160,7 @@ export function syncInfo(): SyncInfo {
     return {
       source, readAt: s.readAt, savedAt: null, writtenAt: s.writtenAt, signedIn: s.signedIn,
       engine: s.engine, unreachable: s.engine === 'off' || s.failed,
+      noCopy: s.noCopy, phoneApp: s.phoneApp, pageApp: app.version, olderFormat: s.older,
     };
   }
   const t = fileTimes();

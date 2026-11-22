@@ -25,11 +25,11 @@ import { StatusBar } from 'expo-status-bar';
 import {
   addTxn, applyDraft, applyOp, availableOf, budgetFor, budgetIn, duplicateTxn, emptyStore, ensureAccount,
   live, makeTxn, moveLineTo, moveTxnTo,
-  applyImport, clearedTotal, parseStore, ensureCategory, newId, nextColor, planImport, RECONCILE_NAME,
+  applyImport, clearedTotal, copyProblem, parseStore, ensureCategory, newId, nextColor, planImport, RECONCILE_NAME,
   reconcileAdjustment, total, putAccount, putBudget, putCategory, putLine, removeCategoryDeep,
   REORDER_GAP, assignMany, budgetCsv, budgetStart, putBudgetStart, suggestedStart, planSync, serialize, undoTo, linesIn, monthlyBudgetAmounts,
   monthSet, setMonth, today, tombstone, tombstoneMany, touch,
-  txnText, updateTxn, setCleared,
+  txnText, updateTxn, setCleared, patchTxn,
   categoryChoices, categoryRules, putSnooze, removeCategoryRule, saveCategoryRule,
   type AssignMode, type CsvRow, type Draft, type ImportMode, type Line, type Store, type Txn,
 } from '@acctmind/core';
@@ -55,6 +55,7 @@ import { DEFAULTS, loadPrefs, savePrefs, type Prefs } from './src/prefs';
 import { SPACE, T, TAP } from './src/theme';
 import { useWide } from './src/components/WideFrame';
 import { WideApp } from './src/wide/WideApp';
+import { ReportsScreen } from './src/ReportsScreen';
 import { useLedgerAccess } from './src/access';
 import { ReadOnlyBanner, ReadOnlyContext } from './src/readonly';
 
@@ -225,6 +226,8 @@ export default function App() {
   const [copyMeta, setCopyMeta] = useState<{ unreadable: string | null; cachedAt: number | null }>(
     { unreadable: null, cachedAt: null },
   );
+  /** The text of the copy on screen, so a re-read that found it unchanged redraws nothing. */
+  const shownCopy = useRef<string | null>(null);
   const showCopy = useCallback((store: Store, dropped = 0) => {
     storeRef.current = store;
     setUndo(null);
@@ -237,23 +240,35 @@ export default function App() {
       if (!seen.signedIn && seen.engine === 'ready') {
         // Signed out: nothing of the last account's copy stays on screen or on disk.
         void clearCopyCache();
+        shownCopy.current = null;
         setCopyMeta({ unreadable: null, cachedAt: null });
         showCopy(emptyStore());
       } else if (seen.signedIn && !seen.unreachable) {
         // Signed in and iCloud answered: the phone has written no copy.
         void clearCopyCache();
+        shownCopy.current = null;
         setCopyMeta({ unreadable: null, cachedAt: null });
         showCopy(emptyStore());
       }
       // Unreachable or still connecting: keep showing the cached copy, if any.
       return;
     }
-    const parsed = parseStore(text);
-    if (!parsed.ok) {
-      // Not stamped as read, and the last good copy stays on screen.
-      setCopyMeta((m) => ({ ...m, unreadable: parsed.error }));
+    if (text === shownCopy.current) {
+      // Unchanged (the page re-reads every minute): only the times move, so the
+      // banner's age is fresh; no new store, no redraw, no megabyte rewritten.
+      shared.confirmRead();
+      const written = shared.syncInfo().writtenAt;
+      setCopyMeta((m) => ({ unreadable: null, cachedAt: written ?? m.cachedAt }));
       return;
     }
+    const parsed = parseStore(text);
+    if (!parsed.ok) {
+      // Not stamped as read, and the last good copy stays on screen. A copy in
+      // a newer format than this page reads says so (core's `copyProblem`).
+      setCopyMeta((m) => ({ ...m, unreadable: copyProblem(text, parsed.error) }));
+      return;
+    }
+    shownCopy.current = text;
     shared.confirmRead();
     const written = shared.syncInfo().writtenAt;
     setCopyMeta({ unreadable: null, cachedAt: written ?? Date.now() });
@@ -299,7 +314,8 @@ export default function App() {
         const cached = await loadCopyCache();
         if (!running) return;
         const parsed = cached === null ? null : parseStore(cached.text);
-        setCopyMeta({ unreadable: null, cachedAt: cached === null ? null : cached.writtenAt ?? cached.cachedAt });
+        shownCopy.current = cached !== null && parsed !== null && parsed.ok ? cached.text : null;
+        setCopyMeta({ unreadable: null, cachedAt: shownCopy.current === null || cached === null ? null : cached.writtenAt ?? cached.cachedAt });
         showCopy(parsed !== null && parsed.ok ? parsed.store : emptyStore(), parsed !== null && parsed.ok ? parsed.dropped : 0);
         await readCopy();
         return;
@@ -565,9 +581,9 @@ export default function App() {
     <AppMenu
       readOnly={readOnly}
       openSignal={menuAsk}
+      wide={wide}
       onImport={readOnly ? undefined : openImport}
       onExport={onExportBudget}
-      onMatch={() => setMatching(true)}
       whole={prefs.amountMode === 'whole'}
       onWhole={(next) => setPref('amountMode', next ? 'whole' : 'cents')}
       /* A LEDGER setting, not a pref: it commits into the store and syncs,
@@ -609,7 +625,7 @@ export default function App() {
     <ReadOnlyBanner
       info={{ ...info, unreadable: copyMeta.unreadable, cachedAt: copyMeta.cachedAt }}
       onReload={() => { void reconcileShared(); }}
-      onSignIn={() => setMenuAsk((n) => n + 1)}
+      onSignIn={() => { if (!shared.startSignIn()) setMenuAsk((n) => n + 1); }}
     />
   ) : null;
 
@@ -770,9 +786,10 @@ export default function App() {
                  cheap enough to do on a tap. */
               onInline={(txn, patch) => {
                 if (phase.k !== 'ready') return;
-                const next = { ...txn, ...patch };
                 if (patch.name !== undefined && patch.name.trim() === '') return;
-                commit(phase, updateTxn(phase.store, touch(next, Date.now())));
+                // Core's `patchTxn`: an amount typed over a SPLIT row keeps its
+                // parts in step (the last one takes the difference).
+                commit(phase, updateTxn(phase.store, patchTxn(txn, patch, Date.now())));
               }}
               /* The pick bar's Delete. One press, one clock, one commit —
                  core's `tombstoneMany` does the whole batch in a single pass
@@ -843,6 +860,9 @@ export default function App() {
             />
             )}
 
+            {/* Reports only READ: handed the store, never `commit`. */}
+            {!wide && tab === 'reports' && <ReportsScreen store={phase.store} menu={appMenu} />}
+
             {wide && (
               <WideApp
                 store={phase.store}
@@ -893,16 +913,6 @@ export default function App() {
                 ));
               }}
             />
-            {matching && (
-              <AutoCategorize
-                categories={live(phase.store.categories)}
-                lines={choices}
-                rules={rules}
-                onSave={(match, category) => commit(phase, saveCategoryRule(phase.store, match, category, Date.now()))}
-                onRemove={(match) => commit(phase, removeCategoryRule(phase.store, match, Date.now()))}
-                onClose={() => setMatching(false)}
-              />
-            )}
             <Manage
               visible={managing !== null}
               label={managing === 'categories' ? 'Categories' : 'Accounts'}
@@ -913,6 +923,7 @@ export default function App() {
                 : live(phase.store.accounts).map((a) => ({
                     id: a.id, name: a.name, color: a.color,
                   }))}
+              onRules={managing === 'categories' && !readOnly ? () => setMatching(true) : undefined}
               onClose={() => setManaging(null)}
               onAdd={() => {
                 const now = Date.now();
@@ -972,6 +983,16 @@ export default function App() {
                 }
               }}
             />
+            {matching && (
+              <AutoCategorize
+                categories={live(phase.store.categories)}
+                lines={choices}
+                rules={rules}
+                onSave={(match, category) => commit(phase, saveCategoryRule(phase.store, match, category, Date.now()))}
+                onRemove={(match) => commit(phase, removeCategoryRule(phase.store, match, Date.now()))}
+                onClose={() => setMatching(false)}
+              />
+            )}
             {/*
               The pad, over the Budget page. `available` edits do not store a
               third number — they say what `budget` has to be, given what has

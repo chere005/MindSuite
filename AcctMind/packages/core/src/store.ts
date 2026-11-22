@@ -13,11 +13,12 @@
 import {
   DEFAULT_ACCOUNT_NAME, DEFAULT_CATEGORY_NAME, INCOME, STORE_VERSION,
   type Account, type BudgetAmount, type Category, type Line, type Record_, type Setting,
-  type Store, type Txn,
+  type SplitPart, type Store, type Txn,
 } from './types';
 import { isDay } from './day';
 import { PALETTE } from './palette';
-import { tombstone, touch } from './merge';
+import { sameValue, tombstone, touch } from './merge';
+import { splitProblem } from './txn';
 
 /** A load either produced a store, or failed and must not be written over. */
 export type LoadResult =
@@ -151,6 +152,11 @@ export function parseStore(raw: string | null | undefined): LoadResult {
   // INCOME is there without a record — see its note in types.ts.
   const knownLines = new Set([INCOME, ...lines.map((l) => l.id)]);
   for (const t of txns) if (t.category !== null && !knownLines.has(t.category)) t.category = null;
+  // And for each PART of a split, the same rule one level down: the part
+  // goes unfiled, its money and the other parts' filing stay where they are.
+  for (const t of txns) {
+    for (const p of t.splits ?? []) if (p.category !== null && !knownLines.has(p.category)) p.category = null;
+  }
 
   return {
     ok: true,
@@ -434,6 +440,7 @@ export function normalizeTxn(row: unknown): Txn | null {
 
   const account = r['account'];
   const category = r['category'];
+  const splits = normalizeSplits(r['splits'], amount);
 
   return {
     id,
@@ -445,7 +452,8 @@ export function normalizeTxn(row: unknown): Txn | null {
     // account exist" check in parseStore and is adopted there, which is the
     // one place that can see the whole store and choose a home.
     account: typeof account === 'string' ? account : '',
-    category: typeof category === 'string' && category !== '' ? category : null,
+    // Null beside a split, whatever was stored there — see Txn.splits.
+    category: splits === null && typeof category === 'string' && category !== '' ? category : null,
     // Absent in every store before custom ordering existed. Zero is not a
     // fallback here, it is the real value for "never dragged".
     order: typeof r['order'] === 'number' && Number.isFinite(r['order']) ? r['order'] : 0,
@@ -456,7 +464,33 @@ export function normalizeTxn(row: unknown): Txn | null {
     // And only the literal `true` is cleared — see Txn.cleared. Anything
     // else (a stray string, `false`, an old store with no key) reads as not.
     ...(r['cleared'] === true ? { cleared: true as const } : {}),
+    // No key at all for a row that is not split — see Txn.splits.
+    ...(splits === null ? {} : { splits }),
   };
+}
+
+/**
+ * A stored split, or null for none.
+ *
+ * A split that is not one — parts that do not add up, a part with a float or
+ * the wrong sign, fewer than two — is DROPPED, not the row: the transaction's
+ * own amount is what the ledger's arithmetic rests on and it is fine, so the
+ * row stays and reads as unfiled (its category beside a split was null), which
+ * is a thing a person can see and fix. Dropping the row would lose real money
+ * over a bookkeeping detail; the store's rule everywhere else.
+ */
+function normalizeSplits(raw: unknown, amount: number): SplitPart[] | null {
+  if (!Array.isArray(raw)) return null;
+  const parts: SplitPart[] = [];
+  for (const row of raw) {
+    if (typeof row !== 'object' || row === null || Array.isArray(row)) return null;
+    const r = row as Record<string, unknown>;
+    const category = r['category'];
+    const cents = r['amount'];
+    if (typeof cents !== 'number' || !Number.isSafeInteger(cents)) return null;
+    parts.push({ category: typeof category === 'string' && category !== '' ? category : null, amount: cents });
+  }
+  return splitProblem(amount, parts) === null ? parts : null;
 }
 
 /** Add one, returning a new store. Nothing here mutates what it is given. */
@@ -566,8 +600,11 @@ function restore<R extends Record_>(now_: readonly R[], then: readonly R[], now:
  */
 function same<R extends Record_>(a: R, b: R): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)].filter((k) => k !== 'updated'));
+  // By VALUE, not identity: a split's parts are an array, and the same parts
+  // rebuilt by a load are a different array — compared with `!==` every split
+  // row would look edited and be stamped and sent to every device on an undo.
   for (const k of keys) {
-    if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
+    if (!sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
   }
   return true;
 }
@@ -682,10 +719,17 @@ export function removeCategoryDeep(store: Store, categoryId: string, now: number
     // touch(), not a bare field write: re-filing a transaction is an edit, and
     // an edit that does not move the merge clock is an edit another device
     // will overwrite with its own stale copy.
-    txns: store.txns.map((t) => (
-      t.category !== null && doomed.has(t.category)
-        ? touch({ ...t, category: null }, now)
-        : t
-    )),
+    txns: store.txns.map((t) => {
+      if (t.category !== null && doomed.has(t.category)) return touch({ ...t, category: null }, now);
+      // A split's parts the same way, one by one: the part that was filed
+      // here goes to no category, and the others stay filed where they were.
+      if (t.splits?.some((p) => p.category !== null && doomed.has(p.category)) === true) {
+        return touch({
+          ...t,
+          splits: t.splits.map((p) => (p.category !== null && doomed.has(p.category) ? { ...p, category: null } : p)),
+        }, now);
+      }
+      return t;
+    }),
   };
 }

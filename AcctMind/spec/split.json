@@ -1,0 +1,53 @@
+{
+  "_": "Split transactions: one row filed under several lines. A part is written [category, cents] — category a line id, 'income', or null for unfiled. The rules: every per-category sum reads a row through its PARTS (an unsplit row is one part: its category, its amount); a split is two or more non-zero parts with the row's sign adding up to its amount exactly; and the parts are kept as SIZES that the amount signs, the LAST part being whatever is left. On a split row `category` is null, so a reader that knows nothing about splits sees an unfiled row rather than the whole amount under one line.",
+
+  "parts": [
+    { "name": "an unsplit row is one part: its category and its amount", "amount": -10000, "category": "groc", "splits": null, "want": [["groc", -10000]] },
+    { "name": "an unfiled row is one unfiled part", "amount": 2500, "category": null, "splits": null, "want": [[null, 2500]] },
+    { "name": "a split row is its parts, in order", "amount": -10000, "category": null, "splits": [["groc", -6000], ["home", -4000]], "want": [["groc", -6000], ["home", -4000]] }
+  ],
+
+  "problems": [
+    ["two parts that add up", -10000, [["groc", -6000], ["home", -4000]], null],
+    ["income split the same way", 300000, [["income", 250000], ["groc", 50000]], null],
+    ["an unfiled part is still a part", -10000, [["groc", -6000], [null, -4000]], null],
+    ["one part is not a split", -10000, [["groc", -10000]], "A split needs two categories"],
+    ["a zero part", -10000, [["groc", -10000], ["home", 0]], "Every category needs an amount"],
+    ["a part the other side of zero", -10000, [["groc", -12000], ["home", 2000]], "The other categories come to more than the amount"],
+    ["parts that do not add up", -10000, [["groc", -6000], ["home", -3000]], "The categories do not add up to the amount"],
+    ["a float", -10000, [["groc", -6000.5], ["home", -3999.5]], "That is not an amount"],
+    ["nothing to split", 0, [["groc", 0], ["home", 0]], "There is nothing to split"]
+  ],
+
+  "_resplit": "A new amount: every part but the last keeps its SIZE and takes the amount's sign; the last is what is left. null when the others already come to the new amount or more.",
+  "resplit": [
+    ["more spent: the last part takes it", [["groc", -6000], ["home", -4000]], -12000, [["groc", -6000], ["home", -6000]]],
+    ["less spent, still room", [["groc", -6000], ["home", -4000]], -7000, [["groc", -6000], ["home", -1000]]],
+    ["the others already come to it", [["groc", -6000], ["home", -4000]], -6000, null],
+    ["the others come to more", [["groc", -6000], ["home", -4000]], -5000, null],
+    ["the sign flips: a refund split the same way", [["groc", -6000], ["home", -4000]], 10000, [["groc", 6000], ["home", 4000]]],
+    ["three parts: only the last moves", [["groc", -3000], ["home", -2000], ["fun", -1000]], -9000, [["groc", -3000], ["home", -2000], ["fun", -4000]]]
+  ],
+
+  "_draft": "The form: the draft's amount as typed (canonical, signed), each part's amount as typed and UNSIGNED. The last part's typed amount is never read. want is the parts in cents, or null while something is not an amount.",
+  "draft": [
+    ["the last row is the remainder", "-100.00", [["groc", "60.00"], ["home", ""]], [["groc", -6000], ["home", -4000]]],
+    ["what the last row holds is ignored", "-100.00", [["groc", "60.00"], ["home", "999.00"]], [["groc", -6000], ["home", -4000]]],
+    ["the sign is the amount's", "100.00", [["groc", "60.00"], ["home", ""]], [["groc", 6000], ["home", 4000]]],
+    ["a row not typed yet is nothing yet", "-100.00", [["groc", "100.00"], ["home", ""], ["fun", ""]], [["groc", -10000], ["home", 0], ["fun", 0]]],
+    ["a refused amount", "-100.00", [["groc", "1.005"], ["home", ""]], null],
+    ["no amount to split", "", [["groc", "60.00"], ["home", ""]], null]
+  ],
+
+  "_budget": "A month's Spent per line reads parts. Ledger: a $100 shop split 60/40 groceries/household, a $5 coffee under groceries, a $30 shop split $20 groceries and $10 nobody has filed. 'unfiled' is what the No category row holds.",
+  "budget": {
+    "lines": ["groc", "home"],
+    "txns": [
+      { "id": "shop", "amount": -10000, "category": null, "splits": [["groc", -6000], ["home", -4000]] },
+      { "id": "coffee", "amount": -500, "category": "groc", "splits": null },
+      { "id": "half", "amount": -3000, "category": null, "splits": [["groc", -2000], [null, -1000]] }
+    ],
+    "spent": { "groc": -8500, "home": -4000 },
+    "unfiled": { "half": -1000 }
+  }
+}

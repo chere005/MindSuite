@@ -134,6 +134,19 @@ which meant the minus was drawn twice — once by the button and once in the
 text, a cursor away from being edited into something else. A new transaction
 starts negative, because almost everything in a ledger is money going out.
 
+**Split** sits beside the category (2026-11-21: "splitting a transaction
+between multiple categories in a very trivial interface"). It turns the
+category into rows of category and amount, starting with the category it had
+and the whole amount; **+ Add category** adds a row, **×** removes one, and
+down to one row it is not split any more. The LAST row's amount is the
+remainder, drawn rather than typed, so the rows cannot disagree with the
+total. A split row reads `Split · Groceries, Household` in the lists and a
+tap on that opens the editor. On the record the parts are `Txn.splits` and
+`category` is null beside them, so anything that does not know about splits
+sees an unfiled row rather than the whole amount under one line; every
+per-category figure reads parts through core's `txnParts` (types.ts and
+txn.ts carry the why).
+
 ## Where the data lives
 
 **On the device.** There is no API and no database. The web app keeps its

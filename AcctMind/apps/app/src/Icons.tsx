@@ -33,6 +33,17 @@ export function ListIcon({ color = T.dim, size = 22 }: { color?: string; size?: 
   );
 }
 
+/** Reports: three columns of a bar chart, standing on a baseline. */
+export function ReportsIcon({ color = T.dim, size = 22 }: { color?: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Rect x={4} y={11} width={4} height={9} rx={1} fill={color} />
+      <Rect x={10} y={5} width={4} height={15} rx={1} fill={color} />
+      <Rect x={16} y={14} width={4} height={6} rx={1} fill={color} />
+    </Svg>
+  );
+}
+
 /**
  * A stroked cross.
  *

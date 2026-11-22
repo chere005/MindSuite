@@ -1,0 +1,99 @@
+{
+  "_": "Reports (packages/core/src/reports.ts). Months are YYYY-MM on the LOCAL calendar; spending and income are reported positive, net = income - spending. Every rule is one the ledger already keeps: INCOME is income, a live line is spending on it (net of refunds), anything else unfiled or on a deleted line is No Category, an unfiled Reconcile is skipped, tombstones and deleted accounts are not there, and an unfiled out/in pair across two accounts within 4 days is a transfer and counts nowhere.",
+  "_periods": "[period, today, from, to]",
+  "periods": [
+    ["this-month", "2026-11-21", "2026-11", "2026-11"],
+    ["last-month", "2026-01-15", "2025-12", "2025-12"],
+    ["ytd", "2026-03-02", "2026-01", "2026-03"],
+    ["last-12", "2026-02-10", "2025-03", "2026-02"],
+    ["last-12", "2026-12-31", "2026-01", "2026-12"],
+    ["year:2025", "2026-11-21", "2025-01", "2025-12"]
+  ],
+  "_short": "[cents, axis label]: whole dollars, rounded; k under a million, M past it.",
+  "short": [
+    [0, "$0"],
+    [94999, "$950"],
+    [100000, "$1k"],
+    [123456, "$1.2k"],
+    [995000, "$10k"],
+    [1234500, "$12k"],
+    [150000000, "$1.5M"],
+    [-123456, "-$1.2k"]
+  ],
+  "_scale": "[max cents, ticks, top, step]: step is 1, 2, 2.5 or 5 x 10^k cents and at least $1; top is the first whole step at or above max; nothing to draw is 0/0.",
+  "scale": [
+    [0, 4, 0, 0],
+    [-500, 4, 0, 0],
+    [50, 4, 100, 100],
+    [100000, 4, 100000, 25000],
+    [312500, 4, 400000, 100000],
+    [123456789, 4, 150000000, 50000000]
+  ],
+  "ledger": {
+    "accounts": [
+      { "id": "chk", "name": "Checking", "color": "#4c8bf0", "order": 0 },
+      { "id": "sav", "name": "Savings", "color": "#66d695", "order": 1 },
+      { "id": "card", "name": "Card", "color": "#f39849", "order": 2 },
+      { "id": "gone", "name": "Closed", "color": "#929aaa", "order": 3, "deleted": true }
+    ],
+    "categories": [
+      { "id": "food", "name": "Food", "color": "#66d695", "order": 0 },
+      { "id": "home", "name": "Home", "color": "#4c8bf0", "order": 1 },
+      { "id": "old", "name": "Old", "color": "#ea5853", "order": 2, "deleted": true }
+    ],
+    "lines": [
+      { "id": "groc", "name": "Groceries", "category": "food", "order": 0 },
+      { "id": "dine", "name": "Dining", "category": "food", "order": 1 },
+      { "id": "zap", "name": "Deleted line", "category": "food", "order": 2, "deleted": true },
+      { "id": "rent", "name": "Rent", "category": "home", "order": 0 },
+      { "id": "oldline", "name": "In a deleted group", "category": "old", "order": 0 }
+    ],
+    "_txns": "[id, name, amount, date, account, category, deleted?]",
+    "txns": [
+      ["t1", "Paycheck", 300000, "2026-01-05", "chk", "income"],
+      ["t2", "Rent", -150000, "2026-01-06", "chk", "rent"],
+      ["t3", "Groceries", -10000, "2026-01-10", "card", "groc"],
+      ["t4", "Groceries refund", 2500, "2026-01-12", "card", "groc"],
+      ["t5", "Dinner", -4000, "2026-01-20", "card", "dine"],
+      ["t6", "Transfer to savings", -50000, "2026-01-31", "chk", null],
+      ["t7", "Transfer from checking", 50000, "2026-02-02", "sav", null],
+      ["t8", "Reconcile", -1234, "2026-02-03", "chk", null],
+      ["t9", "Hardware store", -3000, "2026-02-04", "card", null],
+      ["t10", "On a deleted line", -2000, "2026-02-05", "card", "zap"],
+      ["t11", "In a deleted group", -1000, "2026-02-06", "card", "oldline"],
+      ["t12", "Deleted row", -99999, "2026-02-07", "card", "groc", true],
+      ["t13", "In a closed account", -5000, "2026-02-08", "gone", "groc"],
+      ["t14", "Interest", 100, "2026-02-28", "sav", "income"],
+      ["t15", "Paycheck clawback", -500, "2026-02-15", "chk", "income"],
+      ["t16", "Reconcile", -700, "2026-02-20", "card", "dine"],
+      ["t17", "Friend paid me back", 1500, "2026-02-21", "chk", null]
+    ]
+  },
+  "_cases": "Each scope over the ledger above: the income vs expense months and total, and the breakdown's net total and groups [id, amount, share%]. A share is of what the positive groups add up to; a net refund has none.",
+  "cases": [
+    {
+      "_": "Everything. The transfer pair (t6/t7) and the unfiled Reconcile (t8) count nowhere; t16 counts on Dining; t10, t11 and the friend's +$15 are No Category.",
+      "from": "2026-01", "to": "2026-02", "accounts": null,
+      "months": [["2026-01", 300000, 161500, 138500], ["2026-02", -400, 5200, -5600]],
+      "total": [299600, 166700, 132900],
+      "breakdownTotal": 166700,
+      "groups": [["home", 150000, 90], ["food", 12200, 7], ["\u001fnone", 4500, 3]]
+    },
+    {
+      "_": "The card alone.",
+      "from": "2026-01", "to": "2026-02", "accounts": ["card"],
+      "months": [["2026-01", 0, 11500, -11500], ["2026-02", 0, 6700, -6700]],
+      "total": [0, 18200, -18200],
+      "breakdownTotal": 18200,
+      "groups": [["food", 12200, 67], ["\u001fnone", 6000, 33]]
+    },
+    {
+      "_": "Checking alone: its half of the transfer is still not spending.",
+      "from": "2026-01", "to": "2026-02", "accounts": ["chk"],
+      "months": [["2026-01", 300000, 150000, 150000], ["2026-02", -500, -1500, 1000]],
+      "total": [299500, 148500, 151000],
+      "breakdownTotal": 148500,
+      "groups": [["home", 150000, 100], ["\u001fnone", -1500, null]]
+    }
+  ]
+}

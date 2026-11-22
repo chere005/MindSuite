@@ -57,7 +57,7 @@ import { RECONCILE_NAME, assignedFor, type AssignMode, type BudgetLineBalance } 
 import { isDay } from './day';
 import { touch } from './merge';
 import { putSetting } from './store';
-import { total } from './txn';
+import { total, txnParts, txnShares } from './txn';
 import type { BudgetAmount, Line, Setting, Txn } from './types';
 
 /* The helpers take the COLLECTION they read, not the whole Store — a screen
@@ -214,8 +214,12 @@ export function carriedInto(
 ): Map<string, number> {
   const by = new Map<string, number>();
   for (const t of countsFrom(txns, start)) {
-    if (t.category === null || monthOf(t.date) >= month) continue;
-    by.set(t.category, (by.get(t.category) ?? 0) + t.amount);
+    if (monthOf(t.date) >= month) continue;
+    // Per PART: a split shop carries its groceries half into Groceries and
+    // its household half into Household — see txnParts.
+    for (const p of txnParts(t)) {
+      if (p.category !== null) by.set(p.category, (by.get(p.category) ?? 0) + p.amount);
+    }
   }
   const fromMonth = start === null ? null : monthOf(start);
   for (const l of lines) {
@@ -225,7 +229,14 @@ export function carriedInto(
   return by;
 }
 
-/** The month and line amounts shared by the budget screen and CSV export. */
+/**
+ * The month and line amounts shared by the budget screen and CSV export.
+ *
+ * A line's `txns` are its SHARES (`txnShares`): a split row appears under
+ * each of its lines carrying only that line's part, so `spent` is still
+ * `total(txns)` and the list a line shows adds up to the figure beside it.
+ * `inScope` is the month's whole rows, untouched.
+ */
 export function monthlyBudgetAmounts(
   store: HasBudgets, month: string, lines: readonly Line[], txns: readonly Txn[], start: string | null,
 ) {
@@ -234,11 +245,13 @@ export function monthlyBudgetAmounts(
   const inScope = countsFrom(ledger.filter((txn) => monthOf(txn.date) === month), start);
   const carried = carriedInto(store, month, lines, ledger, start);
   const byLine = new Map<string, Txn[]>();
-  for (const txn of inScope) {
-    if (txn.category === null) continue;
-    const group = byLine.get(txn.category);
-    if (group) group.push(txn);
-    else byLine.set(txn.category, [txn]);
+  for (const row of inScope) {
+    for (const { category, txn } of txnShares(row)) {
+      if (category === null) continue;
+      const group = byLine.get(category);
+      if (group) group.push(txn);
+      else byLine.set(category, [txn]);
+    }
   }
   const set = monthSet(month);
   const amounts = new Map<string, BudgetLineBalance & { txns: readonly Txn[] }>();

@@ -438,7 +438,11 @@ been watched failing on purpose:
   plain tap-and-type test went red on both projects with `autoFocus` taken
   off the pad. They type with `page.keyboard`, deliberately — `fill()` and
   `pressSequentially()` focus the field before typing, which is why none of
-  the pad tests before them could see a field that opened unfocused.
+  the pad tests before them could see a field that opened unfocused;
+- splits (`test/split.test.ts`, `spec/split.json`, 2026-11-21), against
+  three mutations: a line's Spent read off the row instead of its parts, the
+  category-rule guard for split rows removed, and the store keeping a split
+  whose parts do not add up. Each reddened only the tests about it.
 
 A check nobody has seen fail is a check nobody should trust. Five green
 checks in CalMind turned out to be worthless in a single session.

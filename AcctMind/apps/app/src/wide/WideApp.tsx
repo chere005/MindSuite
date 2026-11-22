@@ -21,6 +21,7 @@ import type { Tab } from '../Tabs';
 import { LinePane, type LineEdit } from './LinePane';
 import { TxnEditor } from './TxnEditor';
 import { WideBudget } from './WideBudget';
+import { WideReports } from './WideReports';
 import { WideTransactions } from './WideTransactions';
 import { WIDE_COLORS } from './shared';
 
@@ -183,6 +184,7 @@ export function WideApp({
       <View style={styles.gap} />
       <SidebarItem label="Budget" active={tab === 'budget'} onPress={() => goTab('budget')} colors={c} testID="wide-nav-budget" />
       <SidebarItem label="Transactions" active={tab === 'transactions'} onPress={() => goAccount(shownAccount)} colors={c} testID="wide-nav-transactions" />
+      <SidebarItem label="Reports" active={tab === 'reports'} onPress={() => goTab('reports')} colors={c} testID="wide-nav-reports" />
       <SidebarLabel label="Accounts" colors={c} />
       <SidebarItem
         label="All accounts" count={formatAmount(balances.all)} colors={c} testID="wide-account-all"
@@ -198,13 +200,13 @@ export function WideApp({
       <SidebarLabel label="More" colors={c} />
       {!readOnly && <SidebarItem label="Import from CSV" onPress={actions.onImport} colors={c} testID="wide-more-import" />}
       <SidebarItem label="Export budget" onPress={actions.onExport} colors={c} testID="wide-more-export" />
-      {!readOnly && <SidebarItem label="Auto-categorize" onPress={actions.onMatch} colors={c} testID="wide-more-match" />}
       {!readOnly && <SidebarItem label="Categories" onPress={() => actions.onManage('categories')} colors={c} testID="wide-more-categories" />}
+      {!readOnly && <SidebarItem label="Auto-categorize rules" onPress={actions.onMatch} colors={c} testID="wide-more-match" leading={<View style={{ width: 14 }} />} />}
       {!readOnly && <SidebarItem label="Accounts" onPress={() => actions.onManage('accounts')} colors={c} testID="wide-more-accounts" />}
     </>
   );
 
-  const main = tab === 'budget' ? (
+  const main = tab === 'reports' ? <WideReports store={store} banner={banner} /> : tab === 'budget' ? (
     <WideBudget
       groups={sheet.groups} totals={sheet} budgetMonth={budgetMonth} onMonth={(m) => { closeDetail(); onBudgetMonth(m); }}
       selectedId={selLine} readOnly={readOnly} banner={banner} onSelect={setSelLine} onAddLine={addLine}

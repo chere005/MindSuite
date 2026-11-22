@@ -7,6 +7,7 @@
  */
 import { budgetOverspent, lineTone, linesIn, stillNeeded, unassigned, availableOf, type LineTone } from './budget';
 import { autoCategory, type CategoryRule } from './categorization';
+import { copyAge, phoneOlder } from './copy';
 import { isDay, today as todayDay } from './day';
 import { amountDigits, amountInput, signedCents, type AmountMode } from './money';
 import { filterByName, filterTransactions, isValid, sortTxns, validateDraft, EMPTY_TXN_FILTER, type TxnFilter } from './txn';
@@ -81,10 +82,21 @@ export type SyncInfo = {
   engine?: 'pending' | 'ready' | 'off';
   /** CloudKit could not be reached or the read failed. */
   unreachable?: boolean;
-  /** When the cached copy on screen was written (or cached), ms, if one is shown. */
+  /** When the copy ON SCREEN was written (or cached), ms, if one is shown. */
   cachedAt?: number | null;
   /** Why the copy could not be read as a ledger, when it could not. */
   unreadable?: string | null;
+  /** CloudKit answered that there is no record: the phone has written no copy. */
+  noCopy?: boolean;
+  /**
+   * The iPhone app version that wrote the copy on screen (core's `phoneOlder`):
+   * undefined before a copy is read, null for a record from before the field.
+   */
+  phoneApp?: string | null;
+  /** This page's own version, to compare with `phoneApp`. */
+  pageApp?: string;
+  /** The copy's store format when older than this page's, upgraded to show; else null. */
+  olderFormat?: number | null;
 };
 
 const clock = (ms: number): string => {
@@ -113,7 +125,9 @@ export function syncLine(info: SyncInfo, now: number): string {
     if (info.unreachable) return 'iCloud · not reachable';
     if (!info.signedIn) return info.engine === 'pending' ? 'iCloud · connecting…' : 'iCloud copy · signed out';
     if (info.writtenAt !== null) return `iPhone copy · written ${formatWritten(info.writtenAt, now)}`;
-    return info.readAt !== null ? 'iPhone copy · none written yet' : 'iPhone copy · reading…';
+    if (info.readAt === null) return 'iPhone copy · reading…';
+    // A copy whose time was not recorded is still a copy, never "none".
+    return info.noCopy === true ? 'iPhone copy · none written yet' : 'iPhone copy · time not recorded';
   }
   if (info.source === 'local') return 'This browser only · not synced';
   const parts = ['iCloud Drive'];
@@ -131,37 +145,70 @@ export type ReadOnlyBanner = {
 
 /**
  * What the read-only banner says (after the bold "Read-only"), in priority
- * order: an unreadable copy, an unreachable iCloud (with the cached copy's time
- * when one is shown), still connecting, signed out, then the normal line.
+ * order: an unreadable copy, an unreachable iCloud, still connecting, signed
+ * out, the first read still out, no copy, then the normal line.
+ *
+ * WHENEVER A COPY IS ON SCREEN THE BANNER SAYS HOW OLD IT IS (the owner,
+ * 2026-11-21: "acctmind readonly seems out of date or wrong in the web"): a
+ * cached copy shown while iCloud connects or a read is out, or the last good
+ * copy kept under an unreadable newer one, named its age nowhere before. And
+ * when the iPhone's app is older than this page the figures can differ (the
+ * page computes with its own rules), which is said too.
  */
 export function readOnlyBanner(info: SyncInfo, now: number): ReadOnlyBanner {
   const tail = 'Add and edit on your iPhone or in the AcctMind Mac app.';
+  /** `2 hours ago (today at 9:14 AM)`. */
+  const from = (t: number) => `${copyAge(t, now)} (${formatWritten(t, now)})`;
+  const shown = info.cachedAt ?? null;
   if (info.unreadable) {
-    return { tone: 'error', action: 'reload', text: `Your iPhone's copy couldn't be read (${info.unreadable}).` };
+    return {
+      tone: 'error', action: 'reload',
+      text: shown === null
+        ? `Your iPhone's copy couldn't be read (${info.unreadable}).`
+        : `Your iPhone's newest copy couldn't be read (${info.unreadable}); showing the copy from ${from(shown)}.`,
+    };
   }
   if (info.unreachable) {
-    const t = info.cachedAt ?? null;
     return {
       tone: 'warn', action: 'reload',
-      text: t === null
+      text: shown === null
         ? "Couldn't reach iCloud, and there is no saved copy to show."
-        : `Couldn't reach iCloud; showing the copy from ${formatWritten(t, now)}.`,
+        : `Couldn't reach iCloud; showing the copy from ${from(shown)}.`,
     };
   }
   if (!info.signedIn) {
-    return info.engine === 'pending'
-      ? { tone: 'info', action: 'reload', text: 'Connecting to iCloud…' }
-      : { tone: 'info', action: 'signin', text: "Sign in with your Apple ID to read your iPhone's copy from iCloud." };
+    if (info.engine !== 'pending') {
+      return { tone: 'info', action: 'signin', text: "Sign in with your Apple ID to read your iPhone's copy from iCloud." };
+    }
+    return {
+      tone: 'info', action: 'reload',
+      text: shown === null ? 'Connecting to iCloud…' : `Connecting to iCloud… showing the copy from ${from(shown)}, saved in this browser.`,
+    };
   }
-  if (info.writtenAt !== null) {
-    return { tone: 'info', action: 'reload', text: `Reading your iPhone's copy from iCloud, written ${formatWritten(info.writtenAt, now)}. ${tail}` };
+  if (info.writtenAt === null && info.readAt === null) {
+    return {
+      tone: 'info', action: 'reload',
+      text: shown === null
+        ? `Reading your iPhone's copy from iCloud. ${tail}`
+        : `Checking iCloud… showing the copy from ${from(shown)}, saved in this browser.`,
+    };
   }
-  return {
-    tone: 'info', action: 'reload',
-    text: info.readAt === null
-      ? `Reading your iPhone's copy from iCloud. ${tail}`
-      : `Signed in, but your iPhone has not written a copy yet. ${tail}`,
-  };
+  if (info.noCopy === true) {
+    return { tone: 'info', action: 'reload', text: `Signed in, but your iPhone has not written a copy yet. ${tail}` };
+  }
+  const lead = info.writtenAt === null
+    ? "iPhone copy (its time wasn't recorded)."
+    : `iPhone copy from ${from(info.writtenAt)}.`;
+  const notes: string[] = [];
+  const older = info.olderFormat ?? null;
+  if (older !== null) notes.push(`It is in an older format (v${older}), upgraded to show here.`);
+  const skew = phoneOlder(info.phoneApp, info.pageApp);
+  if (skew) {
+    notes.push(typeof info.phoneApp === 'string'
+      ? `Your iPhone has AcctMind ${info.phoneApp} and this page is ${info.pageApp}, so budget figures can differ until the iPhone is updated.`
+      : `Your iPhone's AcctMind is older than this page (${info.pageApp}), so budget figures can differ until the iPhone is updated.`);
+  }
+  return { tone: skew ? 'warn' : 'info', action: 'reload', text: [lead, ...notes, tail].join(' ') };
 }
 
 /* ------------------------------------------------------------------ *

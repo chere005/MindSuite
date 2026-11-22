@@ -49,12 +49,12 @@ describe('sync lines', () => {
     expect(readOnlyBanner({ ...copy, engine: 'ready' }, now)).toMatchObject({ action: 'signin', tone: 'info' });
     expect(readOnlyBanner({ ...copy, engine: 'pending' }, now).text).toBe('Connecting to iCloud…');
     const ok = readOnlyBanner({ ...copy, signedIn: true, writtenAt: now - 3600_000, readAt: now }, now);
-    expect(ok.text).toContain("Reading your iPhone's copy from iCloud, written today at 11:00 AM");
+    expect(ok.text).toContain('iPhone copy from 1 hour ago (today at 11:00 AM).');
   });
   it('banner: unreachable names the cached copy, or says there is none', () => {
     const t = new Date(2026, 10, 20, 9, 14).getTime();
     expect(readOnlyBanner({ ...copy, engine: 'off', unreachable: true, cachedAt: t }, now))
-      .toEqual({ tone: 'warn', action: 'reload', text: "Couldn't reach iCloud; showing the copy from yesterday at 9:14 AM." });
+      .toEqual({ tone: 'warn', action: 'reload', text: "Couldn't reach iCloud; showing the copy from 1 day ago (yesterday at 9:14 AM)." });
     expect(readOnlyBanner({ ...copy, unreachable: true, cachedAt: null }, now).text).toContain('no saved copy');
   });
   it('banner: an unreadable copy is an error, not "reading"', () => {

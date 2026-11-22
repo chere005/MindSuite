@@ -22,7 +22,7 @@ export type ManageRow = {
   /** Categories carry assigned money; accounts do not. */
 };
 
-export function Manage({ visible, label, rows, onClose, onAdd, onChange, onDelete }: {
+export function Manage({ visible, label, rows, onClose, onAdd, onChange, onDelete, onRules }: {
   visible: boolean;
   /** "Accounts" or "Categories". */
   label: string;
@@ -31,6 +31,8 @@ export function Manage({ visible, label, rows, onClose, onAdd, onChange, onDelet
   onAdd: () => void;
   onChange: (row: ManageRow) => void;
   onDelete: (row: ManageRow) => void;
+  /** Categories only, never read-only: opens the auto-categorize rules. */
+  onRules?: (() => void) | undefined;
 }) {
   const insets = useSafeAreaInsets();
   const single = label.replace(/ies$/, 'y').replace(/s$/, '');
@@ -54,6 +56,12 @@ export function Manage({ visible, label, rows, onClose, onAdd, onChange, onDelet
           <Pressable onPress={onAdd} style={styles.add} testID="manage-add">
             <Text style={styles.addText}>New {single}</Text>
           </Pressable>
+
+          {onRules && (
+            <Pressable onPress={onRules} style={styles.add} accessibilityRole="button" testID="manage-rules">
+              <Text style={styles.addText}>Auto-categorize rules</Text>
+            </Pressable>
+          )}
 
           {rows.length === 1 && (
             <Text style={styles.note}>

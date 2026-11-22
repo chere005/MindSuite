@@ -137,7 +137,59 @@ export type Txn = Record_ & {
    * nothing to disagree about. Flipped by `setCleared`, never by hand.
    */
   cleared?: true;
+  /**
+   * SPLIT across several lines — the owner, 2026-11-21: "add splitting a
+   * transaction between multiple categories in a very trivial interface to
+   * use". One shop, part groceries and part household.
+   *
+   * Two or more parts, each non-zero and with the transaction's own sign,
+   * adding up to `amount` exactly (`splitProblem`, txn.ts, is the rule). The
+   * order is part of the record: the editor draws the LAST part as whatever
+   * is left over.
+   *
+   * ABSENT means not split, never `[]` — `cleared`'s bargain: a row that is
+   * not split carries no key at all, so every store written before this field
+   * reads back byte for byte unchanged and a device that predates it has
+   * nothing to disagree about.
+   *
+   * While it is here `category` is NULL, and that is the decision this field
+   * turns on. Anything that reads `category` without knowing about splits —
+   * an older build, or a line of new code that forgot `txnParts` — sees an
+   * UNFILED row: its money still counts once, in what the accounts hold, and
+   * the row turns up among those waiting for a category, which is a thing a
+   * person can see. Holding the first part's line there instead would make
+   * that same reader count the whole amount against one line: a Spent figure
+   * that is wrong, plausible, and silent.
+   *
+   * The cost, stated: an older build rebuilds records from named fields
+   * (`normalizeTxn`), so it DROPS this key on load, and if it then writes the
+   * row — an edit, or a category rule filing "unfiled" rows — its copy wins
+   * the merge and the split is gone. All five surfaces ship together from this
+   * repo, so that window is a downgrade, the same one `Line.needs` named.
+   */
+  splits?: SplitPart[] | undefined;
 };
+
+/**
+ * One part of a split: how much of a transaction is filed under which line.
+ *
+ * `category` has the same three states `Txn.category` has — a line id,
+ * INCOME, or null for a part nobody has filed (which is also what a part
+ * becomes when its line's category is deleted, see `removeCategoryDeep`).
+ */
+export type SplitPart = {
+  category: string | null;
+  /** Integer MINOR UNITS, with the transaction's own sign. */
+  amount: number;
+};
+
+/**
+ * One part as the form holds it. The amount is UNSIGNED and as canonical as
+ * the main amount (`4.50`): the draft's own amount carries the sign, so the −
+ * button flips every part at once. The LAST part's amount is never read — it
+ * is the remainder, drawn rather than typed (see `draftParts`).
+ */
+export type DraftPart = { category: string | null; amount: string };
 
 /** What the add form holds while it is being typed — all strings, all raw. */
 export type Draft = {
@@ -148,8 +200,10 @@ export type Draft = {
   date: string;
   /** The account id. A form always has one — see `emptyDraft`. */
   account: string;
-  /** The category id, or null for one nobody has filed yet. */
+  /** The category id, or null for one nobody has filed yet. Ignored while split. */
   category: string | null;
+  /** The parts, while the person is splitting it; absent otherwise. */
+  splits?: DraftPart[] | undefined;
 };
 
 /** Which fields a draft got wrong. An empty object means it is good. */

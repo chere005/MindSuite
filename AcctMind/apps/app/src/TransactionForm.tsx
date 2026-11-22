@@ -9,9 +9,10 @@
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  amountDigits, amountField, amountInput, amountKeyed, amountSeed, draftOf, emptyDraft,
-  autoCategory, formatAmount, formatDay, isValid, signedCents, today, validateDraft,
-  type Account, type AmountMode, type Category, type CategoryChoice, type CategoryRule, type Draft, type DraftErrors, type Txn,
+  addDraftPart, amountDigits, amountField, amountInput, amountKeyed, amountSeed, draftOf, draftRemainder, emptyDraft,
+  autoCategory, formatAmount, formatDay, isValid, removeDraftPart, setDraftPart, signedCents, splitDraft, today, validateDraft,
+  type Account, type AmountMode, type Category, type CategoryChoice, type CategoryRule, type Draft, type DraftErrors,
+  type DraftPart, type Txn,
 } from '@acctmind/core';
 import { CategoryPick } from './CategoryPick';
 import { DayPicker } from './DayPicker';
@@ -44,6 +45,8 @@ export function useTxnForm({
   const [errors, setErrors] = useState<DraftErrors>({});
   const [picking, setPicking] = useState(false);
   const [pickedCategory, setPickedCategory] = useState(false);
+  /** Bumped whenever the split's rows are re-laid, so each amount field re-reads its row. */
+  const [splitGen, setSplitGen] = useState(0);
   /**
    * What has actually been typed, and the sign held beside it.
    *
@@ -76,6 +79,7 @@ export function useTxnForm({
       setPickedCategory(false);
       setErrors({});
       setPicking(false);
+      setSplitGen((g) => g + 1);
       /*
        * A NEW transaction starts negative — the owner, 2026-08-21.
        *
@@ -112,7 +116,6 @@ export function useTxnForm({
     const text = amountDigits(rawText);
     setDigits(text);
     setNegative(sign);
-    const cents = signedCents(text, sign, mode);
     /*
      * There are two ways to have no amount, and they deserve different
      * sentences.
@@ -127,18 +130,56 @@ export function useTxnForm({
      * When it IS an amount the draft gets the CANONICAL string, never the raw
      * text: `1234` in cents mode is $12.34, and `parseAmount('1234')` is
      * $1,234.00. Handing the raw text over would silently multiply by a
-     * hundred at the last step.
+     * hundred at the last step. (`draftAmount`, below, is that sentence.)
      */
-    const anyDigits = /[0-9]/.test(text);
-    setDraft((d) => ({
-      ...d,
-      amount: cents !== null ? amountInput(cents) : anyDigits ? text : '',
-    }));
-    setErrors((e) => (e.amount === undefined ? e : { ...e, amount: undefined }));
+    setDraft((d) => ({ ...d, amount: draftAmount(text, sign, mode) }));
+    setErrors((e) => (e.amount === undefined && e.splits === undefined ? e : { ...e, amount: undefined, splits: undefined }));
   };
 
   const cents = signedCents(digits, negative, mode);
   const categoryValue = editing === undefined && !pickedCategory ? autoCategory(draft, rules) : draft.category;
+
+  /*
+   * SPLITTING — the owner, 2026-11-21: "a very trivial interface to use". The
+   * rows and what they mean are core's (`splitDraft`, `addDraftPart`,
+   * `removeDraftPart`, `draftRemainder`); this only says which one a tap is.
+   */
+  const editSplit = (next: (d: Draft) => Draft, relaid = false) => {
+    setDraft(next);
+    if (relaid) setSplitGen((g) => g + 1);
+    setErrors((e) => (e.splits === undefined ? e : { ...e, splits: undefined }));
+  };
+  const startSplit = () => {
+    // The category it shows, auto-filed or picked, is the first row's.
+    setPickedCategory(true);
+    editSplit((d) => splitDraft({ ...d, category: categoryValue }), true);
+  };
+  const splitRows = (compact: boolean) => draft.splits !== undefined && (
+    <SplitRows
+      parts={draft.splits}
+      rest={draftRemainder(draft)}
+      total={cents}
+      gen={splitGen}
+      categories={categories}
+      lines={lines}
+      mode={mode}
+      compact={compact}
+      onPart={(i, patch) => editSplit((d) => setDraftPart(d, i, patch))}
+      onAdd={() => editSplit(addDraftPart)}
+      onRemove={(i) => editSplit((d) => removeDraftPart(d, i), true)}
+    />
+  );
+  const splitButton = (compact: boolean) => (
+    <Pressable
+      onPress={startSplit}
+      style={[styles.splitBtn, compact && styles.splitBtnWide]}
+      accessibilityRole="button"
+      accessibilityLabel="Split between categories"
+      testID="split-button"
+    >
+      <Text style={[styles.splitText, compact && styles.splitTextWide]}>Split</Text>
+    </Pressable>
+  );
 
   const submit = () => {
     const found = validateDraft(draft);
@@ -146,9 +187,16 @@ export function useTxnForm({
     // Every bad field at once. A form that reports one at a time costs a
     // round trip per mistake.
     if (isValid(found)) {
-      const out: Draft = { ...draft, category: categoryValue };
+      // `splits` always present as a key, even undefined: an edit that
+      // UN-splits a row is a change to it, and a key that vanished would not
+      // be listed among the changes the wide pane writes back.
+      const out: Draft = { ...draft, category: draft.splits === undefined ? categoryValue : null, splits: draft.splits };
+      const base = baseline.current.draft;
       const changed = new Set<keyof Draft | 'cleared'>();
-      for (const k of Object.keys(out) as (keyof Draft)[]) if (out[k] !== baseline.current.draft[k]) changed.add(k);
+      for (const k of new Set([...Object.keys(out), ...Object.keys(base)]) as Set<keyof Draft>) {
+        // By value: the parts are an array, rebuilt by every edit.
+        if (JSON.stringify(out[k]) !== JSON.stringify(base[k])) changed.add(k);
+      }
       if (cleared !== baseline.current.cleared) changed.add('cleared');
       onSave(out, cleared, changed);
     }
@@ -218,16 +266,23 @@ export function useTxnForm({
               </View>
             </Field>
 
-            <Field label="Category">
-              <CategoryPick
-                categories={categories}
-                lines={lines}
-                value={categoryValue}
-                onPick={(id) => {
-                  setPickedCategory(true);
-                  setDraft((d) => ({ ...d, category: id }));
-                }}
-              />
+            <Field label="Category" error={errors.splits}>
+              {splitRows(false) || (
+                <View style={styles.catRow}>
+                  <View style={styles.grow}>
+                    <CategoryPick
+                      categories={categories}
+                      lines={lines}
+                      value={categoryValue}
+                      onPick={(id) => {
+                        setPickedCategory(true);
+                        setDraft((d) => ({ ...d, category: id }));
+                      }}
+                    />
+                  </View>
+                  {splitButton(false)}
+                </View>
+              )}
             </Field>
 
             <Field label="Description" error={errors.description}>
@@ -379,17 +434,24 @@ export function useTxnForm({
           <AccountSelect accounts={accounts} value={draft.account} onPick={set('account')} />
         </Field>
       )}
-      <Field label="Category">
-        <CategoryPick
-          categories={categories}
-          lines={lines}
-          compact
-          value={categoryValue}
-          onPick={(id) => {
-            setPickedCategory(true);
-            setDraft((d) => ({ ...d, category: id }));
-          }}
-        />
+      <Field label="Category" error={errors.splits}>
+        {splitRows(true) || (
+          <View style={styles.catRow}>
+            <View style={styles.grow}>
+              <CategoryPick
+                categories={categories}
+                lines={lines}
+                compact
+                value={categoryValue}
+                onPick={(id) => {
+                  setPickedCategory(true);
+                  setDraft((d) => ({ ...d, category: id }));
+                }}
+              />
+            </View>
+            {splitButton(true)}
+          </View>
+        )}
       </Field>
       <Field label="Description" error={errors.description}>
         <TextInput
@@ -419,6 +481,117 @@ export function useTxnForm({
   );
 
   return { submit, phoneFields, wideFields, dayPicker };
+}
+
+/**
+ * What the draft holds for typed digits: the CANONICAL amount when they make
+ * one, the raw text when they are digits that do not (so core says "That is
+ * not an amount"), and nothing when nothing has been typed (so core says it
+ * is required). The main amount and every split row read keys this way.
+ */
+function draftAmount(digits: string, negative: boolean, mode: AmountMode): string {
+  const cents = signedCents(digits, negative, mode);
+  return cents !== null ? amountInput(cents) : /[0-9]/.test(digits) ? digits : '';
+}
+
+/**
+ * A split's rows: [category][amount][×] each, then "+ Add category". The
+ * LAST row's amount is the remainder, drawn and never typed, so the rows
+ * cannot be out of balance; the only thing to get wrong is typing more than
+ * the whole, and the remainder turns red and signed when that happens.
+ */
+function SplitRows({ parts, rest, total, gen, categories, lines, mode, compact, onPart, onAdd, onRemove }: {
+  parts: readonly DraftPart[];
+  rest: number | null;
+  total: number | null;
+  gen: number;
+  categories: readonly Category[];
+  lines: readonly CategoryChoice[];
+  mode: AmountMode;
+  compact: boolean;
+  onPart: (index: number, patch: Partial<DraftPart>) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}) {
+  // Past zero: the other rows already come to more than the whole.
+  const over = rest !== null && total !== null && rest !== 0 && Math.sign(rest) !== Math.sign(total);
+  return (
+    <View style={styles.split} testID="split-rows">
+      {parts.map((p, i) => {
+        const last = i === parts.length - 1;
+        return (
+          <View key={`${gen}:${i}`} style={styles.splitRow} testID={`split-row-${i}`}>
+            <View style={styles.grow}>
+              <CategoryPick
+                categories={categories}
+                lines={lines}
+                compact={compact}
+                value={p.category}
+                onPick={(id) => onPart(i, { category: id })}
+                testID={`split-category-${i}`}
+              />
+            </View>
+            {last ? (
+              <Text
+                style={[styles.input, compact && styles.inputWide, styles.splitAmount, styles.right, styles.rest, over && styles.restOver]}
+                numberOfLines={1}
+                accessibilityLabel="The rest"
+                testID="split-rest"
+              >
+                {rest === null ? '—' : formatAmount(over ? -Math.abs(rest) : Math.abs(rest))}
+              </Text>
+            ) : (
+              <PartAmount
+                value={p.amount}
+                mode={mode}
+                compact={compact}
+                onChange={(amount) => onPart(i, { amount })}
+                testID={`split-amount-${i}`}
+              />
+            )}
+            <Pressable
+              onPress={() => onRemove(i)}
+              style={[styles.splitX, compact && styles.splitXWide]}
+              accessibilityRole="button"
+              accessibilityLabel="Remove this category"
+              testID={`split-remove-${i}`}
+            >
+              <Text style={styles.splitXText}>×</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+      <Pressable onPress={onAdd} style={[styles.addPart, compact && styles.addPartWide]} accessibilityRole="button" testID="split-add">
+        <Text style={[styles.splitText, compact && styles.splitTextWide]}>+ Add category</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/**
+ * One typed part: the main amount field's drawing and keys (`amountField`,
+ * `amountKeyed`), unsigned — the − beside the total signs every part.
+ */
+function PartAmount({ value, mode, compact, onChange, testID }: {
+  value: string; mode: AmountMode; compact: boolean; onChange: (amount: string) => void; testID: string;
+}) {
+  const [digits, setDigits] = useState(() => amountSeed(value, mode));
+  return (
+    <TextInput
+      value={amountField(digits, mode)}
+      onChangeText={(next) => {
+        const d = amountKeyed(next, digits, mode);
+        setDigits(d);
+        onChange(draftAmount(d, false, mode));
+      }}
+      style={[styles.input, compact && styles.inputWide, styles.splitAmount, styles.right]}
+      placeholder={mode === 'whole' ? '0' : '0.00'}
+      placeholderTextColor={T.faint}
+      keyboardType="decimal-pad"
+      inputMode="decimal"
+      testID={testID}
+    />
+  );
 }
 
 /** A short list of accounts, open in place. */
@@ -483,6 +656,26 @@ function Field({ label, error, children }: {
 }
 
 export const styles = StyleSheet.create({
+  catRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  splitBtn: {
+    minHeight: TAP, paddingHorizontal: SPACE.md, borderRadius: 10, justifyContent: 'center',
+    backgroundColor: T.card, borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
+  },
+  splitBtnWide: { minHeight: 36, borderRadius: 8 },
+  splitText: { color: T.accent, fontSize: 16 },
+  splitTextWide: { fontSize: 14 },
+  split: { gap: SPACE.sm },
+  splitRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  splitAmount: { width: 112 },
+  // Drawn, not typed: no fill and a dashed edge, so it does not read as a
+  // field with a placeholder in it.
+  rest: { color: T.dim, backgroundColor: 'transparent', borderStyle: 'dashed', borderWidth: 1 },
+  restOver: { color: T.danger },
+  splitX: { width: TAP, minHeight: TAP, alignItems: 'center', justifyContent: 'center' },
+  splitXWide: { width: 32, minHeight: 36 },
+  splitXText: { color: T.dim, fontSize: 22, lineHeight: 24 },
+  addPart: { minHeight: TAP, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: SPACE.xs },
+  addPartWide: { minHeight: 32 },
   inputWide: { fontSize: 14, minHeight: 36, paddingVertical: 6, borderRadius: 8 },
   multilineWide: { minHeight: 72, textAlignVertical: 'top' },
   right: { textAlign: 'right', fontVariant: ['tabular-nums'] },

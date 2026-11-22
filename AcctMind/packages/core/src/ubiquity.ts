@@ -100,6 +100,16 @@ export const CK_RECORD_NAME = 'store';
  * one more CORS answer between the browser and the data.
  */
 export const CK_FIELD = 'ledger';
+/** The ledger's length in UTF-8 bytes before packing, so the browser can tell a damaged copy. */
+export const CK_BYTES_FIELD = 'bytes';
+/** When the phone sent this copy (a timestamp); the server's own save time is preferred. */
+export const CK_WRITTEN_FIELD = 'written';
+/**
+ * The iPhone app's version (`CFBundleShortVersionString`) that wrote the copy,
+ * so the browser can say when it computes with newer rules than the phone.
+ * Absent from every record written before 2026-11-21.
+ */
+export const CK_APP_FIELD = 'app';
 
 /**
  * The CloudKit environment the phone writes to.

@@ -15,7 +15,7 @@
  */
 import { parseAmount } from './money';
 import { addDays, isDay } from './day';
-import { newId, REORDER_GAP } from './txn';
+import { newId, REORDER_GAP, withAmount } from './txn';
 import { tombstone, touch } from './merge';
 import { autoCategory, categoryRules } from './categorization';
 import type { Store, Txn } from './types';
@@ -574,10 +574,13 @@ export function applyImport(
     // `cleared` is rebuilt rather than assigned, for the reason the field
     // exists: an uncleared row carries NO key at all (see Txn.cleared), so a
     // row that has gone back to pending has to LOSE the key, not hold false.
-    const { cleared: _was, ...rest } = t;
+    //
+    // The amount through `withAmount`: a pending charge somebody SPLIT keeps
+    // its split when it settles for a different figure, the last part taking
+    // the difference (txn.ts, rule 3).
+    const { cleared: _was, ...rest } = withAmount(t, row.amount);
     return touch({
       ...rest,
-      amount: row.amount,
       date: row.date,
       ...(row.cleared ? { cleared: true as const } : {}),
     }, now);

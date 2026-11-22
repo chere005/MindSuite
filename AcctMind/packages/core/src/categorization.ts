@@ -1,7 +1,7 @@
 import { RECONCILE_NAME } from './budget';
 import { touch } from './merge';
 import { putSetting } from './store';
-import { DESC_MAX } from './txn';
+import { DESC_MAX, txnParts } from './txn';
 import { INCOME, INCOME_NAME, type Line, type Store, type Txn } from './types';
 
 export type CategoryChoice = Pick<Line, 'id' | 'name' | 'category'>;
@@ -16,8 +16,13 @@ function selectableLines(store: HasCategoryLines): Line[] {
 /** Rank choices by live transactions across the ledger, preserving the input order for ties. */
 export function categoryChoices(store: HasCategoryLines & Pick<Store, 'txns'>): CategoryChoice[] {
   const counts = new Map<string, number>();
-  for (const { category, deleted } of store.txns) {
-    if (category !== null && !deleted) counts.set(category, (counts.get(category) ?? 0) + 1);
+  for (const txn of store.txns) {
+    if (txn.deleted) continue;
+    // A split row is one use of EACH line it is filed under (once each, however
+    // many of its parts name the same line).
+    for (const category of new Set(txnParts(txn).map((p) => p.category))) {
+      if (category !== null) counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
   }
   const count = (choice: CategoryChoice) => counts.get(choice.id) ?? 0;
   return [{ id: INCOME, name: INCOME_NAME, category: '' }, ...selectableLines(store)]
@@ -38,10 +43,18 @@ export function categoryRules(store: HasCategoryLines & Pick<Store, 'settings'>)
     .sort((a, b) => b.match.length - a.match.length || (a.match < b.match ? -1 : 1));
 }
 
-type Matchable = Pick<Txn, 'name' | 'description' | 'category' | 'deleted'>;
+/** A row or a draft — only whether it is split matters here, not what its parts hold. */
+type Matchable = Pick<Txn, 'name' | 'description' | 'category' | 'deleted'> & { splits?: readonly unknown[] | undefined };
 
+/**
+ * The rule that would file this row, if any. Only an UNFILED row is ever
+ * filed by a rule — and a SPLIT row is never unfiled in that sense, whatever
+ * its null `category` says: a person divided it by hand, and a rule that
+ * "filed" it would put the whole amount under one line and throw the split
+ * away (a category and parts are never held together, see `patchTxn`).
+ */
 function matchingRule(txn: Matchable, rules: readonly CategoryRule[]): CategoryRule | undefined {
-  if (txn.deleted || txn.category !== null || txn.name.trim() === RECONCILE_NAME) return undefined;
+  if (txn.deleted || txn.category !== null || txn.splits !== undefined || txn.name.trim() === RECONCILE_NAME) return undefined;
   const name = matchText(txn.name);
   const description = matchText(txn.description);
   return rules.find(({ match }) => name.includes(match) || description.includes(match));

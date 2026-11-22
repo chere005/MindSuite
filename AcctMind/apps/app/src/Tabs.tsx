@@ -19,10 +19,10 @@
  * it always had, so it is the same control to every test that drives it.
  */
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
-import { BudgetIcon, ListIcon, PlusMark } from './Icons';
+import { BudgetIcon, ListIcon, PlusMark, ReportsIcon } from './Icons';
 import { SPACE, T, TAP } from './theme';
 
-export type Tab = 'budget' | 'transactions';
+export type Tab = 'budget' | 'transactions' | 'reports';
 
 /** Wide enough for the content, narrow enough that the tabs stay together. */
 const BAR_MAX_WIDTH = 420;
@@ -64,6 +64,17 @@ export function Tabs({ tab, onTab, onAdd, readOnly = false }: {
           testID="tab-transactions"
         >
           <ListIcon color={tab === 'transactions' ? T.text : T.dim} />
+        </TabButton>
+
+        {/* Reports (2026-11-21) goes LAST, so the three that were here keep
+            their places under the thumb. */}
+        <TabButton
+          label="Reports"
+          on={tab === 'reports'}
+          onPress={() => onTab('reports')}
+          testID="tab-reports"
+        >
+          <ReportsIcon color={tab === 'reports' ? T.text : T.dim} />
         </TabButton>
       </View>
     </View>
