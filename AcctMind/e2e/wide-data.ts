@@ -5,7 +5,7 @@
  * allocations. Dates are relative to today so the Budget tab always has a month
  * with spending in it.
  */
-import { monthBudget } from './helpers';
+import { monthBudget, thisMonthSet } from './helpers';
 
 const d = (back: number): string => {
   const x = new Date();
@@ -14,7 +14,12 @@ const d = (back: number): string => {
 };
 const rec = { created: 1, updated: 1 };
 
-export function wideLedger(): string {
+/**
+ * `snoozed`: line ids snoozed for this month (the wide Budget's Snooze box).
+ * `overspend`: a $50 Vacation charge today, so that line (nothing allocated)
+ * is over this month.
+ */
+export function wideLedger(o: { snoozed?: readonly string[]; overspend?: boolean } = {}): string {
   const accounts = [
     { id: 'a-chk', name: 'Checking', color: '#4c8bf0', order: 0, ...rec },
     { id: 'a-sav', name: 'Savings', color: '#66d695', order: 1, ...rec },
@@ -79,10 +84,15 @@ export function wideLedger(): string {
     t('Pharmacy', -1840, 26, 'a-cc', null, true),
     t('Gas', -4210, 24, 'a-cc', null, true),
     t('Paycheck', 312500, 36, 'a-chk', 'income', true),
+    ...(o.overspend === true ? [t('Flights deposit', -5000, 0, 'a-cc', 'l-vac')] : []),
   ];
   const budgets = [
     monthBudget('l-rent', 185000), monthBudget('l-elec', 12000), monthBudget('l-net', 12000),
     monthBudget('l-groc', 60000), monthBudget('l-dine', 15000), monthBudget('l-emerg', 20000),
   ];
-  return JSON.stringify({ v: 4, txns, accounts, categories, lines, budgets, settings: [{ id: 'budgetStart', value: `${d(0).slice(0, 8)}01`, ...rec }] });
+  const settings = [
+    { id: 'budgetStart', value: `${d(0).slice(0, 8)}01`, ...rec },
+    ...(o.snoozed ?? []).map((id) => ({ id: `snooze:${thisMonthSet()}|${id}`, value: '1', ...rec })),
+  ];
+  return JSON.stringify({ v: 4, txns, accounts, categories, lines, budgets, settings });
 }

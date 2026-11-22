@@ -11,7 +11,7 @@
 import { deflateRawSync } from 'node:zlib';
 import { expect, test, type Page } from '@playwright/test';
 import { CK_FIELD, CK_RECORD_NAME } from '@acctmind/core';
-import { stored, storedTxns, withStore } from './helpers';
+import { stored, storedTxns, thisMonthSet, withStore } from './helpers';
 import { wideLedger } from './wide-data';
 
 // Layout checks run once, at desktop size.
@@ -75,6 +75,43 @@ const oldLedger = (): string => {
 /** A host that is not local, so a plain browser there is always read-only. */
 const REAL_HOST = { baseURL: 'http://acct.example.com:8791/AcctMind/' };   // mapped in playwright.config.ts
 
+/** Remaining's tint per tone (WideBudget's REMAINING_TONE), as computed colours. */
+const TINT = {
+  funded: 'rgb(123, 227, 154)', short: 'rgb(240, 194, 90)', over: 'rgb(255, 138, 130)', snoozed: 'rgb(142, 142, 147)',
+} as const;
+
+/** The budget set `by` months after this one, as `thisMonthSet` spells it. */
+const monthSetAfter = (by: number): string => {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + by);
+  return `m:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+/** The `set|line` keys snoozed in the saved ledger. */
+const snoozes = async (page: Page): Promise<string[]> =>
+  (((await stored(page)) as { settings?: { id: string; value: string; deleted?: boolean }[] } | null)?.settings ?? [])
+    .filter((x) => x.id.startsWith('snooze:') && x.value === '1' && x.deleted !== true)
+    .map((x) => x.id.slice('snooze:'.length));
+
+/** `id` sits in the middle of the main pane (equal margins, to a pixel); returns the margin. */
+const centredInMain = async (page: Page, id: string): Promise<number> => {
+  const m = (await page.getByTestId('wide-main').boundingBox())!;
+  const b = (await page.getByTestId(id).boundingBox())!;
+  const left = b.x - m.x;
+  const right = m.x + m.width - (b.x + b.width);
+  expect(Math.abs(left - right), `${id}: ${left} px left, ${right} px right`).toBeLessThanOrEqual(1);
+  return left;
+};
+
+/** `a` and `b` share their left and right edges, to a pixel. */
+const sameEdges = async (page: Page, a: string, b: string): Promise<void> => {
+  const x = (await page.getByTestId(a).boundingBox())!;
+  const y = (await page.getByTestId(b).boundingBox())!;
+  expect(Math.abs(x.x - y.x), `${a} left vs ${b}`).toBeLessThanOrEqual(1);
+  expect(Math.abs((x.x + x.width) - (y.x + y.width)), `${a} right vs ${b}`).toBeLessThanOrEqual(1);
+};
+
 const noOverflow = async (page: Page) => {
   const over = await page.evaluate(() => ({
     doc: document.documentElement.scrollWidth - window.innerWidth,
@@ -96,10 +133,12 @@ test.describe('1280x820, editable', () => {
     expect(side.y).toBeLessThanOrEqual(main.y + 0.5);
     await expect(page.getByTestId('wide-sync')).toContainText('This browser only');
 
-    // Budget is first: one compact totals line and status pills.
+    // Budget is first: one compact totals line, Snooze boxes and no Status column.
     await expect(page.getByTestId('wide-totals')).toContainText('Unassigned');
     await expect(page.getByTestId('wide-totals')).toContainText('Short of target');
-    await expect(page.getByTestId('wide-tone').first()).toBeVisible();
+    await expect(page.getByTestId('wide-line-snooze').first()).toBeVisible();
+    await expect(page.getByTestId('wide-table')).not.toContainText('Status');
+    await expect(page.getByTestId('wide-table')).not.toContainText('Funded');
     await noOverflow(page);
 
     await page.getByTestId('wide-account-all').click();
@@ -237,6 +276,109 @@ test.describe('1280x820, editable', () => {
     await expect(page.getByTestId('wide-line').filter({ hasText: 'Groceries' })).toContainText('$700.00');
   });
 
+  test('the Snooze box snoozes a line for the month shown, and unticking wakes it', async ({ page }) => {
+    await withStore(page, wideLedger());
+    const row = page.getByTestId('wide-line').filter({ hasText: 'Vacation' });
+    const box = row.getByTestId('wide-line-snooze');
+    const left = row.getByTestId('wide-line-remaining');
+    const short = page.getByTestId('wide-short');
+    const month = await page.getByTestId('wide-month').innerText();
+    await expect(box).toHaveAccessibleName(`Snooze Vacation for ${month}`);
+    await expect(box).not.toBeChecked();
+    // Vacation has a target and nothing allocated: short, and a zero still takes its tone.
+    await expect(left).toHaveText('$0.00');
+    await expect(left).toHaveCSS('color', TINT.short);
+    await expect(short).toHaveText('$150.00');
+    await expect(page.getByTestId('wide-line').filter({ hasText: 'Rent' }).getByTestId('wide-line-remaining'))
+      .toHaveCSS('color', TINT.funded);
+
+    await box.click();
+    await expect(box).toBeChecked();
+    // Ticked, it is the ledger's Cleared box: accent fill (shared CHECK), not a grey that reads as disabled.
+    await expect(box.locator(':scope > div')).toHaveCSS('background-color', 'rgb(10, 132, 255)');
+    await expect(left).toHaveCSS('color', TINT.snoozed);
+    await expect(short).toHaveText('$0.00');
+    await expect.poll(() => snoozes(page)).toEqual([`${thisMonthSet()}|l-vac`]);
+    await expect(page.getByTestId('line-detail')).toHaveCount(0);   // the box is not the row
+
+    // For that month only, and the box writes the month ON SCREEN, not today's:
+    // ticked next month it adds next month's key; unticked here it takes off
+    // only this month's.
+    const next = monthSetAfter(1);
+    await page.getByTestId('wide-month-next').click();
+    await expect(box).not.toBeChecked();
+    await expect(box).toHaveAccessibleName(`Snooze Vacation for ${await page.getByTestId('wide-month').innerText()}`);
+    await box.click();
+    await expect(box).toBeChecked();
+    await expect.poll(async () => (await snoozes(page)).sort()).toEqual([`${thisMonthSet()}|l-vac`, `${next}|l-vac`]);
+    await page.getByTestId('wide-month-prev').click();
+    await expect(box).toBeChecked();
+
+    await box.click();
+    await expect(box).not.toBeChecked();
+    await expect(left).toHaveCSS('color', TINT.short);
+    await expect(short).toHaveText('$150.00');
+    await expect.poll(() => snoozes(page)).toEqual([`${next}|l-vac`]);
+    await page.getByTestId('wide-month-next').click();
+    await expect(box).toBeChecked();
+  });
+
+  test('an overspent line\'s Remaining is tinted over, and snoozing it greys it', async ({ page }) => {
+    await withStore(page, wideLedger({ overspend: true }));
+    const row = page.getByTestId('wide-line').filter({ hasText: 'Vacation' });
+    const left = row.getByTestId('wide-line-remaining');
+    await expect(left).toHaveText('-$50.00');
+    await expect(left).toHaveCSS('color', TINT.over);
+    await row.getByTestId('wide-line-snooze').click();
+    await expect(row.getByTestId('wide-line-snooze')).toBeChecked();
+    await expect(left).toHaveCSS('color', TINT.snoozed);   // snoozed beats over
+    await expect(left).toHaveText('-$50.00');
+  });
+
+  test('the Snooze box answers Space and Enter, and neither opens the line', async ({ page }) => {
+    await withStore(page, wideLedger());
+    const box = page.getByTestId('wide-line').filter({ hasText: 'Vacation' }).getByTestId('wide-line-snooze');
+    // Keep each keydown as dispatched (window, capture: first to see it, and
+    // the box's stopPropagation cannot hide it); its defaultPrevented is read
+    // after the press. The layout scrolls inside the Budget's ScrollView, so
+    // window.scrollY could never show Space's default action.
+    await page.evaluate(() => {
+      const w = window as unknown as { keys: KeyboardEvent[] };
+      w.keys = [];
+      window.addEventListener('keydown', (e) => { w.keys.push(e); }, true);
+    });
+    await box.focus();
+    await page.keyboard.press('Space');
+    await expect(box).toBeChecked();
+    await expect(page.getByTestId('wide-short')).toHaveText('$0.00');
+    await page.keyboard.press('Enter');
+    await expect(box).not.toBeChecked();
+    await expect(page.getByTestId('wide-short')).toHaveText('$150.00');
+    await expect(page.getByTestId('line-detail')).toHaveCount(0);
+    // Neither key's default action ran: Space would scroll, Enter would press the row.
+    expect(await page.evaluate(() =>
+      (window as unknown as { keys: KeyboardEvent[] }).keys.map((e) => `${e.key}:${e.defaultPrevented}`),
+    )).toEqual([' :true', 'Enter:true']);
+    await expect.poll(() => snoozes(page)).toEqual([]);
+  });
+
+  test('the line pane has no snooze control, and saving it keeps a tick made in the table', async ({ page }) => {
+    await withStore(page, wideLedger());
+    const row = page.getByTestId('wide-line').filter({ hasText: 'Vacation' });
+    await row.click();
+    await expect(page.getByTestId('line-detail')).toBeVisible();
+    await expect(page.getByTestId('line-snooze-switch')).toHaveCount(0);   // one control: the table's box
+    await expect(page.getByTestId('line-detail')).not.toContainText('Snooze');
+    await row.getByTestId('wide-line-snooze').click();
+    await expect(row.getByTestId('wide-line-snooze')).toBeChecked();
+    await expect(page.getByTestId('line-detail')).toBeVisible();
+    await page.getByTestId('line-name-input').fill('Trip');
+    await page.getByTestId('line-save').click();
+    await expect(page.getByTestId('line-detail')).toBeHidden();
+    await expect(page.getByTestId('wide-line').filter({ hasText: 'Trip' }).getByTestId('wide-line-snooze')).toBeChecked();
+    await expect.poll(() => snoozes(page)).toEqual([`${thisMonthSet()}|l-vac`]);
+  });
+
   test('a budget line opens its pane', async ({ page }) => {
     await withStore(page, wideLedger());
     await page.getByTestId('wide-line').filter({ hasText: 'Groceries' }).click();
@@ -299,6 +441,30 @@ test.describe('read-only (the phone\'s copy through CloudKit)', () => {
       await page.getByTestId('wide-line').first().click();
       await expect(page.getByTestId('line-detail-readonly')).toBeVisible();
       await expect(page.getByTestId('line-save')).toHaveCount(0);
+    });
+
+    test('the Snooze column shows the month\'s snoozes as plain ticks, disabled', async ({ page }) => {
+      await asCopy(page, wideLedger({ snoozed: ['l-vac'] }));
+      await page.goto('./');
+      await page.getByTestId('wide-nav-budget').click();
+      const boxes = page.getByTestId('wide-line-snooze');
+      await expect(boxes).toHaveCount(7);                       // one per line, none on a group header
+      for (const b of await boxes.all()) await expect(b).toBeDisabled();
+      const vac = page.getByTestId('wide-line').filter({ hasText: 'Vacation' });
+      await expect(vac.getByTestId('wide-line-snooze')).toBeChecked();
+      await expect(vac.getByTestId('wide-line-snooze')).toHaveText('✓');
+      await expect(vac.getByTestId('wide-line-remaining')).toHaveCSS('color', TINT.snoozed);
+      const rent = page.getByTestId('wide-line').filter({ hasText: 'Rent' }).getByTestId('wide-line-snooze');
+      await expect(rent).not.toBeChecked();
+      await expect(rent).toHaveText('');
+      // No box: the cell draws what the ledger's read-only Cleared column draws.
+      const bordered = await vac.getByTestId('wide-line-snooze').evaluate((el) =>
+        [el, ...el.querySelectorAll('*')].some((x) => getComputedStyle(x).borderTopWidth !== '0px'));
+      expect(bordered).toBe(false);
+      await expect(page.getByTestId('wide-short')).toHaveText('$0.00');
+      await vac.getByTestId('wide-line-snooze').click({ force: true });
+      await expect(vac.getByTestId('wide-line-snooze')).toBeChecked();
+      expect(await stored(page)).toBeNull();
     });
   });
 
@@ -419,19 +585,36 @@ test.describe('read-only states on a real host', () => {
       await page.setViewportSize({ width, height: 800 });
       await expect(page.getByTestId('wide-line').first()).toBeVisible();
       const t = await page.getByTestId('wide-table').boundingBox();
-      const tone = await page.getByTestId('wide-tone').first().boundingBox();
+      const box = await page.getByTestId('wide-line-snooze').first().boundingBox();
       expect(t!.width).toBeLessThanOrEqual(900);
-      expect(tone!.x + tone!.width).toBeLessThanOrEqual(t!.x + t!.width);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(t!.x + t!.width);
+      // The header sits over its column: Snooze centred on the boxes, Remaining flush with the amounts.
+      const th = (await page.getByTestId('wide-th-snooze').boundingBox())!;
+      expect(Math.abs((th.x + th.width / 2) - (box!.x + box!.width / 2))).toBeLessThanOrEqual(1);
+      const rh = (await page.getByTestId('wide-th-remaining').boundingBox())!;
+      const rc = (await page.getByTestId('wide-line-remaining').first().boundingBox())!;
+      expect(Math.abs((rh.x + rh.width) - (rc.x + rc.width))).toBeLessThanOrEqual(1);
+      // Centred in the pane (no dead strip on the right), the month row and
+      // the totals on the table's own edges.
+      const gap = await centredInMain(page, 'wide-table');
+      if (width === 2000) expect(gap).toBeGreaterThan(100);
+      await sameEdges(page, 'wide-head', 'wide-table');
+      await sameEdges(page, 'wide-totals', 'wide-table');
     }
   });
 
-  test('the transactions table is capped too', async ({ page }) => {
+  test('the transactions table is capped too, and centred with its controls and foot line', async ({ page }) => {
     await page.setViewportSize({ width: 2000, height: 800 });
     await asCopy(page, wideLedger());
     await page.goto('./');
     await page.getByTestId('wide-nav-transactions').click();
     await expect(page.getByTestId('wide-row').first()).toBeVisible();
     expect((await page.getByTestId('wide-table').boundingBox())!.width).toBeLessThanOrEqual(1000);
+    expect(await centredInMain(page, 'wide-table')).toBeGreaterThan(100);
+    await sameEdges(page, 'wide-head', 'wide-table');
+    await sameEdges(page, 'wide-foot-in', 'wide-table');
+    // The foot's band itself still spans the pane.
+    await sameEdges(page, 'wide-foot', 'wide-main');
   });
 
   test('the cog stays closed once it is closed, across tab switches', async ({ page }) => {

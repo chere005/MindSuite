@@ -55,6 +55,7 @@ import { DEFAULTS, loadPrefs, savePrefs, type Prefs } from './src/prefs';
 import { SPACE, T, TAP } from './src/theme';
 import { useWide } from './src/components/WideFrame';
 import { WideApp } from './src/wide/WideApp';
+import { SnoozeLineContext } from './src/wide/snooze';
 import { ReportsScreen } from './src/ReportsScreen';
 import { useLedgerAccess } from './src/access';
 import { ReadOnlyBanner, ReadOnlyContext } from './src/readonly';
@@ -573,6 +574,19 @@ export default function App() {
     </CircleBtn>
   );
 
+  /**
+   * Snooze (or wake) a line for the month on screen. The phone's snooze box
+   * and the wide Budget's Snooze column both write through here; the wide
+   * line pane has no snooze control of its own.
+   */
+  const snoozeLine = (lineId: string, next: boolean) => {
+    if (phase.k !== 'ready') return;
+    commit(phase, {
+      ...phase.store,
+      settings: putSnooze(phase.store, monthSet(prefs.budgetMonth), lineId, next, Date.now()),
+    });
+  };
+
   const ledger = phase.k === 'ready' ? phase.store : null;
   const choices = useMemo(() => ledger === null ? [] : categoryChoices(ledger), [ledger]);
   const rules = useMemo(() => ledger === null ? [] : categoryRules(ledger), [ledger]);
@@ -710,13 +724,7 @@ export default function App() {
                     phase.store, touch({ ...category, name }, Date.now()),
                   ));
                 }}
-                onSnoozeLine={(line, next) => {
-                  if (phase.k !== 'ready') return;
-                  commit(phase, {
-                    ...phase.store,
-                    settings: putSnooze(phase.store, monthSet(prefs.budgetMonth), line.id, next, Date.now()),
-                  });
-                }}
+                onSnoozeLine={(line, next) => snoozeLine(line.id, next)}
                 onDeleteLine={(line) => {
                   if (phase.k !== 'ready') return;
                   commit(phase, putLine(phase.store, tombstone(line, Date.now())));
@@ -864,6 +872,7 @@ export default function App() {
             {!wide && tab === 'reports' && <ReportsScreen store={phase.store} menu={appMenu} />}
 
             {wide && (
+              <SnoozeLineContext.Provider value={readOnly ? null : snoozeLine}>
               <WideApp
                 store={phase.store}
                 commit={(next) => commit(phase, next)}
@@ -885,6 +894,7 @@ export default function App() {
                   onManage: setManaging,
                 }}
               />
+              </SnoozeLineContext.Provider>
             )}
 
             {/*

@@ -53,9 +53,10 @@ export function SectionPick({
         {compact ? (
           // 44 to press, 32 to look at — see TopBar for why the two differ.
           <View style={styles.ring}>
+            {/* 16, CalMind's folder pie in the same 32 ring. */}
             {active === null
-              ? <RainbowDot size={18} testID="section-dot" />
-              : <Dot colors={[active.color]} size={18} testID="section-dot" />}
+              ? <RainbowDot size={16} testID="section-dot" />
+              : <Dot colors={[active.color]} size={16} testID="section-dot" />}
           </View>
         ) : (
           <>

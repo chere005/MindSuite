@@ -145,14 +145,34 @@ test.describe('wide', () => {
 
   test.describe('2000 px', () => {
     test.use({ viewport: { width: 2000, height: 1000 } });
-    test('the reports stop at a reading width instead of stretching', async ({ page }) => {
+    test('the reports stop at a reading width instead of stretching, centred in the pane', async ({ page }) => {
       await withStore(page, reportsLedger());
       await page.getByTestId('wide-nav-reports').click();
       await expect(page.getByTestId('report-donut')).toBeVisible();
-      expect((await capped(page)).width).toBeLessThanOrEqual(1040);
+      expect((await capped(page)).width).toBeLessThanOrEqual(920);
+      // Equal margins either side, measured from what is DRAWN (ring, bars,
+      // charts, tables), not from the column holding them: a centred column
+      // whose contents stop short of its right edge still leaves a dead strip.
+      const m = (await page.getByTestId('wide-main').boundingBox())!;
+      const centred = async (leftId: string, rightId: string) => {
+        const l = (await page.getByTestId(leftId).first().boundingBox())!;
+        const r = (await page.getByTestId(rightId).first().boundingBox())!;
+        const left = l.x - m.x;
+        const right = m.x + m.width - (r.x + r.width);
+        expect(left).toBeGreaterThan(100);
+        expect(Math.abs(left - right), `${leftId} to ${rightId}: ${left} px left, ${right} px right`).toBeLessThanOrEqual(1);
+        // The segment control above shares that left edge: one block, not two centred apart.
+        const tab = (await page.getByTestId('report-tab-spending').boundingBox())!;
+        expect(Math.abs(tab.x - l.x)).toBeLessThanOrEqual(6);
+      };
+      await centred('report-donut', 'report-row');
       await page.getByTestId('report-tab-trends').click();
       const chart = (await page.getByTestId('report-trend-chart').boundingBox())!;
       expect(chart.width).toBeLessThanOrEqual(920);
+      await centred('report-trend-chart', 'report-trend-chart');
+      await page.getByTestId('report-tab-flow').click();
+      await expect(page.getByTestId('report-flow-chart')).toBeVisible();
+      await centred('report-flow-chart', 'report-flow-row');
     });
   });
 });

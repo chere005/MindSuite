@@ -11,9 +11,12 @@ import {
   type Account, type AmountMode, type CategoryChoice, type CategoryRule, type Draft, type Txn,
 } from '@acctmind/core';
 import { T } from '../theme';
-import { Btn, SELECTED_ROW } from './shared';
+import { Btn, CHECK, SELECTED_ROW } from './shared';
 
-/** Widest the table grows, so Amount and Balance stay near the names on a big window. */
+/**
+ * Widest the column (account line, table, the foot's line) grows, so Amount
+ * and Balance stay near the names on a big window. A wider pane centres it.
+ */
 const TABLE_MAX = 1000;
 const W = { date: 72, cat: 124, acct: 112, amount: 104, balance: 104, cleared: 56 } as const;
 
@@ -54,8 +57,14 @@ export function WideTransactions({
   return (
     <View style={styles.fill} testID="wide-transactions">
       {banner}
-      <View style={styles.head}>
-        <Text style={styles.h1} numberOfLines={1} testID="wide-title">{head}</Text>
+      {/*
+        One centred column, capped: the account line with its controls and the
+        table share its edges, so "New transaction" ends where Cleared does.
+      */}
+      <View style={styles.col} testID="wide-col">
+      <View style={styles.head} testID="wide-head">
+        {/* Which account: the pane's own line under the top bar's "Transactions". */}
+        <Text style={styles.h1} numberOfLines={1} testID="wide-head-account">{head}</Text>
         <View style={styles.grow} />
         <TextInput
           value={query} onChangeText={setQuery} placeholder="Search" placeholderTextColor={T.faint}
@@ -107,14 +116,14 @@ export function WideTransactions({
               {one && <Text style={[styles.td, styles.num, { width: W.balance }]} numberOfLines={1} testID="wide-row-balance">{formatAmount(balance ?? 0)}</Text>}
               <View style={[styles.mid, { width: W.cleared }]}>
                 {readOnly ? (
-                  <Text style={styles.tick}>{txn.cleared === true ? '✓' : ''}</Text>
+                  <Text style={CHECK.tick}>{txn.cleared === true ? '✓' : ''}</Text>
                 ) : (
                   <Pressable
                     onPress={() => onCleared(txn, txn.cleared !== true)} accessibilityRole="checkbox"
                     accessibilityState={{ checked: txn.cleared === true }} accessibilityLabel="Cleared"
-                    style={[styles.box, txn.cleared === true && styles.boxOn]} testID="wide-row-cleared"
+                    style={[CHECK.box, txn.cleared === true && CHECK.boxOn]} testID="wide-row-cleared"
                   >
-                    {txn.cleared === true && <Text style={styles.boxTick}>✓</Text>}
+                    {txn.cleared === true && <Text style={CHECK.boxTick}>✓</Text>}
                   </Pressable>
                 )}
               </View>
@@ -124,14 +133,18 @@ export function WideTransactions({
         {rows.length === 0 && <Text style={styles.empty} testID="wide-empty">No transactions.</Text>}
       </ScrollView>
       </View>
+      </View>
 
+      {/* The band spans the pane; its line sits in the table's column. */}
       <View style={styles.foot} testID="wide-foot">
+        <View style={styles.footIn} testID="wide-foot-in">
         <Text style={styles.footText} numberOfLines={1}>
           {foot.count} {foot.count === 1 ? 'transaction' : 'transactions'}
           {' · in '}<Text style={styles.pos}>{formatAmount(foot.moneyIn)}</Text>
           {' · out '}{formatAmount(foot.moneyOut)}
           {' · net '}<Text style={styles.bold}>{formatAmount(foot.net)}</Text>
         </Text>
+        </View>
       </View>
     </View>
   );
@@ -211,9 +224,10 @@ function QuickRow({ account, accounts, choices, rules, mode, showAccount, showBa
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
   grow: { flex: 1, minWidth: 0 },
-  table: { flex: 1, minHeight: 0, maxWidth: TABLE_MAX },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10, flexWrap: 'wrap' },
-  h1: { color: T.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
+  col: { flex: 1, minHeight: 0, width: '100%', maxWidth: TABLE_MAX, alignSelf: 'center' },
+  table: { flex: 1, minHeight: 0 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 0, paddingBottom: 10, flexWrap: 'wrap' },
+  h1: { color: T.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
   search: {
     width: 180, minHeight: 32, borderRadius: 8, paddingHorizontal: 10, color: T.text, fontSize: 14,
     backgroundColor: T.card, borderWidth: StyleSheet.hairlineWidth, borderColor: T.faint,
@@ -234,12 +248,9 @@ const styles = StyleSheet.create({
   mid: { alignItems: 'center', justifyContent: 'center' },
   pos: { color: T.positive },
   bold: { fontWeight: '600', color: T.text },
-  tick: { color: T.positive, fontSize: 14 },
-  box: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, borderColor: T.dim, alignItems: 'center', justifyContent: 'center' },
-  boxOn: { backgroundColor: T.accent, borderColor: T.accent },
-  boxTick: { color: '#fff', fontSize: 11, lineHeight: 13 },
   empty: { color: T.dim, padding: 24, textAlign: 'center' },
-  foot: { paddingHorizontal: 16, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.cardEdge, backgroundColor: T.card },
+  foot: { paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.cardEdge, backgroundColor: T.card },
+  footIn: { width: '100%', maxWidth: TABLE_MAX, alignSelf: 'center', paddingHorizontal: 16 },
   footText: { color: T.dim, fontSize: 13, fontVariant: ['tabular-nums'] },
   quickWrap: { backgroundColor: 'rgba(10,132,255,0.08)', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.accent },
   quick: { minHeight: 44 },

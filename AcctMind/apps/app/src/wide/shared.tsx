@@ -13,6 +13,18 @@ export const WIDE_COLORS: WideColors = {
 
 export const SELECTED_ROW = 'rgba(10,132,255,0.2)';
 
+/**
+ * The wide tables' checkbox, one look for all of them: the ledger's Cleared
+ * box and the Budget's Snooze box both draw from here, so they cannot drift
+ * apart. Read-only tables draw no box, only `tick` (a ✓ or nothing).
+ */
+export const CHECK = StyleSheet.create({
+  box: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, borderColor: T.dim, alignItems: 'center', justifyContent: 'center' },
+  boxOn: { backgroundColor: T.accent, borderColor: T.accent },
+  boxTick: { color: '#fff', fontSize: 11, lineHeight: 13 },
+  tick: { color: T.positive, fontSize: 14 },
+});
+
 /** A small outlined button. */
 export function Btn({ label, onPress, primary, danger, testID, disabled }: {
   label: string; onPress: () => void; primary?: boolean; danger?: boolean; testID?: string; disabled?: boolean;

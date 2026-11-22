@@ -252,8 +252,11 @@ export function ReportsBody({ store, wide = false }: { store: Store; wide?: bool
   );
 }
 
-/** Charts stop growing at a reading width; tables under them are capped the same. */
-const CHART_MAX = 920;
+/**
+ * Charts stop growing at a reading width; tables under them are capped the
+ * same, and the wide pane centres a column exactly this wide (WideReports).
+ */
+export const CHART_MAX = 920;
 const chartWidth = (w: number) => Math.min(Math.max(0, w), CHART_MAX);
 
 function SpendingReport({ breakdown, drill, onDrill, wide, width }: {

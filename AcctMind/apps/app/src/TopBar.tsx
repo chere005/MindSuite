@@ -6,7 +6,18 @@ import { TopBarFrame, TOP_BAR_FACE, type TopBarColors } from './components/Suite
 
 /** The drawn size of every control in the bar. CalMind's number. */
 export const TOPBAR_CTRL = TOP_BAR_FACE;
-export const topBarColors: TopBarColors = { background: T.bg, surface: T.card, line: T.cardEdge, text: T.text, dim: T.dim, accent: T.accent };
+/**
+ * The bar's colours. `dim` is CalMind's (#cccccc), not this app's grey: it is
+ * the account pill's chevron, which is the same in every suite app.
+ */
+export const topBarColors: TopBarColors = { background: T.bg, surface: T.card, line: T.cardEdge, text: T.text, dim: '#cccccc', accent: T.accent };
+/**
+ * The account pill's ring: the suite's signed-in green (CalMind's "Online —
+ * synced" accent), not this app's blue, so the top-right corner is the same in
+ * every MindSuite app (the owner, 2026-11-21: "top corner should identically
+ * be [this] for all mindsuite apps").
+ */
+export const ACCOUNT_RING = '#34d399';
 
 export function TopBar({ title, titleTestID, controls, picker, menu }: {
   title: string;

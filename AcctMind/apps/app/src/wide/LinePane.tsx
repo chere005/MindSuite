@@ -1,7 +1,10 @@
 /**
  * The detail pane for one budget line: name, group, target, allocated (the
- * phone's =/+/− amount), snooze, and this month's spending in the line.
- * Read-only mode shows the same as text.
+ * phone's =/+/− amount), and this month's spending in the line. Read-only
+ * mode shows the same as text.
+ *
+ * No snooze control: the Budget table's Snooze box is the one place it is
+ * set (it writes at once), and Save passes the line's current state through.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -29,7 +32,6 @@ export function LinePane({
   const [category, setCategory] = useState(row.line.category);
   const [target, setTarget] = useState(amountInput(row.target));
   const [allocated, setAllocated] = useState(row.allocated);
-  const [snoozed, setSnoozed] = useState(row.snoozed);
   const [armed, setArmed] = useState(false);
   const fuse = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(fuse.current), []);
@@ -72,7 +74,9 @@ export function LinePane({
   const targetError = targetCents === null ? 'That is not an amount' : targetCents < 0 ? 'A target cannot be negative' : null;
   const save = () => {
     if (name.trim() === '' || targetCents === null || targetCents < 0) return;
-    onSave({ name: name.trim(), category, target: targetCents, allocated, snoozed });
+    // `row` is the live line, so a Snooze tick made in the table while this
+    // pane is open goes back unchanged and Save writes no snooze.
+    onSave({ name: name.trim(), category, target: targetCents, allocated, snoozed: row.snoozed });
   };
   const del = () => {
     if (!armed) { setArmed(true); fuse.current = setTimeout(() => setArmed(false), 2500); return; }
@@ -108,11 +112,6 @@ export function LinePane({
           <Text style={styles.label}>Allocated</Text>
           <OpAmount value={allocated} onValue={setAllocated} testID="line-alloc" compact />
         </View>
-        <Pressable onPress={() => setSnoozed((x) => !x)} style={styles.snooze} accessibilityRole="switch"
-          accessibilityState={{ checked: snoozed }} testID="line-snooze-switch">
-          <Text style={styles.value}>Snoozed</Text>
-          <View style={[styles.track, snoozed && styles.trackOn]}><View style={[styles.knob, snoozed && styles.knobOn]} /></View>
-        </Pressable>
         {list}
         <View style={styles.actions}>
           <Btn label={armed ? 'Tap again to delete' : 'Delete'} danger onPress={del} testID="line-delete" />
@@ -131,7 +130,6 @@ const styles = StyleSheet.create({
   body: { padding: 16, paddingTop: 4, gap: 14 },
   f: { gap: 5 },
   label: { color: T.dim, fontSize: 13 },
-  value: { color: T.text, fontSize: 14 },
   dim: { color: T.dim, fontSize: 13 },
   err: { color: T.danger, fontSize: 12 },
   input: {
@@ -143,11 +141,6 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 12, minHeight: 30, justifyContent: 'center', borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, borderColor: T.faint },
   chipOn: { backgroundColor: 'rgba(10,132,255,0.28)', borderColor: T.accent },
   chipText: { color: T.text, fontSize: 13 },
-  snooze: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 36 },
-  track: { width: 40, height: 24, borderRadius: 12, backgroundColor: T.faint, padding: 2, justifyContent: 'center' },
-  trackOn: { backgroundColor: T.positive },
-  knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
-  knobOn: { alignSelf: 'flex-end' },
   spend: { gap: 2 },
   spendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 30, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.cardEdge },
   spendDate: { width: 64 },

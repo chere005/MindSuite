@@ -5,7 +5,7 @@ import { addDays, monthLabel } from '@acctmind/core';
 import { CogIcon } from './Icons';
 import * as shared from './icloudfile';
 import { SPACE, T, TAP } from './theme';
-import { topBarColors } from './TopBar';
+import { ACCOUNT_RING, topBarColors } from './TopBar';
 import { AccountMenu, type AccountMenuItem } from './components/SuiteTopBar';
 import { suiteAccount, openSuiteAccount, signOutSuiteAccount } from './suiteaccount';
 
@@ -68,7 +68,7 @@ export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, 
   const allItems = [...items, ...ck];
   return <AccountMenu colors={topBarColors} username={account?.username}
     label={account ? `${account.username} — account menu` : 'Settings'}
-    statusColor={account ? T.accent : undefined} trigger={account ? undefined : <CogIcon />}
+    statusColor={account ? ACCOUNT_RING : undefined} trigger={account ? undefined : <CogIcon />}
     testID="app-menu-button" backdropTestID="app-menu-backdrop" open={open}
     onOpenChange={(next) => { if (next) setOptions(false); setOpen(next); }} items={allItems}
     content={ledgerOptions ? <>
