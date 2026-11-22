@@ -201,7 +201,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // (caught by the e2e drag spec). Only the network round-trip is debounced.
   const persistNow = useCallback((user: string) => {
     const local = user === LOCAL_USER;
-    if (local ? !localRef.current : sessionRef.current?.username !== user) return;
+    const s = sessionRef.current;
+    if (local ? !localRef.current : !s || snapshotOwner(s) !== user) return;
     // A failure here used to be swallowed whole. It is the quietest kind of
     // loss there is: everything keeps working, and then a reload comes back
     // to yesterday. Storage refuses for ordinary reasons — a full quota, a
