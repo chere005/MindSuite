@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- TaskMind: separated TM in the suite's rounded monogram style. The rounded cut: the web, the favicon and anywhere the mark is a picture. -->
+  <rect width="96" height="96" rx="20" fill="#111111"/>
+  <path d="M 14 26 H 46 M 30 26 V 70 M 56 70 V 44 L 68 57 L 80 44 V 70"
+        fill="none" stroke="#d58dee" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

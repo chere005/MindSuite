@@ -2,6 +2,8 @@
 
 Private source for CalMind, MealMind, PlanMind, TaskMind, ReadMind, AcctMind and CoreMind. Each project keeps its own package manager and toolchain. All seven use one Git checkout.
 
+[MindSuite for macOS](Desktop/README.md) opens local CalMind and ScrollMind in one workspace, with split view and tabs for the suite's web apps.
+
 Run package commands inside the project, for example `npm --prefix CalMind run test:core` or `npm --prefix PlanMind run typecheck`. ReadMind uses `php ReadMind/tools/test.php`. The individual project AGENTS.md and README describe their gates.
 
 From the suite root:

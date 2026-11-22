@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- AcctMind's AM on the suite's unframed monogram tile: the A, then the short M NoteMind, PlanMind and ReadMind use. -->
+  <rect width="96" height="96" rx="20" fill="#111111"/>
+  <path d="M 18 70 L 31 26 L 44 70 M 22 56 H 40 M 58 70 L 58 40 L 68 54 L 78 40 L 78 70"
+        fill="none" stroke="#58c74e" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
