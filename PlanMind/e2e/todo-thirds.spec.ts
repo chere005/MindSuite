@@ -6,7 +6,8 @@ import { OWNER, PARTNER, OWNER_NAME, PARTNER_NAME } from './people';
 // To-dos have the same interface as the schedule and the priorities: in the Both view a blank ruled line is cut in thirds across its
 // width. The left third makes a to-do for the left lane's person (the signed-in one), the middle third ONE linked to-do for both of us, the
 // right third the right lane's person. The hover draws the cell a click will make, in the color of whoever it is for. One list shown has
-// no thirds. The Day (13 slots), the Week (13 lines) and the Month (8 lines) share it. Desktop project; the phone is in todo-thirds-phone.spec.ts.
+// no thirds; a list on top (two or more lanes that are not the thirds) cuts the whole line into one equal column per lane, each that lane's
+// list. The Day (13 slots), the Week (13 lines) and the Month (8 lines) share it. Desktop project; the phone is in todo-thirds-phone.spec.ts.
 test.afterEach(async ({ baseURL }) => { await resetPrefs(baseURL!); });
 const openDay = async (page: Page, date: string) => {
   await page.locator('#jump-date').fill(date);
@@ -31,6 +32,16 @@ const ghost = (page: Page) => page.locator('.day-newcell');
 /** The pointer well away from the lists (over the sidebar). */
 const away = async (page: Page) => { const side = (await page.locator('#sidebar').boundingBox())!; await page.mouse.move(side.x + 20, side.y + 200); };
 const along = async (line: Locator, across: number) => { const box = (await line.boundingBox())!; return { box, x: box.x + box.width * across, y: box.y + box.height / 2 }; };
+/**
+ * With a list on top (two or more lanes that are not the Both thirds) the whole line is cut into `lanes` equal columns, 4px apart: the ghost
+ * is column `lane` exactly (BlankSlots.ts places it, core blankAim picks it), within a pixel.
+ */
+async function expectColumn(page: Page, line: { x: number; width: number }, lane: number, lanes: number) {
+  await expect(ghost(page)).toHaveAttribute('data-lane', String(lane));
+  const g = (await ghost(page).boundingBox())!;
+  expect(Math.abs(g.x - (line.x + lane * (line.width + 4) / lanes)), `column ${lane} of ${lanes}: its left edge`).toBeLessThanOrEqual(1);
+  expect(Math.abs(g.width - (line.width - 4 * (lanes - 1)) / lanes), `column ${lane} of ${lanes}: its width`).toBeLessThanOrEqual(1);
+}
 
 test.describe('Day to-do, desktop: thirds in the Both view', () => {
   test('the hover is the cell a click would make, in the color of who it is for: left lane, both, right lane; also on the add field\'s line', async ({ page, baseURL }) => {
@@ -223,22 +234,74 @@ test.describe('Day to-do, desktop: thirds in the Both view', () => {
     } finally { await clearDay(owner, date); await owner.dispose(); }
   });
 
-  test('Both with a custom list on top has three lanes and no thirds: the line is for the picker\'s Both', async ({ page, baseURL }) => {
+  test('Both with a custom list on top has three lanes: the whole line is three equal columns, each its own list', async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER), date = farDate(344), name = unique('Camp'), id = crypto.randomUUID();
     expect((await owner.post({ action: 'saveList', id, name, color: 'blue', revision: 0 })).status()).toBe(200);
     try {
       await login(page); await openDay(page, date);
       await overlayList(page, name);
       const line = slot(page, 3), box = (await line.boundingBox())!;
-      for (const across of [0.1, 0.9]) {
+      const columns: [number, string, string][] = [[0.1, 'green', OWNER_NAME], [0.5, 'yellow', PARTNER_NAME], [0.9, 'blue', name]];
+      for (const [lane, [across, color]] of columns.entries()) {
         await page.mouse.move(box.x + box.width * across, box.y + box.height / 2);
-        await expect(ghost(page)).toHaveAttribute('data-side', 'only');
-        await expect(ghost(page)).toHaveAttribute('data-c', 'purple');
+        await expect(ghost(page)).toHaveAttribute('data-side', 'lane');
+        await expect(ghost(page)).toHaveAttribute('data-c', color);
+        await expectColumn(page, box, lane, 3);
       }
       await expect(page.locator('button[data-both]')).toHaveCount(0);
-      await page.mouse.click(box.x + box.width * 0.1, box.y + box.height / 2);
-      await expect(field(page, `New to-do for ${OWNER_NAME} and ${PARTNER_NAME}`)).toBeFocused();
-      await page.keyboard.press('Escape');
+      for (const [across, , who] of columns) {
+        await page.mouse.click(box.x + box.width * across, box.y + box.height / 2);
+        await expect(field(page, `New to-do for ${who}`)).toBeFocused();
+        await page.keyboard.press('Escape');
+        await leaveField(page); await away(page);
+      }
+    } finally {
+      await owner.post({ action: 'savePrefs', selection: { base: 'both', overlays: [] } });
+      await clearDay(owner, date);
+      const list = (await owner.snapshot()).lists.find((l: { id: string }) => l.id === id);
+      if (list) { await owner.post({ action: 'deleteList', id, revision: list.revision, confirm: true }); }
+      await owner.dispose();
+    }
+  });
+
+  test('one person with a custom list on top has two lanes: the whole line is two equal columns, the person\'s and the list\'s, and each makes its own to-do', async ({ page, baseURL }) => {
+    const owner = await apiLogin(baseURL!, OWNER), date = farDate(339), name = unique('Camp'), id = crypto.randomUUID();
+    expect((await owner.post({ action: 'saveList', id, name, color: 'blue', revision: 0 })).status()).toBe(200);
+    try {
+      await login(page); await openDay(page, date);
+      await pickList(page, OWNER_NAME);
+      await overlayList(page, name);
+      await expect(page.getByRole('button', { name: `Lists: ${OWNER_NAME} + ${name}`, exact: true })).toBeVisible();
+      const line = slot(page, 4), box = (await line.boundingBox())!;
+      const columns: [number, string][] = [[0.25, 'green'], [0.75, 'blue']];
+      for (const [lane, [across, color]] of columns.entries()) {
+        await page.mouse.move(box.x + box.width * across, box.y + box.height / 2);
+        await expect(ghost(page)).toHaveAttribute('data-side', 'lane');
+        await expect(ghost(page)).toHaveAttribute('data-c', color);
+        await expectColumn(page, box, lane, 2);
+      }
+      // The column edge is the middle of the line.
+      await page.mouse.move(box.x + box.width * 0.48, box.y + box.height / 2);
+      await expect(ghost(page)).toHaveAttribute('data-c', 'green');
+      await page.mouse.move(box.x + box.width * 0.52, box.y + box.height / 2);
+      await expect(ghost(page)).toHaveAttribute('data-c', 'blue');
+      await expect(page.locator('button[data-both]')).toHaveCount(0);
+      await away(page);
+      // A click in each column is a to-do of that lane's list alone.
+      let p = await along(slot(page, 4), 0.75);
+      await page.mouse.click(p.x, p.y);
+      await expect(field(page, `New to-do for ${name}`)).toBeFocused();
+      await expect(page.locator('.day-task.day-new')).toHaveAttribute('data-c', 'blue');
+      await page.keyboard.type('Pack the tent');
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('checkbox', { name: 'Complete Pack the tent', exact: true })).toHaveAttribute('data-c', 'blue');
+      p = await along(slot(page, 5), 0.25);
+      await page.mouse.click(p.x, p.y);
+      await expect(field(page, `New to-do for ${OWNER_NAME}`)).toBeFocused();
+      await page.keyboard.type('Buy stamps');
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('checkbox', { name: 'Complete Buy stamps', exact: true })).toHaveAttribute('data-c', 'green');
+      expect(await storedTasks(owner, 'day', date)).toMatchObject([{ title: 'Pack the tent', owners: [id] }, { title: 'Buy stamps', owners: [OWNER] }]);
     } finally {
       await owner.post({ action: 'savePrefs', selection: { base: 'both', overlays: [] } });
       await clearDay(owner, date);
@@ -614,3 +677,43 @@ for (const { view, scope, lines, when } of PERIODS) {
     });
   });
 }
+
+test.describe('Week to-do, desktop: a list on top', () => {
+  test('Both with a custom list on top cuts the Week\'s blank lines into three equal columns, each its own list, and a click in the list\'s column is that list\'s to-do', async ({ page, baseURL }) => {
+    const owner = await apiLogin(baseURL!, OWNER), when = periodStart(farDate(374), 'week'), name = unique('Camp'), id = crypto.randomUUID();
+    expect((await owner.post({ action: 'saveList', id, name, color: 'blue', revision: 0 })).status()).toBe(200);
+    try {
+      await login(page);
+      await page.getByRole('button', { name: 'Week', exact: true }).click();
+      await page.locator('#jump-date').fill(when);
+      await expect(page.locator('.wm-panel[data-panel="week"]')).toBeVisible();
+      await overlayList(page, name);
+      await expect(page.getByRole('button', { name: `Lists: Both + ${name}`, exact: true })).toBeVisible();
+      for (const n of [1, 5]) {
+        const box = (await wmLine(page, n).boundingBox())!;
+        for (const [lane, [across, color]] of ([[0.1, 'green'], [0.5, 'yellow'], [0.9, 'blue']] as const).entries()) {
+          await page.mouse.move(box.x + box.width * across, box.y + box.height / 2);
+          await expect(ghost(page)).toHaveAttribute('data-side', 'lane');
+          await expect(ghost(page)).toHaveAttribute('data-c', color);
+          await expectColumn(page, box, lane, 3);
+        }
+        await away(page);
+        await expect(ghost(page)).toHaveCount(0);
+      }
+      const box = (await wmLine(page, 5).boundingBox())!;
+      await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2);
+      await expect(field(page, `New to-do for ${name}`)).toBeFocused();
+      await expect(page.locator('.wm-todo.wm-new')).toHaveAttribute('data-c', 'blue');
+      await page.keyboard.type('Book the site');
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('button', { name: 'Edit Book the site', exact: true })).toBeVisible();
+      expect(await storedTasks(owner, 'week', when)).toMatchObject([{ title: 'Book the site', owners: [id] }]);
+    } finally {
+      await owner.post({ action: 'savePrefs', selection: { base: 'both', overlays: [] } });
+      await clearPeriod(owner, 'week', when);
+      const list = (await owner.snapshot()).lists.find((l: { id: string }) => l.id === id);
+      if (list) { await owner.post({ action: 'deleteList', id, revision: list.revision, confirm: true }); }
+      await owner.dispose();
+    }
+  });
+});

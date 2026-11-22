@@ -6,7 +6,7 @@ import { OWNER, OWNER_NAME } from './people';
 
 // Back to the month. A tap on a day of the Month opens that day on the Day view with a "Back to month" button in the top bar (state.openDay);
 // Back returns to the Month that holds the day the Day is on by then; choosing a view by hand forgets it. It runs on the desktop project
-// (the button stands beside the sidebar toggle) and, in a phone-sized page of the same project, where it takes the place of the menu button.
+// (the button stands beside the sidebar toggle) and, in a phone-sized page of the same project, where it stands right after the menu button, which stays.
 // Nothing here is stored: the Month and the Day of a far-away March are empty, so no cleanup is needed.
 const MARCH = '2041-03-17', LAST = '2041-03-31', FIRST = '2041-04-01';
 const back = (page: Page) => page.locator('#back-view');
@@ -188,7 +188,7 @@ test.describe('Back to month, desktop', () => {
   });
 });
 
-// The same page at the size of a phone (the phone project does not run this file). The Back takes the place of the menu button.
+// The same page at the size of a phone (the phone project does not run this file). The Back stands right after the menu button, which stays.
 test.describe('Back to month, in a phone-sized page', () => {
   test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
@@ -228,7 +228,8 @@ test.describe('Back to month, in a phone-sized page', () => {
     expect(m.width).toBeGreaterThanOrEqual(39.5);
     expect(m.x + m.width).toBeLessThanOrEqual(b.x + 0.5);
     const prev = (await page.locator('#pill-prev').boundingBox())!;
-    expect(b.x + b.width).toBeLessThanOrEqual(prev.x + 0.5);
+    // The date and its arrows are in the toolbar under the bar (the suite's top bar, 2026-11-15), so Back stands above them, not beside them.
+    expect(b.y + b.height).toBeLessThanOrEqual(prev.y + 0.5);
     await expect(page.locator('#date-pill')).toBeInViewport();
     await expect(page.locator('#pill-next')).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
@@ -246,6 +247,47 @@ test.describe('Back to month, in a phone-sized page', () => {
     await expect(page.locator('#sidebar')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('#sidebar')).toBeHidden();
+  });
+
+  // The narrowest phone: menu, Back, the title, the picker and the account share 320px. Nothing leaves the screen, and the title gives way
+  // with the shared ellipsis (a block, so .ms-app-title > * can draw it) instead of being cut mid-letter.
+  test.describe('at 320x568', () => {
+    test.use({ viewport: { width: 320, height: 568 } });
+
+    test('the bar holds menu, Back, the title, the picker and the account; the title fits or ends in an ellipsis; Tab meets the menu before Back', async ({ page }) => {
+      await login(page);
+      await openPhoneMonth(page, MARCH);
+      await cell(page, MARCH).tap();
+      await expect(page.locator('.day-panel')).toBeVisible();
+      await expect(back(page)).toBeVisible();
+      await expect(page.locator('#menu')).toBeVisible();
+      const m = (await page.locator('#menu').boundingBox())!, b = (await back(page).boundingBox())!;
+      expect(m.height).toBeGreaterThanOrEqual(43.5);
+      expect(b.height).toBeGreaterThanOrEqual(43.5);
+      expect(m.x).toBeGreaterThanOrEqual(0);
+      expect(m.x + m.width).toBeLessThanOrEqual(b.x + 0.5);
+      const picker = (await page.locator('#picker-button').boundingBox())!, account = (await page.locator('#account-button-bar').boundingBox())!;
+      for (const [name, box] of [['picker', picker], ['account', account]] as const) {
+        expect(box.x, `${name} inside the screen`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `${name} inside the screen`).toBeLessThanOrEqual(320.5);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+      const title = page.locator('.topbar .ms-app-title > .mobile-only');
+      await expect(title).toHaveText('PlanMind');
+      const look = await title.evaluate(el => { const s = getComputedStyle(el); return { fits: el.scrollWidth <= el.clientWidth, display: s.display, overflow: s.overflowX, ellipsis: s.textOverflow, nowrap: s.whiteSpace }; });
+      expect(look.fits || (look.display === 'block' && look.overflow === 'hidden' && look.ellipsis === 'ellipsis' && look.nowrap === 'nowrap'), JSON.stringify(look)).toBe(true);
+      // The title stays between Back and the picker.
+      const t = (await title.boundingBox())!;
+      expect(t.x).toBeGreaterThanOrEqual(b.x + b.width - 0.5);
+      expect(t.x + t.width).toBeLessThanOrEqual(picker.x + 0.5);
+      // The markup is in the order the bar shows: Tab goes from the menu to Back.
+      await page.locator('#menu').focus();
+      await page.keyboard.press('Tab');
+      await expect(back(page)).toBeFocused();
+      await back(page).tap();
+      await expect(monthPanel(page)).toBeVisible();
+      await expect(page.locator('#menu')).toBeVisible();
+    });
   });
 
   test('the arrows keep the Back, and Back goes to the Month of the day the Day is on then', async ({ page }) => {

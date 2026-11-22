@@ -209,7 +209,8 @@ test.describe('the Chores switch of the Day', () => {
       expect(await left(), 'Schedule and Notes').toBe(leftOff);
       expect(await prio(), 'Priorities').toBe(prioOff);
       await expect.poll(async () => (await titles(page)).length).toBe(TODAY_OWN.length + MISSED.length);
-      for (const who of [OWNER_NAME, PARTNER_NAME, name, 'Both']) {
+      // Each pick alone: a custom list is picked last, because leaving a custom base for a view row keeps it ticked on top (switchBase).
+      for (const who of [OWNER_NAME, PARTNER_NAME, 'Both', name]) {
         await pickList(page, who);
         await expect(picker(page)).toHaveAccessibleName(`Lists: ${who}`);
         // The lanes of the day's other sections are the pick's (one lane for a single list), the chores are everyone's.

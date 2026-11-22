@@ -288,7 +288,10 @@ for (const [width, height] of [[375, 812], [375, 667], [320, 568]] as const) {
         await expect(page.locator('.day-task', { hasText: 'Done ours' })).toHaveCount(1);
         await noDoneUi(page);
         // A tap in the middle of a blank line (line 7: open rows above it, the pile below it) is one to-do for both of us, in place; saved, it is the third open row.
-        const line = page.locator('.day-tasks > li[data-slot="7"]'), box = (await line.boundingBox())!;
+        // On the smallest phone the list scrolls (the date toolbar under the suite's top bar took its room), so the line is brought into view first.
+        const line = page.locator('.day-tasks > li[data-slot="7"]');
+        await line.scrollIntoViewIfNeeded();
+        const box = (await line.boundingBox())!;
         await page.touchscreen.tap(box.x + box.width * 0.5, box.y + box.height / 2);
         const fresh = field(page, `New to-do for ${OWNER_NAME} and ${PARTNER_NAME}`);
         await expect(fresh).toBeFocused();

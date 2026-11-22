@@ -85,7 +85,41 @@ test.describe('the list picker', () => {
     await owner.dispose();
   });
 
-  test('tapping a row shows that list alone; ticking a box adds it on top; each change is saved for this person', async ({ page, baseURL }) => {
+  test('the button is the suite\'s round pie at every desktop width: a 32px ring in a 44px target, no name or chevron on screen, the names in its accessible name', async ({ page, baseURL }) => {
+    const owner = await apiLogin(baseURL!, OWNER);
+    const camp = await makeList(owner, 'blue');
+    await login(page);
+    const face = page.locator('.picker-button .picker-button-face'), dot = page.locator('.picker-button .pie');
+    for (const width of [1360, 761]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(button(page)).toBeVisible();
+      await expect(page.locator('.picker-button .picker-name')).toBeHidden();
+      await expect(page.locator('.picker-button .picker-chevron')).toBeHidden();
+      await expect(button(page)).toHaveAccessibleName('Lists: Both');
+      const target = (await button(page).boundingBox())!, ring = (await face.boundingBox())!, disc = (await dot.boundingBox())!;
+      expect([target.width, target.height], `${width}px: the 44px target`).toEqual([44, 44]);
+      expect([ring.width, ring.height], `${width}px: the 32px ring`).toEqual([32, 32]);
+      expect(await face.evaluate(el => getComputedStyle(el).borderRadius)).toBe('50%');
+      expect([disc.width, disc.height], `${width}px: the 16px pie`).toEqual([16, 16]);
+      expect(Math.abs(ring.x + ring.width / 2 - (target.x + target.width / 2))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(ring.y + ring.height / 2 - (target.y + target.height / 2))).toBeLessThanOrEqual(0.5);
+    }
+    // A list ticked on top: two slices, the names in the accessible name, and still the round button with no name on screen.
+    await openMenu(page);
+    const saved = prefsSaved(page);
+    await box(page, camp.name).click();
+    await saved;
+    await page.keyboard.press('Escape');
+    await expect(menu(page)).toBeHidden();
+    await expect(button(page)).toHaveAccessibleName(`Lists: Both + ${camp.name}`);
+    await expect(slices(page)).toHaveCount(2);
+    await expect(page.locator('.picker-button .picker-name')).toBeHidden();
+    const target = (await button(page).boundingBox())!;
+    expect([target.width, target.height]).toEqual([44, 44]);
+    await owner.dispose();
+  });
+
+  test('tapping a row changes the base and keeps the ticked lists; ticking a box adds it on top; each change is saved for this person', async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER);
     const camp = await makeList(owner, 'blue');
     await login(page);
@@ -112,13 +146,25 @@ test.describe('the list picker', () => {
     await expect(slices(page).nth(1)).toHaveAttribute('data-c', 'blue');
     expect(await selectionOf(owner)).toEqual({ base: OWNER, overlays: [camp.id] });
 
-    // A tap on another row is that row alone: the overlay goes.
+    // A tap on another row changes the base only: the ticked list stays ticked.
     saved = prefsSaved(page);
     await select(page, PARTNER_NAME).click();
     await saved;
-    expect(await selectionOf(owner)).toEqual({ base: PARTNER, overlays: [] });
+    expect(await selectionOf(owner)).toEqual({ base: PARTNER, overlays: [camp.id] });
     await openMenu(page);
-    await expect(box(page, camp.name)).not.toBeChecked();
+    await expect(box(page, camp.name)).toBeChecked();
+    await expect(select(page, PARTNER_NAME)).toHaveAttribute('aria-current', 'true');
+    saved = prefsSaved(page);
+    await select(page, 'Both').click();
+    await saved;
+    expect(await selectionOf(owner)).toEqual({ base: 'both', overlays: [camp.id] });
+    await openMenu(page);
+    await expect(box(page, camp.name)).toBeChecked();
+    saved = prefsSaved(page);
+    await box(page, camp.name).click();
+    await saved;
+    expect(await selectionOf(owner)).toEqual({ base: 'both', overlays: [] });
+    await expect(menu(page)).toBeVisible();
     // A custom list tapped alone is the base, and its own box is live and ticked.
     saved = prefsSaved(page);
     await select(page, camp.name).click();
@@ -142,19 +188,19 @@ test.describe('the list picker', () => {
     await saved;
     await expect(button(page)).toHaveAccessibleName(`Lists: Both + ${camp.name}`);
     expect(await selectionOf(owner)).toEqual({ base: 'both', overlays: [camp.id] });
-    // Choosing Both again is Both alone, whatever was ticked, and so is coming back to it from another list.
-    saved = prefsSaved(page);
-    await select(page, 'Both').click();
-    await saved;
-    expect(await selectionOf(owner)).toEqual({ base: 'both', overlays: [] });
-    await openMenu(page);
-    await expect(box(page, camp.name)).not.toBeChecked();
+    // Switching to the owner and back to Both keeps the ticked list ticked; only its own box clears it.
     saved = prefsSaved(page);
     await select(page, OWNER_NAME).click();
     await saved;
+    expect(await selectionOf(owner)).toEqual({ base: OWNER, overlays: [camp.id] });
     await openMenu(page);
     saved = prefsSaved(page);
     await select(page, 'Both').click();
+    await saved;
+    expect(await selectionOf(owner)).toEqual({ base: 'both', overlays: [camp.id] });
+    await openMenu(page);
+    saved = prefsSaved(page);
+    await box(page, camp.name).click();
     await saved;
     expect(await selectionOf(owner)).toEqual({ base: 'both', overlays: [] });
     await expect(slices(page)).toHaveCount(1);

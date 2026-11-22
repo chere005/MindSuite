@@ -519,6 +519,9 @@ for (const [width, height] of [[375, 667], [320, 568]] as const) {
         await pickList(page, OWNER_NAME);
         await goTo(page, 'todo');
         const row = page.locator('.day-tasks .day-task').nth(6);
+        // On the smallest phone the list scrolls (the date toolbar under the suite's top bar took its room): the row is brought into view first,
+        // so what is measured is the edit alone.
+        await row.scrollIntoViewIfNeeded();
         const was = (await row.boundingBox())!;
         await page.getByRole('button', { name: 'Edit Thing number 7', exact: true }).tap();
         const edit = field(page, 'Edit task: Thing number 7');

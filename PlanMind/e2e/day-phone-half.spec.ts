@@ -1423,15 +1423,17 @@ test.describe('Day schedule, phone: switching page while an entry is being edite
       await expect(page.locator('#error-message')).toHaveText('Keep it to 500 characters.');
       await expect(page.getByRole('alert')).toContainText('Keep it to 500 characters.');
       await expect(editing.locator('.ip-error')).toHaveCount(0);
-      // #146: the banner lies over the top bar's date and arrows, between the menu and the picker; the switch row, the lane names and the
+      // #146: the banner lies over the date and its arrows, clear of the menu and the picker; the switch row, the lane names and the
       // panel are not covered, and nothing moved.
       await settled(page);
       const [alert, nav, menu, picker, tools, names] = await page.evaluate(() =>
         ['#error', '.phone-nav', '#menu', '#picker-slot', '.day-lanehead', '.day-lanehead'].map(selector => document.querySelector(selector)!.getBoundingClientRect().toJSON() as DOMRect));
       expect(alert.top).toBeGreaterThanOrEqual(nav.top - 1);
       expect(alert.bottom).toBeLessThanOrEqual(tools.top + 0.5);
-      expect(alert.left).toBeGreaterThanOrEqual(menu.right - 0.5);
-      expect(alert.right).toBeLessThanOrEqual(picker.left + 0.5);
+      // Since the suite's top bar (2026-11-15) the date and arrows are a toolbar under the bar: the banner stays inside it, under the menu and the picker.
+      expect(alert.left).toBeGreaterThanOrEqual(nav.left - 0.5);
+      expect(alert.right).toBeLessThanOrEqual(nav.right + 0.5);
+      expect(alert.top).toBeGreaterThanOrEqual(Math.max(menu.bottom, picker.bottom) - 0.5);
       expect(names.top).toBeGreaterThan(alert.bottom);
       // The menu button is not covered: it is what a press there reaches (the drawer that held the choice is still sliding away for a moment, so poll).
       await expect.poll(() => page.evaluate(() => { const b = document.querySelector('#menu')!.getBoundingClientRect(); return document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('#menu') !== null; })).toBe(true);

@@ -34,6 +34,9 @@ test('a desktop keeps both controls on the Schedule heading, shows no corner wor
 
 // The timed grid on a desktop is exactly where origin/main (c342c818) drew it, on a day with no all-day events: measured there at 1280x800
 // (timeline x, y, width, height; lanes x, y, width, height), AM and PM, CalMind shown and hidden. The all-day strip and the menu change moved nothing.
+// The suite's shared top bar (2026-11-15) is 64px with 10px under it where main had a 46px bar and the page's 10px top padding: the grid
+// starts 18px lower and is 18px shorter; nothing else moved.
+const BAR_GREW = 18;
 test.describe('the timed grid against origin/main', () => {
   test.beforeAll(writeStores);
   test.afterAll(removeStores);
@@ -55,7 +58,7 @@ test.describe('the timed grid against origin/main', () => {
         for (const half of ['am', 'pm']) {
           await page.locator(`.day-half button[data-half=${half}]`).click();
           await expect(page.locator('.day-sched')).toHaveAttribute('data-half', half);
-          expect(await boxes(), `${day} ${half} hidden=${hidden}`).toEqual({ timeline: [363, 141, 395, 509], lanes: [397, 146, 361, 498] });
+          expect(await boxes(), `${day} ${half} hidden=${hidden}`).toEqual({ timeline: [363, 141 + BAR_GREW, 395, 509 - BAR_GREW], lanes: [397, 146 + BAR_GREW, 361, 498 - BAR_GREW] });
         }
       }
     });

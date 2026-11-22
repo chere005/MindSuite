@@ -234,18 +234,17 @@ test.describe('shell', () => {
     await expect(rows.nth(7).locator('.date-number')).toHaveText(first.slice(5, 7));
   });
 
-  test('desktop: the account name has a dot in the signed-in list\'s color before it', async ({ page }, info) => {
+  test('desktop: the account pill is the suite\'s: the signed-in name and a chevron, no list dot', async ({ page }, info) => {
     test.skip(isPhone(info.project.name), 'desktop layout');
-    for (const [user, name, color] of [[OWNER, OWNER_NAME, 'green'], [PARTNER, PARTNER_NAME, 'yellow']] as const) {
+    for (const [user, name] of [[OWNER, OWNER_NAME], [PARTNER, PARTNER_NAME]] as const) {
       await login(page, user);
-      const who = page.locator('#account-button-bar .account-who');
-      await expect(who).toHaveAttribute('data-c', color);
-      await expect(who.locator('.account-name')).toHaveText(name);
-      const [dot, text] = [(await who.locator('.owner-dot').boundingBox())!, (await who.locator('.account-name').boundingBox())!];
-      expect(dot.width).toBeGreaterThan(0);
-      expect(dot.x + dot.width).toBeLessThanOrEqual(text.x);
-      // It is the list's own color, not a fixed green.
-      expect(await who.locator('.owner-dot').evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await page.evaluate(key => getComputedStyle(document.documentElement).getPropertyValue(`--c-${key}-line`).trim(), color).then(hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`));
+      const button = page.locator('#account-button-bar');
+      await expect(button.locator('.account-name')).toHaveText(name);
+      await expect(button.locator('.owner-dot')).toHaveCount(0);
+      const [face, text, chevron] = [(await button.locator('.ms-app-account-face').boundingBox())!, (await button.locator('.account-name').boundingBox())!, (await button.locator('.account-chevron').boundingBox())!];
+      // CalMind's geometry: 10px in from the 2px ring, the name, then the chevron after it.
+      expect(Math.round(text.x - face.x)).toBe(12);
+      expect(chevron.x).toBeGreaterThan(text.x + text.width);
       await page.context().clearCookies();
     }
   });

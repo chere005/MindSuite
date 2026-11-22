@@ -216,9 +216,9 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
     seatBanner();
   }
   /**
-   * On a phone the banner lies over the top bar's date and its arrows, between the menu (or Back) and the picker (#146): the AM/PM switch,
-   * the lane names and the panel stay in sight, and nothing moves. Its place is that stretch of the bar as drawn now (Back is wider than
-   * the menu), given to the stylesheet as --ban-top, --ban-left and --ban-right; a desktop's banner keeps its own place.
+   * On a phone the banner lies over the date toolbar's date and its arrows, under the bar's menu and picker (#146): the AM/PM switch,
+   * the lane names and the panel stay in sight, and nothing moves. Its place is that stretch of the toolbar as drawn now, given to the
+   * stylesheet as --ban-top, --ban-left and --ban-right; a desktop's banner keeps its own place.
    */
   function seatBanner() {
     const banner = $('#error');

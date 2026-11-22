@@ -448,9 +448,10 @@ export type NewOwners = { owners: Owners; color: ColorKey };
 /**
  * What a pointer on a blank line (a to-do slot) would make. `side` is the third it is in when the Both view cuts the line in thirds
  * (`left` the left lane's, `both` one linked item, `right` the right lane's); `only` where there are no thirds (one list shown, or more
- * lanes than the two people) and the line is for whoever the top picker says.
+ * lanes than the two people) and the line is for whoever the top picker says. With two or more lanes that are not the Both thirds
+ * the line is cut into one equal column per lane (`lane`: the column, `lanes`: how many).
  */
-export type BlankAim = NewOwners & { side: 'left' | 'both' | 'right' | 'only' };
+export type BlankAim = NewOwners & { side: 'left' | 'both' | 'right' | 'only' } | NewOwners & { side: 'lane'; /** Index of the lane's column (0 = leftmost). */ lane: number; /** How many equal columns the line is cut into. */ lanes: number };
 
 export type ViewData = Pick<Snapshot, 'lists' | 'settings' | 'tasks' | 'priorities' | 'events' | 'notes'>;
 /**
@@ -516,6 +517,12 @@ export interface CoreFunctions {
   /** Tap a row: that row alone, overlays cleared. */
   selectOnly(id: ViewBase): Selection;
   /**
+   * Tap a view row: base = that row, the ticked overlays stay. Dropped: the overlay that is the new base, lists that no
+   * longer exist, anything past CAPS.maxOverlays. A custom list that was the base becomes an overlay while there is room.
+   * An unknown target returns the resolved current selection.
+   */
+  switchBase(sel: Selection, base: ViewBase, lists: readonly ListRecord[]): Selection;
+  /**
    * Tick a custom list's box. Not ticked: add as overlay (base unchanged). Ticked overlay: remove.
    * Ticked base: base falls back to 'both', overlays kept. Over the limit: unchanged and rejected.
    * Person lists and Both never toggle.
@@ -546,7 +553,8 @@ export interface CoreFunctions {
    * Whom a pointer `across` a blank to-do line (0 at its left edge, 1 at its right) makes a to-do for, the one decision the click and the
    * hover ghost both ask. With thirds: the left third is the left lane (the signed-in person), the middle third one linked to-do for both
    * (settings.bothColor), the right third the right lane; `both` forces the middle (Shift on a click, the hidden button). Without thirds
-   * it is newOwners alone, whatever `across` is.
+   * it is newOwners alone, whatever `across` is, except that two or more lanes (not the thirds) are equal columns, `lane` = floor(across * lanes)
+   * clamped, the lane's own list; no position (NaN) is newOwners alone.
    */
   blankAim(sel: Selection, lists: readonly ListRecord[], settings: Settings, lanes: readonly Lane[], across: number, both?: boolean): BlankAim;
   /**

@@ -7,7 +7,8 @@ import { esc, type PanelContext } from '../panelContext';
  * priorities. In the Both view the left third of a blank line makes a to-do for the left lane's person (the signed-in one), the middle
  * third one linked to-do for both, the right third the right lane's person. A pointer sees the cell a click will make, in that owner's
  * color (the hover ghost, `.day-cell.day-newcell` like the priorities'); a finger has no hover and just taps. Where one list is shown there
- * are no thirds: the line is that list's. The click and the ghost both ask `aimAt`, which asks core `blankAim`, so they cannot disagree.
+ * are no thirds: the line is that list's. Two or more lanes that are not the thirds (a list on top) cut it into one equal column per lane, each
+ * that lane's list. The click and the ghost both ask `aimAt`, which asks core `blankAim`, so they cannot disagree.
  *
  * The three lists share this: each draws its blank lines (`blankLine`) and says what opening a new to-do is (`open`).
  */
@@ -67,7 +68,7 @@ export function mountBlanks(ctx: PanelContext, spec: BlankSpec): () => void {
     const slot = slotOf(event.target as Element);
     if (!slot || !pointable(slot)) { hide(); return; }
     const aim = aimAt(slot, event.clientX, event.shiftKey);
-    const where = `${slot.dataset.slot}:${aim.side}:${aim.color}`;
+    const where = `${slot.dataset.slot}:${aim.side}:${aim.side === 'lane' ? aim.lane : ''}:${aim.color}`;
     if (where === ghostAt && ghost?.isConnected) { return; }
     hide();
     ghostAt = where;
@@ -76,6 +77,12 @@ export function mountBlanks(ctx: PanelContext, spec: BlankSpec): () => void {
     ghost.className = 'day-cell day-newcell todo-newcell';
     ghost.dataset.c = aim.color;
     ghost.dataset.side = aim.side;
+    // One column of N equal ones across the whole line, a 4px gap between columns.
+    if (aim.side === 'lane') {
+      ghost.dataset.lane = String(aim.lane);
+      ghost.style.left = `calc(${aim.lane} * (100% + 4px) / ${aim.lanes})`;
+      ghost.style.right = `calc(${aim.lanes - 1 - aim.lane} * (100% + 4px) / ${aim.lanes})`;
+    }
     slot.append(ghost);
   });
   list.addEventListener('mouseleave', hide);

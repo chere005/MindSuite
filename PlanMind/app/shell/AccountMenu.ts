@@ -1,14 +1,14 @@
 import '../styles/account.css';
-import { esc, icons, type PanelContext } from '../panelContext';
+import { esc, type PanelContext } from '../panelContext';
 import { openSettings } from './Settings';
 
 /**
- * The account: one button (a dot in the list's color, the name, a chevron) that opens a small menu with Account, Settings and Sign out,
- * the suite's username dropdown (seancheren-site lib/chrome.php) drawn with PlanMind's own markup. It sits in the
- * top bar on every screen, so Settings remains in the same place. The `where` suffix
- * keeps the existing control ids stable. Sign out stays a real CSRF form.
+ * The account: one button (the name and a chevron, in the suite's pill: the same top-right corner as every MindSuite app) that opens a
+ * small menu with Account, Settings and Sign out, the suite's username dropdown (seancheren-site lib/chrome.php) drawn with PlanMind's
+ * own markup. The chevron is drawn by the shared suite-topbar.css. It sits in the top bar on every screen, so Settings remains in the
+ * same place. The `where` suffix keeps the existing control ids stable. Sign out stays a real CSRF form.
  */
-export const accountWho = (ctx: PanelContext) => `<span class="account-who" data-c="${ctx.lists.find(l => l.id === ctx.me)?.color ?? 'gray'}"><i class="owner-dot" aria-hidden="true"></i><span class="account-name ms-app-account-label">${esc(ctx.lists.find(l => l.id === ctx.me)?.name ?? ctx.me)}</span></span>`;
+export const accountWho = (ctx: PanelContext) => `<span class="account-who"><span class="account-name ms-app-account-label">${esc(ctx.lists.find(l => l.id === ctx.me)?.name ?? ctx.me)}</span></span>`;
 
 /**
  * Under the suite's shared sign-in the page (server/public/PlanMind/index.php) names the account page on #app: Sign out posts there, and the
@@ -22,7 +22,7 @@ const logoutForm = (csrf: string) => {
 };
 
 export const accountMenuHtml = (ctx: PanelContext, where: 'bar' | 'drawer') => `<div class="account-menu ms-app-user" data-where="${where}">
-  <button type="button" class="account-button ms-app-account" id="account-button-${where}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-pop-${where}"><span class="ms-app-account-face">${accountWho(ctx)}<span class="account-chevron ms-app-caret">${icons.chevronDown}</span></span></button>
+  <button type="button" class="account-button ms-app-account" id="account-button-${where}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-pop-${where}"><span class="ms-app-account-face">${accountWho(ctx)}<span class="account-chevron ms-app-caret" aria-hidden="true"></span></span></button>
   <div class="account-pop ms-app-menu" id="account-pop-${where}" role="menu" aria-labelledby="account-button-${where}" hidden>
     ${signOutAt()?.next ? `<a class="ms-app-menu-row" href="${esc(signOutAt()!.next)}" role="menuitem" tabindex="-1">Account</a>` : ''}
     <button class="ms-app-menu-row" type="button" role="menuitem" tabindex="-1" data-act="settings">Settings</button>
@@ -78,8 +78,8 @@ export function mountAccountMenus(root: HTMLElement, ctx: PanelContext): () => v
   return () => abort.abort();
 }
 
-/** The dot follows the list's color (it can be changed in the manager) and the name follows a rename. */
+/** The name follows a rename of the signed-in person's list. */
 export function drawAccount(root: HTMLElement, ctx: PanelContext) {
   const me = ctx.lists.find(l => l.id === ctx.me);
-  root.querySelectorAll<HTMLElement>('.account-who').forEach(who => { who.dataset.c = me?.color ?? 'gray'; who.querySelector('.account-name')!.textContent = me?.name ?? ctx.me; });
+  root.querySelectorAll<HTMLElement>('.account-who').forEach(who => { who.querySelector('.account-name')!.textContent = me?.name ?? ctx.me; });
 }

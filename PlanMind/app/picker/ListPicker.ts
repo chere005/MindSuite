@@ -1,5 +1,5 @@
 import '../styles/picker.css';
-import { CAPS, pickerColors, pickerRows, selectOnly, toggleOverlay, type ColorKey, type PickerRow } from '../../packages/core/src/planner';
+import { CAPS, pickerColors, pickerRows, switchBase, toggleOverlay, type ColorKey, type PickerRow } from '../../packages/core/src/planner';
 import { esc, isPhone, type PanelContext, type Unmount } from '../panelContext';
 import { openListManager } from './ListManager';
 import { openRhythmEditor } from './RhythmEditor';
@@ -18,9 +18,9 @@ function pie(colors: ColorKey[]): string {
 }
 
 /**
- * The round list picker beside the account. Tapping a row shows that list alone; ticking a custom list's box adds
- * it on top of the view. The state lives in ctx.state (it saves the choice a moment after the last change); this
- * file draws the button and the menu from core's pickerRows and calls selectOnly and toggleOverlay.
+ * The round list picker beside the account. Tapping a row makes it the base and keeps the ticked lists; ticking a custom
+ * list's box adds it on top of the view. The state lives in ctx.state (it saves the choice a moment after the last change); this
+ * file draws the button and the menu from core's pickerRows and calls switchBase and toggleOverlay.
  *
  * On a desktop's Day the menu ends its rows with a Chores switch (a house, on or off): on, the Day's To-do section lists the day's chores instead (chores
  * ignore the lists, and the Schedule, Priorities and Notes keep following the selection, which the switch never touches); off, the to-dos are back. It is
@@ -107,7 +107,7 @@ export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
     const select = target.closest<HTMLElement>('.picker-select');
     if (select) {
       // Chores is a switch, not a list: it leaves the selection as it is.
-      if (select.dataset.id === 'chores') { ctx.setChores(!ctx.chores); } else { ctx.setSelection(selectOnly(select.dataset.id!)); }
+      if (select.dataset.id === 'chores') { ctx.setChores(!ctx.chores); } else { ctx.setSelection(switchBase(ctx.selection, select.dataset.id!, ctx.lists)); }
       setOpen(false, true);
       return;
     }

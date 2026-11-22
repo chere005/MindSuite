@@ -15,8 +15,8 @@ const pillLabel = (view: View, date: string) =>
 /** The shared app bar keeps identity and account controls in one place; phone dates have their own toolbar. */
 export const topBarHtml = (ctx: PanelContext) => `<header class="topbar ms-app-bar">
   <div class="ms-app-brand">
-    <button id="back-view" class="back-button ms-app-icon" type="button" hidden><span class="ms-app-icon-face">${icons.left}</span><span id="back-label" class="sr-only"></span></button>
     <button id="menu" class="icon-button ms-app-icon mobile-only" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><span class="ms-app-icon-face">${icons.menu}</span></button>
+    <button id="back-view" class="back-button ms-app-icon" type="button" hidden><span class="ms-app-icon-face">${icons.left}</span><span id="back-label" class="sr-only"></span></button>
     <button id="sidebar-toggle" class="icon-button ms-app-icon desktop-only" type="button" aria-controls="sidebar" aria-expanded="true" aria-label="Hide sidebar" title="Hide sidebar"><span class="ms-app-icon-face">${icons.sidebar}</span></button>
     <div class="topbar-heading"><h1 class="ms-app-title"><span id="mode-heading" class="desktop-only"></span><span class="mobile-only">PlanMind</span></h1></div>
   </div>
@@ -55,7 +55,7 @@ export function mountTopBar(root: HTMLElement, ctx: PanelContext, drawer: Drawer
     },
     focusSidebarButton() { toggle.focus(); },
     draw() {
-      // Back to the month a day was opened from: it replaces the phone's menu button, and stands beside the sidebar button on a desktop.
+      // Back to the month a day was opened from: it stands right after the phone's menu button (the menu holds the Day's choices), and beside the sidebar button on a desktop.
       const back = ctx.backTo;
       $('#back-view').hidden = !back;
       $('#back-label').textContent = back ? BACK_LABEL[back] : '';

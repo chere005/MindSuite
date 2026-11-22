@@ -26,6 +26,19 @@ export const resolveSelection: CoreFunctions['resolveSelection'] = (sel, lists) 
 
 export const selectOnly: CoreFunctions['selectOnly'] = id => ({ base: id, overlays: [] });
 
+/**
+ * Tap a view row (Both, a person, a custom list): the base changes and the ticked lists stay ticked. Dropped: an overlay
+ * that is the new base (it is the base now), and, through resolveSelection, a list that no longer exists. A custom list
+ * that was the base is ticked on top (as an overlay) while there is room under CAPS.maxOverlays, so it does not untick;
+ * past the cap it is dropped. An unknown target leaves the selection as it was.
+ */
+export const switchBase: CoreFunctions['switchBase'] = (sel, base, lists) => {
+  const cur = resolveSelection(sel, lists);
+  if (base !== 'both' && !lists.some(l => l.id === base)) return cur;
+  const wasCustom = cur.base !== base && customLists(lists).some(l => l.id === cur.base);
+  return resolveSelection({ base, overlays: [...cur.overlays, ...(wasCustom ? [cur.base] : [])] }, lists);
+};
+
 export const toggleOverlay: CoreFunctions['toggleOverlay'] = (sel, id, lists) => {
   const cur = resolveSelection(sel, lists);
   if (!customLists(lists).some(l => l.id === id)) return { selection: cur };
@@ -84,7 +97,13 @@ export const blankThirds: CoreFunctions['blankThirds'] = (sel, lists, settings, 
 
 export const blankAim: CoreFunctions['blankAim'] = (sel, lists, settings, lanes, across, both = false) => {
   const whole = newOwners(sel, lists, settings);
-  if (!blankThirds(sel, lists, settings, lanes)) return { side: 'only', ...whole };
+  if (!blankThirds(sel, lists, settings, lanes)) {
+    // Two or more lanes that are not the Both thirds (Both or a person with a list on top, a list with overlays): the line is cut into
+    // one equal column per lane across the whole line, so every lane is reachable. No position (a keyboard) is the picker's base.
+    if (lanes.length < 2 || !Number.isFinite(across)) return { side: 'only', ...whole };
+    const lane = Math.min(lanes.length - 1, Math.max(0, Math.floor(across * lanes.length)));
+    return { side: 'lane', lane, lanes: lanes.length, ...newOwners(sel, lists, settings, lanes[lane].listId) };
+  }
   // A position that is not a number (a keyboard activation has none) is the middle: it never picks a person by accident.
   const at = Number.isFinite(across) ? across : 0.5;
   if (both || (at >= 1 / 3 && at < 2 / 3)) return { side: 'both', ...whole };

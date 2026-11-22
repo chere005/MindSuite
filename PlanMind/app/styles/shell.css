@@ -25,12 +25,13 @@
 .content{margin-left:260px;height:100dvh;display:flex;flex-direction:column}
 .topbar{flex:none;position:relative;z-index:11}
 .topbar-heading{min-width:0;overflow:hidden}
-.phone-toolbar{flex:none;align-items:center;justify-content:center;padding:0 16px 10px;min-width:0}
+/* The phone's date toolbar (a phone only: .mobile-only). Its date pill sits on the panel's own 6px top padding, so the Day's tabs keep their one-screen fit under the bar and it. */
+.phone-toolbar{flex:none;align-items:center;justify-content:center;padding:0 16px;min-width:0}
 .topbar .ms-app-actions{min-width:0}
 .topbar .ms-app-brand{gap:8px}
 .topbar .ms-app-icon{flex:none}
 .topbar.ms-app-bar .mobile-only{display:none}
-/* Back to the month a day was opened from. On a phone it stands where the menu button is. */
+/* Back to the month a day was opened from. On a phone it stands right after the menu button, which stays: it holds the Day's AM/PM and CalMind choices. */
 .back-button{flex:none}
 .back-button[hidden]{display:none}
 #sync-status{font-size:11px;color:var(--dim);white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
@@ -39,7 +40,6 @@
 .picker-slot{display:flex;align-items:center}
 .account{display:flex;align-items:center;font-size:12px;white-space:nowrap}
 .account-who{display:inline-flex;align-items:center;gap:7px;color:inherit}
-.owner-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none;background:var(--tone-line)}
 .phone-nav{display:flex;align-items:center;justify-content:center;flex:1;gap:8px;min-width:0}
 .date-pill{border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px;min-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .page{--head-h:32px;--head-gap:8px;flex:1;min-height:0;display:flex;flex-direction:column;width:100%;max-width:910px;margin:0 auto;padding:0 48px 10px}
@@ -103,18 +103,18 @@
 .drawer-switch[aria-checked=true] .picker-toggle::after{background:var(--accent);transform:translateX(14px)}
 .sidebar-footer{margin-top:0;padding-top:14px;padding-bottom:max(16px,env(safe-area-inset-bottom))}
 .content{margin-left:0;height:100dvh;display:flex;flex-direction:column}
-/* Back replaces the navigation drawer button on a phone; the date toolbar stays available below. */
-.topbar[data-back] #menu{display:none}
 .topbar .ms-app-brand{flex:1;min-width:0}
 .topbar .ms-app-actions{flex:none}
 .topbar.ms-app-bar .mobile-only{display:inline-flex}
+/* The title is a block, not a flex box, so the shared .ms-app-title > * ellipsis can draw when Back and the menu leave it little room (320px). */
+.topbar.ms-app-bar .ms-app-title > .mobile-only{display:block}
 .topbar.ms-app-bar .desktop-only{display:none}
 .topbar .account{min-width:0}
 #sync-status,.page-header .titles{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .header-actions{display:none}
 .page{position:relative;max-width:none;margin:0;padding:0;flex:1;min-height:0;display:flex;flex-direction:column}
 .page-header{margin:0;display:block}
-/* The phone's toast lies over the top bar's date and arrows, between the menu (or Back) and the picker (#146; Shell.seatBanner measures
+/* The phone's toast lies over the date toolbar's date and arrows, under the bar's menu and picker (#146; Shell.seatBanner measures
    that stretch): the AM/PM switch, the lane names and the panel stay in sight and nothing moves. Before it is measured, a little inside the panel. */
 .error-banner{top:var(--ban-top,6px);left:var(--ban-left,10px);right:var(--ban-right,10px);box-sizing:border-box;min-height:44px;padding:3px 4px 3px 12px;gap:6px;font-size:12px;line-height:1.3;border-radius:12px}
 .error-banner .text-button{flex:none;min-height:38px;padding:0 8px}

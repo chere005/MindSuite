@@ -4,7 +4,7 @@ import { MIN_CONTRAST } from '../packages/core/src/planner';
 import { API, accountMenu, apiLogin, browserStorage, isPhone, login, showTheme, textContrast } from './helpers';
 import { OWNER, PARTNER, PARTNER_NAME } from './people';
 
-// The account: one button (dot, name, chevron) that opens a menu of Settings and Sign out; Settings is a window with the
+// The account: one button (the suite's pill: name and chevron, as in every MindSuite app) that opens a menu of Settings and Sign out; Settings is a window with the
 // suite's four themes, applied at once and saved as the account's theme (the same prefs file CalMind and the suite read). The
 // top bar holds the button on desktop and phone. Both projects run this file.
 const THEME_NAMES = Object.keys(THEMES) as ThemeName[];
@@ -32,15 +32,19 @@ async function resetThemes(baseURL: string) {
 test.afterEach(async ({ baseURL }) => { await resetThemes(baseURL!); });
 
 test.describe('the account menu', () => {
-  test('one button with the dot, the name and a chevron opens a menu of Settings and Sign out; there is no separate Sign out button', async ({ page }) => {
+  test('one button with the name and a chevron opens a menu of Settings and Sign out; there is no separate Sign out button', async ({ page }) => {
     await login(page, PARTNER);
     const button = page.getByRole('button', { name: PARTNER_NAME, exact: true });
     await expect(button).toBeVisible();
     await expect(button).toHaveAttribute('aria-haspopup', 'menu');
     await expect(button).toHaveAttribute('aria-expanded', 'false');
-    await expect(button.locator('.account-who')).toHaveAttribute('data-c', 'yellow');
-    await expect(button.locator('.owner-dot')).toBeVisible();
-    await expect(button.locator('.account-chevron svg')).toBeVisible();
+    await expect(button.locator('.account-name')).toHaveText(PARTNER_NAME);
+    // The suite's pill, as CalMind draws it: no list dot, and the chevron is the shared stylesheet's drawn corner.
+    await expect(button.locator('.owner-dot')).toHaveCount(0);
+    const chevron = button.locator('.account-chevron');
+    await expect(chevron).toBeVisible();
+    // Two strokes (right and bottom, 1.5px: a browser may draw that as one device pixel), turned into a chevron.
+    expect(await chevron.evaluate(el => { const s = getComputedStyle(el); return [el.getBoundingClientRect().width > 0, parseFloat(s.borderRightWidth) > 0, parseFloat(s.borderBottomWidth) > 0, s.borderTopWidth, s.transform !== 'none']; })).toEqual([true, true, true, '0px', true]);
     await expect(page.getByRole('menu')).toBeHidden();
     await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0);
     await button.click();
@@ -145,8 +149,8 @@ test.describe('the account menu', () => {
     await expect(menu).toBeHidden();
     await button.click();
     await expect(menu).toBeVisible();
-    // Outside: the page itself, by mouse on a desktop and by a finger on a phone.
-    if (isPhone(info.project.name)) { await page.locator('.date-row').first().tap(); } else { await page.locator('.page-header h1').click(); }
+    // Outside: the page itself, by mouse on a desktop and by a finger on a phone (there the bar's title: the account is no longer in the drawer, so the drawer is closed).
+    if (isPhone(info.project.name)) { await page.locator('.topbar h1').tap(); } else { await page.locator('.page-header h1').click(); }
     await expect(menu).toBeHidden();
     await expect(button).toHaveAttribute('aria-expanded', 'false');
   });

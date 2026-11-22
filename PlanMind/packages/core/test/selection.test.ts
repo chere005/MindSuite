@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CAPS, canonicalOwners, resolveSelection, selectOnly, toggleOverlay, pickerRows, pickerColors, resolveLanes, newOwners, blankAim, blankThirds, listDeleteImpact,
+  CAPS, canonicalOwners, resolveSelection, selectOnly, switchBase, toggleOverlay, pickerRows, pickerColors, resolveLanes, newOwners, blankAim, blankThirds, listDeleteImpact,
   type ListRecord, type Selection, type Settings,
 } from '../src/planner';
 
@@ -87,6 +87,35 @@ describe('selectOnly', () => {
     expect(selectOnly('sam')).toEqual(sel('sam'));
     expect(selectOnly(CAMP)).toEqual(sel(CAMP));
     expect(selectOnly('both')).toEqual(sel('both'));
+  });
+});
+
+describe('switchBase', () => {
+  it('keeps the ticked overlays when the base changes between Both and the people', () => {
+    expect(switchBase(sel('both', CAMP, HOME), 'sam', lists)).toEqual(sel('sam', CAMP, HOME));
+    expect(switchBase(sel('sam', CAMP), 'alex', lists)).toEqual(sel('alex', CAMP));
+    expect(switchBase(sel('alex', CAMP), 'both', lists)).toEqual(sel('both', CAMP));
+  });
+  it('drops the overlay that becomes the base', () => {
+    expect(switchBase(sel('sam', CAMP, HOME), CAMP, lists)).toEqual(sel(CAMP, HOME));
+  });
+  it('ticks a custom base on top when it is left, while there is room', () => {
+    expect(switchBase(sel(CAMP), 'sam', lists)).toEqual(sel('sam', CAMP));
+    expect(switchBase(sel(CAMP, HOME), 'both', lists)).toEqual(sel('both', HOME, CAMP));
+    expect(switchBase(sel(CAMP, HOME), GIFT, lists)).toEqual(sel(GIFT, HOME, CAMP));
+  });
+  it('drops that old base at the overlay limit, and never exceeds it', () => {
+    expect(switchBase(sel(CAMP, HOME, GIFT), 'sam', lists)).toEqual(sel('sam', HOME, GIFT));
+    expect(switchBase(sel('both', HOME, GIFT), 'sam', lists).overlays).toHaveLength(CAPS.maxOverlays);
+  });
+  it('drops overlays whose list no longer exists, and an unknown target changes nothing', () => {
+    const without = lists.filter(l => l.id !== HOME);
+    expect(switchBase(sel('both', CAMP, HOME), 'sam', without)).toEqual(sel('sam', CAMP));
+    expect(switchBase(sel('sam', CAMP), 'nope', lists)).toEqual(sel('sam', CAMP));
+  });
+  it('is the same as the server: the result survives resolveSelection untouched', () => {
+    const out = switchBase(sel('alex', HOME, GIFT), CAMP, lists);
+    expect(resolveSelection(out, lists)).toEqual(out);
   });
 });
 
@@ -265,12 +294,28 @@ describe('blankAim: the thirds of a blank to-do line (the click and the hover gh
       expect(aim(sel(CAMP), across)).toEqual({ side: 'only', owners: [CAMP], color: 'blue' });
     }
   });
-  it('a custom list with an overlay, and Both with an overlay (three lanes), have no thirds: the line is for the top picker\'s base', () => {
+  it('a custom list with an overlay, and Both with an overlay (three lanes), have no thirds: one equal column per lane across the whole line', () => {
     expect(blankThirds(sel(CAMP, HOME), lists, settings, lanesOf(sel(CAMP, HOME)))).toBe(false);
-    expect(aim(sel(CAMP, HOME), 0.9)).toEqual({ side: 'only', owners: [CAMP], color: 'blue' });
+    expect(aim(sel(CAMP, HOME), 0.1)).toEqual({ side: 'lane', lane: 0, lanes: 2, owners: [CAMP], color: 'blue' });
+    expect(aim(sel(CAMP, HOME), 0.9)).toEqual({ side: 'lane', lane: 1, lanes: 2, owners: [HOME], color: 'orange' });
     expect(blankThirds(sel('both', HOME), lists, settings, lanesOf(sel('both', HOME)))).toBe(false);
-    expect(aim(sel('both', HOME), 0.1)).toEqual({ side: 'only', owners: ['alex', 'sam'], color: 'purple' });
+    expect(aim(sel('both', HOME), 0.1)).toEqual({ side: 'lane', lane: 0, lanes: 3, owners: ['alex'], color: 'green' });
+    expect(aim(sel('both', HOME), 0.5)).toEqual({ side: 'lane', lane: 1, lanes: 3, owners: ['sam'], color: 'yellow' });
+    expect(aim(sel('both', HOME), 0.9)).toEqual({ side: 'lane', lane: 2, lanes: 3, owners: [HOME], color: 'orange' });
     expect(blankThirds(sel('both'), lists, settings, lanesOf(sel('both')))).toBe(true);
+  });
+  it('the columns start at 1/N, the ends and stray positions clamp, and no position is the picker\'s base', () => {
+    const three = sel('both', HOME);
+    expect(aim(three, 1 / 3 - 0.001)).toMatchObject({ lane: 0 });
+    expect(aim(three, 1 / 3)).toMatchObject({ lane: 1 });
+    expect(aim(three, 2 / 3 - 0.001)).toMatchObject({ lane: 1 });
+    expect(aim(three, 2 / 3)).toMatchObject({ lane: 2 });
+    expect(aim(three, 1)).toMatchObject({ lane: 2 });
+    expect(aim(three, -3)).toMatchObject({ lane: 0 });
+    expect(aim(three, 7)).toMatchObject({ lane: 2 });
+    expect(aim(three, 0.9, true)).toMatchObject({ lane: 2 });
+    expect(aim(three, Number.NaN)).toEqual({ side: 'only', owners: ['alex', 'sam'], color: 'purple' });
+    expect(aim(sel('both', HOME, GIFT), 0.99)).toMatchObject({ lane: 3, lanes: 4 });
   });
 });
 

@@ -3,9 +3,13 @@
  * tokens and tones.css only, so it works whether or not components.css is loaded. Colors come from data-c.
  */
 .picker{position:relative;display:flex;align-items:center}
-.picker-button{display:inline-flex;align-items:center;justify-content:center;height:44px;min-width:44px;padding:0;border:0;color:var(--text);font-size:12px;max-width:180px}
-.picker-button-face{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 8px;border:1px solid var(--line);border-radius:999px;min-width:0;max-width:100%}
+/* The button is the suite's folder button at every width (CalMind's folder pie, SuiteTopBar's picker ring): a 32px ring on the
+   surface in a 44px target, holding the pie of the lists in view at 16px. The names stay in its accessible name, not on screen. */
+.picker-button{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;padding:0;border:0;color:var(--text);font-size:12px}
+.picker-button-face{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;gap:0;border:1px solid var(--line);border-radius:50%;background:var(--surface)}
 .picker-button:hover .picker-button-face,.picker-button[aria-expanded=true] .picker-button-face{background:var(--surface-2)}
+.picker-button .pie{width:16px;height:16px}
+.picker-button .picker-name,.picker-button .picker-chevron{display:none}
 .picker-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 /* Chores (a house): on a phone the button wears it while the Chores view is on, locked: grey, nothing to open. On a desktop's Day it is the menu's switch row. */
 .picker-house{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface-2);color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
@@ -127,9 +131,6 @@
 .manager .manager-input{font-size:16px;height:32px}
 .manager-trash{min-width:44px;height:44px}
 .picker{position:static}
-.picker-button{width:44px;padding:0;justify-content:center;gap:0}
-.picker-button-face{width:32px;padding:0;justify-content:center;gap:0}
-.picker-name,.picker-chevron{display:none}
 .picker-menu{position:fixed;top:calc(var(--topbar-height) + 4px);left:12px;right:12px;width:auto;max-width:none}
 .manager{padding:18px 16px max(16px,env(safe-area-inset-bottom))}
 .color-line{align-items:flex-start;flex-direction:column;gap:4px}

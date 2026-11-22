@@ -28,9 +28,9 @@ test('the row of pills is gone: the lane names sit directly under the date bar, 
   for (const gone of ['.day-schedtools', '.day-half', '.day-calbtn']) { await expect(page.locator(gone)).toHaveCount(0); }
   const at = await page.evaluate(() => {
     const top = (s: string) => document.querySelector(s)!.getBoundingClientRect();
-    return { bar: top('.topbar').bottom, lanes: top('.day-lanehead'), grid: top('.day-timeline'), tabs: top('.day-tabs') };
+    return { bar: top('.phone-toolbar').bottom, lanes: top('.day-lanehead'), grid: top('.day-timeline'), tabs: top('.day-tabs') };
   });
-  // Lane names within a few pixels of the bar's rule (the panel's 6px top padding), the grid right under them and above the tab bar.
+  // Lane names within a few pixels of the date bar (since the suite's top bar, 2026-11-15, the toolbar under it; the panel's 6px top padding), the grid right under them and above the tab bar.
   expect(at.lanes.top - at.bar).toBeLessThan(14);
   expect(at.grid.top - at.lanes.bottom).toBeLessThan(6);
   expect(at.grid.bottom).toBeLessThanOrEqual(at.tabs.top + 0.5);
@@ -62,10 +62,11 @@ test('the menu holds an AM/PM two-option item and a CalMind switch, in the drawe
     expect(b.x + b.width).toBeLessThanOrEqual(await page.evaluate(() => document.querySelector('#sidebar')!.getBoundingClientRect().right) + 0.5);
   }
   expect(await tools.locator('.view-switch').evaluate(e => getComputedStyle(e).borderRadius)).toBe(await page.locator('#sidebar > .view-switch').evaluate(e => getComputedStyle(e).borderRadius));
-  // The menu still has everything it had: the view switch, Today, the dates, the account.
+  // The menu still has everything it had: the view switch, Today, the dates. The account is the top bar's, on a phone too (the suite's top bar, 2026-11-15).
   await expect(page.locator('#sidebar [data-view=day]')).toBeVisible();
   await expect(page.locator('#sidebar #today')).toBeVisible();
-  await expect(page.locator('#sidebar .account-button')).toBeVisible();
+  await expect(page.locator('#sidebar .account-button')).toHaveCount(0);
+  await expect(page.locator('.topbar #account-button-bar')).toBeVisible();
 });
 
 test('choosing PM closes the menu, returns the focus to the hamburger, draws the PM page and says PM in the corner; AM comes back', async ({ page }) => {
