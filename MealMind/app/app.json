@@ -11,6 +11,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.seancheren.chefmind",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "buildNumber": "3"
     },
     "android": {
@@ -32,7 +35,15 @@
       "baseUrl": "/MealMind"
     },
     "plugins": [
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MealMind reads the recipe cards in the photos you pick.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "extra": {
       "markPath": "M 15 70 V 26 L 31 48 L 47 26 V 70 M 61 70 V 40 L 71 54 L 81 40 V 70"
