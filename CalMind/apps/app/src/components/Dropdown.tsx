@@ -11,7 +11,7 @@ import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 import { Scroll } from '../ui';
 import { themed, T } from '../theme';
 
-export type DropdownOption = { id: string; label: string; color?: string };
+export type DropdownOption = { id: string; label: string; color?: string; testID?: string };
 
 export function Dropdown({
   value,
@@ -20,7 +20,6 @@ export function Dropdown({
   gold = false,
   placeholder = '—',
   testID,
-  optionTestIDPrefix,
   deferSelection = false,
 }: {
   value: string | null;
@@ -29,8 +28,6 @@ export function Dropdown({
   gold?: boolean;
   placeholder?: string;
   testID?: string;
-  /** When set, each menu row gets testID `${prefix}${option.id}`. */
-  optionTestIDPrefix?: string;
   /** Finish dismissing the iOS menu before opening another modal. */
   deferSelection?: boolean;
 }) {
@@ -65,7 +62,7 @@ export function Dropdown({
                 {options.map((o) => (
                   <Pressable
                     key={o.id}
-                    testID={optionTestIDPrefix ? `${optionTestIDPrefix}${o.id}` : undefined}
+                    testID={o.testID}
                     accessibilityRole="button"
                     accessibilityLabel={o.label}
                     style={s.row}

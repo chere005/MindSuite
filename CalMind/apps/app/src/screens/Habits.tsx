@@ -38,6 +38,7 @@ import { dropTarget, slotEntries } from '../components/rowslots';
 import { useSectionDrag } from '../components/sectiondrag';
 import { CircleBtn, ConfirmDelete, FoldCaret, Scroll, WebHitSlop } from '../ui';
 import { useFolds } from '../folds';
+import { useWide } from '../components/WideFrame';
 import { HabitEditor } from '../components/HabitEditor';
 
 // Habit sections sit in one flat list with no folder above them, so the
@@ -130,6 +131,7 @@ export function Habits() {
   const { visible: sections } = useHabitSections();
   const today = todayStr();
   const { width: winWidth } = useWindowDimensions();
+  const { wide } = useWide();
   const [w, setW] = useState(0);
   const [ym, setYm] = useState(today.slice(0, 7));
   /** One level here — see folds.ts, and core's foldLevel for the hold's rule. */
@@ -411,7 +413,7 @@ export function Habits() {
       />
 
       {/* Week|Month segmented at the left; the labelled pager at the right. */}
-      <View style={s.controlRow}>
+      <View style={[s.controlRow, wide && s.controlRowWide, wide && view === 'month' && s.controlRowWideMonth]}>
         <View style={s.segmented}>
           <Pressable style={[s.segBtn, view === 'week' && s.segOn]} onPress={() => setView('week')}>
             <Text style={[s.segText, view === 'week' && s.segTextOn]}>Week</Text>
@@ -441,19 +443,19 @@ export function Habits() {
             content layout (s.scroll) so arming edit mode cannot move
             anything — see EditExit for the story. */}
         <EditExit active={edit} onExit={() => setEdit(false)} style={s.scroll}>
-        <View testID="habits-pan" {...pan.panHandlers}>
+        <View testID="habits-pan" {...pan.panHandlers} style={wide ? (view === 'month' ? s.gridWideMonth : s.gridWide) : undefined}>
         {view === 'week' && (
           <>
-            <View style={s.headRow}>
+            <View style={[s.headRow, wide && s.headRowWide]}>
               {/* The name column keeps its WIDTH — it is what aligns the day
                   columns with the rows beneath — but the collapse-all that
                   used to sit in it has moved to the top bar, right of the
                   name, where Reminders and Notes now have theirs. Leaving a
                   second copy here would have been two controls doing one
                   thing, which is how they drift apart. */}
-              <View style={s.nameCol} />
+              <View style={[s.nameCol, wide && s.nameColWide]} />
               {days.map((d) => (
-                <View key={d} testID="habit-daycol" style={s.dayCol}>
+                <View key={d} testID="habit-daycol" style={[s.dayCol, wide && s.dayColWide]}>
                   <View testID="habit-dayhead" style={[s.dayHead, d === today && s.dayHeadToday]}>
                     <Text style={[s.dayHeadText, d === today && s.dayHeadTextToday]}>
                       {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][new Date(`${d}T12:00:00`).getDay()]}
@@ -519,7 +521,7 @@ export function Habits() {
                     testID={`hsec-name-${sec.payload.name}`}
                     onLongPress={() => setEdit(true)}
                     delayLongPress={350}
-                    style={[s.secPill, { backgroundColor: tint(sec.payload.color, '2e') }]}
+                    style={wide ? s.secPillWide : [s.secPill, { backgroundColor: tint(sec.payload.color, '2e') }]}
                   >
                     <Text style={s.secPillText}>{sec.payload.name}</Text>
                   </Pressable>
@@ -540,10 +542,11 @@ export function Habits() {
                         ref={drag.registerRow(flatIdxOf(h.id))}
                         style={[
                           s.habitRow,
+                          wide && s.habitRowWide,
                           drag.dragIdx !== null && flatIdxOf(h.id) === drag.dragIdx && { opacity: 0.55 },
                         ]}
                       >
-                      <View style={s.nameCol}>
+                      <View style={[s.nameCol, wide && s.nameColWide]}>
                         {/* The edit controls FLOAT over the habit rather than
                             taking space in its row — the owner, 2026-08-12: "the
                             icons should appear on top of the habit, the sizes
@@ -587,7 +590,7 @@ export function Habits() {
                             same screen, so the edit pencil and the row agree. */}
                         <Pressable
                           testID="habit-namebox"
-                          style={[s.nameBox, { borderColor: tint(sec.payload.color, '55'), backgroundColor: tint(sec.payload.color, '14') }]}
+                          style={wide ? s.nameBoxWide : [s.nameBox, { borderColor: tint(sec.payload.color, '55'), backgroundColor: tint(sec.payload.color, '14') }]}
                           onPress={() => {
                             if (edit) { setEditor({ sectionId: sec.id, habit: h }); return; }
                             // DOUBLE-CLICK IS THE WAY IN WITH A MOUSE, and I
@@ -641,7 +644,7 @@ export function Habits() {
                         const off = !habitOnScheduleOn(h, d);
                         const future = d > today;
                         return (
-                          <View key={d} style={s.dayCol}>
+                          <View key={d} style={[s.dayCol, wide && s.dayColWide]}>
                             <Pressable
                               disabled={future}
                               onPress={() => toggle(h.id, d)}
@@ -748,6 +751,16 @@ const s = themed(() => StyleSheet.create({
   // render identically in and out of edit mode. scrollWrap is the container's.
   scrollWrap: { flexGrow: 1 },
   scroll: { padding: 16, paddingTop: 13, paddingBottom: 48, gap: 16, flexGrow: 1 },
+  controlRowWide: { maxWidth: 812, width: '100%', alignSelf: 'flex-start', paddingBottom: 4 },
+  controlRowWideMonth: { maxWidth: 592 },
+  gridWide: { width: '100%', maxWidth: 780, alignSelf: 'flex-start' },
+  gridWideMonth: { width: '100%', maxWidth: 560, alignSelf: 'flex-start' },
+  headRowWide: { paddingBottom: 4 },
+  nameColWide: { flexGrow: 0, flexShrink: 0, flexBasis: 260, width: 260 },
+  dayColWide: { width: 48 },
+  habitRowWide: { paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: T.lineSoft },
+  nameBoxWide: { flex: 1, minWidth: 0, paddingVertical: 8, paddingLeft: 28, paddingRight: 4, alignItems: 'flex-start' },
+  secPillWide: { paddingHorizontal: 2, paddingVertical: 4 },
   headRow: { flexDirection: 'row', alignItems: 'flex-end' },
   nameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 8 },
   dayCol: { width: 44, alignItems: 'center' },

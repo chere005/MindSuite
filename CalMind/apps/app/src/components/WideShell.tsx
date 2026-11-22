@@ -213,9 +213,8 @@ function QuickAdd({ tab, onNoteCreated }: { tab: Section; onNoteCreated: (id: st
         />
         <Dropdown
           testID="quick-kind"
-          optionTestIDPrefix="quick-kind-"
           value={kind}
-          options={[{ id: 'event', label: 'Event' }, { id: 'reminder', label: 'Reminder' }, { id: 'note', label: 'Note' }]}
+          options={[{ id: 'event', label: 'Event', testID: 'quick-kind-event' }, { id: 'reminder', label: 'Reminder', testID: 'quick-kind-reminder' }, { id: 'note', label: 'Note', testID: 'quick-kind-note' }]}
           onPick={(k) => setPicked(k as AddKind)}
         />
         <Pill testID="quick-add-go" compact primary label="Add" onPress={submit} />
