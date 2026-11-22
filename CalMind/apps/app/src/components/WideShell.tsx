@@ -1,8 +1,8 @@
 /**
  * CalMind's wide (desktop-size) layout: WideFrame filled with this app's own
- * sidebar, the section's existing screen with a quick-add field under its top
- * bar (handed to TopBar through BelowTopBar), and the
- * detail pane DetailPane draws. Every action lives here — the MindSuite bar
+ * sidebar, the section's existing screen, and a detail pane. Quick add sits
+ * above the calendar's day and upcoming views when they fit beside the grid.
+ * The other sections host quick add under their top bar. The MindSuite bar
  * above the app only switches apps (the owner, 2026-11-21).
  *
  * Layout and wiring only. The sections are the phone's own screens at full
@@ -66,11 +66,11 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
   const section: Section = tab === 'add' ? 'calendar' : tab;
   const resting = useRestingPane();
   const { detailBeside } = useWide();
-  // The field's state lives here, not in the field: the field is drawn inside
-  // each section's own top bar, so a section switch remounts it, and a
-  // half-typed line and the picked kind must survive that as they did when
-  // the field sat above the sections.
+  const calendarPane = section === 'calendar' && detailBeside;
+  // Keep drafts and the picked kind as quick add moves between panes and tabs.
   const add = useQuickAddState();
+  const quickAdd = <QuickAdd tab={section} onNoteCreated={onNoteCreated} state={add} inCalendarPane={calendarPane} />;
+  const editor = detail.item && <DetailBody item={detail.item} />;
 
   // Esc closes the pane (web), unless a picker or menu window is open over it.
   // One listener for the screen's life, reading the CURRENT close through a
@@ -104,11 +104,16 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
           {/* Kept mounted under the results, so a section does not lose its
               place (an open day, a half-typed edit) to a search. */}
           <View style={[s.screen, searching && s.hidden]}>
-            <BelowTopBar.Provider value={<QuickAdd tab={section} onNoteCreated={onNoteCreated} state={add} />}>{main}</BelowTopBar.Provider>
+            <BelowTopBar.Provider value={calendarPane ? null : quickAdd}>{main}</BelowTopBar.Provider>
           </View>
         </View>
       }
-      detail={detail.item ? <DetailBody item={detail.item} /> : section === 'calendar' && detailBeside && resting ? <View style={s.screen}>{resting}</View> : null}
+      detail={(calendarPane || editor) && (
+        <View style={s.screen}>
+          {calendarPane && quickAdd}
+          {editor ?? resting}
+        </View>
+      )}
       detailResting={!detail.item}
       onCloseDetail={detail.item?.onClose}
     />
@@ -214,7 +219,9 @@ function useQuickAddState() {
  * The Add tab, as a field: the same line, parsed and filed by the same
  * function (addline.ts), with the kind a click away.
  */
-function QuickAdd({ tab, onNoteCreated, state }: { tab: Section; onNoteCreated: (id: string) => void; state: QuickAddState }) {
+function QuickAdd({ tab, onNoteCreated, state, inCalendarPane }: {
+  tab: Section; onNoteCreated: (id: string) => void; state: QuickAddState; inCalendarPane: boolean;
+}) {
   const toast = useToast();
   const { text, setText, err, setErr, picked, setPicked } = state;
   const kind: AddKind = picked ?? (tab === 'reminders' ? 'reminder' : tab === 'notes' ? 'note' : 'event');
@@ -228,16 +235,17 @@ function QuickAdd({ tab, onNoteCreated, state }: { tab: Section; onNoteCreated: 
     if (res.noteId) onNoteCreated(res.noteId);
   };
   return (
-    <View style={s.addBar}>
-      <View style={s.addRow}>
+    <View testID={inCalendarPane ? 'cal-pane-add' : undefined} style={inCalendarPane ? s.paneAdd : s.addBar}>
+      {inCalendarPane && <Text accessibilityRole="header" style={s.paneAddTitle}>Add {kind}</Text>}
+      <View style={[s.addRow, inCalendarPane && s.paneAddRow]}>
         <Field
           testID="quick-add"
           accessibilityLabel="Quick add"
           value={text}
           onChangeText={(v) => { setText(v); setErr(''); }}
           onSubmitEditing={submit}
-          placeholder="Add a reminder or event, like “dentist thu 2pm”"
-          style={s.addField}
+          placeholder={inCalendarPane ? 'e.g. “dentist Thu 2pm”' : 'Add a reminder or event, like “dentist thu 2pm”'}
+          style={[s.addField, inCalendarPane && s.paneAddField]}
         />
         <View testID="quick-kind" accessibilityRole="radiogroup" style={s.kindBar}>
           {KINDS.map((k, i) => {
@@ -277,8 +285,12 @@ const s = themed(() => StyleSheet.create({
   results: { flex: 1, minHeight: 0, paddingHorizontal: 16 },
   resultsHead: { color: T.text, fontSize: 18, fontWeight: '700', paddingVertical: 12 },
   addBar: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: T.line, gap: 4 },
+  paneAdd: { margin: 12, marginBottom: 0, padding: 12, borderWidth: 1, borderColor: T.line, borderRadius: 10, backgroundColor: T.surface2, gap: 8, flexShrink: 0 },
+  paneAddTitle: { color: T.text, fontSize: 16, fontWeight: '700' },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  paneAddRow: { justifyContent: 'space-between' },
   addField: { flexGrow: 1, flexShrink: 1, flexBasis: 280, minWidth: 200, maxWidth: 560, paddingVertical: 8, fontSize: 14, backgroundColor: T.bg },
+  paneAddField: { flexBasis: '100%', minWidth: 0, maxWidth: '100%' },
   kindBar: { flexDirection: 'row', alignItems: 'stretch', borderWidth: 1, borderColor: T.line, borderRadius: 10, backgroundColor: T.surface, overflow: 'hidden' },
   kindBtn: { width: 36, height: 34, alignItems: 'center', justifyContent: 'center' },
   kindBtnOn: { backgroundColor: T.accentSoft },

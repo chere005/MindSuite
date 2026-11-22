@@ -18,10 +18,7 @@ import { useNav } from './nav';
 import { useWide } from './components/WideFrame';
 
 /**
- * What sits right under a section's top bar. The wide layout (WideShell) puts
- * its quick-add field here, around the section's own screen only, so the field
- * sits under the bar it belongs to rather than above it (the owner, 2026-11-22:
- * "add event should go under the top bar"). Nothing anywhere else.
+ * Quick add under a wide section's top bar when it has no dedicated pane.
  */
 export const BelowTopBar = React.createContext<React.ReactNode>(null);
 

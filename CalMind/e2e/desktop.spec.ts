@@ -59,9 +59,8 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   expect(grid.width, 'the month grid fills the main pane').toBeGreaterThan(main.width - 40);
   expect(await overflow(page), 'no sideways scroll at desktop width').toBeLessThanOrEqual(0);
 
-  // The quick-add field sits under each section's own top bar, once (the
-  // owner, 2026-11-22: "add event should go under the top bar").
-  for (const tab of ['calendar', 'reminders', 'notes', 'habits']) {
+  // The other sections still host their quick-add field under the top bar.
+  for (const tab of ['reminders', 'notes', 'habits']) {
     await page.getByTestId(`tab-${tab}`).click();
     await expect(page.getByTestId('quick-add')).toHaveCount(1);
     const bar = (await page.getByTestId('wide-main').getByTestId('suite-topbar').first().boundingBox())!;
@@ -70,6 +69,8 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   }
   await page.getByTestId('tab-calendar').click();
   await expect(page.getByTestId('pick-calendar'), 'the picker is still drawn').toBeVisible();
+  await expect(page.getByTestId('wide-rest').getByTestId('quick-add')).toBeVisible();
+  await expect(page.getByTestId('wide-main').getByTestId('quick-add')).toHaveCount(0);
 
   // Quick-add files through the Add tab's parser; the line shows in its cell.
   await quickAddEvent(page, 'Dentist 2pm');
@@ -79,6 +80,7 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   await page.getByTestId('cell-line').filter({ hasText: 'Dentist' }).first().click();
   const pane = page.getByTestId('wide-detail');
   await expect(pane).toBeVisible();
+  await expect(pane.getByTestId('quick-add')).toBeVisible();
   await expect(pane.getByPlaceholder(/What\?/)).toHaveValue('Dentist');
   await expect(pane.getByTestId('item-date')).toBeVisible();
   await expect(pane.getByTestId('item-dest')).toBeVisible();
@@ -153,6 +155,43 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
     await page.waitForTimeout(250);
   }
   expect(errors, 'no page errors at desktop width').toEqual([]);
+});
+
+test('calendar quick add stays above the selected day and the scrolling upcoming section', async ({ page }) => {
+  await page.setViewportSize({ ...WIDE, height: 480 });
+  await signup(page);
+
+  const pane = page.getByTestId('wide-rest');
+  const addSection = pane.getByTestId('cal-pane-add');
+  const add = addSection.getByTestId('quick-add');
+  const selectedDay = pane.getByTestId('cal-pane-day');
+  const upcoming = pane.getByTestId('cal-pane-upcoming');
+  const agenda = upcoming.getByTestId('cal-up-scroll');
+  for (let i = 1; i <= 12; i++) {
+    await add.fill(`Appointment ${i} tomorrow at 2pm`);
+    await add.press('Enter');
+    await expect(add).toHaveValue('');
+  }
+
+  await expect(upcoming.getByRole('heading', { name: 'Coming up' })).toBeVisible();
+  await expect(addSection).toHaveCSS('border-top-width', '1px');
+  await expect(selectedDay).toHaveCSS('border-top-width', '1px');
+  await expect(upcoming).toHaveCSS('border-top-width', '1px');
+  const addBox = (await addSection.boundingBox())!;
+  const dayBox = (await selectedDay.boundingBox())!;
+  expect(dayBox.y).toBeGreaterThan(addBox.y + addBox.height);
+  expect((await upcoming.boundingBox())!.y).toBeGreaterThan(dayBox.y + dayBox.height);
+
+  await agenda.hover();
+  await page.mouse.wheel(0, 250);
+  await expect.poll(() => agenda.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await expect(add).toBeInViewport();
+  expect((await addSection.boundingBox())!.y).toBe(addBox.y);
+
+  for (const view of ['week', 'list', 'month']) {
+    await page.getByTestId(`cal-view-${view}`).click();
+    await expect(add).toBeVisible();
+  }
 });
 
 test('at 1000×800 the detail pane opens over the main pane and the backdrop closes it', async ({ page }) => {
