@@ -17,7 +17,7 @@ import { parseAmount } from './money';
 import { addDays, isDay } from './day';
 import { newId, REORDER_GAP, withAmount } from './txn';
 import { tombstone, touch } from './merge';
-import { autoCategory, categoryRules } from './categorization';
+import { autoCategoryAssignment, categoryRules } from './categorization';
 import type { Store, Txn } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -601,7 +601,7 @@ export function applyImport(
       amount: row.amount,
       date: row.date,
       account,
-      category: autoCategory({ name, description: row.description, category: null }, rules),
+      ...autoCategoryAssignment({ name, description: row.description, category: null }, rules),
       order: base + (i + 1) * REORDER_GAP,
       created: now,
       updated: now,

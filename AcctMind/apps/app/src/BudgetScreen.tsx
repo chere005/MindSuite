@@ -231,7 +231,7 @@ export function BudgetScreen({
   ) => void;
 }) {
   // Read-only: no pencil, no +, no pick bar, no snooze box, amounts are plain text.
-  const { readOnly, banner } = useReadOnly();
+  const { readOnly } = useReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [spending, setSpending] = useState<{ kind: 'line' | 'category'; id: string } | null>(null);
@@ -494,7 +494,6 @@ export function BudgetScreen({
         }
         menu={menu}
       />
-      {banner}
 
       {/* THE NUMBERS FIRST, then the controls that decide them — the owner,
           2026-09-21. It was the other way round from 2026-09-16, on the

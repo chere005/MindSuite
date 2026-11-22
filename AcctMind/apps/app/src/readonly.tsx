@@ -2,60 +2,75 @@
  * Read-only mode, for every width.
  *
  * ONE flag (core's `ledgerAccess`, read through `useLedgerAccess`) reaches the
- * screens by context so a control that edits can simply not be drawn. The
- * banner is built once by App and handed down the same way, so each screen can
- * put it where its own layout wants it (under the phone's top bar, at the top
- * of the wide main pane).
+ * screens by context. The badge is rendered beside the app name in each layout.
  */
-import { createContext, useContext, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { readOnlyBanner, type SyncInfo } from '@acctmind/core';
-import { SPACE, T } from './theme';
+import { SPACE, T, TAP } from './theme';
 
-export type ReadOnlyValue = { readOnly: boolean; banner: ReactNode };
-export const ReadOnlyContext = createContext<ReadOnlyValue>({ readOnly: false, banner: null });
+export type ReadOnlyValue = { readOnly: boolean; badge: ReactNode };
+export const ReadOnlyContext = createContext<ReadOnlyValue>({ readOnly: false, badge: null });
 export const useReadOnly = (): ReadOnlyValue => useContext(ReadOnlyContext);
 
-export function ReadOnlyBanner({ info, onReload, onSignIn }: {
+export function ReadOnlyBadge({ info, onReload, onSignIn }: {
   info: SyncInfo; onReload: () => void; onSignIn: () => void;
 }) {
-  const b = readOnlyBanner(info, Date.now());
-  const err = b.tone === 'error';
+  const insets = useSafeAreaInsets();
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+  const status = readOnlyBanner(info, Date.now());
+  const error = status.tone === 'error';
+  const signIn = status.action === 'signin';
   return (
-    <View style={[styles.bar, err && styles.barError]} testID="readonly-banner" accessibilityRole="alert">
-      <Text style={[styles.text, err && styles.textError]} testID="readonly-banner-text">
-        <Text style={[styles.lead, err && styles.leadError]}>Read-only</Text>
-        {' · '}
-        {b.text}
-      </Text>
-      <Pressable
-        onPress={b.action === 'signin' ? onSignIn : onReload}
-        style={[styles.btn, err && styles.btnError]}
-        accessibilityRole="button"
-        testID={b.action === 'signin' ? 'readonly-signin' : 'readonly-reload'}
-      >
-        <Text style={[styles.btnText, err && styles.leadError]}>{b.action === 'signin' ? 'Sign in' : 'Reload'}</Text>
+    <>
+      <Pressable onPress={() => setOpen(true)} style={styles.target} accessibilityRole="button"
+        accessibilityLabel="Read-only status" accessibilityState={{ expanded: open }} testID="readonly-badge">
+        <Text style={[styles.badge, error && styles.badgeError]}>Read-only</Text>
       </Pressable>
-    </View>
+      {open && (
+        <Modal transparent animationType="fade" onRequestClose={close}>
+          <View style={[styles.overlay, {
+            paddingTop: insets.top + SPACE.lg, paddingBottom: insets.bottom + SPACE.lg,
+            paddingLeft: insets.left + SPACE.lg, paddingRight: insets.right + SPACE.lg,
+          }]}>
+            <Pressable style={StyleSheet.absoluteFill} accessibilityLabel="Dismiss read-only status" onPress={close} />
+            <View style={styles.panel} testID="readonly-status" accessibilityViewIsModal>
+              <Text style={styles.heading} accessibilityRole="header">Read-only</Text>
+              <Text style={styles.text} testID="readonly-status-text">{status.text}</Text>
+              <View style={styles.actions}>
+                <Pressable onPress={close} style={styles.button} accessibilityRole="button" testID="readonly-close">
+                  <Text style={styles.text}>Close</Text>
+                </Pressable>
+                <Pressable onPress={signIn ? () => { close(); onSignIn(); } : onReload} style={styles.button}
+                  accessibilityRole="button" testID={signIn ? 'readonly-signin' : 'readonly-reload'}>
+                  <Text style={styles.action}>{signIn ? 'Sign in' : 'Reload'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACE.md, flexWrap: 'wrap',
-    paddingHorizontal: SPACE.lg, paddingVertical: SPACE.sm,
-    backgroundColor: 'rgba(240,180,41,0.16)',
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(240,180,41,0.5)',
+  target: { minHeight: TAP, justifyContent: 'center', flexShrink: 0 },
+  badge: {
+    fontSize: 11, fontWeight: '700', color: T.gold, backgroundColor: 'rgba(240,180,41,0.16)',
+    paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: 12, overflow: 'hidden',
   },
-  barError: { backgroundColor: 'rgba(255,69,58,0.16)', borderBottomColor: 'rgba(255,69,58,0.55)' },
-  textError: { color: '#ffb4ae' },
-  leadError: { color: T.danger },
-  btnError: { borderColor: T.danger },
-  text: { flex: 1, flexBasis: 240, color: '#f6dc9a', fontSize: 13, lineHeight: 18 },
-  lead: { fontWeight: '700', color: T.gold },
-  btn: {
-    paddingHorizontal: SPACE.md, paddingVertical: 6, borderRadius: 6,
-    borderWidth: 1, borderColor: T.gold, minHeight: 30, justifyContent: 'center',
+  badgeError: { color: '#ffb4ae', backgroundColor: 'rgba(255,69,58,0.16)' },
+  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0008' },
+  panel: {
+    width: '100%', maxWidth: 380, gap: SPACE.md, padding: SPACE.lg, borderRadius: 12,
+    backgroundColor: T.card, borderWidth: StyleSheet.hairlineWidth, borderColor: T.cardEdge,
   },
-  btnText: { color: T.gold, fontSize: 13, fontWeight: '600' },
+  heading: { color: T.text, fontSize: 18, fontWeight: '700' },
+  text: { color: T.text, fontSize: 14, lineHeight: 20 },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACE.sm },
+  button: { minHeight: TAP, justifyContent: 'center', paddingHorizontal: SPACE.md },
+  action: { color: T.accent, fontSize: 14, fontWeight: '600' },
 });

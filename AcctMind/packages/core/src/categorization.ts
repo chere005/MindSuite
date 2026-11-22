@@ -1,6 +1,6 @@
 import { RECONCILE_NAME } from './budget';
 import { touch } from './merge';
-import { putSetting } from './store';
+import { putSetting, updateTxn } from './store';
 import { DESC_MAX, txnParts } from './txn';
 import { INCOME, INCOME_NAME, type Line, type Store, type Txn } from './types';
 
@@ -64,6 +64,21 @@ export function autoCategory(txn: Matchable, rules: readonly CategoryRule[]): st
   return matchingRule(txn, rules)?.category ?? txn.category;
 }
 
+export function autoCategoryAssignment(
+  txn: Matchable, rules: readonly CategoryRule[],
+): Pick<Txn, 'category' | 'categoryNeedsReview'> {
+  const category = autoCategory(txn, rules);
+  return category !== txn.category ? { category, categoryNeedsReview: true } : { category };
+}
+
+/** Accept the displayed suggestion only if it is still pending on the current row. */
+export function acceptCategory(store: Store, shown: Pick<Txn, 'id' | 'category'>, now: number): Store {
+  const txn = store.txns.find((row) => row.id === shown.id);
+  if (txn?.categoryNeedsReview !== true || txn.deleted || txn.category !== shown.category) return store;
+  const { categoryNeedsReview: _pending, ...accepted } = txn;
+  return updateTxn(store, touch(accepted, now));
+}
+
 export function canSaveCategoryRule(text: string, category: string | null): boolean {
   const match = matchText(text);
   return match !== '' && match.length <= DESC_MAX && category !== null;
@@ -79,7 +94,7 @@ export function saveCategoryRule(store: Store, text: string, category: string, n
   return {
     ...next,
     txns: store.txns.map((txn) => matchingRule(txn, rules)?.match === match
-      ? touch({ ...txn, category }, now)
+      ? touch({ ...txn, category, categoryNeedsReview: true }, now)
       : txn),
   };
 }

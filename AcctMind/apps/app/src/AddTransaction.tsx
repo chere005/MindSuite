@@ -18,6 +18,7 @@ type Props = {
   onCancel: () => void;
   /** The transaction being edited, if this is an edit rather than an add. */
   editing?: Txn | undefined;
+  startInSplit?: boolean;
   /** The account a new transaction goes into — the section whose + was pressed. */
   account: string;
   /** The category it starts filed under, when the + that opened this knew one. */
@@ -29,11 +30,11 @@ type Props = {
 };
 
 export function AddTransaction({
-  visible, onSave, onCancel, editing, mode, account, category = null, categories, lines, rules,
+  visible, onSave, onCancel, editing, startInSplit = false, mode, account, category = null, categories, lines, rules,
 }: Props) {
   const insets = useSafeAreaInsets();
   const form = useTxnForm({
-    active: visible, onSave: (draft) => onSave(draft), editing, mode, account, category, categories, lines, rules,
+    active: visible, onSave: (draft) => onSave(draft), editing, startInSplit, mode, account, category, categories, lines, rules,
   });
 
   return (

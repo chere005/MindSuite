@@ -10,7 +10,7 @@ import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   addDraftPart, amountDigits, amountField, amountInput, amountKeyed, amountSeed, draftOf, draftRemainder, emptyDraft,
-  autoCategory, formatAmount, formatDay, isValid, removeDraftPart, setDraftPart, signedCents, splitDraft, today, validateDraft,
+  autoCategoryAssignment, formatAmount, formatDay, isValid, removeDraftPart, setDraftPart, signedCents, splitDraft, today, validateDraft,
   type Account, type AmountMode, type Category, type CategoryChoice, type CategoryRule, type Draft, type DraftErrors,
   type DraftPart, type Txn,
 } from '@acctmind/core';
@@ -24,6 +24,7 @@ export type TxnFormProps = {
   active: boolean;
   onSave: (draft: Draft, cleared: boolean, changed: ReadonlySet<keyof Draft | 'cleared'>) => void;
   editing?: Txn | undefined;
+  startInSplit?: boolean;
   account: string;
   category?: string | null | undefined;
   categories: readonly Category[];
@@ -35,9 +36,13 @@ export type TxnFormProps = {
 };
 
 export function useTxnForm({
-  active, onSave, editing, mode, account, category = null, categories, lines, rules, accounts = [],
+  active, onSave, editing, startInSplit = false, mode, account, category = null, categories, lines, rules, accounts = [],
 }: TxnFormProps) {
-  const seed = (): Draft => (editing === undefined ? emptyDraft(today(), account, category) : draftOf(editing));
+  const seed = (): Draft => {
+    if (editing === undefined) return emptyDraft(today(), account, category);
+    const initial = draftOf(editing);
+    return startInSplit && initial.splits === undefined ? splitDraft(initial) : initial;
+  };
   const [draft, setDraft] = useState<Draft>(seed);
   const [cleared, setCleared] = useState(editing?.cleared === true);
   /** What the form started as, so a save can say which fields the person changed. */
@@ -71,9 +76,7 @@ export function useTxnForm({
     setWasVisible(active);
     if (active) {
       setCleared(editing?.cleared === true);
-      const start = editing === undefined
-        ? emptyDraft(today(), account, category)
-        : draftOf(editing);
+      const start = seed();
       setDraft(start);
       baseline.current = { draft: start, cleared: editing?.cleared === true };
       setPickedCategory(false);
@@ -137,7 +140,8 @@ export function useTxnForm({
   };
 
   const cents = signedCents(digits, negative, mode);
-  const categoryValue = editing === undefined && !pickedCategory ? autoCategory(draft, rules) : draft.category;
+  const assignment = editing === undefined && !pickedCategory ? autoCategoryAssignment(draft, rules) : undefined;
+  const categoryValue = assignment === undefined ? draft.category : assignment.category;
 
   /*
    * SPLITTING — the owner, 2026-11-21: "a very trivial interface to use". The
@@ -190,7 +194,7 @@ export function useTxnForm({
       // `splits` always present as a key, even undefined: an edit that
       // UN-splits a row is a change to it, and a key that vanished would not
       // be listed among the changes the wide pane writes back.
-      const out: Draft = { ...draft, category: draft.splits === undefined ? categoryValue : null, splits: draft.splits };
+      const out: Draft = { ...draft, ...assignment, splits: draft.splits };
       const base = baseline.current.draft;
       const changed = new Set<keyof Draft | 'cleared'>();
       for (const k of new Set([...Object.keys(out), ...Object.keys(base)]) as Set<keyof Draft>) {
@@ -223,7 +227,7 @@ export function useTxnForm({
                 style={[styles.input, styles.nameField]}
                 placeholder="Coffee"
                 placeholderTextColor={T.faint}
-                autoFocus
+                autoFocus={!startInSplit}
                 /*
                  * Return SAVES — the owner, 2026-08-21, from the Mac.
                  *

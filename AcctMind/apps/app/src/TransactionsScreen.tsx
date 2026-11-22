@@ -15,6 +15,7 @@ import {
   type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn, type TxnFilter,
 } from '@acctmind/core';
 import { CategoryMenu, NO_CATEGORY } from './CategoryPick';
+import { AcceptCategory } from './AcceptCategory';
 import { Dot } from './Dot';
 import { SectionPick } from './SectionPick';
 import { SortPick } from './SortPick';
@@ -29,7 +30,7 @@ import { BarRow, CircleBtn, TopBar } from './TopBar';
 import { SPACE, T, TAP } from './theme';
 import { useReadOnly } from './readonly';
 
-export type RowAction = 'edit' | 'duplicate' | 'copy' | 'delete';
+export type RowAction = 'edit' | 'split' | 'accept-category' | 'duplicate' | 'copy' | 'delete';
 
 /** One field of a row, changed in place — including, since 2026-09-25, its line. */
 export type InlinePatch = { name?: string; amount?: number; category?: string | null };
@@ -146,7 +147,7 @@ function TransactionsBody({
   onInline, onDate, onCleared, onDeleteMany,
 }: Props) {
   // Ordering is core's, not the list's — see spec/sort.json.
-  const { readOnly, banner } = useReadOnly();
+  const { readOnly } = useReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [filter, setFilter] = useState(EMPTY_TXN_FILTER);
@@ -419,7 +420,6 @@ function TransactionsBody({
         }
         menu={menu}
       />
-      {banner}
 
       <BarRow>
         <View style={styles.search}>
@@ -1139,11 +1139,15 @@ function Row({
           {lineName === '' ? NO_CATEGORY : lineName}
         </Text>
       </Pressable>
+      {!edit && onInline !== undefined && txn.categoryNeedsReview && lineName !== '' && (
+        <AcceptCategory name={txn.name} category={lineName} onPress={() => onTap(() => onAction('accept-category'))?.()} />
+      )}
       {filing && onInline !== undefined && (
         <CategoryMenu
           categories={categories}
           lines={lines}
           onPick={(id) => { if (id !== txn.category) onInline({ category: id }); }}
+          onSplit={() => onAction('split')}
           onClose={() => setFiling(false)}
         />
       )}

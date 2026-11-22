@@ -15,7 +15,7 @@ const shortDay = (day: string): string =>
 export function AppMenu({ readOnly = false, openSignal = 0, onImport, onExport, wide = false, whole, onWhole, start, onStart, offer }: {
   /** A read-only ledger: no import, no rules, no budget start. */
   readOnly?: boolean;
-  /** Bumped by the read-only banner's Sign in: opens the menu, where the Apple ID button is. */
+  /** Bumped when Sign in from the read-only badge opens the account menu. */
   openSignal?: number;
   onImport?: (() => void) | undefined;
   onExport: () => void;

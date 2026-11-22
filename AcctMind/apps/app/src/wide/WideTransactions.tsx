@@ -11,6 +11,7 @@ import {
   type Account, type AmountMode, type CategoryChoice, type CategoryRule, type Draft, type Txn,
 } from '@acctmind/core';
 import { T } from '../theme';
+import { AcceptCategory } from '../AcceptCategory';
 import { Btn, CHECK, SELECTED_ROW } from './shared';
 
 /**
@@ -21,8 +22,8 @@ const TABLE_MAX = 1000;
 const W = { date: 72, cat: 124, acct: 112, amount: 104, balance: 104, cleared: 56 } as const;
 
 export function WideTransactions({
-  txns, accounts, account, choices, rules, mode, selectedId, readOnly, banner, quickAccount,
-  onSelect, onCleared, onQuickAdd, onNew,
+  txns, accounts, account, choices, rules, mode, selectedId, readOnly, quickAccount,
+  onSelect, onCleared, onAcceptCategory, onQuickAdd, onNew,
 }: {
   txns: readonly Txn[];
   accounts: readonly Account[];
@@ -34,11 +35,11 @@ export function WideTransactions({
   mode: AmountMode;
   selectedId: string | null;
   readOnly: boolean;
-  banner: React.ReactNode;
   /** Where quick entry files a row when "All accounts" is shown. */
   quickAccount: string;
   onSelect: (txn: Txn) => void;
   onCleared: (txn: Txn, cleared: boolean) => void;
+  onAcceptCategory: (txn: Txn) => void;
   onQuickAdd: (draft: Draft) => void;
   onNew: () => void;
 }) {
@@ -56,7 +57,6 @@ export function WideTransactions({
 
   return (
     <View style={styles.fill} testID="wide-transactions">
-      {banner}
       {/*
         One centred column, capped: the account line with its controls and the
         table share its edges, so "New transaction" ends where Cleared does.
@@ -108,7 +108,12 @@ export function WideTransactions({
             >
               <Text style={[styles.td, styles.dim, { width: W.date }]} numberOfLines={1}>{formatDay(txn.date)}</Text>
               <Text style={[styles.td, styles.grow, styles.nameCol, styles.name]} numberOfLines={1} testID="wide-row-name">{txn.name}</Text>
-              <Text style={[styles.td, cat === null && styles.dim, { width: W.cat }]} numberOfLines={1} testID="wide-row-category">{cat ?? 'Uncategorized'}</Text>
+              <View style={styles.categoryCell}>
+                <Text style={[styles.td, styles.grow, cat === null && styles.dim]} numberOfLines={1} testID="wide-row-category">{cat ?? 'Uncategorized'}</Text>
+                {!readOnly && txn.categoryNeedsReview && cat !== null && (
+                  <AcceptCategory name={txn.name} category={cat} onPress={() => onAcceptCategory(txn)} />
+                )}
+              </View>
               {!one && <Text style={[styles.td, styles.dim, { width: W.acct }]} numberOfLines={1}>{acctName(txn.account)}</Text>}
               <Text style={[styles.td, styles.num, txn.amount > 0 && styles.pos, { width: W.amount }]} numberOfLines={1} testID="wide-row-amount">
                 {txn.amount > 0 ? '+' : ''}{formatAmount(txn.amount)}
@@ -241,6 +246,7 @@ const styles = StyleSheet.create({
   tbody: { paddingBottom: 8 },
   trow: { minHeight: 38, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.lineSoft },
   td: { color: T.text, fontSize: 14 },
+  categoryCell: { width: W.cat, flexDirection: 'row', alignItems: 'center' },
   name: { fontWeight: '500' },
   nameCol: { minWidth: 100 },
   dim: { color: T.dim },

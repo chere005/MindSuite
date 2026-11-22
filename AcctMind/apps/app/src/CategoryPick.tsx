@@ -80,12 +80,13 @@ export function CategoryPick({ categories, lines, value, onPick, allowNone = tru
  * filter, one "No Category" that is never filtered away, one grouping, on
  * both paths. Mounted only while open, so the filter starts empty each time.
  */
-export function CategoryMenu({ categories, lines, onPick, onClose, onPickAny, allowNone = true }: {
+export function CategoryMenu({ categories, lines, onPick, onClose, onPickAny, onSplit, allowNone = true }: {
   categories: readonly Category[];
   lines: readonly CategoryChoice[];
   onPick: (id: string | null) => void;
   onClose: () => void;
   onPickAny?: () => void;
+  onSplit?: () => void;
   allowNone?: boolean;
 }) {
   const [query, setQuery] = useState('');
@@ -109,6 +110,11 @@ export function CategoryMenu({ categories, lines, onPick, onClose, onPickAny, al
             testID="category-filter"
           />
           <ScrollView keyboardShouldPersistTaps="handled">
+            {onSplit && (
+              <Pressable onPress={() => { onClose(); onSplit(); }} style={styles.row} accessibilityRole="button" testID="category-split">
+                <Text style={[styles.rowText, styles.split]}>Split between categories</Text>
+              </Pressable>
+            )}
             {onPickAny && (
               <Pressable onPress={() => { onClose(); onPickAny(); }} style={styles.row} testID="category-any">
                 <Text style={styles.rowText}>Any category</Text>
@@ -163,6 +169,7 @@ const styles = StyleSheet.create({
   fieldCompact: { minHeight: 36, borderRadius: 8 },
   valueCompact: { fontSize: 14, fontWeight: '400' },
   none: { color: T.dim },
+  split: { color: T.accent },
   chev: { color: T.dim, fontSize: 13 },
   rowGroup: { color: T.gold, fontSize: 13, flexShrink: 0 },
   backdrop: { flex: 1, backgroundColor: '#00000088' },

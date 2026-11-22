@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SPACE, T, TAP } from './theme';
 import { TipBubble, useTip } from './Tip';
 import { TopBarFrame, TOP_BAR_FACE, type TopBarColors } from './components/SuiteTopBar';
+import { useReadOnly } from './readonly';
 
 /** The drawn size of every control in the bar. CalMind's number. */
 export const TOPBAR_CTRL = TOP_BAR_FACE;
@@ -19,7 +20,7 @@ export const topBarColors: TopBarColors = { background: T.bg, surface: T.card, l
  */
 export const ACCOUNT_RING = '#34d399';
 
-export function TopBar({ title, titleTestID, controls, picker, menu }: {
+export function TopBar({ title, titleTestID, controls, picker, menu, showAppStatus = true }: {
   title: string;
   titleTestID?: string | undefined;
   /** The screen's own controls, right-aligned, before the picker. */
@@ -44,8 +45,11 @@ export function TopBar({ title, titleTestID, controls, picker, menu }: {
    * the order says which is which.
    */
   menu?: ReactNode;
+  showAppStatus?: boolean;
 }) {
-  return <TopBarFrame title={title} titleTestID={titleTestID} colors={topBarColors}
+  const { badge } = useReadOnly();
+  const status = showAppStatus ? badge : null;
+  return <TopBarFrame title={status === null ? title : 'AcctMind'} titleTestID={titleTestID} titleAfter={status} colors={topBarColors}
     controls={<>{controls}{picker}</>} account={menu} />;
 }
 

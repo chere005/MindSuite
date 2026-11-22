@@ -152,7 +152,7 @@ export function onAccessChange(handler: () => void): () => void {
   return () => { a(); b(); };
 }
 
-/** What the sidebar's status line and the read-only banner say. */
+/** What the sidebar's sync line and read-only badge details say. */
 export function syncInfo(): SyncInfo {
   const { source } = access();
   if (source === 'copy') {

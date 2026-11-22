@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import {
-  applyImport, autoCategory, categoryChoices, categoryRules, emptyStore, mergeStores, parseStore, planImport,
-  removeCategoryRule, saveCategoryRule, serialize, INCOME, type Line, type Store, type Txn,
+  acceptCategory, applyDraft, applyImport, autoCategoryAssignment, categoryChoices, categoryRules, draftOf, emptyStore,
+  makeTxn, mergeStores, parseStore, patchTxn, planImport, quickDraft, removeCategoryRule, saveCategoryRule,
+  serialize, INCOME, type Line, type Store, type Txn,
 } from '../src/index';
 
 const spec = JSON.parse(readFileSync(new URL('../../../spec/categorization.json', import.meta.url), 'utf8')) as {
-  matches: [string, string, string | null, string | null][];
+  matches: [string, string, string | null, string | null, boolean][];
   frequency: { lines: string[]; filed: (string | null)[]; deleted: string[]; order: string[] };
   hiddenLines: { line: string; parent: 'missing' | 'deleted' }[];
 };
@@ -28,8 +29,9 @@ it('matches literal names and descriptions, with longer rules taking precedence'
   const broad = saveCategoryRule(store(), '  SHOP ', 'food', 10);
   const specific = saveCategoryRule(broad, 'Book Shop', 'books', 11);
   const rules = categoryRules(specific);
-  for (const [name, description, category, want] of spec.matches) {
-    expect(autoCategory({ name, description, category }, rules), name).toBe(want);
+  for (const [name, description, category, want, review] of spec.matches) {
+    expect(autoCategoryAssignment({ name, description, category }, rules), name)
+      .toEqual({ category: want, ...(review ? { categoryNeedsReview: true } : {}) });
   }
 });
 
@@ -64,16 +66,48 @@ it('files existing unassigned transactions and persists rules for later imports'
   };
   const next = saveCategoryRule(base, 'shop', 'food', 10);
   expect(next.txns.map((entry) => entry.category)).toEqual(['food', 'books', null]);
+  expect(next.txns.map((entry) => entry.categoryNeedsReview)).toEqual([true, undefined, undefined]);
   expect(next.txns[0]?.updated).toBe(21);
   const loaded = parseStore(serialize(next));
   if (!loaded.ok) throw new Error(loaded.error);
+  expect(loaded.store.txns[0]?.categoryNeedsReview).toBe(true);
   const plan = planImport(loaded.store, 'a1', [
     { date: '2026-11-22', amount: -500, description: 'GROCERY SHOP', cleared: true },
   ], 'add');
   const imported = applyImport(loaded.store, 'a1', plan, 25, () => 'new');
-  expect(imported.txns.find((entry) => entry.id === 'new')?.category).toBe('food');
+  expect(imported.txns.find((entry) => entry.id === 'new')).toMatchObject({ category: 'food', categoryNeedsReview: true });
   const removed = removeCategoryRule(imported, 'shop', 9);
   expect(categoryRules(mergeStores(imported, removed))).toEqual([]);
   const deletedLine = { ...next, lines: next.lines.map((l) => l.id === 'food' ? { ...l, deleted: true as const } : l) };
   expect(categoryRules(deletedLine)).toEqual([]);
+});
+
+it('accepts a suggestion once, syncs the approval, and keeps the same rules', () => {
+  const before = saveCategoryRule({ ...store(), txns: [txn('Shop')] }, 'shop', 'food', 10);
+  const suggestion = before.txns[0]!;
+  expect(acceptCategory(before, { ...suggestion, category: 'books' }, 11)).toBe(before);
+  const accepted = acceptCategory(before, suggestion, 11);
+  expect(accepted.txns[0]).toMatchObject({ category: 'food', updated: 22 });
+  expect(accepted.txns[0]).not.toHaveProperty('categoryNeedsReview');
+  expect(accepted.settings).toBe(before.settings);
+  expect(acceptCategory(accepted, suggestion, 12)).toBe(accepted);
+  expect(mergeStores(before, accepted).txns[0]).toEqual(accepted.txns[0]);
+});
+
+it('keeps a suggestion through other edits; changing or splitting the category resolves it', () => {
+  const before = saveCategoryRule(store(), 'shop', 'food', 10);
+  const fields = { date: '2026-11-22', name: 'Shop', category: '', amount: '100' };
+  const ctx = { account: 'a1', choices: categoryChoices(before), rules: categoryRules(before), mode: 'cents' as const };
+  const auto = makeTxn(quickDraft(fields, ctx).draft, 'auto', 11);
+  const manual = makeTxn(quickDraft({ ...fields, category: 'books' }, ctx).draft, 'manual', 11);
+  expect(auto).toMatchObject({ category: 'food', categoryNeedsReview: true });
+  expect(manual).toMatchObject({ category: 'books' });
+  expect(manual).not.toHaveProperty('categoryNeedsReview');
+  const draft = draftOf(auto);
+  expect(applyDraft(auto, { ...draft, name: 'Shop, renamed' }, 12).categoryNeedsReview).toBe(true);
+  expect(applyDraft(auto, { ...draft, category: 'books' }, 13)).not.toHaveProperty('categoryNeedsReview');
+  expect(applyDraft(auto, { ...draft, splits: [
+    { category: 'food', amount: '0.60' }, { category: 'books', amount: '' },
+  ] }, 13)).not.toHaveProperty('categoryNeedsReview');
+  expect(patchTxn(auto, { category: null }, 12)).not.toHaveProperty('categoryNeedsReview');
 });
