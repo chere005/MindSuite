@@ -348,7 +348,7 @@ if [ "$WEB" = 1 ]; then
     # through the same freshness gate. Shard 1 is 8790, so a plain `npx
     # playwright test` is unchanged; then 8793 and 8794, which nothing else in
     # the suite binds (8791 is WebKit's here and AcctMind's harness's, 8792
-    # ChefMind's router, 8799 AcctMind's server suite). Specs take their port
+    # MealMind's router, 8799 AcctMind's server suite). Specs take their port
     # from e2e/port.ts, and e2e/portguard.spec.ts keeps it that way.
     #
     # TWO shards unless CALMIND_E2E_SHARDS says 1 or 3. Some specs wait on

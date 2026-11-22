@@ -44,7 +44,7 @@ Without them the scans cannot run, and they exit 2 (nothing is claimed) rather t
 | `~/Library/Application Support/MindSuite/needle-allow.sha256` | `check-names.sh` | copy it: it holds the allowlist lines (lockfile integrity hashes, the domain token, copyright and author lines) that keep the scan at zero |
 | `~/Library/Application Support/MindSuite/needles.txt` (mode 600) | `check-names.sh` | rebuild: `sh CoreMind/bin/needles-init.sh` |
 | `.local-scrub-rules-usernames.txt` and `.local-scrub-rules.txt` in the old checkout root (or `MIND_SCRUB_DIR`) | `needles-init.sh` | copy them BEFORE the old checkout is deleted: the needle list cannot be rebuilt without them |
-| `<App>/.local/machine.env` for AcctMind, CalMind, ChefMind, PlanMind, TaskMind, and each app's `deploy.conf` (CalMind: `server/deploy.conf`) | `check-personal-data.sh` compares every tracked byte with their values | copy them from the old checkout; the clean checkout has none, so its machine-value rule reads 0 values until they are there |
+| `<App>/.local/machine.env` for AcctMind, CalMind, MealMind, PlanMind, TaskMind, and each app's `deploy.conf` (CalMind: `server/deploy.conf`) | `check-personal-data.sh` compares every tracked byte with their values | copy them from the old checkout; the clean checkout has none, so its machine-value rule reads 0 values until they are there |
 | `.private-targets` (optional) | the lanes | only if private lane targets are used |
 
 Check: `sh CoreMind/bin/check-personal-data.sh` must print `... compared, N digest(s) from 1 local hash list(s), 0 finding(s)`
@@ -111,7 +111,7 @@ gh repo view OWNER/MindSuite --json visibility,defaultBranchRef -q .visibility #
 ```
 
 Actions secrets and variables do not move. The Release workflows (`acctmind-release.yml`, `calmind-release.yml`,
-`chefmind-release.yml`, macOS job) read these repository secrets, and nothing else (no variables, no environments;
+`mealmind-release.yml`, macOS job) read these repository secrets, and nothing else (no variables, no environments;
 `GITHUB_TOKEN` is automatic). Names only; each value comes from the owner's Apple developer account or keychain and is
 entered at the prompt, never on a command line, in a file or in a chat:
 
@@ -195,7 +195,7 @@ Before the first lane run after publication, read "Lanes and the public remote" 
 
 ## Which Actions runs the pushes start
 
-The five workflows trigger only on `push` of a tag `AcctMind|CalMind|ChefMind/<x.y.z>*` and on `workflow_dispatch`
+The five workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind/<x.y.z>*` and on `workflow_dispatch`
 (`planmind-native.yml` and `taskmind-native.yml`: dispatch only). So:
 
 - The first push (`refs/heads/main`) starts no run at all.
@@ -218,8 +218,8 @@ refuses everything else (fail closed):
 | Ref | Who pushes it |
 | --- | --- |
 | `refs/heads/main` | step 6, and every lane (`git push --atomic origin main refs/tags/<tag>`) |
-| `refs/tags/<App>/<x.y.z>`, App one of AcctMind, CalMind, ChefMind, CoreMind, PlanMind, ReadMind, TaskMind | the app's lane (three numeric parts, nothing after them) |
-| `refs/heads/preflight/<acctmind\|calmind\|chefmind>/<sha>` (7 to 40 hex digits) | that app's `tools/preflight.sh`, which also deletes it |
+| `refs/tags/<App>/<x.y.z>`, App one of AcctMind, CalMind, MealMind, ChefMind (MealMind's name up to 1.51.0), CoreMind, PlanMind, ReadMind, TaskMind | the app's lane (three numeric parts, nothing after them) |
+| `refs/heads/preflight/<acctmind\|calmind\|mealmind\|chefmind>/<sha>` (7 to 40 hex digits; `chefmind` is from before the rename) | that app's `tools/preflight.sh`, which also deletes it |
 
 A `<App>/legacy/<version>` marker, any other branch or tag, an old-style tag (`v1.2.3`, `<app>-v1.2.3`, a two-part
 version) and the deletion of anything but a preflight branch are refused. Every pushed object still gets a
@@ -230,7 +230,7 @@ longer read.
 ## Version sync
 
 The lanes decide the next version from the tags in the repository. The new repository has none: the lanes of AcctMind,
-ChefMind, CalMind and CoreMind REUSE a version that is not tagged, PlanMind and TaskMind tag the version in
+ChefMind (now MealMind), CalMind and CoreMind REUSE a version that is not tagged, PlanMind and TaskMind tag the version in
 `package.json` (and refuse one that is already tagged), and ReadMind (version = newest tag) would start at 0.1.0. They all read `<App>/legacy/<version>` as
 "taken", which is why step 3 makes the markers. They only work if the files carry what was actually shipped:
 

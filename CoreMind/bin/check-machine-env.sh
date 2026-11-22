@@ -38,7 +38,7 @@ grep -v '^PHONE2_NAME' "$TMP/full.env" > "$TMP/nophonename.env"
   && bad "an absent file was accepted" || { grep -q 'absent.env does not exist' "$TMP/err" && ok "an absent file is named" || bad "absent file not named"; }
 
 # every lane, from a scratch copy
-for APP in CalMind ChefMind AcctMind PlanMind TaskMind; do
+for APP in CalMind MealMind AcctMind PlanMind TaskMind; do
   [ -f "$PARENT/$APP/tools/build-platforms.sh" ] || { echo "== $APP — no checkout, skipped"; continue; }
   echo "== $APP"
   D="$TMP/$APP"; mkdir -p "$D/tools" "$D/home/Library/Developer/Xcode/iOS DeviceSupport"

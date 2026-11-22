@@ -42,10 +42,10 @@ export function RecipeEditor({ note, onClose, put }: {
   onClose: () => void;
   /**
    * Where the saved note goes. Absent, it is MY store, as it always was.
-   * Notes passes ChefMind's engine here for a recipe that lives in ChefMind's
+   * Notes passes MealMind's engine here for a recipe that lives in MealMind's
    * space (store.tsx, CHEF_SPACE), so saving the Recipe page over one of
    * those writes it back where it came from rather than minting a copy of a
-   * ChefMind record in my own store.
+   * MealMind record in my own store.
    */
   put?: (rec: Rec<'note'>) => void;
 }) {

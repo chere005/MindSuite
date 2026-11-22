@@ -34,7 +34,7 @@ export type ExportFile = {
   counts: Partial<Record<RecType, number>>; // live records by type, for a human squint
   records: AnyRec[];
   /**
-   * ChefMind's space under the same login, when the exporting app holds it
+   * MealMind's space under the same login, when the exporting app holds it
    * (#81). The account and its deletion cover both apps' data, so the copy a
    * person can take with them does too. Absent rather than empty when not
    * given, so an export without it is byte-for-byte what it always was.

@@ -338,7 +338,7 @@ if [ "$WANT_IOS" = 1 ]; then
   # means exactly what several lines mean. A reader that took only the FIRST
   # udid on each line would accept that override without a word and then ship
   # to one phone — the precise failure this list exists to prevent — and
-  # CalMind and ChefMind both print that space-separated form in their own
+  # CalMind and MealMind both print that space-separated form in their own
   # error messages, so a command copied from one repo to another has to mean
   # the same thing here.
 

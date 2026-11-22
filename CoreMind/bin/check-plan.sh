@@ -14,7 +14,7 @@ trap 'rm -rf "$TMP"' EXIT
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
-PUBLIC="core CalMind ChefMind AcctMind PlanMind TaskMind ReadMind"
+PUBLIC="core CalMind MealMind AcctMind PlanMind TaskMind ReadMind"
 
 # plan <file-or-empty> <args…> — the "==> plan:" line of deploy.sh --plan.
 plan() {
@@ -34,7 +34,7 @@ expect "file: appended after the public targets" "$(plan "$TMP/one" all)" "$PUBL
 expect "comments, blanks, CRLF ignored; a public name is not repeated" \
   "$(plan "$TMP/many" all)" "$PUBLIC SecretApp OtherApp calmind-not-a-dup"
 expect "--only reaches a private target alone" "$(plan "$TMP/one" --only SecretApp)" "SecretApp"
-expect "core cascades into PlanMind and TaskMind but not an unrelated private target" "$(plan "$TMP/one" core)" "core CalMind ChefMind AcctMind PlanMind TaskMind"
+expect "core cascades into PlanMind and TaskMind but not an unrelated private target" "$(plan "$TMP/one" core)" "core CalMind MealMind AcctMind PlanMind TaskMind"
 grep -q 'for C in \$(downstream_of core)' bin/dtp.sh \
   && ok "dtp's dirty-after-propagation guard walks downstream_of core (PlanMind included)" \
   || bad "dtp's dirty-after-propagation guard no longer walks downstream_of core"

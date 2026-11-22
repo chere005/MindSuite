@@ -55,7 +55,7 @@ $in  = json_decode((string) file_get_contents('php://input'), true);
 if (!is_array($in)) {
     fail(400, 'JSON body required');
 }
-suite_app($in);   // a request for ChefMind's space follows the chefmind hold (lib/app.php, SUITE_SPACE_APPS)
+suite_app($in);   // a request for MealMind's space follows the chefmind hold (lib/app.php, SUITE_SPACE_APPS)
 
 // Every handler answers through reply()/fail(), which set a status and send
 // JSON. A throw from deeper down — store.php refusing a damaged file, say —
@@ -78,7 +78,7 @@ match ((string) ($in['action'] ?? '')) {
     'shared_pull'     => handle_shared_pull($cfg, $in),
     'shared_put'      => handle_shared_put($cfg, $in),
     'sync'            => handle_sync($cfg, $in),
-    // Public, and deliberately: the ChefMind deploy asks this before it ships,
+    // Public, and deliberately: the MealMind deploy asks this before it ships,
     // so a client can never go out in front of an API that would silently
     // merge its records into CalMind's store. See handle_spaces().
     'spaces'          => handle_spaces(),

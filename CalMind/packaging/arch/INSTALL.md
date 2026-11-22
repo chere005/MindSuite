@@ -426,9 +426,9 @@ the repo ships does:
    reproduced with `dash` on the Mac. The workflow in `ci/` works around it
    by repointing `/bin/sh`, but the fix belongs in the repo: either
    `stage-dist.sh` uses `$0` instead of `${BASH_SOURCE[0]}` (correct
-   everywhere, and it fixes the same latent bug in ChefMind and AcctMind —
+   everywhere, and it fixes the same latent bug in MealMind and AcctMind —
    but that file is the `desktop-stage-dist-sh` group in
-   `tools/shared-files.json`, so ChefMind's copy must carry the same bytes
+   `tools/shared-files.json`, so MealMind's copy must carry the same bytes
    or `npm run check:shared` fails the release), or `tauri.conf.json` says `bash stage-dist.sh` (one repo, that
    file is mode `fork`, but it changes a hook the Mac and Windows lanes also
    run). Root `package.json`'s `test:desktop` should say `bash` either way —

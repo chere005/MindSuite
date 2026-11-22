@@ -80,7 +80,7 @@ describe('src bodies are a closed set', () => {
 // the stubs (they are one-line re-exports, not copies of one origin file), so
 // this table is the declaration and the tests below are its check: a stub that
 // gains a byte, turns into a copy of the body or disappears fails here.
-//   - normalize (CalMind, ChefMind): the app-owned wrapper guarded further down.
+//   - normalize (CalMind, MealMind): the app-owned wrapper guarded further down.
 //   - day, sync, types (AcctMind): AcctMind's own ledger modules, which share
 //     only a file name with the @mind/core ones and import nothing from them.
 const APPS: { app: string; stubs: string[]; owns: string[] }[] = [
@@ -94,7 +94,7 @@ const APPS: { app: string; stubs: string[]; owns: string[] }[] = [
     owns: ['normalize'],
   },
   {
-    app: 'ChefMind',
+    app: 'MealMind',
     stubs: [
       'b64u', 'backup', 'dailylog', 'day', 'folds', 'manage', 'notesplit', 'order', 'parse', 'pkce',
       'recipe', 'repeats', 'richtext', 'rules', 'search', 'sort', 'sync', 'types', 'undo', 'update',
@@ -112,7 +112,7 @@ describe('linked apps reach the package through one-line stubs', () => {
   // Each linked app's file: dependency must point at this package.
   it.each([
     'CalMind/packages/core',
-    'ChefMind/packages/core',
+    'MealMind/packages/core',
     'AcctMind/packages/core',
     'PlanMind',
     'TaskMind',
@@ -201,11 +201,11 @@ describe('normalize: the shared default and the app wrappers', () => {
     expect(run([], lists)).not.toBe(run([]));
   });
 
-  it('CalMind and ChefMind wrap it with the same bytes, defaulting to APP_SEEDS ?? SUITE_SEEDS', () => {
-    const [cal, chef] = ['CalMind', 'ChefMind'].map((app) =>
+  it('CalMind and MealMind wrap it with the same bytes, defaulting to APP_SEEDS ?? SUITE_SEEDS', () => {
+    const [cal, chef] = ['CalMind', 'MealMind'].map((app) =>
       readFileSync(join(SUITE, app, 'packages/core/src/normalize.ts'), 'utf8'),
     );
-    expect(chef, 'ChefMind/packages/core/src/normalize.ts differs from CalMind').toBe(cal);
+    expect(chef, 'MealMind/packages/core/src/normalize.ts differs from CalMind').toBe(cal);
     expect(cal).toMatch(/^export \* from '@mind\/core\/normalize';$/m);
     expect(cal).toMatch(/^import \{ APP_SEEDS \} from '\.\/appconfig';$/m);
     expect(cal).toMatch(/^export function normalize\(recs: AnyRec\[\], profile: SeedProfile = APP_SEEDS \?\? SUITE_SEEDS\)/m);

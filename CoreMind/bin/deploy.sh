@@ -3,8 +3,8 @@
 #
 #   sh bin/deploy.sh all                 core, then every app, in order
 #   sh bin/deploy.sh core                core's checks; the apps only if named
-#   sh bin/deploy.sh CalMind             CalMind — and then ChefMind, which needs it
-#   sh bin/deploy.sh --only ChefMind     ChefMind alone, cascade suppressed
+#   sh bin/deploy.sh CalMind             CalMind — and then MealMind, which needs it
+#   sh bin/deploy.sh --only MealMind     MealMind alone, cascade suppressed
 #   sh bin/deploy.sh all --dry-run       every step, writing nothing
 #   sh bin/deploy.sh all --plan          resolve the order and stop
 #
@@ -93,8 +93,8 @@ for T in $PLAN; do
       R=$(repo_at CalMind)
       ( cd "$R" && ./server/deploy.sh prod test --yes-prod $QUICK $DRYFLAG )
       ;;
-    ChefMind)
-      R=$(repo_at ChefMind)
+    MealMind)
+      R=$(repo_at MealMind)
       # --yes-prod even on a dry run: the flag is the consent, and the script
       # refuses a bare run. --dry-run is what makes it write nothing.
       ( cd "$R" && ./deploy.sh --yes-prod $DRYFLAG )

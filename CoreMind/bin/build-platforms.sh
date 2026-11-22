@@ -70,7 +70,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ "$PICKED" = 1 ] || { WANT_MAC=1; WANT_IOS=1; WANT_ANDROID=1; }
-[ -n "$APP" ] || { echo "name an app: CalMind, ChefMind, AcctMind, MyCalMind" >&2; exit 1; }
+[ -n "$APP" ] || { echo "name an app: CalMind, MealMind, AcctMind, MyCalMind" >&2; exit 1; }
 if [ "$WANT_MAC" = 1 ] && [ "$DRY" = 0 ]; then
   if [ "$(uname -m)" != arm64 ] || [ "${CARGO_BUILD_TARGET:-aarch64-apple-darwin}" != aarch64-apple-darwin ]; then
     echo 'macOS builds require Apple Silicon.' >&2; exit 1
@@ -110,7 +110,7 @@ fi
 # they disagree. This proves the build compiles and stops there.
 case "$APP" in
   CalMind)   APPDIR="apps/app"; DESKTOP_WS="@calmind/desktop";  IOS_INSTALL=1; APP_PHONES="" ;;
-  ChefMind)  APPDIR="app";      DESKTOP_WS="@chefmind/desktop"; IOS_INSTALL=1; APP_PHONES="" ;;
+  MealMind)  APPDIR="app";      DESKTOP_WS="@mealmind/desktop"; IOS_INSTALL=1; APP_PHONES="" ;;
   AcctMind)  APPDIR="apps/app"; DESKTOP_WS="@acctmind/desktop"; IOS_INSTALL=1; APP_PHONES="" ;;
   MyCalMind) APPDIR="app";      DESKTOP_WS="catalyst";          IOS_INSTALL=0; APP_PHONES="" ;;
   *) echo "unknown app '$APP'" >&2; exit 1 ;;

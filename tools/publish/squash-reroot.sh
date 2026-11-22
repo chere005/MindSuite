@@ -148,7 +148,7 @@ if None in vs or len(set(vs)) != 1:
 print(vs[0])
 PY
 )
-APPS=' AcctMind CalMind ChefMind CoreMind PlanMind ReadMind TaskMind '
+APPS=' AcctMind CalMind MealMind CoreMind PlanMind ReadMind TaskMind '
 
 # $1 = APP/X.Y.Z -> prints "APP X.Y.Z"; refuses anything the tree does not carry
 claim() {

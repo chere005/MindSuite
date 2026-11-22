@@ -2,7 +2,7 @@
 # Does retry-installs.sh record, retry, supersede and survive a bad state file?
 #
 #   sh bin/check-retry-installs.sh
-#   sh bin/check-retry-installs.sh CalMind ChefMind AcctMind PlanMind TaskMind   (also: each carries the same bytes)
+#   sh bin/check-retry-installs.sh CalMind MealMind AcctMind PlanMind TaskMind   (also: each carries the same bytes)
 #
 # Runs against a STUB devicectl (MIND_DEVICECTL) and a scratch state directory
 # (MIND_OWED_DIR): no phone, no Xcode, nothing outside a scratch directory.
@@ -18,7 +18,7 @@ check() { if "$@" >/dev/null 2>&1; then ok "$DESC"; else bad "$DESC"; fi; }
 
 for consumer in "$@"; do
   case "$consumer" in
-    CalMind|ChefMind|AcctMind|PlanMind|TaskMind) ;;
+    CalMind|MealMind|AcctMind|PlanMind|TaskMind) ;;
     *) echo "unknown consumer: $consumer" >&2; exit 1 ;;
   esac
   DESC="$consumer: carries the same retry-installs.sh"

@@ -37,12 +37,14 @@ expected_installing() {
 `SHA256SUMS.txt` has the checksum of every file.
 INSTALLING
       ;;
-    ChefMind) cat <<'INSTALLING'
+    MealMind) cat <<'INSTALLING'
 ## Installing
 
-- **Windows (x64)**: run `ChefMind_7.12.0_x64-setup.exe` (or the `.msi`). The installers are not code-signed, so
+- **Windows (x64)**: run `MealMind_7.12.0_x64-setup.exe` (or the `.msi`). The installers are not code-signed, so
   SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
-- **macOS (Apple silicon)**: open `ChefMind_7.12.0_aarch64.dmg` and drag ChefMind to Applications. The app is signed and notarized.
+- **macOS (Apple silicon)**: open `MealMind_7.12.0_aarch64.dmg` and drag MealMind to Applications. The app is signed and notarized.
+- **MealMind was ChefMind.** On Windows, uninstall ChefMind first (Settings > Apps > Installed apps), leaving
+  "Delete the application data" unticked: MealMind keeps the same sign-in and data. On a Mac, move ChefMind to the Trash.
 - `SHA256SUMS.txt` lists the checksum of every installer.
 INSTALLING
       ;;
@@ -60,7 +62,7 @@ INSTALLING
   esac
 }
 checks=0
-for app in CalMind ChefMind AcctMind; do
+for app in CalMind MealMind AcctMind; do
   name=$(printf '%s' "$app" | tr '[:upper:]' '[:lower:]')
   extract_notes "$root/.github/workflows/$name-release.yml" "$tmp/$app.sh"
   expected_installing "$app" > "$tmp/$app-installing.md"

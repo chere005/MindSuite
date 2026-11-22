@@ -6,13 +6,13 @@ import type { AnyRec, Rec } from '../src/types';
 const note = (id: string, title: string, deleted = false): Rec<'note'> =>
   ({ id, type: 'note', updated: 0, payload: { title, body: '', sectionId: 's1', ord: 'a', date: null }, ...(deleted ? { deleted: true } : {}) }) as Rec<'note'>;
 
-/** The recipes as ChefMind's read model hands them over. */
+/** The recipes as MealMind's read model hands them over. */
 const CHEF: AnyRec[] = [note('r1', 'Sheet-pan chicken'), note('r2', 'Red lentil dal'), note('r3', 'Risotto')];
 
 /** A CalMind store carrying whatever the given pref record says. */
 const store = (pref?: AnyRec): AnyRec[] => (pref ? [pref] : []);
 
-describe('dates CalMind keeps about ChefMind recipes', () => {
+describe('dates CalMind keeps about MealMind recipes', () => {
   it('starts with nothing planned', () => {
     expect(chefDates([])).toEqual({});
     expect(chefDateOf([], 'r1')).toBe(null);
@@ -64,16 +64,16 @@ describe('dates CalMind keeps about ChefMind recipes', () => {
     expect(chefDates(recs)).toEqual({ r2: '2026-09-18' });
   });
 
-  it("lists several recipes on one day in ChefMind's order", () => {
+  it("lists several recipes on one day in MealMind's order", () => {
     let recs = store(setChefDate([], 'r2', '2026-09-17'));
     recs = store(setChefDate(recs, 'r1', '2026-09-17'));
-    // r1 before r2 because that is how ChefMind lists them — the plan does
+    // r1 before r2 because that is how MealMind lists them — the plan does
     // not get to reorder somebody else's list.
     expect(chefDatesOn(recs, CHEF, '2026-09-17').map((n) => n.id)).toEqual(['r1', 'r2']);
   });
 
   /**
-   * A recipe deleted in ChefMind leaves a key behind, because CalMind is not
+   * A recipe deleted in MealMind leaves a key behind, because CalMind is not
    * told. It must read as "nothing planned", never as a blank row.
    */
   it('a plan for a recipe that no longer exists draws nothing', () => {
@@ -82,7 +82,7 @@ describe('dates CalMind keeps about ChefMind recipes', () => {
     expect(chefDatedDays(recs, CHEF).has('2026-09-17')).toBe(false);
   });
 
-  it('a recipe tombstoned in ChefMind drops out the same way', () => {
+  it('a recipe tombstoned in MealMind drops out the same way', () => {
     const chef = [note('r1', 'Sheet-pan chicken', true)];
     const recs = store(setChefDate([], 'r1', '2026-09-17'));
     expect(chefDatesOn(recs, chef, '2026-09-17')).toEqual([]);

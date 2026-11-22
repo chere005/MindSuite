@@ -131,7 +131,7 @@ function normSeed(): AnyRec[] {
 }
 
 /**
- * A 'lists' profile (ChefMind's): the shopping list and the pantry ARE the
+ * A 'lists' profile (MealMind's): the shopping list and the pantry ARE the
  * reminders side. No ride-along Calendar folder, no calendar, no habit
  * section — an app without those tabs would carry records that sync forever
  * and are never drawn.

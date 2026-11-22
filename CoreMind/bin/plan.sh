@@ -8,26 +8,26 @@
 #
 # THE GRAPH, and why each edge is real rather than tidy:
 #
-#   core ──▶ CalMind, ChefMind, AcctMind, PlanMind, TaskMind
+#   core ──▶ CalMind, MealMind, AcctMind, PlanMind, TaskMind
 #       Canon IS those repos' source. Change it and their builds change, so
 #       shipping core without shipping them means the canonical bytes are
 #       live nowhere. bin/deploy.sh fires this cascade only when core
 #       actually wrote something; bin/dtp.sh always ships it, because its
 #       core lane refuses a propagation that wrote anything.
 #
-#   CalMind ──▶ ChefMind
-#       ChefMind has no server. It syncs through CalMind's API in the `chef`
+#   CalMind ──▶ MealMind
+#       MealMind has no server. It syncs through CalMind's API in the `chef`
 #       space, and its own deploy REFUSES to ship unless the live API reports
-#       that space. So CalMind's server must land first; ChefMind following
+#       that space. So CalMind's server must land first; MealMind following
 #       it automatically is the whole reason this ordering is in a script
 #       instead of in somebody's memory.
 #
 # ReadMind has no edge. A private target has its own lane and runs last.
 
 # Deployment order for the whole suite. Every run is a subset of this list, in
-# this sequence — so a cascade can never reorder itself into shipping ChefMind
+# this sequence — so a cascade can never reorder itself into shipping MealMind
 # before the API it checks.
-PUBLIC_ORDER="core CalMind ChefMind AcctMind PlanMind TaskMind ReadMind"
+PUBLIC_ORDER="core CalMind MealMind AcctMind PlanMind TaskMind ReadMind"
 
 # PRIVATE TARGETS. A target its owner keeps out of this repo is named, one per
 # line, in an UNTRACKED file `.private-targets` at the CoreMind checkout root
@@ -58,14 +58,14 @@ ORDER="$PUBLIC_ORDER$PRIVATE"
 
 downstream_of() {
   case "$1" in
-    core)    echo "CalMind ChefMind AcctMind PlanMind TaskMind" ;;
-    CalMind) echo "ChefMind" ;;
+    core)    echo "CalMind MealMind AcctMind PlanMind TaskMind" ;;
+    CalMind) echo "MealMind" ;;
     *)       echo "" ;;
   esac
 }
 
 resolve_plan() {
-  [ -n "$WANT" ] || { echo "name a target: all, core, CalMind, ChefMind, AcctMind, PlanMind, TaskMind, and any private target" >&2; exit 1; }
+  [ -n "$WANT" ] || { echo "name a target: all, core, CalMind, MealMind, AcctMind, PlanMind, TaskMind, and any private target" >&2; exit 1; }
 
   for T in $WANT; do
     case " $ORDER " in

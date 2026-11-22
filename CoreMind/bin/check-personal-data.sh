@@ -94,7 +94,8 @@ def local_roots(root):
 def local_value_files(root):
     files = []
     for r in local_roots(root):
-        for app in ('CalMind', 'ChefMind', 'AcctMind', 'PlanMind', 'TaskMind', 'ReadMind', 'CoreMind'):
+        # ChefMind: MealMind's directory before the rename, where a checkout made earlier keeps its values until they move.
+        for app in ('CalMind', 'MealMind', 'ChefMind', 'AcctMind', 'PlanMind', 'TaskMind', 'ReadMind', 'CoreMind'):
             files.append(os.path.join(r, app, '.local', 'machine.env'))
             files.append(os.path.join(r, app, 'deploy.conf'))
             files.append(os.path.join(r, app, 'server', 'deploy.conf'))

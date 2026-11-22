@@ -4,12 +4,12 @@
     {
       "id": "app-components-suite-topbar-tsx",
       "origin": "CalMind/apps/app/src/components/SuiteTopBar.tsx",
-      "copies": ["ChefMind/app/src/components/SuiteTopBar.tsx", "AcctMind/apps/app/src/components/SuiteTopBar.tsx"]
+      "copies": ["MealMind/app/src/components/SuiteTopBar.tsx", "AcctMind/apps/app/src/components/SuiteTopBar.tsx"]
     },
     {
       "id": "app-components-wide-frame-tsx",
       "origin": "CalMind/apps/app/src/components/WideFrame.tsx",
-      "copies": ["ChefMind/app/src/components/WideFrame.tsx", "AcctMind/apps/app/src/components/WideFrame.tsx"]
+      "copies": ["MealMind/app/src/components/WideFrame.tsx", "AcctMind/apps/app/src/components/WideFrame.tsx"]
     },
     {
       "id": "suite-topbar-css",
@@ -59,318 +59,318 @@
     {
       "id": "app-index-ts",
       "origin": "CalMind/apps/app/index.ts",
-      "copies": ["ChefMind/app/index.ts"]
+      "copies": ["MealMind/app/index.ts"]
     },
     {
       "id": "app-modules-native-ocr-expo-module-config-json",
       "origin": "CalMind/apps/app/modules/native-ocr/expo-module.config.json",
-      "copies": ["ChefMind/app/modules/native-ocr/expo-module.config.json"]
+      "copies": ["MealMind/app/modules/native-ocr/expo-module.config.json"]
     },
     {
       "id": "app-modules-native-ocr-ios-nativeocr-podspec",
       "origin": "CalMind/apps/app/modules/native-ocr/ios/NativeOcr.podspec",
-      "copies": ["ChefMind/app/modules/native-ocr/ios/NativeOcr.podspec"]
+      "copies": ["MealMind/app/modules/native-ocr/ios/NativeOcr.podspec"]
     },
     {
       "id": "app-modules-native-ocr-ios-nativeocrmodule-swift",
       "origin": "CalMind/apps/app/modules/native-ocr/ios/NativeOcrModule.swift",
-      "copies": ["ChefMind/app/modules/native-ocr/ios/NativeOcrModule.swift"]
+      "copies": ["MealMind/app/modules/native-ocr/ios/NativeOcrModule.swift"]
     },
     {
       "id": "app-src-logo-tsx",
       "origin": "CalMind/apps/app/src/Logo.tsx",
-      "copies": ["ChefMind/app/src/Logo.tsx"]
+      "copies": ["MealMind/app/src/Logo.tsx"]
     },
     {
       "id": "app-src-brand-ts",
       "origin": "CalMind/apps/app/src/brand.ts",
-      "copies": ["ChefMind/app/src/brand.ts"]
+      "copies": ["MealMind/app/src/brand.ts"]
     },
     {
       "id": "app-src-components-chevron-tsx",
       "origin": "CalMind/apps/app/src/components/Chevron.tsx",
-      "copies": ["ChefMind/app/src/components/Chevron.tsx"]
+      "copies": ["MealMind/app/src/components/Chevron.tsx"]
     },
     {
       "id": "app-src-components-daypick-tsx",
       "origin": "CalMind/apps/app/src/components/DayPick.tsx",
-      "copies": ["ChefMind/app/src/components/DayPick.tsx"]
+      "copies": ["MealMind/app/src/components/DayPick.tsx"]
     },
     {
       "id": "app-src-components-dropdown-tsx",
       "origin": "CalMind/apps/app/src/components/Dropdown.tsx",
-      "copies": ["ChefMind/app/src/components/Dropdown.tsx"]
+      "copies": ["MealMind/app/src/components/Dropdown.tsx"]
     },
     {
       "id": "app-src-components-editexit-tsx",
       "origin": "CalMind/apps/app/src/components/EditExit.tsx",
-      "copies": ["ChefMind/app/src/components/EditExit.tsx"]
+      "copies": ["MealMind/app/src/components/EditExit.tsx"]
     },
     {
       "id": "app-src-components-foldermanager-tsx",
       "origin": "CalMind/apps/app/src/components/FolderManager.tsx",
-      "copies": ["ChefMind/app/src/components/FolderManager.tsx"]
+      "copies": ["MealMind/app/src/components/FolderManager.tsx"]
     },
     {
       "id": "app-src-components-ingredientbadge-tsx",
       "origin": "CalMind/apps/app/src/components/IngredientBadge.tsx",
-      "copies": ["ChefMind/app/src/components/IngredientBadge.tsx"]
+      "copies": ["MealMind/app/src/components/IngredientBadge.tsx"]
     },
     {
       "id": "app-src-components-itemmodal-tsx",
       "origin": "CalMind/apps/app/src/components/ItemModal.tsx",
-      "copies": ["ChefMind/app/src/components/ItemModal.tsx"]
+      "copies": ["MealMind/app/src/components/ItemModal.tsx"]
     },
     {
       "id": "app-src-components-kindicons-tsx",
       "origin": "CalMind/apps/app/src/components/KindIcons.tsx",
-      "copies": ["ChefMind/app/src/components/KindIcons.tsx"]
+      "copies": ["MealMind/app/src/components/KindIcons.tsx"]
     },
     {
       "id": "app-src-components-piedot-tsx",
       "origin": "CalMind/apps/app/src/components/PieDot.tsx",
-      "copies": ["ChefMind/app/src/components/PieDot.tsx"]
+      "copies": ["MealMind/app/src/components/PieDot.tsx"]
     },
     {
       "id": "app-src-components-richtext-tsx",
       "origin": "CalMind/apps/app/src/components/RichText.tsx",
-      "copies": ["ChefMind/app/src/components/RichText.tsx"]
+      "copies": ["MealMind/app/src/components/RichText.tsx"]
     },
     {
       "id": "app-src-components-sharemodal-tsx",
       "origin": "CalMind/apps/app/src/components/ShareModal.tsx",
-      "copies": ["ChefMind/app/src/components/ShareModal.tsx"]
+      "copies": ["MealMind/app/src/components/ShareModal.tsx"]
     },
     {
       "id": "app-src-components-swatchtray-tsx",
       "origin": "CalMind/apps/app/src/components/SwatchTray.tsx",
-      "copies": ["ChefMind/app/src/components/SwatchTray.tsx"]
+      "copies": ["MealMind/app/src/components/SwatchTray.tsx"]
     },
     {
       "id": "app-src-components-syncdot-tsx",
       "origin": "CalMind/apps/app/src/components/SyncDot.tsx",
-      "copies": ["ChefMind/app/src/components/SyncDot.tsx"]
+      "copies": ["MealMind/app/src/components/SyncDot.tsx"]
     },
     {
       "id": "app-src-components-toast-tsx",
       "origin": "CalMind/apps/app/src/components/Toast.tsx",
-      "copies": ["ChefMind/app/src/components/Toast.tsx"]
+      "copies": ["MealMind/app/src/components/Toast.tsx"]
     },
     {
       "id": "app-src-components-toasthost-tsx",
       "origin": "CalMind/apps/app/src/components/ToastHost.tsx",
-      "copies": ["ChefMind/app/src/components/ToastHost.tsx"]
+      "copies": ["MealMind/app/src/components/ToastHost.tsx"]
     },
     {
       "id": "app-src-components-toasthost-web-tsx",
       "origin": "CalMind/apps/app/src/components/ToastHost.web.tsx",
-      "copies": ["ChefMind/app/src/components/ToastHost.web.tsx"]
+      "copies": ["MealMind/app/src/components/ToastHost.web.tsx"]
     },
     {
       "id": "app-src-components-ocr-ts",
       "origin": "CalMind/apps/app/src/components/ocr.ts",
-      "copies": ["ChefMind/app/src/components/ocr.ts"]
+      "copies": ["MealMind/app/src/components/ocr.ts"]
     },
     {
       "id": "app-src-components-rowdrag-ts",
       "origin": "CalMind/apps/app/src/components/rowdrag.ts",
-      "copies": ["ChefMind/app/src/components/rowdrag.ts"]
+      "copies": ["MealMind/app/src/components/rowdrag.ts"]
     },
     {
       "id": "app-src-components-rowslots-ts",
       "origin": "CalMind/apps/app/src/components/rowslots.ts",
-      "copies": ["ChefMind/app/src/components/rowslots.ts", "AcctMind/packages/core/src/rowslots.ts"]
+      "copies": ["MealMind/app/src/components/rowslots.ts", "AcctMind/packages/core/src/rowslots.ts"]
     },
     {
       "id": "app-src-components-sectiondrag-ts",
       "origin": "CalMind/apps/app/src/components/sectiondrag.ts",
-      "copies": ["ChefMind/app/src/components/sectiondrag.ts"]
+      "copies": ["MealMind/app/src/components/sectiondrag.ts"]
     },
     {
       "id": "app-src-components-swiperow-ts",
       "origin": "CalMind/apps/app/src/components/swiperow.ts",
-      "copies": ["ChefMind/app/src/components/swiperow.ts"]
+      "copies": ["MealMind/app/src/components/swiperow.ts"]
     },
     {
       "id": "app-src-folds-ts",
       "origin": "CalMind/apps/app/src/folds.ts",
-      "copies": ["ChefMind/app/src/folds.ts"]
+      "copies": ["MealMind/app/src/folds.ts"]
     },
     {
       "id": "app-src-appsignin-ts",
       "origin": "CalMind/apps/app/src/appsignin.ts",
-      "copies": ["ChefMind/app/src/appsignin.ts"]
+      "copies": ["MealMind/app/src/appsignin.ts"]
     },
     {
       "id": "app-src-appsignin-browser-ts",
       "origin": "CalMind/apps/app/src/appsignin-browser.ts",
-      "copies": ["ChefMind/app/src/appsignin-browser.ts"]
+      "copies": ["MealMind/app/src/appsignin-browser.ts"]
     },
     {
       "id": "app-src-passkey-ts",
       "origin": "CalMind/apps/app/src/passkey.ts",
-      "copies": ["ChefMind/app/src/passkey.ts"]
+      "copies": ["MealMind/app/src/passkey.ts"]
     },
     {
       "id": "app-src-sharedwrites-ts",
       "origin": "CalMind/apps/app/src/sharedwrites.ts",
-      "copies": ["ChefMind/app/src/sharedwrites.ts"]
+      "copies": ["MealMind/app/src/sharedwrites.ts"]
     },
     {
       "id": "app-src-savefile-ts",
       "origin": "CalMind/apps/app/src/savefile.ts",
-      "copies": ["ChefMind/app/src/savefile.ts"]
+      "copies": ["MealMind/app/src/savefile.ts"]
     },
     {
       "id": "app-src-savefile-web-ts",
       "origin": "CalMind/apps/app/src/savefile.web.ts",
-      "copies": ["ChefMind/app/src/savefile.web.ts"]
+      "copies": ["MealMind/app/src/savefile.web.ts"]
     },
     {
       "id": "app-src-screens-login-tsx",
       "origin": "CalMind/apps/app/src/screens/Login.tsx",
-      "copies": ["ChefMind/app/src/screens/Login.tsx"]
+      "copies": ["MealMind/app/src/screens/Login.tsx"]
     },
     {
       "id": "app-src-screens-settings-tsx",
       "origin": "CalMind/apps/app/src/screens/Settings.tsx",
-      "copies": ["ChefMind/app/src/screens/Settings.tsx"]
+      "copies": ["MealMind/app/src/screens/Settings.tsx"]
     },
     {
       "id": "app-src-theme-ts",
       "origin": "CalMind/apps/app/src/theme.ts",
-      "copies": ["ChefMind/app/src/theme.ts", "PlanMind/app/theme.ts", "TaskMind/app/theme.ts"]
+      "copies": ["MealMind/app/src/theme.ts", "PlanMind/app/theme.ts", "TaskMind/app/theme.ts"]
     },
     {
       "id": "app-src-ui-tsx",
       "origin": "CalMind/apps/app/src/ui.tsx",
-      "copies": ["ChefMind/app/src/ui.tsx"]
+      "copies": ["MealMind/app/src/ui.tsx"]
     },
     {
       "id": "app-src-update-ts",
       "origin": "CalMind/apps/app/src/update.ts",
-      "copies": ["ChefMind/app/src/update.ts"]
+      "copies": ["MealMind/app/src/update.ts"]
     },
     {
       "id": "app-src-useclock24-ts",
       "origin": "CalMind/apps/app/src/useClock24.ts",
-      "copies": ["ChefMind/app/src/useClock24.ts"]
+      "copies": ["MealMind/app/src/useClock24.ts"]
     },
     {
       "id": "app-test-appsignin-test-ts",
       "origin": "CalMind/apps/app/test/appsignin.test.ts",
-      "copies": ["ChefMind/app/test/appsignin.test.ts"]
+      "copies": ["MealMind/app/test/appsignin.test.ts"]
     },
     {
       "id": "app-test-requestdeadline-test-ts",
       "origin": "CalMind/apps/app/test/requestdeadline.test.ts",
-      "copies": ["ChefMind/app/test/requestdeadline.test.ts"]
+      "copies": ["MealMind/app/test/requestdeadline.test.ts"]
     },
     {
       "id": "app-test-rowslots-test-ts",
       "origin": "CalMind/apps/app/test/rowslots.test.ts",
-      "copies": ["ChefMind/app/test/rowslots.test.ts"]
+      "copies": ["MealMind/app/test/rowslots.test.ts"]
     },
     {
       "id": "app-test-sharedwrites-test-ts",
       "origin": "CalMind/apps/app/test/sharedwrites.test.ts",
-      "copies": ["ChefMind/app/test/sharedwrites.test.ts"]
+      "copies": ["MealMind/app/test/sharedwrites.test.ts"]
     },
     {
       "id": "app-test-synclook-test-ts",
       "origin": "CalMind/apps/app/test/synclook.test.ts",
-      "copies": ["ChefMind/app/test/synclook.test.ts"]
+      "copies": ["MealMind/app/test/synclook.test.ts"]
     },
     {
       "id": "app-tsconfig-json",
       "origin": "CalMind/apps/app/tsconfig.json",
-      "copies": ["ChefMind/app/tsconfig.json"]
+      "copies": ["MealMind/app/tsconfig.json"]
     },
     {
       "id": "desktop-src-tauri-build-rs",
       "origin": "CalMind/desktop/src-tauri/build.rs",
-      "copies": ["ChefMind/desktop/src-tauri/build.rs", "AcctMind/desktop/src-tauri/build.rs", "PlanMind/native/src-tauri/build.rs", "TaskMind/native/src-tauri/build.rs"]
+      "copies": ["MealMind/desktop/src-tauri/build.rs", "AcctMind/desktop/src-tauri/build.rs", "PlanMind/native/src-tauri/build.rs", "TaskMind/native/src-tauri/build.rs"]
     },
     {
       "id": "desktop-src-tauri-capabilities-default-json",
       "origin": "CalMind/desktop/src-tauri/capabilities/default.json",
-      "copies": ["ChefMind/desktop/src-tauri/capabilities/default.json"]
+      "copies": ["MealMind/desktop/src-tauri/capabilities/default.json"]
     },
     {
       "id": "desktop-src-tauri-src-signin-rs",
       "origin": "CalMind/desktop/src-tauri/src/signin.rs",
-      "copies": ["ChefMind/desktop/src-tauri/src/signin.rs"]
+      "copies": ["MealMind/desktop/src-tauri/src/signin.rs"]
     },
     {
       "id": "desktop-src-tauri-src-main-rs",
       "origin": "CalMind/desktop/src-tauri/src/main.rs",
-      "copies": ["ChefMind/desktop/src-tauri/src/main.rs"]
+      "copies": ["MealMind/desktop/src-tauri/src/main.rs"]
     },
     {
       "id": "desktop-stage-dist-sh",
       "origin": "CalMind/desktop/stage-dist.sh",
-      "copies": ["ChefMind/desktop/stage-dist.sh"]
+      "copies": ["MealMind/desktop/stage-dist.sh"]
     },
     {
       "id": "tools-app-identity-mjs",
       "origin": "CalMind/tools/app-identity.mjs",
-      "copies": ["ChefMind/tools/app-identity.mjs"]
+      "copies": ["MealMind/tools/app-identity.mjs"]
     },
     {
       "id": "tools-gh-bot-sh",
       "origin": "CalMind/tools/gh-bot.sh",
-      "copies": ["ChefMind/tools/gh-bot.sh", "AcctMind/tools/gh-bot.sh"]
+      "copies": ["MealMind/tools/gh-bot.sh", "AcctMind/tools/gh-bot.sh"]
     },
     {
       "id": "tools-heavy-lock-sh",
       "origin": "CalMind/tools/heavy-lock.sh",
-      "copies": ["ChefMind/tools/heavy-lock.sh", "AcctMind/tools/heavy-lock.sh", "PlanMind/tools/heavy-lock.sh", "TaskMind/tools/heavy-lock.sh"]
+      "copies": ["MealMind/tools/heavy-lock.sh", "AcctMind/tools/heavy-lock.sh", "PlanMind/tools/heavy-lock.sh", "TaskMind/tools/heavy-lock.sh"]
     },
     {
       "id": "tools-machine-env-sh",
       "origin": "CalMind/tools/machine-env.sh",
-      "copies": ["ChefMind/tools/machine-env.sh", "AcctMind/tools/machine-env.sh", "PlanMind/tools/machine-env.sh", "TaskMind/tools/machine-env.sh"]
+      "copies": ["MealMind/tools/machine-env.sh", "AcctMind/tools/machine-env.sh", "PlanMind/tools/machine-env.sh", "TaskMind/tools/machine-env.sh"]
     },
     {
       "id": "tools-retry-installs-sh",
       "origin": "CoreMind/bin/retry-installs.sh",
-      "copies": ["CalMind/tools/retry-installs.sh", "ChefMind/tools/retry-installs.sh", "AcctMind/tools/retry-installs.sh", "PlanMind/tools/retry-installs.sh", "TaskMind/tools/retry-installs.sh"],
+      "copies": ["CalMind/tools/retry-installs.sh", "MealMind/tools/retry-installs.sh", "AcctMind/tools/retry-installs.sh", "PlanMind/tools/retry-installs.sh", "TaskMind/tools/retry-installs.sh"],
       "note": "Owed iOS installs: record, clear and retry (see CoreMind/AGENTS.md)."
     },
     {
       "id": "tools-machine-env-sample",
       "origin": "CalMind/tools/machine.env.sample",
-      "copies": ["ChefMind/tools/machine.env.sample", "AcctMind/tools/machine.env.sample", "PlanMind/tools/machine.env.sample", "TaskMind/tools/machine.env.sample"]
+      "copies": ["MealMind/tools/machine.env.sample", "AcctMind/tools/machine.env.sample", "PlanMind/tools/machine.env.sample", "TaskMind/tools/machine.env.sample"]
     },
     {
       "id": "tools-patch-web-html-mjs",
       "origin": "CalMind/tools/patch-web-html.mjs",
-      "copies": ["ChefMind/tools/patch-web-html.mjs"]
+      "copies": ["MealMind/tools/patch-web-html.mjs"]
     },
     {
       "id": "tools-source-digest-mjs",
       "origin": "CalMind/tools/source-digest.mjs",
-      "copies": ["ChefMind/tools/source-digest.mjs"]
+      "copies": ["MealMind/tools/source-digest.mjs"]
     },
     {
       "id": "tools-sw-js",
       "origin": "CalMind/tools/sw.js",
-      "copies": ["ChefMind/tools/sw.js"]
+      "copies": ["MealMind/tools/sw.js"]
     },
     {
       "id": "tools-sync-lock-versions-mjs",
       "origin": "CalMind/tools/sync-lock-versions.mjs",
-      "copies": ["ChefMind/tools/sync-lock-versions.mjs", "AcctMind/tools/sync-lock-versions.mjs"]
+      "copies": ["MealMind/tools/sync-lock-versions.mjs", "AcctMind/tools/sync-lock-versions.mjs"]
     },
     {
       "id": "tools-tdtp-sh",
       "origin": "CalMind/tools/tdtp.sh",
-      "copies": ["ChefMind/tools/tdtp.sh", "AcctMind/tools/tdtp.sh", "PlanMind/tools/tdtp.sh", "TaskMind/tools/tdtp.sh"]
+      "copies": ["MealMind/tools/tdtp.sh", "AcctMind/tools/tdtp.sh", "PlanMind/tools/tdtp.sh", "TaskMind/tools/tdtp.sh"]
     },
     {
       "id": "tsconfig-base-json",
       "origin": "CalMind/tsconfig.base.json",
-      "copies": ["ChefMind/tsconfig.base.json"]
+      "copies": ["MealMind/tsconfig.base.json"]
     }
   ],
   "external": [

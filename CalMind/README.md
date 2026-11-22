@@ -27,7 +27,7 @@ Feel free to deploy this on your own website, build and deploy the iOS version, 
 
 ### Calendar
 
-Calendars, reminders, notes and ChefMind recipes in one month view. Unfinished reminders carry forward until checked off.
+Calendars, reminders, notes and MealMind recipes in one month view. Unfinished reminders carry forward until checked off.
 
 Use the calendar picker → **Manage calendars…** → **Import read-only calendars**:
 

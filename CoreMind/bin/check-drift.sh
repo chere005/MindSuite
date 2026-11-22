@@ -2,7 +2,7 @@
 # Compatibility shim: the old canon drift check, now a wrapper over check-shared.
 #
 #   sh bin/check-drift.sh                   every group in tools/shared-files.json
-#   sh bin/check-drift.sh CalMind ChefMind  only groups with a member under those apps
+#   sh bin/check-drift.sh CalMind MealMind  only groups with a member under those apps
 #
 # CoreMind holds no canon and no per-app manifests any more: tools/shared-files.json
 # lists the byte-identical copies and tools/check-shared.mjs compares them. This
@@ -29,7 +29,7 @@
 set -u
 cd "$(dirname "$0")/.."
 CHECK=../tools/check-shared.mjs
-APPS="CalMind ChefMind AcctMind PlanMind TaskMind"
+APPS="CalMind MealMind AcctMind PlanMind TaskMind"
 
 # A named app that is not one of the five is a typo, and a typo must not exit 0
 # having compared nothing. Resolved BEFORE any work, so the message names it.

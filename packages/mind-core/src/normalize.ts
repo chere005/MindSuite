@@ -8,7 +8,7 @@
  * WHICH starters an app grows is its SEED PROFILE, and the profile is the only
  * thing the apps differ in here. Each app's own `appconfig.ts` (app-owned)
  * names it and the app's `normalize.ts` wrapper passes it in; called with no
- * profile, this shared body runs SUITE_SEEDS (CalMind's). ChefMind's swaps the
+ * profile, this shared body runs SUITE_SEEDS (CalMind's). MealMind's swaps the
  * Reminders tab for its shopping list and pantry and grows no calendar or
  * habit starters. The profile decides seeds and where strays land, never the
  * record shapes: every payload written here is the one each app wrote before
@@ -45,7 +45,7 @@ export type SeedProfile = {
    *            side: one of each is seeded, neither counts as an ordinary
    *            reminders folder, any general reminders folder is folded away
    *            (tombstoned, its rows moved) and strays land on the shopping
-   *            list, never the pantry (ChefMind).
+   *            list, never the pantry (MealMind).
    */
   reminders: { kind: 'tab' } | { kind: 'lists'; shopping: SeedFolder; pantry: SeedFolder };
   /** A starter calendar, and events with a dead calendar re-homed to the first. */
@@ -131,7 +131,7 @@ export function normalize(recs: AnyRec[], profile: SeedProfile = SUITE_SEEDS): {
     // first (the rehome pass below, once the folder is gone), then the folder
     // and its sections are tombstoned — the only place in the suite that
     // removes a container someone could have filed into. It runs only under a
-    // 'lists' profile, against that app's own store (ChefMind: space 'chef'),
+    // 'lists' profile, against that app's own store (MealMind: space 'chef'),
     // never CalMind's.
     for (const f of appFolders('reminders')) {
       f.deleted = true;

@@ -2,7 +2,7 @@
 # dtp the suite — deploy, tag, push, across every repo, in dependency order.
 #
 #   sh bin/dtp.sh all                every repo, core first
-#   sh bin/dtp.sh CalMind            CalMind — and ChefMind, which depends on it
+#   sh bin/dtp.sh CalMind            CalMind — and MealMind, which depends on it
 #   sh bin/dtp.sh --only AcctMind    that one alone
 #   sh bin/dtp.sh all --plan         resolve the order and stop
 #   sh bin/dtp.sh all --full         tdtp: the full test run in each lane

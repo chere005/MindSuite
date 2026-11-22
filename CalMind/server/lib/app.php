@@ -474,7 +474,7 @@ function lockout_clear(array $cfg, string $user): void
  * The default space is CalMind's and its filename is unchanged, byte for byte,
  * because every existing store is already at that path.
  *
- * ChefMind (the owner, 2026-08-21) is a second app on this same server that reuses
+ * MealMind (the owner, 2026-08-21) is a second app on this same server that reuses
  * these accounts and keeps its own reminders and notes. It sends space='chef'
  * and lands in records-chef-<user>.json. Nothing else about it is different:
  * same auth, same tokens, same merge, same lock discipline — the space is only
@@ -483,7 +483,7 @@ function lockout_clear(array $cfg, string $user): void
  * Sharing, the meeting-request pair and the widget feed all call this with no
  * space and therefore always mean CalMind's store. That is deliberate rather
  * than an oversight: a partnership is between two CalMind accounts, and a
- * ChefMind note is not something either of them has agreed to share.
+ * MealMind note is not something either of them has agreed to share.
  */
 function records_file(array $cfg, string $user, string $space = ''): string
 {
@@ -505,12 +505,12 @@ const SYNC_SPACES = ['chef'];
 /**
  * The spaces this build knows, said out loud and WITHOUT AUTH.
  *
- * ChefMind writes into CalMind's server. If it is ever deployed in front of an
- * API that does not know `space`, the parameter is ignored and every ChefMind
+ * MealMind writes into CalMind's server. If it is ever deployed in front of an
+ * API that does not know `space`, the parameter is ignored and every MealMind
  * record lands in CalMind's own store — two apps merged into one file, found
  * only once somebody's reminders list has recipes in it.
  *
- * So the ChefMind deploy asks first, and refuses to ship if the answer does
+ * So the MealMind deploy asks first, and refuses to ship if the answer does
  * not name its space. That gate needs an answer from a machine holding no
  * credentials, which is why this is public. What it discloses is the list of
  * apps this server hosts, which is already visible from the outside.
@@ -593,17 +593,17 @@ function account_exists(array $cfg, string $user): bool
 const SUITE_APP   = 'calmind';
 const SUITE_SCOPE = 'calmind';
 /**
- * A request for another app's space follows THAT app's switch and hold: ChefMind names space 'chef' on every action (its
+ * A request for another app's space follows THAT app's switch and hold: MealMind names space 'chef' on every action (its
  * api.ts), so 'chefmind' held keeps its calls on the legacy path while calmind is un-held, and calmind held does not hold
  * them back while chefmind is un-held. The scope does not follow: a chef-space token is still scope 'calmind' (the API it
- * opens is this one, on the same accounts; the importer made ChefMind's legacy tokens, which live in the same tokens.json,
+ * opens is this one, on the same accounts; the importer made ChefMind's (now MealMind's) legacy tokens, which live in the same tokens.json,
  * calmind-scoped), so a token's scope must still be exactly SUITE_SCOPE, whichever app's hold the request follows.
  */
 const SUITE_SPACE_APPS = ['chef' => 'chefmind'];
 /**
- * The only actions whose `space` picks the hold: the three whose data is scoped by space, ChefMind's own recipe_fetch,
+ * The only actions whose `space` picks the hold: the three whose data is scoped by space, MealMind's own recipe_fetch,
  * and the ones that carry identity only (sign-in, sign-up, recover/reset, passkey sign-in and list, change_password,
- * whoami, logout, and the two app sign-in actions signin_info and signin_redeem), so a held ChefMind keeps its whole legacy sign-in. Every other action (delete_account,
+ * whoami, logout, and the two app sign-in actions signin_info and signin_redeem), so a held MealMind keeps its whole legacy sign-in. Every other action (delete_account,
  * passkey_register_*, passkey_remove, meetreq_*, calsub_*, ...) reaches CalMind's own data or adds a way into the whole
  * account and always follows calmind's hold, so a body field can never open a second door into CalMind while the two
  * holds differ.
@@ -1367,16 +1367,16 @@ function handle_sync(array $cfg, array $in): never
 /**
  * SHARING IS PER SPACE, all the way down.
  *
- * ChefMind (2026-08-21) reuses these accounts and keeps its own store, and the
+ * MealMind (2026-08-21) reuses these accounts and keeps its own store, and the
  * first version of that made sync space-aware and left sharing alone — so
- * ChefMind pulled the partner's CALMIND folders and showed them, on the very
+ * ChefMind (now MealMind) pulled the partner's CALMIND folders and showed them, on the very
  * first sign-in. The owner's words: "this should be completely separate from
  * calmind... it just shares the login mechanism and users".
  *
  * So the whole chain carries the space: who you share with, what you share,
  * what a pull returns and where a write lands are all questions about ONE
- * store. A partnership in ChefMind is declared in ChefMind by both people,
- * exactly as it is in CalMind — same UX, different file. Every user's ChefMind
+ * store. A partnership in MealMind is declared in MealMind by both people,
+ * exactly as it is in CalMind — same UX, different file. Every user's MealMind
  * therefore starts blank, including its partner list.
  *
  * The default is '' and the behaviour at '' is unchanged, byte for byte,
@@ -1423,8 +1423,8 @@ function share_mutual(array $cfg, string $me, string $partner, string $space = '
 {
     if ($me === $partner || $partner === '') { return false; }
     // BOTH lists are read in the SAME space. Reading one side in CalMind and
-    // the other in ChefMind would make a CalMind partnership authorise a
-    // ChefMind read, which is the leak this parameter exists to close.
+    // the other in MealMind would make a CalMind partnership authorise a
+    // MealMind read, which is the leak this parameter exists to close.
     return in_array($partner, share_of($cfg, $me, $space)['partners'], true)
         && in_array($me, share_of($cfg, $partner, $space)['partners'], true);
 }

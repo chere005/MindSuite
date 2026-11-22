@@ -36,7 +36,7 @@ check 'TEST verify accepts its own absolute account URL' pass 303 'Location: htt
 check 'verify refuses a server error' fail 500 ''
 check 'verify refuses an external account redirect' fail 303 'Location: https://external.invalid/account/?next=%2FAcctMind%2F'
 check 'TEST verify refuses a production account redirect' fail 303 'Location: https://fixture.invalid/account/?next=%2FAcctMind%2F' --test-only
-check 'verify refuses another app return path' fail 303 'Location: /account/?next=%2FChefMind%2F'
+check 'verify refuses another app return path' fail 303 'Location: /account/?next=%2FMealMind%2F'
 check 'verify refuses a redirect without Location' fail 303 ''
 printf '%s\n' "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

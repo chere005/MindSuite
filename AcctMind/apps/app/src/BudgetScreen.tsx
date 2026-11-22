@@ -354,7 +354,7 @@ export function BudgetScreen({
    * gesture could express. One hook over one list is what makes it one.
    *
    * The two rules that make the arithmetic right are core's `rowslots.ts`,
-   * byte-identical with CoreMind canon and with the copies CalMind, ChefMind
+   * byte-identical with CoreMind canon and with the copies CalMind, MealMind
    * and MyCalMind carry — it is the same bug, already paid for there on
    * 2026-09-19 ("dragging was buggy … when sections were closed and between
    * sections generally"):

@@ -3,7 +3,7 @@ import { pkceChallenge } from '@calmind/core';
 import app from '../app.json';
 
 // App sign-in (src/appsignin.ts, src/appsignin-browser.ts): the flow with fake browsers and a scripted fetch. App-neutral:
-// the same bytes run in CalMind and ChefMind, each against its own app.json and api.ts.
+// the same bytes run in CalMind and MealMind, each against its own app.json and api.ts.
 
 vi.mock('react-native', () => ({
   Platform: { OS: 'ios' },
@@ -335,9 +335,9 @@ describe('appsignin-browser', () => {
     vi.resetModules();
     const mod = await import('../src/appsignin-browser');
     const assign = vi.fn();
-    vi.stubGlobal('location', { href: 'https://seancheren.com/ChefMind/', assign });
+    vi.stubGlobal('location', { href: 'https://seancheren.com/MealMind/', assign });
     await mod.openAccountPage(API);
-    expect(assign).toHaveBeenCalledWith('/account/?next=%2FChefMind%2F');
+    expect(assign).toHaveBeenCalledWith('/account/?next=%2FMealMind%2F');
     vi.stubGlobal('location', undefined);
     const rn = await import('react-native');
     vi.mocked(rn.Linking.openURL).mockClear();

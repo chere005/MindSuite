@@ -6,7 +6,7 @@ import type { AnyRec, SeedProfile } from '../src/index';
 const rec = (id: string, type: string, updated: number, payload: object, deleted = false): AnyRec =>
   ({ id, type, updated, deleted, payload } as unknown as AnyRec);
 
-/** A 'lists' profile, ChefMind's shape: the rescue below must hold under it too. */
+/** A 'lists' profile, MealMind's shape: the rescue below must hold under it too. */
 const LISTS: SeedProfile = {
   reminders: { kind: 'lists', shopping: { name: 'Shopping list', color: '#f0b429' }, pantry: { name: 'Pantry', color: '#5fb6ac' } },
   calendar: false,

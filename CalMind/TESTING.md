@@ -978,7 +978,7 @@ good cookie, a legacy `401`, a switched-on server that cannot read its store, of
 calls (the secret learned once, on every write, no `Authorization` header, a changed secret retried once, a cookie that
 now names somebody else never carrying the write), the redirect loop guard, and that the bearer path is byte for byte
 what it was. Saved web bearers are checked against the current shared cookie before cache hydration; shared logout and unknown identity keep cached work closed and preserved. Known legacy-form sessions retain offline opening; native and desktop retain their scoped bearer. `e2e/sharedsession.spec.ts` drives identity replacement, old-cache preservation, no-bearer writes and unknown-mode password refusal in the mounted app. Each guard was broken on purpose and the file went red (secret header, identity check, bearer header,
-double-slash guard, logout wait, the shared branch). ChefMind carries the same file against its own `api.ts`.
+double-slash guard, logout wait, the shared branch). MealMind carries the same file against its own `api.ts`.
 
 `e2e-shared/` (its own config, `playwright.shared.config.ts`, and its own port, 8795 or `CALMIND_E2E_SHARED_PORT`) is the same
 thing in a real browser: one `php -S` serves the exported app, the real CalMind API and the real `public/account/index.php`
@@ -1004,7 +1004,7 @@ shown; and the screens by eye (the confirm page in midnight and sage at 420 and 
 Sign in, waiting and offline cards). The desktop Rust listener is `sh desktop/test-signin.sh`. Not provable here: a real
 Tauri IPC call and an https-to-loopback hand-back inside a running shell (no app is launched).
 Native acceptance: a Release iOS simulator build was tested against a disposable HTTPS account page and API, with a trust root confined to that simulator. XCTest drove the real system authentication session, password sign-in, account confirmation and return to the signed-in app; all assertions passed and the captured screens were inspected. The fixture, trust root and simulator were removed afterward.
-Not covered in a browser: ChefMind (its dev-host rule aims a page on 127.0.0.1 at port 8788, so its web build cannot be pointed at
+Not covered in a browser: MealMind (its dev-host rule aims a page on 127.0.0.1 at port 8788, so its web build cannot be pointed at
 this server without a second export built for it); its `api.ts` and `Login.tsx` are covered by the unit file and the same
 `Login.tsx` bytes.
 

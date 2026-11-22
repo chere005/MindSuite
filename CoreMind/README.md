@@ -30,7 +30,7 @@ Change a shared file at its origin, then run the check; it tells you which copie
 
 ## Notes
 
-- Consumers: [CalMind](https://github.com/chere005/CalMind), [ChefMind](https://github.com/chere005/ChefMind), [MyCalMind](https://github.com/chere005/MyCalMind), [AcctMind](https://github.com/chere005/AcctMind), and the private web apps PlanMind and TaskMind. Private targets go one per line in a gitignored `.private-targets` file.
+- Consumers: [CalMind](https://github.com/chere005/CalMind), MealMind (formerly [ChefMind](https://github.com/chere005/ChefMind)), [MyCalMind](https://github.com/chere005/MyCalMind), [AcctMind](https://github.com/chere005/AcctMind), and the private web apps PlanMind and TaskMind. Private targets go one per line in a gitignored `.private-targets` file.
 - Apps import `@mind/core` from `packages/mind-core` and carry the listed copies; nothing imports CoreMind itself.
 - Expects the apps beside it in the same checkout (`MIND_DIR` overrides where the release scripts look).
 

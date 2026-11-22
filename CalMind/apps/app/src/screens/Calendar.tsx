@@ -228,10 +228,10 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   const sharedLegend = useMemo(() => monthLegend(sharedDrawn, cells, today, folderModes, showDone), [sharedDrawn, cells, today, folderModes, showDone]);
   const items = useMemo(() => dayItems(drawn, day, today, folderModes), [drawn, day, today, folderModes]);
   /**
-   * ChefMind recipes CalMind has planned for a day (the owner, 2026-09-16).
+   * MealMind recipes CalMind has planned for a day (the owner, 2026-09-16).
    *
    * They are not records of this store and never become any: the day lives in
-   * CalMind's notes prefs, keyed by the chef id, so ChefMind never learns of
+   * CalMind's notes prefs, keyed by the chef id, so MealMind never learns of
    * it. That is also why they ride BESIDE `items` rather than through core's
    * dayItems — dayItems shapes this store's own records, and a recipe has no
    * folder, no repeat and no lateness for it to reason about.
@@ -580,7 +580,7 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
       heading: 'Recipe',
       title: n.payload.title,
       rows: [{ label: 'Planned', value: dateWord(d) }],
-      note: 'Read-only here. A recipe is edited in ChefMind.',
+      note: 'Read-only here. A recipe is edited in MealMind.',
       // The same door the day panel's recipe rows already use.
       action: { label: 'Open recipe', testID: 'detail-open-recipe', onPress: () => onNoteCreated?.(n.id) },
     });

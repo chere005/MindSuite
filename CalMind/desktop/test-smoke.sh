@@ -34,7 +34,7 @@ test "$(cat "$SMOKE_CALLS")" = $'verify\nopen -g' || { echo 'a verified bundle d
 echo 'desktop smoke signature and background-launch guards passed'
 
 # The build lane must repair its fresh local bundle before the smoke sees it; a signing error stops the lane.
-for APPNAME in CalMind ChefMind; do
+for APPNAME in CalMind MealMind; do
   python3 - "$HERE/../../$APPNAME/tools/build-platforms.sh" "$OUT/sign-built.sh" <<'PYTEST'
 import sys
 from pathlib import Path
@@ -53,8 +53,8 @@ PYTEST
   test "$(cat "$SMOKE_CALLS")" = verify
 done
 echo 'fresh local bundle signing guards passed'
-# Run ChefMind's real install block with a stopped app and a disposable Applications folder.
-python3 - "$HERE/../../ChefMind/tools/build-platforms.sh" "$OUT/install.sh" "$OUT/Applications" <<'PYTEST'
+# Run MealMind's real install block with a stopped app and a disposable Applications folder.
+python3 - "$HERE/../../MealMind/tools/build-platforms.sh" "$OUT/install.sh" "$OUT/Applications" <<'PYTEST'
 import sys
 from pathlib import Path
 text=Path(sys.argv[1]).read_text()
@@ -66,5 +66,5 @@ mkdir -p "$OUT/Applications"
 : > "$SMOKE_CALLS"
 export APPBUNDLE="$OUT/desktop/src-tauri/target/release/bundle/macos/CalMind.app" SMOKE_SIGNATURE=valid
 bash "$OUT/install.sh" > "$OUT/log" 2>&1
-test "$(cat "$SMOKE_CALLS")" = $'verify\nverify' || { echo 'ChefMind skipped installed-copy signing' >&2; exit 1; }
-echo 'ChefMind installed-copy signing passed'
+test "$(cat "$SMOKE_CALLS")" = $'verify\nverify' || { echo 'MealMind skipped installed-copy signing' >&2; exit 1; }
+echo 'MealMind installed-copy signing passed'

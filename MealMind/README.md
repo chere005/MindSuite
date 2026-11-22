@@ -1,0 +1,75 @@
+# MealMind
+
+Recipes, a pantry and a shopping list. (It was called ChefMind until 1.51.0.)
+
+## Disclaimer
+
+Feel free to deploy this on your own website, build and deploy the iOS version, etc.
+
+**This is a personal project to have some fun with claude code, which generated essentially all of the code, and the rest of this readme:**
+
+## Quick start / Install
+
+- Web: [seancheren.com/MealMind](https://seancheren.com/MealMind). Installs as a PWA. Sign in with a CalMind account.
+- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/ChefMind/releases). Unsigned.
+- iOS and Android: build from source, see Building.
+
+## Platforms
+
+- Web (PWA)
+- iOS and Android
+- macOS and Windows (Tauri desktop app)
+
+## Usage
+
+### Recipes
+
+Recipes in folders. Tick the ones you mean to cook and press *Add to shopping list*.
+
+<picture><img src="docs/screenshots/mealmind-recipes-mobile.png" width="320" alt="Recipes"></picture>
+
+### Recipe editor
+
+Ingredients, quantities and steps.
+
+<picture><img src="docs/screenshots/mealmind-recipe-mobile.png" width="320" alt="Recipe editor"></picture>
+
+### Pantry
+
+What you have, typed in or scanned from a receipt. Pantry items are left off the shopping list.
+
+<picture><img src="docs/screenshots/mealmind-pantry-mobile.png" width="320" alt="Pantry"></picture>
+
+### Shopping list
+
+Ingredients combined and grouped by aisle.
+
+<picture><img src="docs/screenshots/mealmind-shopping-mobile.png" width="320" alt="Shopping list"></picture>
+
+## Notes
+
+- Three tabs: Recipes · Pantry · Shopping.
+- Uses CalMind accounts. No server of its own; records live on CalMind's.
+
+## Building
+
+```sh
+npm install
+npm run export:web && node tools/patch-web-html.mjs app/dist/index.html
+CALMIND_DATA_DIR=/tmp/mealmind-dev-data php -S 127.0.0.1:8792 e2e-router.php   # then http://127.0.0.1:8792/MealMind/
+```
+
+For local or native builds, `EXPO_PUBLIC_API_URL` can select another `/api/index.php` endpoint. Web deployment requires it unset and disables dotenv loading so the client follows the page's origin.
+
+Deploy production with `./deploy.sh --yes-prod`, or TEST only with `./deploy.sh --test`. Each selects a fixed web root and its own CalMind API. `--dry-run` previews transfers; `--verify` checks the selected instance. After a deploy proves the new page, the old `/ChefMind/` path becomes a redirect to `/MealMind/` with a worker that removes the old one. `deploy.conf` supplies only the SSH login. TEST uses the same source and gates, without changing the release version or any account data.
+
+Needs a sibling `../CalMind` checkout. Phones: `sh tools/build-platforms.sh --ios` or `--android`. Desktop: `npm run desktop`. Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub.
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): the tree, the screens, accounts and store, deploy and release lanes.
+- [AGENTS.md](AGENTS.md): rules for anyone, human or agent, changing the code.
+
+## Contributing
+
+Issues and pull requests are welcome. Read AGENTS.md first; `npm test` and `npm run typecheck` must pass. BSD 3-Clause, see [LICENSE](LICENSE).

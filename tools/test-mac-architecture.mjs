@@ -17,7 +17,7 @@ test('Mac release lanes reject an Intel host before building; iOS plans remain a
     for (const command of ['npm', 'npx', 'cargo', 'xcodebuild', 'xcrun', 'git', 'ditto', 'open', 'pkill']) {
       const shim = join(bin, command); writeFileSync(shim, '#!/bin/sh\necho "unexpected build" >&2\nexit 97\n'); chmodSync(shim, 0o755);
     }
-    for (const app of ['CalMind', 'ChefMind', 'AcctMind', 'PlanMind', 'TaskMind', 'CoreMind']) {
+    for (const app of ['CalMind', 'MealMind', 'AcctMind', 'PlanMind', 'TaskMind', 'CoreMind']) {
       const fixture = join(tmp, app), scripts = join(fixture, app === 'CoreMind' ? 'bin' : 'tools');
       mkdirSync(scripts, { recursive: true });
       const source = app === 'CoreMind' ? 'CoreMind/bin/build-platforms.sh' : `${app}/tools/build-platforms.sh`;

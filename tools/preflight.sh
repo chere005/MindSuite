@@ -7,7 +7,7 @@ AGENTSUITE_DIR="${AGENTSUITE_DIR:-$(cd .. && pwd)/AgentSuite}"
 CHECK="$AGENTSUITE_DIR/tools/check-workflows.py"
 [ -f "$CHECK" ] || { echo "AgentSuite workflow checker is missing; set AGENTSUITE_DIR." >&2; exit 1; }
 
-for APP in CalMind ChefMind PlanMind TaskMind ReadMind AcctMind CoreMind; do
+for APP in CalMind MealMind PlanMind TaskMind ReadMind AcctMind CoreMind; do
   [ -f "$APP/AGENTS.md" ]
   # Both sides through `pwd -P`: on Windows git prints C:/GIT/... while the
   # shell's pwd is /c/GIT/..., the same directory spelled two ways. An empty
@@ -19,10 +19,10 @@ done
 if git ls-files -s | awk '$1 == 160000 { found=1 } END { exit !found }'; then
   echo "MindSuite contains a Git submodule." >&2; exit 1
 fi
-for APP in CalMind ChefMind PlanMind TaskMind ReadMind AcctMind; do
+for APP in CalMind MealMind PlanMind TaskMind ReadMind AcctMind; do
   sh -n "$APP/tools/dtp.sh"
 done
-for APP in CalMind ChefMind AcctMind; do
+for APP in CalMind MealMind AcctMind; do
   sh -n "$APP/tools/preflight.sh"
 done
 for SCRIPT in CoreMind/bin/plan.sh CoreMind/bin/deploy.sh CoreMind/bin/dtp.sh CoreMind/bin/check-drift.sh CoreMind/bin/check-personal-data.sh CoreMind/bin/check-machine-env.sh; do
@@ -49,5 +49,5 @@ sh CoreMind/bin/check-names.sh --self-test
 sh CoreMind/bin/check-names.sh tree
 sh CoreMind/bin/check-names.sh literals
 sh CoreMind/bin/check-machine-env.sh
-sh CoreMind/bin/check-locked-install.sh CalMind ChefMind AcctMind PlanMind TaskMind
-sh CoreMind/bin/check-retry-installs.sh CalMind ChefMind AcctMind PlanMind TaskMind
+sh CoreMind/bin/check-locked-install.sh CalMind MealMind AcctMind PlanMind TaskMind
+sh CoreMind/bin/check-retry-installs.sh CalMind MealMind AcctMind PlanMind TaskMind

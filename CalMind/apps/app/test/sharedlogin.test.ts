@@ -61,9 +61,9 @@ describe('accountUrl: where a person with no session is sent', () => {
       .toBe('/account/?next=%2Fcalmind%2F');
   });
 
-  test('ChefMind\'s page reaches CalMind\'s API on the same origin and returns to ChefMind', async () => {
+  test('MealMind\'s page reaches CalMind\'s API on the same origin and returns to MealMind', async () => {
     const { api } = await load([]);
-    expect(api.accountUrl(API, 'https://seancheren.com/ChefMind/')).toBe('/account/?next=%2FChefMind%2F');
+    expect(api.accountUrl(API, 'https://seancheren.com/MealMind/')).toBe('/account/?next=%2FMealMind%2F');
   });
 
   test('path only: no query, no fragment, never an origin', async () => {

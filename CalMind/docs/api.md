@@ -7,7 +7,7 @@ the machine-checked contract both the server and every client core assert
 against — where a value appears in both places, that file is the source of
 truth and this page is describing it.
 
-MyCalMind speaks none of this (it has no server); ChefMind speaks all of it,
+MyCalMind speaks none of this (it has no server); MealMind speaks all of it,
 against these same accounts, kept apart by a sync **space**.
 
 ## Shape
@@ -71,7 +71,7 @@ overrides it, `''` keeps the instance legacy). CalMind never copies the library.
   `mindsuite_auth_instances`, or `calmind` is in `mindsuite_auth_hold[instance]`
   (a malformed hold holds every app). Holds are read on every request: rollback
   is `set-auth-hold <instance> calmind`, config only.
-  A request whose body names `space: 'chef'` (ChefMind sends it on every
+  A request whose body names `space: 'chef'` (MealMind sends it on every
   action) follows `chefmind` instead, but only on the space-scoped, sign-in
   and identity actions (`SUITE_SPACE_ACTIONS` in `server/lib/app.php`:
   `sync`, `shared_*`, `recipe_fetch`, `login`, `logout`, `whoami`, `signup`,
@@ -81,7 +81,7 @@ overrides it, `''` keeps the instance legacy). CalMind never copies the library.
   `passkey_remove`, `meetreq_*`, `calsub_*`) follows `calmind` whatever the
   body says: `chefmind` held keeps it legacy while
   `calmind` is not, and `calmind` held does not hold it back. Its tokens keep
-  scope `calmind` (one API, one set of accounts; imported ChefMind tokens are
+  scope `calmind` (one API, one set of accounts; imported ChefMind (now MealMind) tokens are
   `calmind` rows), so the scope rule below is the same for both spaces.
   CalMind's own read-only pull of the `chef` space follows `chefmind` too:
   while the two holds differ that pull is refused and stays quiet (the last
@@ -90,7 +90,7 @@ overrides it, `''` keeps the instance legacy). CalMind never copies the library.
   `tokens.json` are never consulted for sign-in, so a legacy token gets `401`.
   - `login`, `signup`, `reset`, `change_password` and passkey sign-in return a
     bearer token whose session has scope `calmind`: valid for this API (and
-    ChefMind's `chef` space through it), refused by every other suite app and as
+    MealMind's `chef` space through it), refused by every other suite app and as
     a browser cookie. A full-account or other-scope bearer is refused here
     (`401 bad token`). Imported legacy tokens (`tokens=1`) are such sessions.
   - The same-origin web build may use the suite cookie instead: refused when
@@ -127,7 +127,7 @@ overrides it, `''` keeps the instance legacy). CalMind never copies the library.
     out, sign out everywhere, passkeys and email reset; it has no account
     deletion.
 
-The **web build** (`apps/app/src/api.ts`, `screens/Login.tsx`; ChefMind's copy is the same) follows the server's mode:
+The **web build** (`apps/app/src/api.ts`, `screens/Login.tsx`; MealMind's copy is the same) follows the server's mode:
 
 - **Who decides:** the server. A page served from the API's own origin (not native, not the desktop shell, not metro)
   asks `whoami` with no token when it has no session. A `200` with `username` and `csrf` is the suite cookie: use it. A
@@ -155,7 +155,7 @@ The **web build** (`apps/app/src/api.ts`, `screens/Login.tsx`; ChefMind's copy i
 A native or desktop app on a shared server shows no username or password form: one "Sign in" opens the site's `/account/app/` in the system's authentication browser (iOS ASWebAuthenticationSession, Android Custom Tabs, the desktop's default browser), where the person signs in as on the web (password, passkey, a password manager) and confirms. The site hands back ONE code to the app's own return address (`com.seancheren.calmind:/signin`, `com.seancheren.chefmind:/signin`, or `http://127.0.0.1:<port>/signin` on desktop) bound to a PKCE S256 challenge; the app redeems it here for the same `calmind`-scoped bearer `login` gives. The code half is the site library's `lib/mindsuite-app-signin.php` (64 hex, 120 s, one attempt, stored as sha256 only, bound to the app, the return address, the challenge, the confirming browser session and the account's revocation generation); the page is described in the site's `docs/MINDSUITE-LOGIN.md`.
 
 - `signin_info` (public) answers `{ ok, shared, app_signin }`. `shared: false` is the legacy mode; `app_signin: false` on a shared server is a site lib that predates the feature. In both the app keeps its form. A server too old to know the action answers `400 unknown action`, which the app reads the same way. A shared server whose store cannot be read answers `503` with `shared: true`.
-- `signin_redeem` (public) takes `{ code, code_verifier, redirect_uri }` (and ChefMind's `space: 'chef'`, which makes it follow the `chefmind` hold and register the code as ChefMind's) and answers `{ ok, token, username }`. A legacy server answers `400 app sign-in needs the shared sign-in` with no `shared` flag; an older site lib `503 shared`; a bad shape `400 invalid request`; a code that is expired, spent, bound to another app, address, verifier or browser session, or whose account signed out everywhere meanwhile `400 that sign-in expired; try again` (all shared). Redeeming a spent code ends the session it made. The cap is below and is taken before the code is looked at, so a refusal leaves a valid code unspent.
+- `signin_redeem` (public) takes `{ code, code_verifier, redirect_uri }` (and MealMind's `space: 'chef'`, which makes it follow the `chefmind` hold and register the code as MealMind's) and answers `{ ok, token, username }`. A legacy server answers `400 app sign-in needs the shared sign-in` with no `shared` flag; an older site lib `503 shared`; a bad shape `400 invalid request`; a code that is expired, spent, bound to another app, address, verifier or browser session, or whose account signed out everywhere meanwhile `400 that sign-in expired; try again` (all shared). Redeeming a spent code ends the session it made. The cap is below and is taken before the code is looked at, so a refusal leaves a valid code unspent.
 - Nothing logs a code, verifier or token; the usage log records `app_signin` or `app_signin_fail` and, for the first, the user.
 
 Tests: `server/tools/shared-login-test.php` (every mode), `server/tools/app-signin-test.php` (app sign-in),
@@ -191,7 +191,7 @@ checkout beside this repository's).
 | `meetreq_mail` | Bearer | Owner's client mails the booking answer (only an address on one of his requests, never an account's own sign-up address; `when` must be `YYYY-MM-DD h[:mm][am|pm]`; 30/h per account, 60/h per IP, 3/h per address, and a site-wide cap below). With `mail_enabled` the mail is queued to the detached worker and the reply is `sent: "queued"` (`"not-sent"` when the worker cannot start: nothing is sent inline); with mail off it is logged and the reply is `sent: "log-only"`. |
 | `meetreq_day` | Bearer | The owner's own day, clashes included. |
 
-`spaces` is public **deliberately**: ChefMind's deploy calls it before it ships,
+`spaces` is public **deliberately**: MealMind's deploy calls it before it ships,
 so a client can never go out in front of an API that would merge its records
 into the wrong store.
 
@@ -297,7 +297,7 @@ POST <base>/api/index.php    Authorization: Bearer <token>
 - **`dropped`** counts rows that carried no string id (or were not objects),
   so could not be named. Core checks id, type and `updated` before sending, so
   its own rows never land here.
-- **`space`** omitted is the default CalMind store; `"chef"` is ChefMind's,
+- **`space`** omitted is the default CalMind store; `"chef"` is MealMind's,
   a separate store (`records-chef-<user>.json`) under the same login. Unknown
   space → `400`.
 

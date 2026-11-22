@@ -2,16 +2,16 @@
  * The bar at the foot of the ledger: how many rows are picked, what they
  * come to, the two ways to change that wholesale, and a two-press Delete.
  *
- * ChefMind's `app/src/components/PickBar.tsx`, brought over on the owner's word
+ * MealMind's `app/src/components/PickBar.tsx` (the app was ChefMind then), brought over on the owner's word
  * (2026-09-21: "take the 'selected' behavior from chefmind and implement
  * that here"). THIS COPY IS A FORK, kept out of the groups in
  * tools/shared-files.json, for two reasons that are both this
  * repo's rules rather than preferences:
  *
- *   - ChefMind's copy is `themed()` over a light/dark palette. AcctMind has
+ *   - MealMind's copy is `themed()` over a light/dark palette. AcctMind has
  *     one palette and no `themed`, so every colour here is a straight
  *     substitution: `line`→`cardEdge`, `surface`→`card`, `accentInk`→`#fff`.
- *   - ChefMind buys its touch area back with `WebHitSlop`. `hitSlop` is a
+ *   - MealMind buys its touch area back with `WebHitSlop`. `hitSlop` is a
  *     no-op under react-native-web, and this repo's answer is to DRAW at
  *     `TAP` — so each control is a 44pt target with the pill drawn inside
  *     it, exactly the shape `CircleBtn` uses for the top bar's 32pt rings.
@@ -22,11 +22,11 @@
  * act on, and Delete is pushed to the far end where no thumb heading for
  * Clear can reach it" (the owner to ChefMind, 2026-09-16).
  *
- * `detail`, `extras` and an OPTIONAL `onDelete` are what ChefMind's bar has
+ * `detail`, `extras` and an OPTIONAL `onDelete` are what MealMind's bar has
  * no use for. The first two are slots and the third is presence — none of
  * them changes what a control MEANS, which is the line this fork holds: the
  * controls, their order and the fuse are still canon's, and a change to any
- * of THOSE is owed back to ChefMind and to canon.
+ * of THOSE is owed back to MealMind and to canon.
  *
  * `detail` is the first of them. Here the
  * selection is FOR adding up — the owner, 2026-08-21: "when multiple transactions
@@ -63,7 +63,7 @@ export function PickBar({ prefix, count, detail, extras, onAll, onClear, onDelet
    *
    * Presence, not meaning, which is the line this fork holds (see the head
    * comment). Where the control IS drawn it is still canon's: same place at
-   * the far end, same two presses, same 2.5s fuse. Canon and ChefMind keep
+   * the far end, same two presses, same 2.5s fuse. Canon and MealMind keep
    * it mandatory, because every selection over there is one you might want
    * to delete — and a budget line already has a delete of its own, on the
    * row, behind the pencil.

@@ -2,7 +2,7 @@
 # Does bin/build-platforms.sh's devicectl_install name a locked phone?
 #
 #   sh bin/check-locked-install.sh
-#   sh bin/check-locked-install.sh CalMind ChefMind AcctMind PlanMind TaskMind
+#   sh bin/check-locked-install.sh CalMind MealMind AcctMind PlanMind TaskMind
 #
 # Extracts the marked helper block and runs it against a STUB devicectl
 # (MIND_DEVICECTL) — no phone, no Xcode, nothing outside a scratch directory.
@@ -22,7 +22,7 @@ extract_helper bin/build-platforms.sh > "$TMP/helper.sh"
 
 for consumer in "$@"; do
   case "$consumer" in
-    CalMind|ChefMind|AcctMind|PlanMind|TaskMind) ;;
+    CalMind|MealMind|AcctMind|PlanMind|TaskMind) ;;
     *) echo "unknown locked-install consumer: $consumer" >&2; exit 1 ;;
   esac
   script="${MIND_DIR:-..}/$consumer/tools/build-platforms.sh"

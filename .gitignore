@@ -5,7 +5,10 @@
 /CalMind/tools/.server-config/
 /CalMind/server/worker/
 /CalMind/.claude/settings.local.json
-/ChefMind/deploy.conf
+/MealMind/deploy.conf
+# MealMind's directory before the rename (1.52.0): a checkout made before it keeps its
+# ignored files there (deploy.conf, node_modules, app/ios, build output) until they are moved.
+/ChefMind/
 /PlanMind/deploy.conf
 /PlanMind/.local/
 /TaskMind/deploy.conf

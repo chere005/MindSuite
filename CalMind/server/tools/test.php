@@ -936,7 +936,7 @@ t('recipe_fetch: the ENDPOINT is behind auth and behind the address guard', func
 });
 
 t('a sync SPACE is a separate store under the same login', function () use ($rec) {
-    // ChefMind (the owner, 2026-08-21) reuses these accounts and keeps its own
+    // MealMind (the owner, 2026-08-21) reuses these accounts and keeps its own
     // reminders and notes. One token, two stores — so what is proved here is
     // that the space actually SEPARATES: that a record written into 'chef'
     // never appears in a spaceless pull, and the reverse.
@@ -979,18 +979,18 @@ t('a sync SPACE is a separate store under the same login', function () use ($rec
     // And nothing outside the data dir was created by any of that.
     ok(!is_file('/tmp/records-' . $u . '.json'), 'no file escaped the data dir');
 
-    // The capability check the ChefMind deploy gates on. It must answer
+    // The capability check the MealMind deploy gates on. It must answer
     // WITHOUT a token — the deploy holds none — and it must name the space,
     // because an API that does not know `space` ignores the parameter and
-    // quietly merges ChefMind's records into CalMind's store.
+    // quietly merges MealMind's records into CalMind's store.
     $cap = api(['action' => 'spaces']);
     eq(200, $cap['status'], 'spaces answers without auth');
     ok(in_array('chef', (array) ($cap['body']['spaces'] ?? []), true), "and names 'chef'");
 });
 
-t('sharing is PER SPACE — a CalMind partnership shares nothing into ChefMind', function () use ($mkUser, $shareRec) {
+t('sharing is PER SPACE — a CalMind partnership shares nothing into MealMind', function () use ($mkUser, $shareRec) {
     /**
-     * The leak this exists for, found by the owner the minute ChefMind went live:
+     * The leak this exists for, found by the owner the minute ChefMind (now MealMind) went live:
      * sync had a space and sharing did not, so ChefMind pulled his partner's
      * CALMIND folders and drew them inside an app that is supposed to share
      * nothing with CalMind but the login.
@@ -1015,7 +1015,7 @@ t('sharing is PER SPACE — a CalMind partnership shares nothing into ChefMind',
     api(['action' => 'sync', 'cursor' => 0, 'changes' => [$shareRec(['partners' => [$a], 'calendars' => [], 'folders' => [], 'notefolders' => []])]], $tokB);
     eq($a, api(['action' => 'shared_pull'], $tokB)['body']['partner'], 'they are partners in CalMind');
 
-    // ChefMind: no partner, no records. Every account starts blank, its
+    // MealMind: no partner, no records. Every account starts blank, its
     // partner list included.
     $chef = api(['action' => 'shared_pull', 'space' => 'chef'], $tokB);
     eq(200, $chef['status']);

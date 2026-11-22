@@ -390,7 +390,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
         eq(200, call($port, ['action' => 'whoami'], bearer($legacyTok))['status'], 'legacy (string)');
     });
 
-    // ChefMind's calls name space 'chef' on every action and follow the chefmind hold; CalMind's follow the calmind hold.
+    // MealMind's calls name space 'chef' on every action and follow the chefmind hold; CalMind's follow the calmind hold.
     t('held: the chef space follows the chefmind hold and the calmind space the calmind hold, in all four combinations', function () use ($port, $plant, $row, $data, &$legacyTok) {
         $shared = $plant('alex', 'calmind');
         $chef = ['space' => 'chef'];
@@ -414,7 +414,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
                         eq(200, $l['status'], "$why, $space $action: the legacy token");
                     }
                 }
-                // ChefMind's own recipe import, change_password and passkey sign-in follow the same hold as sync (nothing changes).
+                // MealMind's own recipe import, change_password and passkey sign-in follow the same hold as sync (nothing changes).
                 $s = call($port, ['action' => 'recipe_fetch'] + $extra, bearer($shared));
                 $l = call($port, ['action' => 'recipe_fetch'] + $extra, bearer($legacyTok));
                 eq($isShared ? [400, 401, true] : [401, 400, false], [$s['status'], $l['status'], $isShared ? ($l['body']['shared'] ?? null) : array_key_exists('shared', $s['body'])], "$why, $space recipe_fetch on its own path");
@@ -467,7 +467,7 @@ if ($siteLib === '' || !is_file($siteLib . '/mindsuite-site-auth.php')) {
             $r = call($port, $body + $chef, bearer($shared));
             eq([401, false], [$r['status'], array_key_exists('shared', $r['body'])], "calmind held, chefmind on: a shared token on {$body['action']} with space chef is a legacy 401 " . $r['raw']);
         }
-        // Sign-up from ChefMind's Login screen lands on chefmind's path: legacy while it is held, shared while it is not.
+        // Sign-up from MealMind's Login screen lands on chefmind's path: legacy while it is held, shared while it is not.
         foreach ([[['chefmind'], 'cid', false], [['calmind'], 'cia', true]] as [$hold, $name, $isShared]) {
             site(ON + ['mindsuite_auth_hold' => ['test' => $hold]]);
             $r = call($port, ['action' => 'signup', 'username' => $name, 'email' => $name . '@example.invalid', 'password' => 'passw0rd'] + $chef);

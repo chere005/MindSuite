@@ -111,7 +111,8 @@ and all — still kept in lockstep with this one, deliberately, across repos:
 - [chere005/MyCalMind](https://github.com/chere005/MyCalMind) (né
   CalMind-Local) — the server taken out: one device's data, mirrored to
   paired devices over Bonjour and nowhere else. iOS + watchOS only.
-- [chere005/ChefMind](https://github.com/chere005/ChefMind) — recipes and a
+- MealMind (`../MealMind`; ChefMind up to 1.51.0, once
+  [chere005/ChefMind](https://github.com/chere005/ChefMind)) — recipes and a
   shopping list, syncing through THIS server on THESE accounts, kept apart by
   a sync SPACE (`records-chef-<user>.json`), not a second server. Its deploy
   gates read this checkout as `$CALMIND_REPO`.
@@ -222,7 +223,7 @@ shell: `desktop/src-tauri/src/signin.rs`, std only, four commands in `main.rs`, 
 there (password, passkey, a password manager), confirms, and the app redeems a PKCE S256 code at `signin_redeem` for the
 same `calmind`-scoped bearer the form gives. The server says whether it takes this (`signin_info`); the form stays only for
 a server that does not. `docs/api.md` "App sign-in" has the contract, the site's `docs/MINDSUITE-LOGIN.md` the threat model.
-ChefMind carries the same files and names `space: 'chef'` on every call.
+MealMind carries the same files and names `space: 'chef'` on every call.
 
 **The desktop shells.** macOS builds locally out of `desktop/` and the
 `dtp`/`tdtp` lane builds the bundle before the tag; the tag push then starts

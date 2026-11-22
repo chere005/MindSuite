@@ -1,12 +1,12 @@
 /**
- * A date that CalMind keeps ABOUT a ChefMind recipe.
+ * A date that CalMind keeps ABOUT a MealMind recipe.
  *
  * The owner, 2026-09-16: "allow adding dates in CalMind to ChefMind entries…
  * showing up on the calendar is only known to CalMind, and still points to
  * the ChefMind recipe itself when opened from the calendar."
  *
  * So this is a one-way annotation, and the direction is the whole design.
- * The recipes under the hat in Notes are ChefMind's records, read through a
+ * The recipes under the hat in Notes are MealMind's records, read through a
  * read-only model of its space: CalMind has no writer for them and must not
  * grow one — a date written into a recipe's payload would be CalMind editing
  * somebody else's store, and "read-only here" is a decision, not a gap.
@@ -16,9 +16,9 @@
  *
  *   · it syncs, because prefs are a synced record — so planning Thursday's
  *     dinner on the phone shows up on the Mac;
- *   · ChefMind never sees it, on any device, which is what "only known to
+ *   · MealMind never sees it, on any device, which is what "only known to
  *     CalMind" means;
- *   · deleting the recipe in ChefMind leaves a dangling key rather than a
+ *   · deleting the recipe in MealMind leaves a dangling key rather than a
  *     broken row, and `chefDatesOn` simply never matches it. `pruneChefDates`
  *     is there for a caller that wants to tidy, but nothing depends on it
  *     having run.
@@ -57,9 +57,9 @@ export function setChefDate(recs: AnyRec[], noteId: string, day: string | null):
 }
 
 /**
- * The recipes planned for a day, in the order ChefMind lists them.
+ * The recipes planned for a day, in the order MealMind lists them.
  *
- * `chefRecs` is the read model of ChefMind's space. A key with no live note
+ * `chefRecs` is the read model of MealMind's space. A key with no live note
  * behind it is skipped rather than drawn as a blank row — see the dangling
  * key note above.
  */

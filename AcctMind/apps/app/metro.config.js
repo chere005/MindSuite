@@ -5,7 +5,7 @@
 // the bodies in ../packages/mind-core/src. That package lives OUTSIDE this
 // app's workspace, which is all Expo watches by default, and Metro refuses to
 // bundle a file outside its watch folders. Same line as CalMind's and
-// ChefMind's metro.config.js.
+// MealMind's metro.config.js.
 const path = require('node:path');
 const { getDefaultConfig } = require('expo/metro-config');
 

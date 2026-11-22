@@ -2,21 +2,21 @@ import { expect, test, type Page } from '@playwright/test';
 import { API, SESSION_KEY } from './port';
 
 /**
- * ChefMind's recipes, drawn in Notes under the chef's hat — and edited there.
+ * MealMind's recipes, drawn in Notes under the chef's hat — and edited there.
  *
  * The owner, 2026-09-15: "sync recipes in ChefMind and CalMind… recipes show up in
  * CalMind as notes sections with a chef hat icon to the right to indicate they
- * are coming from ChefMind." ChefMind keeps its store in a second sync SPACE
+ * are coming from ChefMind." MealMind keeps its store in a second sync SPACE
  * of the same account (`space: 'chef'` on the sync request), so this spec
- * seeds that space straight through the API as ChefMind itself would, then
+ * seeds that space straight through the API as MealMind itself would, then
  * checks two things the screen alone cannot prove:
  *
- *   1. the recipe is DRAWN — its folder wears the ChefMind badge, its section
+ *   1. the recipe is DRAWN — its folder wears the MealMind badge, its section
  *      the hat, its row opens the ordinary editor;
- *   2. opening one WRITES NOTHING — not to ChefMind's space, not to mine.
+ *   2. opening one WRITES NOTHING — not to MealMind's space, not to mine.
  *      The owner, later the same day: "disable editing ChefMind recipes from
  *      CalMind." A build that still routed a tap into the editor would look
- *      right on screen and change ChefMind's store, so both stores are read
+ *      right on screen and change MealMind's store, so both stores are read
  *      back over the API.
  */
 
@@ -60,13 +60,13 @@ async function sync(page: Page, tok: string, space: string, changes: Rec[] = [])
   return body.changes;
 }
 
-test("ChefMind's recipes show under the hat, read-only — opening one writes nothing anywhere", async ({ page }) => {
+test("MealMind's recipes show under the hat, read-only — opening one writes nothing anywhere", async ({ page }) => {
   test.setTimeout(120_000);
   await signup(page);
   const tok = await token(page);
 
-  // ChefMind's store: a notes folder, a section, one recipe — exactly the
-  // three records ChefMind writes, minted here so the ids are known.
+  // MealMind's store: a notes folder, a section, one recipe — exactly the
+  // three records MealMind writes, minted here so the ids are known.
   const now = Date.now();
   const folder: Rec = { id: 'cf0000000001', type: 'folder', updated: now, payload: { name: 'Recipes', color: '#7dc2ed', ord: 'V', app: 'notes' } };
   const section: Rec = { id: 'cs0000000001', type: 'section', updated: now, payload: { name: 'Pasta', folderId: folder.id, ord: 'V' } };
@@ -83,7 +83,7 @@ test("ChefMind's recipes show under the hat, read-only — opening one writes no
   await page.reload();
   await expect(page.getByTestId('tab-reminders')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('tab-notes').click();
-  await expect(page.getByTestId('chef-folder-badge'), 'the folder wears the ChefMind badge').toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('chef-folder-badge'), 'the folder wears the MealMind badge').toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('chef-hat-Pasta'), 'the section carries the hat, right of its name').toBeVisible();
   await expect(page.getByTestId('chef-group')).toHaveCount(1);
   await expect(page.getByTestId('chef-group').getByTestId('chef-folder-Recipes')).toBeVisible();
@@ -106,32 +106,32 @@ test("ChefMind's recipes show under the hat, read-only — opening one writes no
   await expect(page.getByTestId('chef-note-view')).toBeVisible();
   await expect(page.getByTestId('chef-note-title')).toHaveText('Cacio e Pepe');
   await expect(page.getByTestId('chef-note-body')).toContainText('Pecorino');
-  await expect(page.getByTestId('note-title'), 'no title field on a ChefMind recipe').toHaveCount(0);
+  await expect(page.getByTestId('note-title'), 'no title field on a MealMind recipe').toHaveCount(0);
   await expect(page.getByTestId('note-body-view'), 'no body editor either').toHaveCount(0);
   await page.getByTestId('chef-note-back').click();
   await expect(row).toBeVisible();
-  await expect(page.getByTestId(/^chef-secadd-/), 'no + on a ChefMind section').toHaveCount(0);
+  await expect(page.getByTestId(/^chef-secadd-/), 'no + on a MealMind section').toHaveCount(0);
 
-  // Nothing was written anywhere: ChefMind's record is byte-for-byte what was
+  // Nothing was written anywhere: MealMind's record is byte-for-byte what was
   // seeded (same stamp), and my own store never gained a copy.
   await page.waitForTimeout(2500); // past the store's 800ms push debounce, had anything been dirty
   const chef = await sync(page, tok, 'chef');
   const held = chef.find((r) => r.id === recipe.id)!;
-  expect(held.updated, "ChefMind's recipe was not touched").toBe(now);
+  expect(held.updated, "MealMind's recipe was not touched").toBe(now);
   expect(held.payload['title']).toBe('Cacio e Pepe');
-  expect(chef.filter((r) => r.type === 'note').length, 'no recipe was added to ChefMind').toBe(2);
+  expect(chef.filter((r) => r.type === 'note').length, 'no recipe was added to MealMind').toBe(2);
   const mine = await sync(page, tok, '');
   expect(mine.some((r) => r.id === recipe.id), 'the recipe was never copied into my own store').toBe(false);
   expect(mine.some((r) => r.type === 'note' && r.payload['title'] === 'Cacio e Pepe')).toBe(false);
 });
 
-test('CalMind can date a ChefMind recipe; the date is CalMind\'s alone and the calendar still opens the recipe', async ({ page }) => {
+test('CalMind can date a MealMind recipe; the date is CalMind\'s alone and the calendar still opens the recipe', async ({ page }) => {
   // the owner, 2026-09-16: "allow adding dates in CalMind to ChefMind entries…
   // showing up on the calendar is only known to CalMind, and still points to
   // the ChefMind recipe itself when opened from the calendar."
   //
   // Three claims, and the middle one is the one a screenshot cannot make:
-  // the day goes into CalMind's own notes prefs, so ChefMind's store must
+  // the day goes into CalMind's own notes prefs, so MealMind's store must
   // come back untouched and must never gain a pref of its own.
   test.setTimeout(120_000);
   await signup(page);
@@ -151,7 +151,7 @@ test('CalMind can date a ChefMind recipe; the date is CalMind\'s alone and the c
 
   // Edit mode is where a date is added, exactly as it is on my own notes —
   // and the recipe gets THAT control and no other: no grip, no duplicate, no
-  // delete, because the recipe is still ChefMind's to change.
+  // delete, because the recipe is still MealMind's to change.
   await longPress(page, row);
   const dateBtn = page.getByTestId('chef-date-Red lentil dal');
   await expect(dateBtn, 'a recipe can be given a day').toBeVisible();
@@ -166,7 +166,7 @@ test('CalMind can date a ChefMind recipe; the date is CalMind\'s alone and the c
   const calRow = page.getByTestId('dp-chef-row').filter({ hasText: 'Red lentil dal' });
   await expect(calRow, 'the planned recipe is on the day').toBeVisible({ timeout: 10_000 });
 
-  // …and tapping it lands on the RECIPE — ChefMind's reader, not a note
+  // …and tapping it lands on the RECIPE — MealMind's reader, not a note
   // editor. That is the whole point of routing the id back through the Notes
   // tab rather than opening something here.
   await calRow.click();
@@ -174,15 +174,15 @@ test('CalMind can date a ChefMind recipe; the date is CalMind\'s alone and the c
   await expect(page.getByTestId('chef-note-title')).toHaveText('Red lentil dal');
   await expect(page.getByTestId('note-title'), 'still a reader, opened from the calendar').toHaveCount(0);
 
-  // Nothing of this reached ChefMind. Its recipe carries the stamp it was
+  // Nothing of this reached MealMind. Its recipe carries the stamp it was
   // seeded with, and its space holds no pref record — the day lives in MY
   // notes prefs, which is what "only known to CalMind" means.
   await page.waitForTimeout(2500); // past the store's 800ms push debounce
   const chef = await sync(page, tok, 'chef');
   const held = chef.find((r) => r.id === recipe.id)!;
-  expect(held.updated, "ChefMind's recipe was not touched").toBe(now);
+  expect(held.updated, "MealMind's recipe was not touched").toBe(now);
   expect(held.payload['date'] ?? null, 'and it certainly did not gain a date').toBe(null);
-  expect(chef.some((r) => r.type === 'pref'), 'no pref was written into ChefMind\'s space').toBe(false);
+  expect(chef.some((r) => r.type === 'pref'), 'no pref was written into MealMind\'s space').toBe(false);
 
   const mine = await sync(page, tok, '');
   const pref = mine.find((r) => r.type === 'pref' && r.id.endsWith('notes'));
@@ -229,11 +229,11 @@ test('a recipe is planned from the page you read it on, and the list says so wit
   await expect(page.getByTestId('chef-datechip-Ribollita')).toBeVisible();
   await expect(page.getByTestId('chef-date-Ribollita'), 'and edit mode is still off').toHaveCount(0);
 
-  // The calendar has it, and ChefMind has heard nothing.
+  // The calendar has it, and MealMind has heard nothing.
   await page.getByTestId('tab-calendar').click();
   await expect(page.getByTestId('dp-chef-row').filter({ hasText: 'Ribollita' })).toBeVisible({ timeout: 10_000 });
   await page.waitForTimeout(2500); // past the store's 800ms push debounce
   const chef = await sync(page, tok, 'chef');
-  expect(chef.find((r) => r.id === recipe.id)!.updated, "ChefMind's recipe was not touched").toBe(now);
-  expect(chef.some((r) => r.type === 'pref'), 'no pref was written into ChefMind\'s space').toBe(false);
+  expect(chef.find((r) => r.id === recipe.id)!.updated, "MealMind's recipe was not touched").toBe(now);
+  expect(chef.some((r) => r.type === 'pref'), 'no pref was written into MealMind\'s space').toBe(false);
 });

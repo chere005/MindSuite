@@ -24,8 +24,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const { session, setSession, signOut, clearDeletedAccount, recs, mutate, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble, dismissSharedTrouble } = store;
   const refusedNotes = (store as typeof store & { refusedNotes?: { id: string; label: string }[] }).refusedNotes ?? [];
-  // ChefMind's space, where this app holds it (CalMind syncs it under the same
-  // login; ChefMind's own records ARE that space, so it passes none).
+  // MealMind's space, where this app holds it (CalMind syncs it under the same
+  // login; MealMind's own records ARE that space, so it passes none).
   const chefRecs = (store as typeof store & { chefRecs?: AnyRec[] }).chefRecs;
   const nav = useNav();
   const pickTheme = (name: ThemeName) => {
@@ -322,7 +322,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <Text style={s.deleteTitle}>Delete this account?</Text>
               <Text style={s.deleteCopy}>
                 This permanently deletes your account from the server and this device — every synced CalMind and
-                ChefMind item and your passkeys — and signs out every device. It cannot be undone.
+                MealMind item and your passkeys — and signs out every device. It cannot be undone.
               </Text>
               <Text style={s.deleteCopy}>Want a copy first? Export it now, then type your username to confirm.</Text>
               <View style={s.row}>

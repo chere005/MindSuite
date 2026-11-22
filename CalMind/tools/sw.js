@@ -40,7 +40,7 @@
 // content hash. A new deploy is therefore a new cache, and the old one is
 // dropped on activate — no version number for anyone to forget to bump.
 // The prefix is swapped in by the same script, from the app's id in
-// tools/app-identity.json ('calmind', 'chefmind'): apps that share an origin
+// tools/app-identity.json ('calmind', 'mealmind'): apps that share an origin
 // must never sweep each other's caches.
 const CACHE = '__APP__-__BUILD__';
 

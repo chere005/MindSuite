@@ -265,7 +265,7 @@ try {
         exit(1);
     }
 
-    contract_test('public spaces action reports the isolated ChefMind store', function () {
+    contract_test('public spaces action reports the isolated MealMind store', function () {
         $r = contract_request(['action' => 'spaces']);
         contract_status(200, $r, 'spaces');
         contract_expect(in_array('chef', $r['body']['spaces'] ?? [], true), 'spaces omits chef');
@@ -325,11 +325,11 @@ try {
     contract_test('spaces share login but keep independent record cursors and stores', function () use ($alice, $ids) {
         global $tokens;
         $row = contract_rec($ids['space'], 'reminder', 20, ['text' => 'chef-only']);
-        contract_status(200, contract_request(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$row]], $tokens[$alice]), 'ChefMind sync');
+        contract_status(200, contract_request(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$row]], $tokens[$alice]), 'MealMind sync');
         $cal = contract_request(['action' => 'sync', 'cursor' => 0, 'changes' => []], $tokens[$alice]);
         $chef = contract_request(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => []], $tokens[$alice]);
-        contract_expect(!in_array($ids['space'], array_column($cal['body']['changes'] ?? [], 'id'), true), 'ChefMind row leaked into CalMind');
-        contract_expect(in_array($ids['space'], array_column($chef['body']['changes'] ?? [], 'id'), true), 'ChefMind row was not returned from its space');
+        contract_expect(!in_array($ids['space'], array_column($cal['body']['changes'] ?? [], 'id'), true), 'MealMind row leaked into CalMind');
+        contract_expect(in_array($ids['space'], array_column($chef['body']['changes'] ?? [], 'id'), true), 'MealMind row was not returned from its space');
         contract_status(400, contract_request(['action' => 'sync', 'space' => '../escape', 'cursor' => 0, 'changes' => []], $tokens[$alice]), 'unknown space');
     });
 

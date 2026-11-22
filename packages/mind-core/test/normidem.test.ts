@@ -32,7 +32,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalize, type AnyRec, type SeedProfile } from '../src/index';
 
-/** A 'lists' profile, ChefMind's shape: shopping list and pantry, no calendar or habit starters. */
+/** A 'lists' profile, MealMind's shape: shopping list and pantry, no calendar or habit starters. */
 const LISTS: SeedProfile = {
   reminders: { kind: 'lists', shopping: { name: 'Shopping list', color: '#f0b429' }, pantry: { name: 'Pantry', color: '#5fb6ac' } },
   calendar: false,

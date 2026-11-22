@@ -49,7 +49,7 @@ describe('the export file', () => {
     expect(exportFilename('we/ird name', '2026-01-02T00:00:00.000Z')).toBe('calmind-we_ird_name-2026-01-02.json');
   });
 
-  it("carries ChefMind's space when the app holds it, on the same terms (#81)", () => {
+  it("carries MealMind's space when the app holds it, on the same terms (#81)", () => {
     const mine = [{ id: 'r1', type: 'reminder', updated: 1, payload: { text: 'a' } }] as unknown as AnyRec[];
     const chef = [
       { id: 'n2', type: 'note', updated: 2, payload: { title: 'stew' } },

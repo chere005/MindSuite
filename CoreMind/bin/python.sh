@@ -1,7 +1,7 @@
 # Find a working Python 3 (sourced, POSIX sh). Suite-level helper, not canon:
 # sourced by tools/preflight.sh, tools/ci/macos-signing.sh and
-# CoreMind/bin/check-personal-data.sh. ChefMind keeps its own copy as
-# ChefMind/tools/python.sh (app-owned, no manifest row).
+# CoreMind/bin/check-personal-data.sh. MealMind keeps its own copy as
+# MealMind/tools/python.sh (app-owned, no manifest row).
 #
 #   . CoreMind/bin/python.sh
 #   mind_python || exit 1

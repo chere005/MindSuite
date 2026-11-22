@@ -19,7 +19,7 @@ const MSA_APP_SIGNIN_ROWS = 50;   // rows the store keeps at most (live and spen
 /** The apps that may sign in through /account/app/: the name shown on the confirm screen and the private-use scheme (its bundle id). */
 const MSA_APP_SIGNIN_CLIENTS = [
     'calmind' => ['name' => 'CalMind', 'scheme' => 'com.seancheren.calmind'],
-    'chefmind' => ['name' => 'ChefMind', 'scheme' => 'com.seancheren.chefmind'],
+    'chefmind' => ['name' => 'MealMind', 'scheme' => 'com.seancheren.chefmind'],
 ];
 
 /** A registered app (exact, lowercase key), or null. */

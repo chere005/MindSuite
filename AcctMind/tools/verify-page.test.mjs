@@ -24,7 +24,7 @@ for (const [label, page, status, locations] of [
   ['other account path', PROD, '303', ['/account/app/?next=/AcctMind/']],
   ['normalized other path', PROD, '303', ['/other/../account/?next=/AcctMind/']],
   ['encoded normalized path', PROD, '303', ['https://fixture.invalid/other/%2e%2e/account/?next=/AcctMind/']],
-  ['other app return', PROD, '303', ['/account/?next=/ChefMind/']],
+  ['other app return', PROD, '303', ['/account/?next=/MealMind/']],
   ['external return', PROD, '303', ['/account/?next=https%3A%2F%2Fexternal.invalid%2F']],
   ['missing return', PROD, '303', ['/account/']], ['duplicate return', PROD, '303', ['/account/?next=/AcctMind/&next=/AcctMind/']],
   ['encoded duplicate return', PROD, '303', ['/account/?next=/AcctMind/&%6eext=/AcctMind/']],

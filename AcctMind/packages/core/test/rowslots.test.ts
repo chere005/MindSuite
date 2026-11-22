@@ -2,7 +2,7 @@
  * Where a dragged row lands — the half of the drag a screen used to decide.
  *
  * `rowslots.ts` is CoreMind canon, byte-identical with the copy CalMind,
- * ChefMind and MyCalMind carry (consumers/AcctMind.tsv, `exact`), and it
+ * MealMind and MyCalMind carry (consumers/AcctMind.tsv, `exact`), and it
  * arrived here on 2026-09-21 with the owner's "make it possible to drag items
  * between sections and folders in budget". The rule it states is the one
  * that repo paid for on 2026-09-19 — "dragging was buggy … when sections

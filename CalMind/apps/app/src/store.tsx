@@ -44,16 +44,16 @@ const SESSION_KEY = `calmind.session@${instanceTag()}`;
 const snapKey = (user: string) => `calmind.snapshot.${user}@${instanceTag()}`;
 
 /**
- * ChefMind's store, read and written from here.
+ * MealMind's store, read and written from here.
  *
- * ChefMind keeps its recipes in a second sync SPACE of the same account —
+ * MealMind keeps its recipes in a second sync SPACE of the same account —
  * `records-chef-<user>.json` on the server, reached with `space: 'chef'` on
  * the sync request (server/lib/app.php, SYNC_SPACES). The owner, 2026-09-15:
  * "sync recipes in ChefMind and CalMind… recipes show up in CalMind as notes
  * sections with a chef hat icon to the right to indicate they are coming from
  * ChefMind." So this app runs a SECOND engine against that space: its own
  * cursor, its own snapshot key, the same transport with the space named, and
- * never normalized here — ChefMind seeds and re-homes its own store, and a
+ * never normalized here — MealMind seeds and re-homes its own store, and a
  * CalMind normalize pass over it would plant a Calendar folder and a habit
  * section in an app that has neither.
  *
@@ -130,7 +130,7 @@ async function forgetSession(): Promise<void> {
 }
 
 /**
- * ChefMind's cached snapshot, or null. A cache on the same terms as mine: an
+ * MealMind's cached snapshot, or null. A cache on the same terms as mine: an
  * unreadable one costs a resync of that space, never a login and never the
  * app (see the boot effect for the rule this follows).
  */
@@ -184,7 +184,7 @@ type Store = {
   sharedPartnerLabel: string | null;
   sharedRecs: AnyRec[];
   sharedPut: (rec: AnyRec) => Promise<void>;
-  /** ChefMind's records — the same account's `chef` space, see CHEF_SPACE.
+  /** MealMind's records — the same account's `chef` space, see CHEF_SPACE.
    *  Drawn by Notes under the chef's hat, READ-ONLY: there is no write path
    *  into that space from here (the owner, 2026-09-15: "disable editing ChefMind
    *  recipes from CalMind"). */
@@ -196,7 +196,7 @@ export const useStore = () => useContext(Ctx)!;
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const engineRef = useRef(new SyncEngine());
-  // ChefMind's engine, beside mine — see CHEF_SPACE for why there are two.
+  // MealMind's engine, beside mine — see CHEF_SPACE for why there are two.
   const chefRef = useRef(new SyncEngine());
   const [ready, setReady] = useState(false);
   const [session, setSessionState] = useState<Session | null>(null);
@@ -241,7 +241,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     const all = engine.all();
     setRecs(all);
-    // ChefMind's records as they are — no normalize (see CHEF_SPACE), and the
+    // MealMind's records as they are — no normalize (see CHEF_SPACE), and the
     // watch never sees them: recipes are not a thing a wrist lists.
     setChefRecs(chefRef.current.all());
     pushWatchList(all, sharedForWatch.current);
@@ -264,7 +264,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ]);
       setPersistFailed(results.some((result) => result.status === 'rejected'));
     });
-    // ChefMind's snapshot under its own key, on the same terms: a failure
+    // MealMind's snapshot under its own key, on the same terms: a failure
     // here is the same silent loss and is said the same way.
     return persistQueue.current;
   }, []);
@@ -384,7 +384,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }));
       setSyncState(refusals.length > 0 ? 'refused' : 'idle');
       void pullShared();
-      // ChefMind's space, AFTER mine and on its own terms: a server that does
+      // MealMind's space, AFTER mine and on its own terms: a server that does
       // not know the space answers 400, and that must not paint this app
       // offline — my own records just synced fine. The last pulled copy
       // stands, as any local-first read does, and the next pass tries again.
@@ -552,7 +552,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const onStorage = (ev: StorageEvent) => {
       const s = sessionRef.current;
       if (!s || !ev.newValue) return;
-      // Which engine the other tab wrote — mine or ChefMind's. Anything else
+      // Which engine the other tab wrote — mine or MealMind's. Anything else
       // in storage is not a snapshot of ours.
       const target =
         ev.key === snapKey(s.username) ? engineRef.current

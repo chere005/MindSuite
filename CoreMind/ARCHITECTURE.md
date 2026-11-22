@@ -45,13 +45,13 @@ Per-app seams, so a shared body never forks for a value:
 - `packages/core/src/appconfig.ts` (app-owned) holds `APP_SEEDS`, the seed
   profile `normalize` runs with; the body is `packages/mind-core/src/normalize.ts`
   (no profile means `SUITE_SEEDS`) and each app's `normalize.ts` is a wrapper
-  defaulting to `APP_SEEDS ?? SUITE_SEEDS`. CalMind's is `null`; ChefMind's is
+  defaulting to `APP_SEEDS ?? SUITE_SEEDS`. CalMind's is `null`; MealMind's is
   its `'lists'` profile. Their `test/seedsnapshot.test.ts` files pin the seeded
   data.
 - `tools/app-identity.json` (app-owned: `appDir`, `id`) is read through the
   shared `tools/app-identity.mjs` by the web-build tools (`source-digest.mjs`,
   `patch-web-html.mjs`, `sw.js`, `desktop/stage-dist.sh`), which are the same
-  bytes in CalMind and ChefMind. The app's name on screen is
+  bytes in CalMind and MealMind. The app's name on screen is
   `<appDir>/app.json`'s `expo.name`, exported as `APP_NAME` by the shared
   `app/src/brand.ts`.
 - `packages/mind-core/spec/protocol.json` is a contract, not a copy: the
@@ -64,7 +64,7 @@ Per-app seams, so a shared body never forks for a value:
 | repo | what it is |
 |---|---|
 | CalMind | the origin: calendar/reminders/notes/habits/recipes, web+iOS+Android+macOS+watch, and the only full production server |
-| ChefMind | recipes + shopping list on CalMind's server, kept apart by a sync space |
+| MealMind | recipes + shopping list on CalMind's server, kept apart by a sync space |
 | AcctMind | the ledger: a sibling RE-IMPLEMENTATION of the architecture, not a clone |
 | PlanMind | a private web app with a PHP server, and Tauri shells that open it |
 | TaskMind | a private web app on PlanMind's pattern, with macOS, iOS and Android shells |
@@ -78,7 +78,7 @@ AcctMind takes the fold rule through `@mind/core/folds` (its
 `packages/core/src/rowslots.ts` as a listed copy; both import nothing, which is
 what lets a core whose tsconfig sets `"types": []` carry them. It also shares
 the desktop shell's `build.rs` and the release helpers. Its pick bar is its own
-fork of ChefMind's.
+fork of MealMind's.
 
 PlanMind and TaskMind are web apps first (vite and TypeScript, behaviour in
 `packages/core`, a PHP server in `server/lib`) with thin Tauri shells that open
@@ -127,16 +127,16 @@ apps: it checks `@mind/core` and `tools/shared-files.json`, then tags itself.
 
 ```sh
 npm run deploy -- all                # core's checks, then every app, in order
-npm run deploy -- CalMind            # CalMind — and ChefMind, which needs it
-npm run deploy -- --only ChefMind    # that one alone, cascade suppressed
+npm run deploy -- CalMind            # CalMind — and MealMind, which needs it
+npm run deploy -- --only MealMind    # that one alone, cascade suppressed
 npm run deploy -- all --plan         # resolve the order and stop
 ```
 
 ### The dependency graph, and why it cascades
 
 ```
-core ──▶ CalMind, ChefMind, AcctMind, PlanMind, TaskMind
-CalMind ──▶ ChefMind
+core ──▶ CalMind, MealMind, AcctMind, PlanMind, TaskMind
+CalMind ──▶ MealMind
 ```
 
 Both edges are real, not tidy:
@@ -145,7 +145,7 @@ Both edges are real, not tidy:
   shared file changes their builds, so `dtp core` ships the downstream apps
   after core's checks (`--only core` stops at core). `deploy.sh core` runs the
   same checks, writes nothing, and drops apps that were here only by cascade.
-- **ChefMind has no server.** It syncs through CalMind's API in the `chef`
+- **MealMind has no server.** It syncs through CalMind's API in the `chef`
   space, and its own deploy REFUSES to ship unless the live API reports that
   space. CalMind must land first. That ordering used to live in somebody's
   memory; it lives in `bin/plan.sh` now, which `bin/deploy.sh` and
@@ -164,7 +164,7 @@ each one's own lane runs it.
 ```sh
 npm run dtp -- all --platforms                         # release each app, platforms and all
 npm run dtp -- all                                     # the web only — the flag is the switch
-(cd ../ChefMind && sh tools/build-platforms.sh --ios)  # one app, one platform, by hand
+(cd ../MealMind && sh tools/build-platforms.sh --ios)  # one app, one platform, by hand
 ```
 
 **Who builds what is a rule with one home: AGENTS.md's Platforms section.**
@@ -234,12 +234,12 @@ have tagged and pushed two releases, and those do not come back.
 - **Each edition's seams**: the `packages/core/src/index.ts` barrels (the
   export set IS the edition), `store.tsx`, `chrome.tsx`, per-app screens that
   diverged by design.
-- **Single-owner modules**: ChefMind's `shopping.ts`, MyCalMind's
+- **Single-owner modules**: MealMind's `shopping.ts`, MyCalMind's
   `fetchguard.ts`/`recipefetch.ts`/`peer.ts`, CalMind's request/QuickTick
   surface.
 - **AcctMind's core and spec** — a re-implementation, documented above.
 - **Deploy scripts and their guard provers** — three genuinely different
   scripts sharing doctrine, not code: per-app destination tables ARE the app.
-- **The server** — CalMind's alone, by design; ChefMind rides it via the sync
+- **The server** — CalMind's alone, by design; MealMind rides it via the sync
   space. Only the PHP files in `packages/mind-server` are shared (with
   PlanMind, TaskMind and the site).

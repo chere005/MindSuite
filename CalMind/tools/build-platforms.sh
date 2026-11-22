@@ -132,7 +132,7 @@ devicectl_install() { # udid bundle [label]
 # was away, is recorded with a saved copy of the build and retried when the phone is back; bookkeeping never fails the lane.
 owed_installs() { IOS_PHONES="${IOS_PHONES:-}" sh "$ROOT/tools/retry-installs.sh" "$@" || true; }
 
-# The export the desktop shell stages: a CLEAN one. Unlike ChefMind, whose
+# The export the desktop shell stages: a CLEAN one. Unlike MealMind, whose
 # deploy runs the head patch as a separate step, this repo's `export:web`
 # script already ends in tools/patch-web-html.mjs — so one npm script produces
 # the same patched dist the site serves, PWA furniture (sw.js,

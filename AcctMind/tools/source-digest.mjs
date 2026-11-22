@@ -22,7 +22,7 @@ export const SOURCES = ['packages/core/src', 'apps/app/src', 'apps/app/App.tsx',
  *  hold no code; it is in these stubs and in the packages/mind-core bodies
  *  they re-export. Each file here is walked and every relative `from '…'` in
  *  it is followed to the file it names, so a new stub pointing somewhere new
- *  is covered too. Same reach as CalMind's and ChefMind's digests. */
+ *  is covered too. Same reach as CalMind's and MealMind's digests. */
 export const LINKED = ['../packages/mind-core/src'];
 
 const CODE = /\.(?:ts|tsx|js|jsx|mjs|cjs|json)$/;

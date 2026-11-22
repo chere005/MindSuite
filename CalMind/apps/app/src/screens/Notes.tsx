@@ -597,11 +597,11 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
   }, [recs, visibleFolders]);
 
   /**
-   * ChefMind's recipes, drawn here under the chef's hat.
+   * MealMind's recipes, drawn here under the chef's hat.
    *
    * The owner, 2026-09-15: "sync recipes in ChefMind and CalMind… recipes show up
    * in CalMind as notes sections with a chef hat icon to the right to
-   * indicate they are coming from ChefMind." These are ChefMind's OWN
+   * indicate they are coming from ChefMind." These are MealMind's OWN
    * records — its notes folders, their sections, the recipes in them — read
    * from that app's sync space by the store (store.tsx, CHEF_SPACE) and
    * drawn under the All view after my folders, the way a partner's shared
@@ -611,7 +611,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
    * READ HERE, NEVER WRITTEN. The owner, later the same day: "disable editing
    * ChefMind recipes from CalMind." A tap opens the recipe in a reader
    * (ChefRecipeView) — title, card, the scale buttons a cook wants — with no
-   * editor, no +, no delete; ChefMind is where a recipe is changed. The
+   * editor, no +, no delete; MealMind is where a recipe is changed. The
    * store keeps only a read model of that space (chefRecs) and no way to
    * write it, so nothing here can copy a recipe into my store or leak one
    * of mine into theirs. Which store a note belongs to is decided by which
@@ -632,8 +632,8 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
 
   /** Every section, so the button can both act and show which way it points. */
   const mySectionIds = folders.flatMap((f) => sectionsOf(f.id).map((x) => x.id));
-  // …and ChefMind's, drawn under All like the partner's and folded the same
-  // way (keyed 'chef:' so a ChefMind section id can never collide with mine).
+  // …and MealMind's, drawn under All like the partner's and folded the same
+  // way (keyed 'chef:' so a MealMind section id can never collide with mine).
   const chefSectionIds = view === 'all' ? chef.folders.flatMap((f) => chef.sectionsOf(f.id).map((x) => `chef:${x.id}`)) : [];
   // …and the partner's, when their blocks are actually on screen. The owner asked
   // for this after the shared folds landed: a collapse-all that skipped them
@@ -771,7 +771,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
   });
 
   const open = openId ? (recs.find((r) => r.id === openId) as Rec<'note'> | undefined) : undefined;
-  // A ChefMind recipe opened from under the hat is READ in ChefRecipeView,
+  // A MealMind recipe opened from under the hat is READ in ChefRecipeView,
   // never edited here — see `chef`.
   const chefOpen = openId && !open ? (chefRecs.find((r) => r.id === openId && r.type === 'note') as Rec<'note'> | undefined) : undefined;
   /** Nobody has named this note yet — it still wears the date it was born with. */
@@ -1621,10 +1621,10 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
             {secDrag.lineKey === `end:${f.id}` && <View style={s.dropLine} />}
           </View>
         ))}
-        {/* ChefMind's recipes, under All, after my folders and before the
+        {/* MealMind's recipes, under All, after my folders and before the
             partner's: their folders, their sections, the hat right of each
             section name saying whose they are. No grips, no swipe, no rename,
-            no + — the recipes are ChefMind's to change — and a tap opens the
+            no + — the recipes are MealMind's to change — and a tap opens the
             recipe in ChefRecipeView, a reader. See `chef`. */}
         {view === 'all' && chef.folders.length > 0 && (
           <View testID="chef-group" style={s.folderBlock}>
@@ -1632,7 +1632,7 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
               <FoldCaret testID="chef-group-fold" open={!foldedFolders.has('chef:root')} color={T.text}
                 onPress={() => toggleFolderFold('chef:root')}
                 onLongPress={() => foldAllFolders(!foldedFolders.has('chef:root'))} />
-              <Text style={s.folderName}>ChefMind</Text>
+              <Text style={s.folderName}>MealMind</Text>
               <View testID="chef-folder-badge" style={s.chefBadge}><ChefHatGlyph color={T.accent} size={13} /></View>
               <View style={s.folderRule} />
             </View>
@@ -1660,18 +1660,18 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
                   />
                   <Text style={s.secName}>{sec.payload.name}</Text>
                   {/* THE HAT, right of the name: this section's recipes are
-                      ChefMind's (the owner, 2026-09-15). */}
-                  <View testID={`chef-hat-${sec.payload.name}`} style={s.chefHat} accessibilityLabel="From ChefMind">
+                      MealMind's (the owner, 2026-09-15). */}
+                  <View testID={`chef-hat-${sec.payload.name}`} style={s.chefHat} accessibilityLabel="From MealMind">
                     <ChefHatGlyph color={T.gold} size={14} />
                   </View>
                 </View>
                 {!nfolded.has(`chef:${sec.id}`) && chef.notesOf(sec.id).map((n) => {
                   /* A DATE is the one thing CalMind may add to a recipe, and
                      it is not added to the recipe: it lives in CalMind's own
-                     notes prefs, keyed by the chef id, so ChefMind never sees
+                     notes prefs, keyed by the chef id, so MealMind never sees
                      it on any device. See core's chefdate.ts. Everything else
                      about this row stays read-only — no grip, no duplicate,
-                     no delete — because the recipes are ChefMind's to
+                     no delete — because the recipes are MealMind's to
                      change. */
                   const planned = chefDateOf(recs, n.id);
                   return (
@@ -1815,17 +1815,17 @@ export function Notes({ openNoteId, onOpenConsumed }: { openNoteId?: string | nu
 }
 
 /**
- * A ChefMind recipe, READ. The owner, 2026-09-15: "disable editing ChefMind
+ * A MealMind recipe, READ. The owner, 2026-09-15: "disable editing ChefMind
  * recipes from CalMind." What a cook wants from a recipe on this screen —
  * the title, the card, half/double — and nothing that writes: no title
- * field, no body editor, no Recipe page, no delete. ChefMind is where a
+ * field, no body editor, no Recipe page, no delete. MealMind is where a
  * recipe is changed; this app only draws what that app holds. Tapping an
  * ingredient still makes a reminder of MINE (the item sheet, my store) —
- * that is CalMind's own feature and touches nothing of ChefMind's.
+ * that is CalMind's own feature and touches nothing of MealMind's.
  */
 function ChefRecipeView({ note, planned, onPlan, onBack }: {
   note: Rec<'note'>;
-  /** The day CalMind has this recipe planned for, or null. Never ChefMind's. */
+  /** The day CalMind has this recipe planned for, or null. Never MealMind's. */
   planned: string | null;
   onPlan: () => void;
   onBack: () => void;
@@ -1840,7 +1840,7 @@ function ChefRecipeView({ note, planned, onPlan, onBack }: {
         <CircleBtn testID="chef-note-back" glyph="‹" size={TOPBAR_CTRL} targetSize={44} label="Back" onPress={onBack} />
         <View style={s.chefBadge}>
           <ChefHatGlyph color={T.accent} size={13} />
-          <Text style={s.chefBadgeText}>ChefMind</Text>
+          <Text style={s.chefBadgeText}>MealMind</Text>
         </View>
       </View>
       <Scroll contentContainerStyle={s.editor}>
@@ -1858,7 +1858,7 @@ function ChefRecipeView({ note, planned, onPlan, onBack }: {
           are looking at what it takes to cook.
 
           The day lands in CalMind's notes prefs under the chef id, never on
-          the recipe: ChefMind is not told, on this device or any other. See
+          the recipe: MealMind is not told, on this device or any other. See
           core's chefdate.ts.
         */}
         <Pressable
@@ -1886,7 +1886,7 @@ function ChefRecipeView({ note, planned, onPlan, onBack }: {
         <View style={s.body} testID="chef-note-body">
           {body === '' ? <Text style={s.bodyPlaceholder}>Nothing written yet</Text> : <NoteBody body={body} recipe={isRecipe} onLine={(t) => setRemindText(t)} />}
         </View>
-        <Text style={s.chefReadOnly}>Edited in ChefMind</Text>
+        <Text style={s.chefReadOnly}>Edited in MealMind</Text>
       </Scroll>
       {remindText !== null && (
         <ItemModal mode="create" kind="reminder" text0={remindText} date={todayStr()} onClose={() => setRemindText(null)} />
@@ -2111,15 +2111,15 @@ const s = themed(() => StyleSheet.create({
   // two in the one place the whole change is about.
   sharedRow: { paddingLeft: 24 },
   ownerBadge: { color: T.accent, fontSize: 12, fontWeight: '700', backgroundColor: T.accentSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, overflow: 'hidden' },
-  // The ChefMind folder badge: the owner badge's pill with the hat inside it.
+  // The MealMind folder badge: the owner badge's pill with the hat inside it.
   chefSubgroup: { marginLeft: 14 },
   chefSubgroupName: { fontSize: 17 },
   chefBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: T.accentSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, overflow: 'hidden' },
   chefBadgeText: { color: T.accent, fontSize: 12, fontWeight: '700' },
-  // The hat right of a ChefMind section's name — the same 20x20 box the
+  // The hat right of a MealMind section's name — the same 20x20 box the
   // chevron gets, so it lines up with the controls beside it.
   chefHat: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
-  // The one line under a ChefMind recipe that says where it is edited.
+  // The one line under a MealMind recipe that says where it is edited.
   chefReadOnly: { color: T.muted, fontSize: 12, alignSelf: 'flex-end', marginTop: 6 },
   folderRule: { flex: 1, height: 1, backgroundColor: T.lineSoft },
   section: { gap: 6 },

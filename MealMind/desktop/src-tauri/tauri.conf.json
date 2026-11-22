@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MealMind",
+  "version": "1.51.0",
+  "identifier": "com.seancheren.chefmind.desktop",
+  "build": {
+    "frontendDist": "../dist-desktop",
+    "beforeBuildCommand": "sh stage-dist.sh",
+    "beforeDevCommand": "sh stage-dist.sh"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "MealMind",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 420,
+        "minHeight": 480,
+        "resizable": true,
+        "backgroundColor": "#111111",
+        "url": "/MealMind/index.html"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://seancheren.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "Productivity",
+    "windows": {
+      "wix": {
+        "upgradeCode": "677a7f70-1ba5-529d-829f-6305e40c3d93"
+      }
+    }
+  }
+}

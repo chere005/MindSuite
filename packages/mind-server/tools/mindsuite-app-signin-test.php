@@ -85,6 +85,7 @@ try {
     $wrongBad = array_filter($bad, static fn($r) => msa_app_signin_redirect_ok($r[0], $r[1]));
     check(!$wrongGood && !$wrongBad, 'the return-address table: ' . count($good) . ' allowed, ' . count($bad) . ' refused');
     check(msa_app_signin_client('calmind')['name'] === 'CalMind' && msa_app_signin_client('chefmind')['scheme'] === 'com.seancheren.chefmind' &&
+        msa_app_signin_client('chefmind')['name'] === 'MealMind' &&
         msa_app_signin_client('CalMind') === null && msa_app_signin_client('') === null, 'the client registry is exact');
     check(msa_app_signin_challenge_ok($challenge) && !msa_app_signin_challenge_ok(substr($challenge, 1)) && !msa_app_signin_challenge_ok($challenge . '=') &&
         msa_app_signin_state_ok(str_repeat('a', 16)) && !msa_app_signin_state_ok(str_repeat('a', 15)) && !msa_app_signin_state_ok(str_repeat('a', 129)) &&
@@ -230,7 +231,7 @@ try {
     $db['app_codes'] = [hash('sha256', 'x') => ['spent' => hash('sha256', 'y'), 'until' => 1]];
     msa_store_write($cfg, $db);
     $code = $issue($alex, 'chefmind', 'com.seancheren.chefmind:/signin');
-    $s = msa_app_signin_redeem($cfg, 'chefmind', $code['code'], $verifier, 'com.seancheren.chefmind:/signin', 'ChefMind test', 'calmind', time());
+    $s = msa_app_signin_redeem($cfg, 'chefmind', $code['code'], $verifier, 'com.seancheren.chefmind:/signin', 'MealMind test', 'calmind', time());
     $db = msa_store_read($cfg);
     check($s !== null && count($db['app_codes'] ?? []) === 1 && array_key_exists('spent', array_values($db['app_codes'])[0]), 'a redeem leaves one spent marker');
     $db['app_codes'] = [];

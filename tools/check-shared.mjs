@@ -10,7 +10,7 @@
 // tools/shared-files.json (version 1) lists byte-identical copies, paths relative to the suite
 // root (the directory above tools/), always written with '/':
 //   { "version": 1,
-//     "groups":   [{ "id": "kebab-id", "origin": "CalMind/x", "copies": ["ChefMind/x"], "note": "" }],
+//     "groups":   [{ "id": "kebab-id", "origin": "CalMind/x", "copies": ["MealMind/x"], "note": "" }],
 //     "external": [{ "id": "kebab-id", "origin": "packages/mind-server/lib/x.php",
 //                    "repo": "seancheren-site", "path": "lib/x.php", "note": "" }] }
 // SHARED_FILES names another manifest file (its paths still resolve from the suite root).

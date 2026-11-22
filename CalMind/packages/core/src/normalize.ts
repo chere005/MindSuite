@@ -4,7 +4,7 @@
  * passes one. Everything else that module exports is re-exported unchanged;
  * the local `normalize` below shadows the one `export *` would bring (a
  * module's own export always wins over a star re-export). Same bytes in
- * CalMind and ChefMind; only appconfig.ts differs.
+ * CalMind and MealMind; only appconfig.ts differs.
  */
 import type { AnyRec } from './types';
 import { normalize as sharedNormalize, SUITE_SEEDS, type SeedProfile } from '@mind/core/normalize';

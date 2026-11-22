@@ -380,7 +380,7 @@ async function cookiePost<T>(serverUrl: string, body: Record<string, unknown>, u
  * '' is this app's own store and sends no `space` at all, byte for byte the
  * request it always sent. Anything else names one of the server's other
  * stores for the same account (SYNC_SPACES in server/lib/app.php — 'chef' is
- * ChefMind's), which the store reads through a second engine so recipes can
+ * MealMind's), which the store reads through a second engine so recipes can
  * be drawn here. Named on the request, never sanitised: the server whitelists
  * it and answers 400 to a space it does not know.
  */

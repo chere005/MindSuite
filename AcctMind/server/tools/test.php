@@ -376,7 +376,7 @@ try {
     file_put_contents("$sx/nfs-rewrite.php", '<?php $_SERVER["SCRIPT_NAME"] = "/test/AcctMind/index.php";');
     [$servers[], $rewrite] = start_server($sweb, $serverEnv(['ACCTMIND_LIB' => $libMain, 'ACCTMIND_SHELL' => $shell]), 'rewrite', $sx,
         ['-d', "auto_prepend_file=$sx/nfs-rewrite.php"]);
-    foreach (['/AcctMind/', '/AcctMind/?next=https://evil.example/', '/AcctMind/?next=%2Ftest%2FChefMind%2F', '/AcctMind/index.php/ignored/path'] as $path) {
+    foreach (['/AcctMind/', '/AcctMind/?next=https://evil.example/', '/AcctMind/?next=%2Ftest%2FMealMind%2F', '/AcctMind/index.php/ignored/path'] as $path) {
         $r = http($rewrite, 'GET', $path, ['Host: test.seancheren.com']);
         expect($r['status'] === 303 && $r['location'] === $nextUrl && $r['body'] === '',
             'the TEST alias internal SCRIPT_NAME keeps the visible AcctMind return, ignoring query/PATH_INFO (' . $path . ')');

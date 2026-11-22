@@ -35,7 +35,7 @@ test('delete account: offered a copy, guarded by the username, and the login is 
   await page.getByTestId('delete-account-start').click();
   const box = page.getByTestId('delete-account-confirm');
   await expect(box).toContainText('cannot be undone');
-  await expect(box).toContainText('ChefMind');
+  await expect(box).toContainText('MealMind');
 
   // The copy, offered right where it matters.
   const [download] = await Promise.all([

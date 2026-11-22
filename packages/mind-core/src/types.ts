@@ -28,7 +28,7 @@ export type Repeat = { n: number; unit: RepeatUnit };
 export type Folder = {
   name: string; color: string; ord: string; app?: 'reminders' | 'notes'; rideAlong?: boolean;
   /**
-   * THE SHOPPING LIST (ChefMind, the owner 2026-08-21). A flag rather than a third
+   * THE SHOPPING LIST (MealMind, the owner 2026-08-21). A flag rather than a third
    * `app`, because a shopping row IS a reminder — text, a tick, an order key,
    * a swipe to delete — and everything that already handles reminders keeps
    * working. Extending the app union instead would have meant teaching
@@ -41,7 +41,7 @@ export type Folder = {
    */
   shopping?: boolean;
   /**
-   * THE PANTRY (ChefMind, the owner 2026-08-22: "add a third tab to chefmind which
+   * THE PANTRY (MealMind, the owner 2026-08-22: "add a third tab to chefmind which
    * is a list of groceries on hand... call that tab pantry... if something is
    * on the pantry already, skip adding to shopping cart").
    *
@@ -129,7 +129,7 @@ export type Note = {
    *
    * Absent on every recipe that has none, which is nearly all of them — the
    * card renders exactly as it always did until somebody adds the first one.
-   * ChefMind writes and reads it; CalMind carries the type and never sets it.
+   * MealMind writes and reads it; CalMind carries the type and never sets it.
    */
   variants?: RecipeVariant[];
 };
@@ -190,11 +190,11 @@ export type Prefs = {
    */
   searchKinds?: string[];
   /**
-   * notes: the day CalMind has planned a ChefMind recipe for, keyed by the
+   * notes: the day CalMind has planned a MealMind recipe for, keyed by the
    * chef note's id.
    *
    * It is here, in CALMIND's prefs, rather than in the recipe, because the
-   * recipes are ChefMind's records and CalMind reads them and nothing else.
+   * recipes are MealMind's records and CalMind reads them and nothing else.
    * See chefdate.ts for the whole argument; the short version is that "only
    * known to CalMind" is the requirement, not a side effect.
    */

@@ -25,9 +25,9 @@ import { REC_ID_PATTERN, REC_TYPE_PATTERN, REJECT_REASONS } from '../src/sync';
 
 /**
  * The rule, taken from the CONTRACT — spec/protocol.json, which CoreMind holds
- * canonically and both this repo and ChefMind carry.
+ * canonically and both this repo and MealMind carry.
  *
- * It used to be read out of server/lib/app.php, and ChefMind's copy of this
+ * It used to be read out of server/lib/app.php, and MealMind's copy of this
  * file had to reach into THIS repo across the filesystem to run at all. The
  * contract is the shared fact now; app.php is held to it below, which is the
  * direction nothing checked before.
