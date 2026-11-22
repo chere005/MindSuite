@@ -58,6 +58,17 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   const grid = (await page.getByTestId('cal-grid').boundingBox())!;
   expect(grid.width, 'the month grid fills the main pane').toBeGreaterThan(main.width - 40);
   expect(await overflow(page), 'no sideways scroll at desktop width').toBeLessThanOrEqual(0);
+
+  // The quick-add field sits under each section's own top bar, once (the
+  // owner, 2026-11-22: "add event should go under the top bar").
+  for (const tab of ['calendar', 'reminders', 'notes', 'habits']) {
+    await page.getByTestId(`tab-${tab}`).click();
+    await expect(page.getByTestId('quick-add')).toHaveCount(1);
+    const bar = (await page.getByTestId('wide-main').getByTestId('suite-topbar').first().boundingBox())!;
+    const add = (await page.getByTestId('quick-add').boundingBox())!;
+    expect(add.y, `${tab}: quick add under the top bar`).toBeGreaterThan(bar.y + bar.height);
+  }
+  await page.getByTestId('tab-calendar').click();
   await expect(page.getByTestId('pick-calendar'), 'the picker is still drawn').toBeVisible();
 
   // Quick-add files through the Add tab's parser; the line shows in its cell.

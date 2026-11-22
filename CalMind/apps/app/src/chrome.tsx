@@ -17,6 +17,14 @@ import { useToast } from './components/Toast';
 import { useNav } from './nav';
 import { useWide } from './components/WideFrame';
 
+/**
+ * What sits right under a section's top bar. The wide layout (WideShell) puts
+ * its quick-add field here, around the section's own screen only, so the field
+ * sits under the bar it belongs to rather than above it (the owner, 2026-11-22:
+ * "add event should go under the top bar"). Nothing anywhere else.
+ */
+export const BelowTopBar = React.createContext<React.ReactNode>(null);
+
 export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, showCompleted, onToggleCompleted }: {
   title: string;
   titleAfter?: React.ReactNode;
@@ -28,6 +36,7 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
 }) {
   const nav = useNav();
   const { wide } = useWide();
+  const below = React.useContext(BelowTopBar);
   const { recs, session, signOut, undoLastDelete, syncState, persistFailed, refusedLabels, refusedWhy, sharedTrouble } = useStore();
   const requests = useMemo(() => meetreqBadgeCount(recs), [recs]);
   const [sharedSeen, setSharedSeen] = useState(false);
@@ -68,6 +77,7 @@ export function TopBar({ title, titleAfter, controls, picker, copyMarkdown, show
         label={`${session?.username ?? ''} — account menu. ${look.text}` + (requests > 0 ? ` ${requests} new meeting request${requests === 1 ? '' : 's'}.` : '')}
         badge={requests > 0 ? <View testID="who-badge" style={s.badge} pointerEvents="none"><Text style={s.badgeText}>{requests > 99 ? '99+' : requests}</Text></View> : undefined} items={items} />}
     />
+    {wide && below}
     {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     {requestsOpen && <Requests onClose={() => setRequestsOpen(false)} />}
   </>;

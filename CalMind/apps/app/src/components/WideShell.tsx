@@ -1,6 +1,7 @@
 /**
  * CalMind's wide (desktop-size) layout: WideFrame filled with this app's own
- * sidebar, a quick-add header over the section's existing screen, and the
+ * sidebar, the section's existing screen with a quick-add field under its top
+ * bar (handed to TopBar through BelowTopBar), and the
  * detail pane DetailPane draws. Every action lives here — the MindSuite bar
  * above the app only switches apps (the owner, 2026-11-21).
  *
@@ -24,6 +25,7 @@ import { useCalendarView } from './CalendarPick';
 import { useFolderView } from './FolderPick';
 import { DetailBody, useDetail } from './DetailPane';
 import { useToast } from './Toast';
+import { BelowTopBar } from '../chrome';
 import { useRestingPane } from './restpane';
 import { SidebarItem, SidebarLabel, SidebarTitle, WideFrame, useWide, type WideColors } from './WideFrame';
 
@@ -64,6 +66,11 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
   const section: Section = tab === 'add' ? 'calendar' : tab;
   const resting = useRestingPane();
   const { detailBeside } = useWide();
+  // The field's state lives here, not in the field: the field is drawn inside
+  // each section's own top bar, so a section switch remounts it, and a
+  // half-typed line and the picked kind must survive that as they did when
+  // the field sat above the sections.
+  const add = useQuickAddState();
 
   // Esc closes the pane (web), unless a picker or menu window is open over it.
   // One listener for the screen's life, reading the CURRENT close through a
@@ -88,7 +95,6 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
       sidebar={<Sidebar tab={section} onTab={(t) => { setQuery(''); onTab(t); }} query={query} setQuery={setQuery} colors={colors} />}
       main={
         <View style={s.main}>
-          <QuickAdd tab={section} onNoteCreated={onNoteCreated} />
           {searching && (
             <View testID="wide-search-results" style={s.results}>
               <Text style={s.resultsHead}>Search results for “{query.trim()}”</Text>
@@ -97,7 +103,9 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
           )}
           {/* Kept mounted under the results, so a section does not lose its
               place (an open day, a half-typed edit) to a search. */}
-          <View style={[s.screen, searching && s.hidden]}>{main}</View>
+          <View style={[s.screen, searching && s.hidden]}>
+            <BelowTopBar.Provider value={<QuickAdd tab={section} onNoteCreated={onNoteCreated} state={add} />}>{main}</BelowTopBar.Provider>
+          </View>
         </View>
       }
       detail={detail.item ? <DetailBody item={detail.item} /> : section === 'calendar' && detailBeside && resting ? <View style={s.screen}>{resting}</View> : null}
@@ -194,15 +202,21 @@ const KINDS: { id: AddKind; label: string; icon: React.ComponentType<{ size?: nu
   { id: 'note', label: 'Note', icon: PageIcon },
 ];
 
+type QuickAddState = ReturnType<typeof useQuickAddState>;
+function useQuickAddState() {
+  const [text, setText] = useState('');
+  const [err, setErr] = useState('');
+  const [picked, setPicked] = useState<AddKind | null>(null);
+  return { text, setText, err, setErr, picked, setPicked };
+}
+
 /**
  * The Add tab, as a field: the same line, parsed and filed by the same
  * function (addline.ts), with the kind a click away.
  */
-function QuickAdd({ tab, onNoteCreated }: { tab: Section; onNoteCreated: (id: string) => void }) {
+function QuickAdd({ tab, onNoteCreated, state }: { tab: Section; onNoteCreated: (id: string) => void; state: QuickAddState }) {
   const toast = useToast();
-  const [text, setText] = useState('');
-  const [err, setErr] = useState('');
-  const [picked, setPicked] = useState<AddKind | null>(null);
+  const { text, setText, err, setErr, picked, setPicked } = state;
   const kind: AddKind = picked ?? (tab === 'reminders' ? 'reminder' : tab === 'notes' ? 'note' : 'event');
   const { file } = useAddLine(kind);
   const submit = () => {
