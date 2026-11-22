@@ -12,6 +12,8 @@
 require_once __DIR__ . '/store.php';
 // Where the synced records live (one file per store today; a database when an instance switches): lib/records.php.
 require_once __DIR__ . '/records.php';
+// Public accounts (App Store strangers), off unless the instance turns them on: lib/public-accounts.php.
+require_once __DIR__ . '/public-accounts.php';
 require_once __DIR__ . '/webauthn.php';
 // Mail is log-only unless the instance explicitly enables SMTP.
 require_once __DIR__ . '/mail.php';
@@ -549,6 +551,8 @@ function tokens_revoke(array $cfg, string $user): void
 
 function account_exists(array $cfg, string $user): bool
 {
+    // A public account is checked first, in its own table: never the suite's file (lib/public-accounts.php).
+    if (pa_enabled($cfg) && pa_account($cfg, $user) !== null) { return true; }
     $suite = suite_auth($cfg);
     if ($suite['shared']) {
         // Exactly the canonical (lowercase) name: a record file is named by it, so 'Alex' must not pass for 'alex'.
@@ -759,6 +763,7 @@ function suite_session(array $suite, bool $read = false): array
 /** The signed-in user, from the Authorization: Bearer header, or a 401. */
 function require_auth(array $cfg): string
 {
+    if (pa_enabled($cfg) && ($public = pa_bearer_user($cfg)) !== null) { return $public; }
     $suite = suite_auth($cfg);
     if ($suite['shared']) { return (string) suite_session($suite)['user']; }
     $hdr = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -847,6 +852,17 @@ function handle_delete_account(array $cfg): never
         store_write($cfg, challenges_file($cfg), $rows);
     });
 
+    purge_account_data($cfg, $user, $email);
+    reply(200, ['ok' => true]);
+}
+
+/**
+ * Everything an account leaves behind beyond its sign-in: calendar caches, every space's records, its name in other
+ * accounts' share settings, and the lines of the logs that name it. Account deletion runs it for a legacy account and
+ * for a public one (lib/public-accounts.php); the sign-in rows are each store's own business.
+ */
+function purge_account_data(array $cfg, string $user, string $email): void
+{
     // Calendar caches BEFORE the records go: a subscription's events are
     // fetched through this server and cached in icscache/, under a name made
     // from the URL (and for CalDAV, this account and its credentials) — so
@@ -892,7 +908,6 @@ function handle_delete_account(array $cfg): never
         || ($email !== '' && preg_match('/(?<![\w.@-])' . preg_quote($email, '/') . '(?![\w.@-])/i', $line) === 1));
     // The meeting-request answers this account sent ("by=<user>").
     scrub_user_log($cfg['data_dir'] . '/meetreq-mail.log', fn($line) => preg_match('/(?:^|\s)by=' . preg_quote($user, '/') . '(?:\s|$)/', $line) === 1);
-    reply(200, ['ok' => true]);
 }
 
 /**
@@ -1973,7 +1988,12 @@ function handle_calsub_discover(array $cfg, array $in): never
 
 function handle_recipe_fetch(array $cfg, array $in): never
 {
-    require_auth($cfg);
+    $user = require_auth($cfg);
+    // This server fetches what a signed-in caller names; with public accounts on, a stranger's account could make it
+    // a fetching proxy, so each account gets a generous hour of imports (PA_FETCH_HOUR) and no more.
+    if (pa_enabled($cfg) && !abuse_take($cfg, 'recipe-fetch', [['key' => 'u:' . hash('sha256', $user), 'max' => PA_FETCH_HOUR]])) {
+        fail(429, 'too many imports this hour — try again later');
+    }
     $url = trim((string) ($in['url'] ?? ''));
     if ($url === '') {
         fail(400, 'no url');

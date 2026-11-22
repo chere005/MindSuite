@@ -63,6 +63,8 @@ suite_app($in);   // a request for MealMind's space follows the chefmind hold (l
 // felt like, and a client that expects JSON reads that as gibberish. Turn it
 // into the contract everything else uses.
 try {
+// Public accounts answer their own sign-up, sign-in and account actions first; off, this is never called.
+if (pa_enabled($cfg)) { pa_route($cfg, $in); }
 match ((string) ($in['action'] ?? '')) {
     'signup'          => handle_signup($cfg, $in),
     'login'           => handle_login($cfg, $in),
