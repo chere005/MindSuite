@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "apps": {
+    "CalMind": {
+      "repo": "MindSuite",
+      "tag": "CalMind/2.0.0"
+    },
+    "MealMind": {
+      "repo": "MindSuite",
+      "tag": "MealMind/2.0.0"
+    },
+    "PlanMind": {
+      "repo": "MindSuite",
+      "tag": "PlanMind/1.0.0"
+    },
+    "TaskMind": {
+      "repo": "MindSuite",
+      "tag": "TaskMind/1.0.0"
+    },
+    "AcctMind": {
+      "repo": "MindSuite",
+      "tag": "AcctMind/1.0.0"
+    },
+    "NoteMind": {
+      "repo": "NoteMind",
+      "tag": "v1.0.0"
+    },
+    "ScrollMind": {
+      "repo": "ScrollMind",
+      "tag": "v2.0.0"
+    },
+    "ReadMind": {
+      "repo": "MindSuite",
+      "tag": "ReadMind/1.0.0"
+    },
+    "DisplayMind": {
+      "repo": "DisplayMind",
+      "tag": "v1.0.0"
+    },
+    "CoreMind": {
+      "repo": "MindSuite",
+      "tag": "CoreMind/2.0.0"
+    }
+  }
+}
