@@ -187,7 +187,10 @@ prebuild_ios() {
   # LANG is not optional: CocoaPods dies in unicode_normalize without a UTF-8
   # locale, naming nothing useful (AGENTS.md — every script here that runs
   # pod install exports it).
-  ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean ) \
+  # SDKROOT=macosx: pod install compiles a host stub (expo-modules-jsi). Unset, clang takes
+  # the Command Line Tools SDK when it is newer than Xcode's, and Xcode's linker cannot read
+  # its .tbd files ('unknown architecture arm64e.x1') — so the active Xcode's SDK, always.
+  ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 SDKROOT=macosx npx expo prebuild --platform ios --clean ) \
     || { echo "prebuild failed" >&2; return 1; }
   IOS_WS=$(ls -d "$ROOT/$APPDIR"/ios/*.xcworkspace 2>/dev/null | head -1)
   [ -n "$IOS_WS" ] || { echo "prebuild produced no xcworkspace" >&2; return 1; }
@@ -451,7 +454,7 @@ PY
   # SECOND disagreement is a real bug and stops the install.
   if ! ( cd "$ROOT" && npm run -s test:version:device ); then
     echo "    the existing prebuild output is stale — regenerating"
-    ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean ) \
+    ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 SDKROOT=macosx npx expo prebuild --platform ios --clean ) \
       || { echo "prebuild failed" >&2; exit 1; }
     IOS_WS=$(ls -d "$ROOT/$APPDIR"/ios/*.xcworkspace 2>/dev/null | head -1)
     [ -n "$IOS_WS" ] || { echo "prebuild produced no xcworkspace" >&2; exit 1; }
@@ -467,10 +470,23 @@ PY
   # -destination with a SPECIFIC device, never -sdk: -sdk overrides SDKROOT
   # for every target in the scheme — and the generic destination once compiled
   # this repo's watch target against the iOS SDK and produced two convincing
-  # errors in correct files (AGENTS.md).
-  if ! xcodebuild -workspace "$IOS_WS" -scheme "$SCHEME" -configuration Release \
-      -destination "platform=iOS,id=$UDID" -derivedDataPath "$DERIVED" \
-      -allowProvisioningUpdates -allowProvisioningDeviceRegistration build >"$LOG" 2>&1; then
+  # errors in correct files (AGENTS.md). That watch target is gone, so the
+  # generic destination is safe again as the disk-image fallback below.
+  ios_build() { # <destination> [extra xcodebuild flags]
+    _dest="$1"; shift
+    xcodebuild -workspace "$IOS_WS" -scheme "$SCHEME" -configuration Release \
+      -destination "$_dest" -derivedDataPath "$DERIVED" -allowProvisioningUpdates "$@" build >"$LOG" 2>&1
+  }
+  # A phone that cannot mount its developer disk image (locked, or running an
+  # iOS newer than this Xcode) cannot be the build destination, and installing
+  # does not need it to: the build falls back to ANY iOS device — still a
+  # destination, not -sdk, signed with the same profile (CalMind's lane, #122).
+  ios_build "platform=iOS,id=$UDID" -allowProvisioningDeviceRegistration && BUILT=0 || BUILT=$?
+  if [ "$BUILT" != 0 ] && grep -qiE 'disk image|device is locked|unlock (the|your) ' "$LOG"; then
+    echo "    the phone could not mount its developer disk image — building for any iOS device instead"
+    ios_build "generic/platform=iOS" && BUILT=0 || BUILT=$?
+  fi
+  if [ "$BUILT" != 0 ]; then
     echo "the iOS build failed — last lines:" >&2
     tail -25 "$LOG" >&2; echo "full log: $LOG" >&2; exit 1
   fi

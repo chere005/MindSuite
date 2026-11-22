@@ -202,7 +202,10 @@ prebuild_ios() {
     echo "    regenerating ios/: $WHY"
     # LANG is not optional: CocoaPods dies in unicode_normalize without a UTF-8
     # locale, naming nothing useful.
-    ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean ) \
+    # SDKROOT=macosx: pod install compiles a host stub (expo-modules-jsi). Unset, clang takes
+    # the Command Line Tools SDK when it is newer than Xcode's, and Xcode's linker cannot read
+    # its .tbd files ('unknown architecture arm64e.x1') — so the active Xcode's SDK, always.
+    ( cd "$ROOT/$APPDIR" && LANG=en_US.UTF-8 SDKROOT=macosx npx expo prebuild --platform ios --clean ) \
       || { echo "prebuild failed" >&2; return 1; }
     ios_inputs_key "$ROOT/$APPDIR" > "$ROOT/$APPDIR/ios/.prebuild-inputs" \
       || { echo "could not record what ios/ was generated from" >&2; return 1; }
