@@ -59,7 +59,8 @@ echo ($apply ? 'APPLY' : 'DRY RUN') . ': ' . count($files) . " store file(s) in 
 foreach ($files as $file) {
     $m = map_store($file, $accounts);
     if (isset($m['error'])) { $bad++; echo "  REFUSED  " . basename($file) . " — {$m['error']}\n"; continue; }
-    [$space, $owner] = [$m['space'], $m['owner']];
+    $space = $m['space'];
+    $owner = $m['owner'];
     $db = rs_export($json, $owner, $space);
     $label = sprintf('%-28s → space %-6s owner %-20s %5d records, seq %d', basename($file), $space === '' ? "''" : $space,
         $owner, count($db['recs'] ?? []), (int) ($db['seq'] ?? 0));

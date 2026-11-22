@@ -63,7 +63,7 @@ $rec = fn(string $id, $payload = ['t' => 'x'], string $type = 'note', int $updat
 echo "\n\033[1moff\033[0m\n";
 [$offPort, $offDir] = boot([]);
 t('off: a sign-up that asks to be public is the household sign-up, and no public table exists', function () use ($offPort, $offDir) {
-    $r = call($offPort, ['action' => 'signup', 'public' => true, 'username' => 'plain', 'email' => 'p@example.com', 'password' => 'plainpass']);
+    $r = call($offPort, ['action' => 'signup', 'public' => true, 'username' => 'max', 'email' => 'max@example.com', 'password' => 'maxpassword']);
     eq(200, $r['status'], 'legacy sign-up as today');
     ok(!array_key_exists('public', $r['body']), 'not a public account');
     ok(!is_file($offDir . '/records.sqlite'), 'no database was opened');
@@ -76,29 +76,29 @@ $reset = fn() => array_map('unlink', glob($dir . '/{abuse,caps}-pa-*.json', GLOB
 $tok = '';
 
 t('a household account still signs up and syncs beside them', function () use ($port, $rec) {
-    $h = call($port, ['action' => 'signup', 'username' => 'house', 'email' => 'h@example.com', 'password' => 'housepass']);
+    $h = call($port, ['action' => 'signup', 'username' => 'sam', 'email' => 'sam@example.com', 'password' => 'sampassword']);
     eq(200, $h['status'], 'household sign-up');
     eq(200, call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('h1')]], $h['body']['token'])['status'], 'household sync');
 });
 
 t('public sign-up: a token, whoami says public, sync lands in the database in both spaces', function () use ($port, $cfg, $rec, &$tok) {
-    $r = call($port, ['action' => 'signup', 'public' => true, 'username' => 'Pat', 'email' => 'pat@example.com', 'password' => 'patpassword']);
+    $r = call($port, ['action' => 'signup', 'public' => true, 'username' => 'Ana', 'email' => 'ana@example.com', 'password' => 'anapassword']);
     eq(200, $r['status'], 'sign-up');
-    eq(['pat', true], [$r['body']['username'], $r['body']['public']], 'canonical name, public');
+    eq(['ana', true], [$r['body']['username'], $r['body']['public']], 'canonical name, public');
     $tok = $r['body']['token'];
-    eq(['pat', true], [call($port, ['action' => 'whoami'], $tok)['body']['username'], call($port, ['action' => 'whoami'], $tok)['body']['public'] ?? null], 'whoami');
+    eq(['ana', true], [call($port, ['action' => 'whoami'], $tok)['body']['username'], call($port, ['action' => 'whoami'], $tok)['body']['public'] ?? null], 'whoami');
     eq(200, call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$rec('n1')]], $tok)['status'], 'calmind sync');
     eq(200, call($port, ['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('soup')]], $tok)['status'], 'chef sync');
-    eq(['n1'], array_keys(rs_view($cfg, 'pat', '')->all()), 'calmind store');
-    eq(['soup'], array_keys(rs_view($cfg, 'pat', 'chef')->all()), 'chef store');
+    eq(['n1'], array_keys(rs_view($cfg, 'ana', '')->all()), 'calmind store');
+    eq(['soup'], array_keys(rs_view($cfg, 'ana', 'chef')->all()), 'chef store');
 });
 
 t('names: taken anywhere, reserved, or badly formed are refused; a race is decided by the key', function () use ($port, $reset) {
     $reset();
     $try = fn($u, $p = 'longenough') => call($port, ['action' => 'signup', 'public' => true, 'username' => $u, 'email' => 'x@example.com', 'password' => $p])['status'];
-    eq(409, $try('house'), 'a household name');
-    eq(409, $try('PAT'), 'an existing public name, any case');
-    eq(400, $try('chef-pat'), 'a name that would collide with a space store');
+    eq(409, $try('sam'), 'a household name');
+    eq(409, $try('ANA'), 'an existing public name, any case');
+    eq(400, $try('chef-ana'), 'a name that would collide with a space store');
     eq(400, $try('a'), 'too short');
     eq(400, $try('fine', 'short'), 'password under 8');
 });
@@ -114,8 +114,8 @@ t('sign-up caps: the sixth from one address in an hour is refused', function () 
 });
 
 t('login: right, wrong, and locked after ten failures — locked answers the same for the right password', function () use ($port) {
-    eq(200, call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'patpassword'])['status'], 'right');
-    eq(401, call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'nope'])['status'], 'wrong');
+    eq(200, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'anapassword'])['status'], 'right');
+    eq(401, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'nope'])['status'], 'wrong');
     $s = call($port, ['action' => 'signup', 'public' => true, 'username' => 'locky', 'email' => 'l@example.com', 'password' => 'lockypass']);
     for ($i = 0; $i < 10; $i++) { call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'bad']); }
     eq(429, call($port, ['action' => 'login', 'username' => 'locky', 'password' => 'bad'])['status'], 'locked, wrong');
@@ -124,34 +124,34 @@ t('login: right, wrong, and locked after ten failures — locked answers the sam
 });
 
 t('change password: the old one is checked, other devices are signed out, this one stays', function () use ($port) {
-    $a = call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'patpassword'])['body']['token'];
-    $b = call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'patpassword'])['body']['token'];
-    eq(403, call($port, ['action' => 'change_password', 'old' => 'wrong', 'new' => 'newpatpass'], $a)['status'], 'wrong old');
-    eq(200, call($port, ['action' => 'change_password', 'old' => 'patpassword', 'new' => 'newpatpass'], $a)['status'], 'changed');
+    $a = call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'anapassword'])['body']['token'];
+    $b = call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'anapassword'])['body']['token'];
+    eq(403, call($port, ['action' => 'change_password', 'old' => 'wrong', 'new' => 'newanapass'], $a)['status'], 'wrong old');
+    eq(200, call($port, ['action' => 'change_password', 'old' => 'anapassword', 'new' => 'newanapass'], $a)['status'], 'changed');
     eq(200, call($port, ['action' => 'whoami'], $a)['status'], 'this device');
     eq(401, call($port, ['action' => 'whoami'], $b)['status'], 'the other device');
-    eq(200, call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'newpatpass'])['status'], 'the new password');
+    eq(200, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'the new password');
 });
 
 t('what is not built yet answers 501 for a public account, never a household path', function () use ($port, &$tok) {
-    $tok = call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'newpatpass'])['body']['token'];
+    $tok = call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'newanapass'])['body']['token'];
     foreach (['passkey_list', 'passkey_register_begin', 'meetreq_mail'] as $a) {
         eq(501, call($port, ['action' => $a], $tok)['status'], $a);
     }
 });
 
 t('sharing works between a public account and a household one, by name, both ways mutual', function () use ($port, $rec, &$tok) {
-    $house = call($port, ['action' => 'login', 'username' => 'house', 'password' => 'housepass'])['body']['token'];
+    $house = call($port, ['action' => 'login', 'username' => 'sam', 'password' => 'sampassword'])['body']['token'];
     $share = fn($partner) => $rec('share', ['partners' => [$partner], 'calendars' => [], 'folders' => ['f1'], 'notefolders' => []], 'share', 2000);
-    call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('house'), $rec('f1', ['name' => 'Groceries'], 'folder')]], $tok);
-    call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('pat')]], $house);
+    call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('sam'), $rec('f1', ['name' => 'Groceries'], 'folder')]], $tok);
+    call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => [$share('ana')]], $house);
     $pull = call($port, ['action' => 'shared_pull'], $house);
-    eq('pat', $pull['body']['partner'] ?? null, 'the household side sees the public partner');
+    eq('ana', $pull['body']['partner'] ?? null, 'the household side sees the public partner');
     ok(in_array('f1', array_column($pull['body']['records'], 'id'), true), 'and the shared folder');
 });
 
 t('recipe import: an account is held to an hour of PA_FETCH_HOUR fetches', function () use ($port, $dir) {
-    $t = call($port, ['action' => 'signup', 'public' => true, 'username' => 'fetchy', 'email' => 'f@example.com', 'password' => 'fetchypass'])['body']['token'];
+    $t = call($port, ['action' => 'signup', 'public' => true, 'username' => 'otto', 'email' => 'otto@example.com', 'password' => 'ottopassword'])['body']['token'];
     // A private address is refused before any network, after the limiter: 400 until the hour is spent, then 429.
     $codes = [];
     for ($i = 0; $i < 61; $i++) { $codes[] = call($port, ['action' => 'recipe_fetch', 'url' => 'http://127.0.0.1/'], $t)['status']; }
@@ -162,10 +162,10 @@ t('recipe import: an account is held to an hour of PA_FETCH_HOUR fetches', funct
 t('delete: tokens dead, every space gone, partners scrubbed, the name free and empty', function () use ($port, $cfg, $rec, &$tok) {
     eq(200, call($port, ['action' => 'delete_account'], $tok)['status'], 'deleted');
     eq(401, call($port, ['action' => 'whoami'], $tok)['status'], 'token dead');
-    eq(401, call($port, ['action' => 'login', 'username' => 'pat', 'password' => 'newpatpass'])['status'], 'no sign-in');
-    eq([null, null], [rs_export($cfg, 'pat', ''), rs_export($cfg, 'pat', 'chef')], 'both spaces');
-    eq([], rs_view($cfg, 'house', '')->get('share')['payload']['partners'], "the household account's share no longer names it");
-    $again = call($port, ['action' => 'signup', 'public' => true, 'username' => 'pat', 'email' => 'p2@example.com', 'password' => 'secondpat']);
+    eq(401, call($port, ['action' => 'login', 'username' => 'ana', 'password' => 'newanapass'])['status'], 'no sign-in');
+    eq([null, null], [rs_export($cfg, 'ana', ''), rs_export($cfg, 'ana', 'chef')], 'both spaces');
+    eq([], rs_view($cfg, 'sam', '')->get('share')['payload']['partners'], "the household account's share no longer names it");
+    $again = call($port, ['action' => 'signup', 'public' => true, 'username' => 'ana', 'email' => 'ana2@example.com', 'password' => 'secondana']);
     eq(200, $again['status'], 'the name can be taken again');
     eq([], call($port, ['action' => 'sync', 'cursor' => 0, 'changes' => []], $again['body']['token'])['body']['changes'], '…and starts empty');
 });

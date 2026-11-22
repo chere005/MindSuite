@@ -261,17 +261,17 @@ t('account deletion removes account data, shared references, and credentials', f
 });
 
 t('a name that begins with a space and a dash is refused — its CalMind file would be that space\'s store of another name', function () use ($rec) {
-    $victim = api(['action' => 'signup', 'username' => 'collide', 'email' => 'collide@example.com', 'password' => 'collidepass']);
+    $victim = api(['action' => 'signup', 'username' => 'victim', 'email' => 'victim@example.com', 'password' => 'victimpass']);
     eq(200, $victim['status'], 'the victim signs up');
     api(['action' => 'sync', 'space' => 'chef', 'cursor' => 0, 'changes' => [$rec('recipe1', 1000, 'private recipe')]], $victim['body']['token']);
-    foreach (['chef-collide', 'CHEF-collide', 'Chef-x'] as $name) {
+    foreach (['chef-victim', 'CHEF-victim', 'Chef-x'] as $name) {
         eq(400, api(['action' => 'signup', 'username' => $name, 'email' => 'x@example.com', 'password' => 'attackpass'])['status'], "sign-up refuses $name");
     }
     global $scratch;
     $threw = false;
-    try { records_file(['data_dir' => $scratch], 'chef-collide'); } catch (RuntimeException) { $threw = true; }
+    try { records_file(['data_dir' => $scratch], 'chef-victim'); } catch (RuntimeException) { $threw = true; }
     ok($threw, 'and no road reaches the file: records_file refuses the name for CalMind\'s space');
-    eq('recipe1', rs_view(['data_dir' => $scratch], 'collide', 'chef')->get('recipe1')['id'] ?? null, "the victim's recipe is where it was");
+    eq('recipe1', rs_view(['data_dir' => $scratch], 'victim', 'chef')->get('recipe1')['id'] ?? null, "the victim's recipe is where it was");
 });
 
 echo "\n\033[1msync\033[0m\n";
