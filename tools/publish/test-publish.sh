@@ -176,6 +176,9 @@ check "allows main" 0 -- push pub "refs/heads/main $HS refs/heads/main $Z"
 check "allows a release tag <App>/<x.y.z>" 0 -- push pub "refs/tags/CalMind/1.63.0 $HT refs/tags/CalMind/1.63.0 $Z"
 check "allows main and a release tag in one atomic push" 0 -- push pub "refs/heads/main $HS refs/heads/main $Z
 refs/tags/CalMind/1.63.0 $HT refs/tags/CalMind/1.63.0 $Z"
+check "allows the suite's own version tag MindSuite/<x.y.z>" 0 -- push pub "refs/tags/MindSuite/1.0.0 $HT refs/tags/MindSuite/1.0.0 $Z"
+check "allows a suite commit pushed by sha with its MindSuite tag" 0 -- push pub "$HS $HS refs/heads/main $Z
+refs/tags/MindSuite/1.1.0 $HT refs/tags/MindSuite/1.1.0 $Z"
 check "allows a lane preflight branch" 0 -- push pub "HEAD $HS refs/heads/preflight/calmind/$(printf '%s' "$HS" | cut -c1-7) $Z"
 check "allows deleting a lane preflight branch" 0 -- push pub "(delete) $Z refs/heads/preflight/mealmind/abcdef1 $HS"
 check "refuses a legacy marker tag" 1 -- push pub "refs/tags/CalMind/legacy/1.62.0 $HL refs/tags/CalMind/legacy/1.62.0 $Z"
@@ -184,6 +187,7 @@ check "refuses a preflight branch of an app without a preflight lane" 1 -- push 
 check "refuses an old-style tag (v1.2.3)" 1 -- push pub "refs/tags/v1.2.3 $HT refs/tags/v1.2.3 $Z"
 check "refuses an old-style tag (lowercase app-v)" 1 -- push pub "refs/tags/calmind-v1.63.0 $HT refs/tags/calmind-v1.63.0 $Z"
 check "refuses a tag of an unknown app" 1 -- push pub "refs/tags/Nope/1.0.0 $HT refs/tags/Nope/1.0.0 $Z"
+check "refuses a MindSuite tag that is not x.y.z" 1 -- push pub "refs/tags/MindSuite/1.0 $HT refs/tags/MindSuite/1.0 $Z"
 check "refuses a two-part version tag" 1 -- push pub "refs/tags/CalMind/1.63 $HT refs/tags/CalMind/1.63 $Z"
 check "refuses deleting main" 1 -- push pub "(delete) $Z refs/heads/main $HS"
 check "refuses when the needle list is missing (no skip)" 1 -- env MIND_NEEDLES="$T/none.txt" MIND_NAMES_OPTIONAL=1 sh -c 'printf "%s\n" "refs/heads/main '"$HS"' refs/heads/main '"$Z"'" | (cd "'"$H"'" && AGENTSUITE_DIR="'"$T/agentsuite"'" sh tools/githooks/pre-push pub https://example.test/o/r.git)'

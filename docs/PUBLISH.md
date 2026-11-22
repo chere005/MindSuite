@@ -217,8 +217,9 @@ refuses everything else (fail closed):
 
 | Ref | Who pushes it |
 | --- | --- |
-| `refs/heads/main` | step 6, and every lane (`git push --atomic origin main refs/tags/<tag>`) |
+| `refs/heads/main` | step 6, every lane (`git push --atomic origin main refs/tags/<tag>`), and `tools/mindsuite-release.mjs` (`<sha>:refs/heads/main` with its MindSuite tag, also run by the NoteMind, ScrollMind and DisplayMind releases) |
 | `refs/tags/<App>/<x.y.z>`, App one of AcctMind, CalMind, MealMind, CoreMind, PlanMind, ReadMind, TaskMind | the app's lane (three numeric parts, nothing after them) |
+| `refs/tags/MindSuite/<x.y.z>` | `tools/mindsuite-release.mjs`, after every app release (the suite's own version) |
 | `refs/heads/preflight/<acctmind\|calmind\|mealmind>/<sha>` (7 to 40 hex digits) | that app's `tools/preflight.sh`, which also deletes it |
 
 A `<App>/legacy/<version>` marker, any other branch or tag, an old-style tag (`v1.2.3`, `<app>-v1.2.3`, a two-part

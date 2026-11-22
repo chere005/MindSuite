@@ -62,10 +62,11 @@ set -e
 cd "$(dirname "$0")/.."
 export GH_BOT_TAG_PREFIX=MealMind GH_BOT_WORKFLOW=mealmind-release.yml
 
-FULL=0; PICKED=0; WANT_MAC=0; WANT_IOS=0; WANT_ANDROID=0; SKIP_PREFLIGHT=0
+FULL=0; PICKED=0; WANT_MAC=0; WANT_IOS=0; WANT_ANDROID=0; SKIP_PREFLIGHT=0; MAJOR=0
 for a in "$@"; do
   case "$a" in
     --full)    FULL=1 ;;
+    --major)   MAJOR=1 ;;   # the next MAJOR (x+1.0.0) instead of the minor: a suite-wide major (MindSuite 1.0.0)
     # Not a platform: it does not count as picking one. Ships without the
     # Release preflight (step 5) — for when GitHub itself is the problem.
     --skip-preflight) SKIP_PREFLIGHT=1 ;;
@@ -177,7 +178,8 @@ printf '%s\n' "$CUR" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
 # monorepo, from its own (MealMind/legacy/).
 if git show-ref --verify --quiet "refs/tags/MealMind/$CUR" ||
    git show-ref --verify --quiet "refs/tags/MealMind/legacy/$CUR"; then
-  NEW=$(echo "$CUR" | awk -F. '{printf "%d.%d.0", $1, $2+1}')
+  if [ "$MAJOR" = 1 ]; then NEW=$(echo "$CUR" | awk -F. '{printf "%d.0.0", $1+1}')
+  else NEW=$(echo "$CUR" | awk -F. '{printf "%d.%d.0", $1, $2+1}'); fi
   echo "==> version: $CUR (tagged) -> $NEW"
 else
   # A previous run bumped, then failed before tagging. Ship THAT version
@@ -301,6 +303,18 @@ if ! git push --atomic origin main "refs/tags/$TAG"; then
 fi
 echo "==> pushed, tagged $NEW"
 
+# ------------------------------------------------------------ MindSuite's minor
+# Every app release moves MindSuite to its next minor, with a note naming this
+# tag (../tools/mindsuite-release.mjs). Not fatal: the app is live and tagged,
+# so a missed record is reported with the command that makes it, and the lane
+# ends non-zero for it below.
+SUITE_FAILED=""
+if ! node "${MINDSUITE_RELEASE_TOOL:-../tools/mindsuite-release.mjs}" record MealMind "$TAG"; then
+  SUITE_FAILED="MindSuite does not name $TAG yet; from the suite root: node tools/mindsuite-release.mjs record MealMind $TAG"
+  echo "" >&2
+  echo "$NEW IS LIVE AND TAGGED, BUT $SUITE_FAILED" >&2
+fi
+
 # The tag push started the Release workflow (builds the installers on GitHub's
 # Windows and macOS runners and publishes ONE release). Found here so its URL is
 # on screen at once; watched at the foot of the lane, after the device builds,
@@ -361,7 +375,7 @@ elif command -v gh >/dev/null 2>&1; then
 fi
 
 # A release or build failure after the push still makes the lane exit non-zero.
-if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ]; then
+if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ]; then
   echo "==> $NEW is live and tagged; the lane ends non-zero for the failures above"
   exit 1
 fi
