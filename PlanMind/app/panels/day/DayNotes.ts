@@ -33,6 +33,14 @@ export function html(view: DayView, ctx: PanelContext, kit: Kit): string {
 </section>`;
 }
 
+/**
+ * The height a note's words took the last time they were measured, by the box's key: the same words in the same width are the same height, so a redraw that
+ * changes neither (a tick, a poll) reuses it instead of releasing the box and reading its scrollHeight, which forces a layout of the whole page.
+ * Only ever a shortcut: any other words or width measure again, and the list is small and dropped when it grows.
+ */
+const grown = new Map<string, { text: string; width: number; h: string }>();
+const GROWN_MAX = 64;
+
 export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => void {
   const section = panel.querySelector<HTMLElement>('.day-notes');
   if (!section) { return () => {}; }
@@ -48,13 +56,22 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     // Desktop notes grow up to the CSS height limit. A phone's box fills the tab instead.
     const grow = () => {
       if (kit.phone) { return; }
+      const width = area.clientWidth, hit = grown.get(key);
+      if (hit && hit.text === area.value && hit.width === width) {
+        if (area.style.getPropertyValue('--h') !== hit.h) { area.style.setProperty('--h', hit.h); }
+        return;
+      }
       const top = area.scrollTop;
       area.style.removeProperty('--h');
-      area.style.setProperty('--h', `${area.scrollHeight}px`);
+      const h = `${area.scrollHeight}px`;
+      area.style.setProperty('--h', h);
       area.scrollTop = top;
+      if (grown.size >= GROWN_MAX && !grown.has(key)) { grown.clear(); }
+      grown.set(key, { text: area.value, width, h });
     };
     if (!kit.phone) {
-      let width = 0;
+      // The observer's first call reports the width the box starts with, which `grow()` below has just measured: not a change.
+      let width = area.clientWidth;
       const watch = new ResizeObserver(() => { if (area.clientWidth !== width) { width = area.clientWidth; grow(); } });
       watch.observe(area); watchers.push(watch);
       grow();

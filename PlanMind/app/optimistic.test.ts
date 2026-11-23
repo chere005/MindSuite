@@ -145,3 +145,49 @@ describe('predict', () => {
     expect(predict(marked, { action: 'markChore', ruleId: 'r', date: '2040-01-04', state: 'open', moved: false, revision: 1 }, 'alex').choreMarks).toEqual([]);
   });
 });
+
+// The shell keeps the page it drew for the answer to a write the screen already showed (Shell.ts compares `epoch`): only that answer may leave it where it was.
+describe('epoch: what may have changed what a panel reads', () => {
+  it('an optimistic write counts once (the tick as shown) and its alone-landed answer counts nothing more', async () => {
+    vi.useFakeTimers();
+    const r = rig(['a']);
+    const at = r.state.epoch;
+    void r.state.send(tick('a', 3, true), { optimistic: true });
+    expect(r.state.epoch).toBe(at + 1);
+    await r.open();
+    expect(done(r.state)).toEqual(['a']);
+    expect(r.state.epoch).toBe(at + 1);
+    r.state.close(); vi.useRealTimers();
+  });
+
+  it("someone else's change landing before ours moves the revision by more than our write: the answer counts", async () => {
+    vi.useFakeTimers();
+    const r = rig(['a']);
+    void r.state.send(tick('a', 3, true), { optimistic: true });
+    const shown = r.state.epoch;
+    r.elsewhere();
+    await r.open();
+    expect(r.state.epoch).toBeGreaterThan(shown);
+    r.state.close(); vi.useRealTimers();
+  });
+
+  it('a write the screen cannot answer, a poll with changes and a refused write all count', async () => {
+    vi.useFakeTimers();
+    const r = rig(['a', 'b']);
+    let at = r.state.epoch;
+    r.state.applyResponse(session(11, [todo('a'), todo('b')]));   // a poll that brought changes
+    expect(r.state.epoch).toBe(at + 1);
+    at = r.state.epoch;
+    r.state.applyResponse(session(11, [todo('a'), todo('b')]));   // the same again: nothing new, nothing counted
+    expect(r.state.epoch).toBe(at);
+    void r.state.send({ action: 'saveNote', scope: 'day', period: '2040-01-04', listId: 'alex', field: 'notes', text: 'x', revision: 0 } as Mutation);
+    await r.open().catch(() => {});
+    expect(r.state.epoch).toBeGreaterThan(at);
+    at = r.state.epoch;
+    r.refuse('b', 9);
+    void r.state.send(tick('b', 3, true), { optimistic: true });
+    await r.open();
+    expect(r.state.epoch).toBeGreaterThan(at + 1);
+    r.state.close(); vi.useRealTimers();
+  });
+});
