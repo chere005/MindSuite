@@ -513,7 +513,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     if (step.ok && !shape(step.start, step.start + event.length, win)) { generation++; ctx.announce(`${name} cannot move ${later ? 'later' : 'earlier'} on this half of the day: switch to ${win.half === 'am' ? 'PM' : 'AM'}.`); return; }
     if (!step.ok) { generation++; ctx.announce(step.reason === 'window' ? `${name} cannot move ${later ? 'later' : 'earlier'}: it is at the ${later ? 'end' : 'start'} of the schedule.` : `${name} cannot move ${later ? 'later' : 'earlier'}: it would overlap ${step.with.text}.`); return; }
     const result = await moveTo(event, step.start);
-    if (!result.ok) { generation++; } else { focusAfter = id; }
+    if (!result.ok) { generation++; } else { focusAfter = id; ctx.rerender(); }   // the answer only confirms the move, so the shell would keep the page: this redraw is what gives the focus back
     ctx.announce(result.ok ? `${name} moved to ${spanLabel(step.start, event.length)}.` : result.skipped ? '' : result.message);
   }
   /**
@@ -531,7 +531,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     if (start === null) { generation++; ctx.announce(`${name} cannot be for ${forWhom(aim.owners)}: there is no room.`); return; }
     if (!shape(start, start + event.length, win)) { generation++; ctx.announce(`${name} cannot be for ${forWhom(aim.owners)} on this half of the day: switch to ${win.half === 'am' ? 'PM' : 'AM'}.`); return; }
     const result = await moveTo(event, start, aim.owners);
-    if (!result.ok) { generation++; } else { focusAfter = id; }
+    if (!result.ok) { generation++; } else { focusAfter = id; ctx.rerender(); }   // the answer only confirms the move, so the shell would keep the page: this redraw is what gives the focus back
     ctx.announce(result.ok ? `${name} is for ${forWhom(aim.owners)}, ${spanLabel(start, event.length)}.` : result.skipped ? '' : result.message);
   }
   section.addEventListener('keydown', key => {
