@@ -90,6 +90,15 @@ that already exists, `gh workflow run calmind-release.yml --ref <tag> -f tag=<ta
 Actions artifact (the account's artifact quota is full). ARCHITECTURE.md
 ("Releases") has the whole pipeline, including the preflight.
 
+## Signing and updates
+
+`tools/build-platforms.sh --mac` runs `cargo test` of this shell, builds, signs and notarizes the `.app` with
+`tools/mac-sign-install.sh` (Developer ID, hardened runtime, stapled, arm64 only), smokes that very bundle and installs it.
+`src/updater.rs` (a byte copy of the suite's shared module) adds "Check for Updates..." on macOS and Windows; its feed,
+public key and the way the feed is published are in ARCHITECTURE.md ("Signing and installs", "Updates") and
+`../docs/PUBLISH.md`. Tauri 2.12 or later is required by the updater plugin. The Linux build compiles none of it
+(`src/main.rs` gates the module on macOS and Windows).
+
 ## Icons
 
 `src-tauri/icons/` is generated from the canonical mark

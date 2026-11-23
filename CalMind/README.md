@@ -13,7 +13,7 @@ Feel free to deploy this on your own website, build and deploy the iOS version, 
 ## Quick start / Install
 
 - Web: <https://seancheren.com/calmind/>.
-- macOS, Windows and Linux: installers on [GitHub Releases](https://github.com/chere005/CalMind/releases). Unsigned.
+- macOS, Windows and Linux: installers on the [MindSuite releases](https://github.com/chere005/MindSuite/releases) page, each version on its own `CalMind/<version>` release. The Mac app is signed with a Developer ID and notarized (Apple silicon only); the Windows installers are not code-signed, so SmartScreen may ask you to choose More info, then Run anyway. The macOS and Windows apps update themselves (Check for Updates in the menu); Linux downloads stay manual.
 - iOS, Android and Apple Watch: build from source, see Building.
 
 ## Platforms

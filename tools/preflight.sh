@@ -54,6 +54,10 @@ node --check tools/updater-keychain.mjs
 bash tools/ci/test-updater.sh
 bash tools/ci/test-publish-update.sh
 bash tools/ci/test-release-notes.sh
+sh -n tools/publish-update-from-release.sh
+bash tools/ci/test-publish-update-from-release.sh
+# each shell that carries the updater runs its own cargo tests
+bash tools/ci/test-shell-cargo.sh CalMind desktop/src-tauri
 sh CoreMind/bin/check-plan.sh
 sh CoreMind/bin/check-personal-data.sh --self-test
 sh CoreMind/bin/check-personal-data.sh

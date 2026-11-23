@@ -29,7 +29,8 @@
 # A release run that ends with a platform missing re-dispatches itself (input `attempt`, at most 3 runs) and builds only
 # the platforms whose files are not on the draft yet; after the third it leaves the draft for the lane to report.
 #
-# Windows installers are unsigned; the macOS app must be signed and notarized.
+# Windows installers are unsigned by decision; the macOS app must be signed and notarized. Update archives are NOT built here:
+# the update key is not in GitHub, so tools/publish-update-from-release.sh signs the published files locally (docs/PUBLISH.md).
 name: CalMind Release
 
 on:
@@ -192,6 +193,7 @@ jobs:
 
           - **Windows** (`CalMind_@V@_x64_en-US.msi`, or `CalMind_@V@_x64-setup.exe`): the installers are not code-signed, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.
           - **macOS** (Apple silicon, `CalMind_@V@_aarch64.dmg`): signed with Developer ID and notarized.
+          - **Updates:** the macOS and Windows apps check for updates themselves (menu: Check for Updates). Linux has no updater.
           - **Linux** (x64): `sudo apt install ./CalMind_@V@_amd64.deb`, or for the AppImage `chmod +x CalMind_@V@_amd64.AppImage` and run it.
 
           `SHA256SUMS.txt` has the checksum of every file.
@@ -302,6 +304,13 @@ jobs:
         shell: bash
         working-directory: CalMind
         run: bash desktop/check-assets.sh
+
+      # The shell's own tests: the updater against a local fixture feed (version rules, signature and size refusals, quiet
+      # failure) and the sign-in listener. After the build, which stages the frontend the crate embeds. On Windows this is
+      # the only place the updater's Windows paths run.
+      - name: Test the shell (updater, sign-in)
+        working-directory: CalMind/desktop/src-tauri
+        run: cargo test --locked
 
       # The runner IS a Windows machine with a desktop session: install the MSI the way a user's machine would, launch
       # what it installed, and hold it to the mac smoke's bar: it launches, survives eight seconds, puts up a real
@@ -430,6 +439,10 @@ jobs:
       - name: Check the shell can load what it ships
         working-directory: CalMind
         run: bash desktop/check-assets.sh
+
+      - name: Test the shell (updater, sign-in)
+        working-directory: CalMind/desktop/src-tauri
+        run: cargo test --locked
 
       # A real disk image, holding an app whose executable is arm64.
       - name: Check the dmg

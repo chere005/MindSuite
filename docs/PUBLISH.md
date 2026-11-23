@@ -290,7 +290,7 @@ Consuming it in an app's `tools/build-platforms.sh --mac`: replace the ad hoc `c
 sh tools/mac-sign-install.sh [--entitlements path] native/src-tauri/target/release/bundle/macos/X.app
 ```
 
-(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). Hardened runtime is applied by the script, so
+(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). A lane that smoke-tests the signed app before installing it signs once with `--no-install --out DIR`, tests that copy, then installs it with `--already-signed` (full verification, no second Apple submission; CalMind's `build-platforms.sh --mac` does this). Hardened runtime is applied by the script, so
 no `tauri.conf.json` change is needed for that; an app that needs entitlements passes the file. The three release workflows run
 `notarize-dmg.sh` before `verify-macos-dmg.sh`; a new release workflow cloned from them keeps both steps.
 
@@ -323,6 +323,11 @@ node ../tools/publish-update.mjs --app <App> --version <x.y.z> --repo OWNER/Mind
      --notes-file <App>/docs/releases/<x.y.z>.md
      [--dry-run DIR]          # writes the same files into DIR and touches no network
 ```
+
+A lane normally does not build the Mac app for this: `sh tools/publish-update-from-release.sh <App> <App>/<x.y.z> <x.y.z> [--install]` waits
+for the published release, downloads the installers and the dmg, checks them against `SHA256SUMS.txt`, takes the stapled `.app` out
+of the dmg and calls the command above (`--install` also installs that app over `/Applications`). Test:
+`bash tools/ci/test-publish-update-from-release.sh`.
 
 It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
 `<App>_<v>_aarch64.app.tar.gz` (the .app as top folder, no `._` files), signs the archive and each Windows installer with

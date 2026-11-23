@@ -60,7 +60,7 @@ fi
 BUILD_SCRATCH="$ROOT/$APPDIR/ios"
 
 if [ "$DRY" = 1 ]; then
-  [ "$WANT_MAC" = 1 ]     && echo "would: npm run export:web (clean), npm -w $DESKTOP_WS run build, then install to /Applications"
+  [ "$WANT_MAC" = 1 ]     && echo "would: npm run export:web (clean), npm -w $DESKTOP_WS run build, cargo test, sign + notarize + staple (tools/mac-sign-install.sh), smoke, then install the signed app to /Applications"
   [ "$WANT_IOS" = 1 ]     && echo "would: prebuild $APPDIR (ios) unless its generated ios/ is buildable (Pods, codegen, inputs unchanged), sync app.json's version into it, xcodebuild Release against one reachable phone, devicectl install that one bundle to every phone this app belongs on (watch companion too, when one is reachable)"
   [ "$WANT_ANDROID" = 1 ] && echo "would: prebuild $APPDIR (android), gradlew assembleRelease, adb install"
   echo "each block under the suite's heavy-build lock (tools/heavy-lock.sh)"
@@ -229,10 +229,21 @@ if [ "$WANT_MAC" = 1 ]; then
   APPBUNDLE=$(ls -d "$ROOT"/desktop/src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -1)
   [ -n "$APPBUNDLE" ] || { echo "the build reported success and produced no .app" >&2; exit 1; }
   echo "    $APPBUNDLE"
-  # Local Tauri bundles need a complete ad-hoc signature before any smoke may launch them.
-  codesign --force --deep --sign - "$APPBUNDLE" \
-    && codesign --verify --deep --strict "$APPBUNDLE" \
-    || { echo 'the built app signature could not be verified' >&2; exit 1; }
+  # THE SHELL'S OWN TESTS (the updater against a local fixture feed, sign-in): before anything is signed or installed.
+  ( cd "$ROOT/desktop/src-tauri" && PATH="$HOME/.cargo/bin:$PATH" cargo test --locked ) \
+    || { echo "cargo test of the desktop shell failed" >&2; exit 1; }
+  # SIGN AND NOTARIZE FIRST, WHILE HIS COPY IS STILL OPEN: Developer ID + hardened runtime, notarized and stapled by
+  # tools/mac-sign-install.sh, which refuses an ad hoc, non-arm64 or wrong-team result (it waits for Apple, 20 to 60 s).
+  # The build output is only COPIED by it; the signed copy replaces the unsigned bundle, so the smoke below launches
+  # the very bundle that is installed afterwards (a hardened, notarized one), and no ad hoc copy ever lands anywhere.
+  APPNAME=$(basename "$APPBUNDLE" .app)
+  SIGNED_DIR=$(mktemp -d "${TMPDIR:-/tmp}/calmind-signed.XXXXXX")
+  sh "$ROOT/tools/mac-sign-install.sh" --no-install --out "$SIGNED_DIR" "$APPBUNDLE" \
+    || { rm -rf "$SIGNED_DIR"; echo "signing or notarizing the macOS app failed; nothing was installed" >&2; exit 1; }
+  rm -rf "$APPBUNDLE"
+  ditto "$SIGNED_DIR/$APPNAME.app" "$APPBUNDLE" \
+    || { rm -rf "$SIGNED_DIR"; echo "could not put the signed app back beside the build" >&2; exit 1; }
+  rm -rf "$SIGNED_DIR"
   # WAS IT OPEN? The owner, 2026-09-21: "make sure to reopen already opened apps in
   # a dtp.. i was looking at an old acctmind". An rm -rf and a cp -R under a
   # RUNNING app change nothing you can see: macOS still has the old bundle's
@@ -260,7 +271,6 @@ if [ "$WANT_MAC" = 1 ]; then
   # means the smoke launches the bundle it is trying to test, instead of
   # LaunchServices activating the already-running instance of the same bundle
   # id.
-  APPNAME=$(basename "$APPBUNDLE" .app)
   WASRUNNING=0
   # 1 means "nothing of his is in the way" — the state the install wants, and
   # the state we are already in when he had nothing open.
@@ -302,16 +312,20 @@ if [ "$WANT_MAC" = 1 ]; then
   fi
   # INSTALL IT. A build sitting in target/release/bundle/macos/ is not a
   # deploy — it is the thing nobody looks at while the app in /Applications
-  # goes stale.
-  rm -rf "/Applications/$(basename "$APPBUNDLE")"
-  cp -R "$APPBUNDLE" /Applications/ \
-    || { echo "copying the .app into /Applications failed" >&2; exit 1; }
-  if [ "$GONE" = 1 ]; then
-    codesign --force --deep --sign - "/Applications/$(basename "$APPBUNDLE")" \
-      && codesign --verify --deep --strict "/Applications/$(basename "$APPBUNDLE")" \
-      || { echo 'the installed app signature could not be verified' >&2; exit 1; }
+  # goes stale. The script verifies the signed copy IN FULL again (Developer ID,
+  # hardened runtime, timestamp, notarized, stapled, arm64), stages it beside
+  # /Applications, swaps it in, verifies it THERE, and puts the old copy back
+  # on any failure. It never reopens the app: this block does, below, when the
+  # app was open before the lane started.
+  if sh "$ROOT/tools/mac-sign-install.sh" --already-signed --no-relaunch "$APPBUNDLE"; then
+    echo "    installed: /Applications/$(basename "$APPBUNDLE")"
+  elif [ "$GONE" = 0 ]; then
+    # His open window would not quit, so the script left the installed copy alone: say so, keep the release going (the
+    # old behaviour: a stale window is a smaller problem than a skipped deploy) and name the way out.
+    echo "    $APPNAME is open and would not quit — the signed copy was NOT installed; quit it and run: sh tools/mac-sign-install.sh --already-signed $APPBUNDLE" >&2
+  else
+    echo "the signed app could not be installed into /Applications" >&2; exit 1
   fi
-  echo "    installed: /Applications/$(basename "$APPBUNDLE")"
   # AND PUT HIS SESSION BACK — only if it was open when this started. An app he
   # had closed stays closed: a release that conjures windows onto his desktop
   # is its own kind of rude. Best-effort, like the quit: failing to reopen a

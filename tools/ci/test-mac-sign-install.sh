@@ -241,4 +241,18 @@ bash "$SCRIPT" --verify-only "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || fai
 expect_fail '--verify-only on an unsigned app' bash "$SCRIPT" --verify-only "$tmp/in/Example.app"
 expect_fail 'a non-app' bash "$SCRIPT" --no-install "$tmp/machine.env"
 
+# 8. --already-signed installs a copy this script signed, without signing or submitting again; it refuses anything else
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
+: > "$CALLS"
+bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail '--already-signed rejected a signed copy'; }
+[ -f "$tmp/install/Example.app/Contents/_stapled" ] || fail '--already-signed did not install'
+grep -q 'notarytool submit' "$CALLS" && fail '--already-signed submitted to Apple again'
+grep -q -- '--sign' "$CALLS" && fail '--already-signed signed again'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "--already-signed left $(ls -A "$tmp/install")"
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+expect_fail '--already-signed on an unsigned build' bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/in/Example.app"
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--already-signed on an unsigned build touched the installed copy'
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1; echo adhoc > "$tmp/out-dir/Example.app/Contents/_sig"
+expect_fail '--already-signed on an ad hoc copy' bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/out-dir/Example.app"
+
 echo 'mac-sign-install guards passed'
