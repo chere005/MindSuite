@@ -3,6 +3,13 @@
   "productName": "PlanMind", "version": "1.1.0", "identifier": "com.seancheren.planmind",
   "build": { "frontendDist": "../fallback" },
   "app": { "windows": [], "security": { "capabilities": [], "csp": "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" } },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzOTA4NUU1QUNEMzYyNEEKUldSS1l0T3M1WVdRNDI4STk3eWVRZko0SW9FS0o5aXlLNktPWjNzMm9WclA5S3pMU2lwOERxdkIK",
+      "endpoints": ["https://github.com/chere005/MindSuite/releases/download/PlanMind-updates/latest.json"],
+      "requireSignedVersion": true
+    }
+  },
   "bundle": {
     "active": true, "targets": ["app", "dmg", "msi", "nsis"], "category": "Productivity",
     "shortDescription": "A private shared daily planner",

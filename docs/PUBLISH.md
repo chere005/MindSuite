@@ -195,8 +195,8 @@ Before the first lane run after publication, read "Lanes and the public remote" 
 
 ## Which Actions runs the pushes start
 
-The five workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind/<x.y.z>*` and on `workflow_dispatch`
-(`planmind-native.yml` and `taskmind-native.yml`: dispatch only). So:
+The release workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind|PlanMind/<x.y.z>*` and on `workflow_dispatch`
+(`taskmind-native.yml`: dispatch only). So:
 
 - The first push (`refs/heads/main`) starts no run at all.
 - A release tag push starts that app's Release workflow. The run the person triggers has one job, `handoff`, which
@@ -330,6 +330,12 @@ It verifies the app with `mac-sign-install.sh --verify-only` (and that its versi
 downloads it again and compares, then prunes. A refused input (wrong version, unverified app, missing key, one platform only
 without `--allow-partial`) stops before anything is signed or uploaded. CI never signs updates: the key is not in GitHub.
 
+The Windows installers are downloaded from the published release, and Windows checks nothing but the minisign signature, so an app's
+wrapper (PlanMind: `PlanMind/tools/publish-update.sh`) signs an installer only if its SHA-256 appears in the log of a run of that
+tag's release workflow: the windows job prints `MINDSUITE-DIGEST sha256 <hex> <file name>` for each installer right after the
+build, and a release token cannot edit a run log. A file swapped on the release after the build is refused (nothing signed or
+uploaded). It does not defend against a compromised build itself, which is why the workflow's third-party actions are pinned to commit SHAs.
+
 ### Update keys
 
 One minisign key pair per app, made by `sh tools/updater-keygen.sh <App> --pub-out <file>` into a SEPARATE keychain
@@ -340,6 +346,14 @@ Mac sleeps, is never on the search list, and is locked again by every tool on ex
 `plugins.updater.pubkey`. `--status` shows whether a key exists and its public half; `--export-backup FILE` writes TWO 0600 files
 (`FILE` with the key, `FILE.password` with its password; refused inside a git work tree, a warning on a cloud-synced path) for the
 owner's offline copy: keep them apart. Losing a key strands installed copies of that app.
+
+Residual risk, accepted for unattended signing: the keychain's password is an ordinary item in the login keychain without a
+restrictive access list, so any process running as the owner (a malicious npm `postinstall` or cargo build script run in any repo on
+this Mac, for example) can read it with `security find-generic-password -w`, unlock the updater keychain while it is open and read
+the keys. The 300 s auto-lock limits WHEN, not WHO. What a stolen key buys: a malicious Windows update (Windows installs check only
+the minisign signature); a macOS update is still refused by the app unless it is signed by the owner's Developer ID team (the
+bundle check below). Keep untrusted code off this Mac, and rotate the key (`--replace`) after any doubt. Tightening it means a
+password or Touch ID prompt on every publish, which the owner did not choose.
 
 Rotation (`--replace`) never loses the old key: the new key is written under a `next` slot and proven by signing with the values read
 back, the live key is copied to a `prev` slot (verified) before the live slot is touched, then `next` becomes live. An interruption
@@ -359,7 +373,9 @@ failed `latest.json` upload is retried 3 times and, if it still fails, the tool 
 
 - `Cargo.toml` (tauri and the CLI at 2.12 or later first; CalMind, MealMind and AcctMind are on 2.11 today):
   `[target.'cfg(any(target_os = "macos", windows))'.dependencies]` `tauri-plugin-updater = "2.14"`, `tauri-plugin-dialog = "2"`,
-  `semver = "1"`, `serde_json = "1"`; and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
+  `semver = "1"`; `serde_json = "1"` under plain `[dependencies]` (a shell that also builds for iOS needs it there: the `plugins`
+  block makes `tauri::generate_context!()` name `serde_json`, and the phone build compiles that macro; PlanMind's
+  `tools/test-native.sh` type-checks the iOS target to catch it); and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
 - `tauri.conf.json`: `"plugins": { "updater": { "pubkey": "<public key>", "endpoints": ["<feed url>"], "requireSignedVersion": true } }`.
   The module turns itself off, saying why on stderr, if the block is missing, lax (no `requireSignedVersion`, a non-https endpoint,
   a `dangerous*` flag, `allowDowngrades`) or the key is empty. No capability or CSP change: it is driven from Rust only.
@@ -369,8 +385,11 @@ failed `latest.json` upload is retried 3 times and, if it still fails, the tool 
 
 Behaviour: a "Check for Updates..." item (macOS: under About; Windows: Help), a background check 10 s after launch and daily, native
 confirm dialogs, quiet failure for background checks, plain-word results for the manual one, a 256 MiB download cap, newer-only
-versions, and on macOS a check of the downloaded bundle (same bundle id, announced version, the running app's designated
-requirement or any Developer ID when the running copy is ad hoc) before the plugin swaps it in.
+versions, a hard timeout on the feed request (30 s) and the download (10 min; the one-check-at-a-time marker is always released),
+and on macOS a check of the downloaded bundle (same bundle id, announced version, the running app's designated requirement)
+before the plugin swaps it in. A running copy with no usable requirement gets no update: an ad hoc dev build accepts only a
+Developer ID signature of the team named at compile time by the env `MINDSUITE_UPDATE_TEAM_ID` (unset: none), and an unsigned
+or unreadable copy accepts none, so "any Developer ID" is never enough.
 
 ### Tests
 

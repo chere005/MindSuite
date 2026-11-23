@@ -21,6 +21,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEPLOY_SRC=${DEPLOY_SRC:-$ROOT/tools/deploy.sh}
 DTP_SRC=${DTP_SRC:-$ROOT/tools/dtp.sh}
 PLATFORMS_SRC=${PLATFORMS_SRC:-$ROOT/tools/build-platforms.sh}
+PUBLISH_UPDATE_SRC=${PUBLISH_UPDATE_SRC:-$ROOT/tools/publish-update.sh}
 PACKAGE_SRC=${PACKAGE_SRC:-$ROOT/tools/package.mjs}
 INDEX_SRC=${INDEX_SRC:-$ROOT/server/public/PlanMind/index.php}
 API_SRC=${API_SRC:-$ROOT/server/public/PlanMind/api.php}
@@ -1411,6 +1412,29 @@ echo "platforms tag=$(git tag -l PlanMind/5.0.0) pushed=$(git ls-remote --tags o
 [ -z "${STUB_OWE:-}" ] || printf '%s\n' "$STUB_OWE" > "$PLANMIND_OWED_FILE"
 [ -z "${STUB_FAIL:-}" ] || exit 3
 EOF
+  # after the push: gh (only `repo view` is asked), the bot follower, the preflight and the update publisher are stubs that note
+  # their calls in $D/follow (the release must be followed before the update is published, and never without it)
+  mkdir -p "$D/bin"; FLOG=$D/follow; : > "$FLOG"
+  cat > "$D/bin/gh" <<'GHEOF'
+#!/bin/sh
+[ "$1 $2" != "repo view" ] || echo https://example.invalid/chere005/MindSuite
+GHEOF
+  chmod +x "$D/bin/gh"
+  cat > "$W/tools/gh-bot.sh" <<'BOTEOF'
+#!/bin/sh
+echo "bot $* tag=$(git ls-remote --tags origin PlanMind/5.0.0 | wc -l | tr -d ' ') prefix=$GH_BOT_TAG_PREFIX wf=$GH_BOT_WORKFLOW" >> "$FOLLOW_LOG"
+[ "$1" != release ] || [ -z "${STUB_RELEASE_FAIL:-}" ] || exit 1
+BOTEOF
+  cat > "$W/tools/publish-update.sh" <<'UPEOF'
+#!/bin/sh
+echo "update $*" >> "$FOLLOW_LOG"
+[ -z "${STUB_UPDATE_FAIL:-}" ] || exit 1
+UPEOF
+  cat > "$W/tools/preflight.sh" <<'PFEOF'
+#!/bin/sh
+echo "preflight $* deployed=$(wc -l < "$DEPLOY_LOG" | tr -d ' ')" >> "$FOLLOW_LOG"
+[ -z "${STUB_PREFLIGHT_FAIL:-}" ] || exit 1
+PFEOF
   # the stub MindSuite tool (MINDSUITE_RELEASE_TOOL) notes its arguments and whether the app tag was on origin when it ran
   SUITE_LOG=$D/suite-calls; : > "$SUITE_LOG"
   cat > "$D/suite-tool.cjs" <<'EOF'
@@ -1425,7 +1449,7 @@ EOF
 }
 dtp_all() {   # with the device builds unless --web is passed
   RC=0
-  (cd "$W" && PATH="$D/bin:$PATH" DEPLOY_LOG=$DLOG MINDSUITE_RELEASE_TOOL="$D/suite-tool.cjs" SUITE_LOG=$SUITE_LOG sh tools/dtp.sh "$@") > "$D/out" 2>&1 || RC=$?
+  (cd "$W" && PATH="$D/bin:$PATH" DEPLOY_LOG=$DLOG FOLLOW_LOG=$FLOG MINDSUITE_RELEASE_TOOL="$D/suite-tool.cjs" SUITE_LOG=$SUITE_LOG sh tools/dtp.sh "$@") > "$D/out" 2>&1 || RC=$?
 }
 dtp() { dtp_all --web "$@"; }
 
@@ -1493,7 +1517,42 @@ t_dtp() {
   check 'the device builds still ran' grep -q '^platforms ' "$DLOG"
   check 'it names the command that records the tag' grep -q 'node tools/mindsuite-release.mjs record PlanMind PlanMind/5.0.0' "$D/out"
   unset STUB_SUITE_FAIL STUB_DEPLOY_FAIL
-
+  # the release follow-up: the bot's release is followed to its end, THEN the signed update feed is published, both after the push
+  dtp_case; dtp_all
+  check 'dtp follows the release of the pushed tag, then publishes the update feed' test "$(cut -d' ' -f1-2 "$FLOG" | tr '\n' '|')" = 'bot last-release|bot release|update |'
+  check 'the release is followed with PlanMind/5.0.0 already on origin, for this app and workflow' grep -q '^bot release PlanMind/5.0.0 tag=1 prefix=PlanMind wf=planmind-release.yml$' "$FLOG"
+  check 'a clean release reports nothing wrong' not grep -q 'LIVE AND TAGGED, BUT' "$D/out"
+  dtp_case; dtp
+  check 'a --web run publishes no update feed and still succeeds' test "$RC" -eq 0 -a "$(cut -d' ' -f1-2 "$FLOG" | tr '\n' '|')" = 'bot last-release|bot release|'
+  check 'and says so' grep -q 'update feed: not published (--web' "$D/out"
+  dtp_case; STUB_RELEASE_FAIL=1 dtp_all
+  check 'an unpublished release ends non-zero and publishes no update feed' test "$RC" -ne 0 -a "$(grep -c '^update ' "$FLOG")" -eq 0
+  check 'it names the retry commands' grep -q 'gh workflow run planmind-release.yml --ref PlanMind/5.0.0 -f tag=PlanMind/5.0.0, then: sh tools/publish-update.sh' "$D/out"
+  check 'the version stays live and tagged' test "$(git -C "$BARE" tag -l PlanMind/5.0.0)" = PlanMind/5.0.0
+  dtp_case; STUB_UPDATE_FAIL=1 dtp_all
+  check 'a failed update feed ends non-zero after everything else shipped' test "$RC" -ne 0 -a "$(git -C "$BARE" tag -l PlanMind/5.0.0)" = PlanMind/5.0.0
+  check 'it names the command that retries it' grep -q 'once fixed: sh tools/publish-update.sh' "$D/out"
+  dtp_case; STUB_FAIL=1 dtp_all
+  check 'a failed device build still follows the release and tries the feed (the feed tool refuses a stale app)' test "$(grep -c '^update ' "$FLOG")" -eq 1 -a "$(grep -c '^bot release' "$FLOG")" -eq 1
+  dtp_case; STUB_DEPLOY_FAIL=1 dtp_all
+  check 'a failed deploy follows and publishes nothing' test "$(grep -c '^bot release\|^update' "$FLOG")" -eq 0
+  unset STUB_RELEASE_FAIL STUB_UPDATE_FAIL STUB_FAIL STUB_DEPLOY_FAIL
+  # the preflight: only once GitHub knows the workflow (origin/main has it), before anything is deployed, and a red one stops the lane
+  dtp_case; dtp_all
+  check 'no preflight while the workflow is not on origin/main (its first release)' test "$RC" -eq 0 -a "$(grep -c '^preflight' "$FLOG")" -eq 0
+  check 'and it says so' grep -q 'planmind-release.yml is not on origin/main yet' "$D/out"
+  dtp_case; mkdir -p "$W/.github/workflows"; echo 'name: x' > "$W/.github/workflows/planmind-release.yml"; git -C "$W" add -A; git -C "$W" commit -q -m wf; git -C "$W" push -q origin main 2>/dev/null
+  dtp_all
+  check 'with the workflow on origin/main, the preflight runs for the tag BEFORE the deploy' test "$RC" -eq 0 -a "$(grep '^preflight' "$FLOG")" = 'preflight PlanMind/5.0.0 deployed=0'
+  dtp_case; mkdir -p "$W/.github/workflows"; echo 'name: x' > "$W/.github/workflows/planmind-release.yml"; git -C "$W" add -A; git -C "$W" commit -q -m wf; git -C "$W" push -q origin main 2>/dev/null
+  STUB_PREFLIGHT_FAIL=1 dtp_all
+  check 'a red preflight deploys, tags and pushes nothing' test "$RC" -ne 0 -a ! -s "$DLOG" -a -z "$(git -C "$BARE" tag -l)" -a ! -s "$SUITE_LOG"
+  check 'and says nothing was deployed' grep -q 'nothing was deployed, tagged or pushed' "$D/out"
+  dtp_case; mkdir -p "$W/.github/workflows"; echo 'name: x' > "$W/.github/workflows/planmind-release.yml"; git -C "$W" add -A; git -C "$W" commit -q -m wf; git -C "$W" push -q origin main 2>/dev/null
+  STUB_PREFLIGHT_FAIL=1 dtp_all --skip-preflight
+  check '--skip-preflight ships anyway' test "$RC" -eq 0 -a "$(grep -c '^preflight' "$FLOG")" -eq 0
+  check 'and says it loudly' grep -q 'WARNING: --skip-preflight' "$D/out"
+  unset STUB_PREFLIGHT_FAIL
 }
 
 platforms_case() {   # a repo with build-platforms.sh and the lock, shimmed npm, cargo and xcrun, a fake home with iOS DeviceSupport
@@ -1537,8 +1596,18 @@ case " ${STUB_RETRY:-} " in *" $6 "*)
 esac
 echo "Installed to $6"
 EOF
-  chmod +x "$P/bin"/*
-  unset IOS_PHONES STUB_AWAY STUB_BUSY STUB_BROKEN STUB_RETRY STUB_IOS_BUILD_FAIL MIND_DEVICECTL
+  # the shared signing script is a stub here (its own tests are tools/ci/test-mac-sign-install.sh): it records its arguments and,
+  # like the real one, installs only when it succeeds
+  cat > "$P/tools/mac-sign-install.sh" <<'EOF'
+#!/bin/sh
+echo "sign $*" >> "$PLOG"
+[ -z "${STUB_SIGN_FAIL:-}" ] || { echo 'mac-sign-install: refused (stub)' >&2; exit 1; }
+[ "$1" = --install-dir ] && [ -d "$3/Contents" ] || exit 98
+mkdir -p "$2/PlanMind.app/Contents/MacOS"; printf '#!/bin/sh\n' > "$2/PlanMind.app/Contents/MacOS/planmind"; chmod +x "$2/PlanMind.app/Contents/MacOS/planmind"
+EOF
+  mkdir -p "$P/native/src-tauri/target/release/bundle/macos/PlanMind.app/Contents"
+  chmod +x "$P/bin"/* "$P/tools/mac-sign-install.sh"
+  unset IOS_PHONES STUB_SIGN_FAIL PLANMIND_INSTALL_DIR STUB_AWAY STUB_BUSY STUB_BROKEN STUB_RETRY STUB_IOS_BUILD_FAIL MIND_DEVICECTL
 }
 platforms() { RC=0; ( cd "$P" && PLOG=$PLOG PATH="$P/bin:$PATH" HOME="$P/home" MIND_HEAVY_LOCK="$P/heavy.lock" PLANMIND_OWED_FILE=$POWED sh tools/build-platforms.sh "$@" ) > "$P/out" 2>&1 || RC=$?; }
 installed() { grep -c "^xcrun devicectl device install app --device $1 " "$PLOG" || true; }
@@ -1600,8 +1669,97 @@ t_platforms() {
   check 'the dry run succeeds and names the default phones' test "$RC" -eq 0 && grep -q 'the phones listed for it in .local/machine.env' "$P/out"
   check 'it does not touch any phone' test "$(grep -c '^xcrun' "$PLOG")" -eq 0
   check 'the dry run builds nothing either' test ! -s "$PLOG"
+  # the macOS step: build the .app, then ONLY the shared script installs it (Developer ID, notarized, stapled, arm64; never ad hoc)
+  [ "$(uname -m)" = arm64 ] || return 0
+  platforms_case; PLANMIND_INSTALL_DIR=$P/apps; export PLANMIND_INSTALL_DIR; mkdir -p "$P/apps"; platforms --mac
+  check 'the macOS step succeeds' test "$RC" -eq 0
+  check 'it builds the .app only (the dmg is the Release workflow)' grep -q '^npm run build -- --bundles app$' "$PLOG"
+  check 'it installs through the shared signing script, from the built .app' grep -q "^sign --install-dir $P/apps native/src-tauri/target/release/bundle/macos/PlanMind.app\$" "$PLOG"
+  check 'and the signed app is there' test -x "$P/apps/PlanMind.app/Contents/MacOS/planmind"
+  check 'a clean macOS run owes nothing' test ! -s "$POWED"
+  check 'the lane has no ad hoc signing, bare ditto or app deletion left' not grep -qE 'codesign|ditto|rm -rf /Applications|pkill' "$PLATFORMS_SRC"
+  platforms_case; PLANMIND_INSTALL_DIR=$P/apps; STUB_SIGN_FAIL=1; export PLANMIND_INSTALL_DIR STUB_SIGN_FAIL; mkdir -p "$P/apps"; platforms --mac
+  check 'a refused signing fails the run and installs nothing' test "$RC" -ne 0 -a ! -e "$P/apps/PlanMind.app"
+  check 'the macOS app is owed' grep -q 'the macOS app (build and install)' "$POWED"
+  unset PLANMIND_INSTALL_DIR STUB_SIGN_FAIL
 }
 
+
+# publish-update.sh: the feed step of the lane. gh and the suite's publish tool are stubs: nothing leaves the machine.
+pu_case() {
+  _n=$(( $(cat "$TMP/n") + 1 )); echo "$_n" > "$TMP/n"
+  U=$TMP/pu-$_n; CASE=$U; mkdir -p "$U/tools" "$U/bin" "$U/docs/releases"; ULOG=$U/log; : > "$ULOG"
+  cp "$PUBLISH_UPDATE_SRC" "$U/tools/publish-update.sh"
+  git -C "$U" init -q 2>/dev/null; git -C "$U" remote add origin git@github.com:chere005/MindSuite.git
+  printf '{"name":"planmind","version":"5.1.0"}\n' > "$U/package.json"
+  cat > "$U/bin/gh" <<'GHEOF'
+#!/bin/sh
+echo "gh $*" >> "$ULOG"
+case "$1 $2" in
+  "release view") echo "${STUB_DRAFT:-false}" ;;
+  "run list") case "${STUB_RUNS:-one}" in one) echo 111; echo 112 ;; none) ;; esac ;;
+  "run view")
+    case " $* " in
+      *" --json "*) echo 9001 ;;
+      *" --job "*)
+        # the log lines carry the job, step and timestamp in front; the script text echoed by the run: block must not count
+        printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:03Z printf MINDSUITE-DIGEST sha256 %%s %%s\n'
+        e=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        case "${STUB_DIGEST:-match}" in
+          match) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_en-US.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_fr-FR.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64-setup.exe\n' "$e" "$e" "$e" ;;
+          swapped) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_en-US.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %064d PlanMind_5.1.0_x64-setup.exe\n' "$e" 7 ;;
+          onlymsi) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_en-US.msi\n' "$e" ;;
+          othername) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_4.0.0_x64_en-US.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_4.0.0_x64-setup.exe\n' "$e" "$e" ;;
+          none) ;;
+        esac ;;
+    esac ;;
+  "release download")
+    while [ $# -gt 0 ]; do [ "$1" != --dir ] || d=$2; shift; done
+    case "${STUB_ASSETS:-both}" in
+      both) : > "$d/PlanMind_5.1.0_x64_en-US.msi"; : > "$d/PlanMind_5.1.0_x64-setup.exe" ;;
+      twomsi) : > "$d/PlanMind_5.1.0_x64_en-US.msi"; : > "$d/PlanMind_5.1.0_x64_fr-FR.msi"; : > "$d/PlanMind_5.1.0_x64-setup.exe" ;;
+      nonsis) : > "$d/PlanMind_5.1.0_x64_en-US.msi" ;;
+    esac ;;
+esac
+GHEOF
+  chmod +x "$U/bin/gh"
+  printf 'require("node:fs").appendFileSync(process.env.ULOG, "tool " + process.argv.slice(2).map((a) => a.replace(/^[/].*[/]/, "")).join(" ") + "\\n");\nif (process.env.STUB_TOOL_FAIL) process.exit(1);\n' > "$U/tool.cjs"
+}
+pu() { RC=0; ( cd "$U" && PATH="$U/bin:$PATH" ULOG=$ULOG MINDSUITE_PUBLISH_UPDATE_TOOL="$U/tool.cjs" PLANMIND_INSTALLED_APP=/scratch/PlanMind.app sh tools/publish-update.sh "$@" ) > "$U/out" 2>&1 || RC=$?; }
+t_publish_update() {
+  pu_case; pu
+  check 'a published release signs and publishes the update feed' test "$RC" -eq 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 1
+  check 'for PlanMind 5.1.0, from the installed app, with both Windows installers and plain notes' grep -q '^tool --app PlanMind --version 5.1.0 --repo chere005/MindSuite --mac-app PlanMind.app --win-nsis PlanMind_5.1.0_x64-setup.exe --win-msi PlanMind_5.1.0_x64_en-US.msi --notes PlanMind 5.1.0$' "$ULOG"
+  check 'it asked about the tag PlanMind/5.1.0 in the origin repo' grep -q '^gh release view PlanMind/5.1.0 --repo chere005/MindSuite' "$ULOG"
+  pu_case; echo 'Fixed things.' > "$U/docs/releases/5.1.0.md"; pu --dry-run /x/feed
+  check 'a notes file for the version is passed as the notes, and extra options reach the tool' grep -q -- '--notes-file docs/releases/5.1.0.md --dry-run feed$' "$ULOG"
+  pu_case; STUB_DRAFT=true; export STUB_DRAFT; pu
+  check 'a draft release is refused before anything is downloaded or signed' test "$RC" -ne 0 -a "$(grep -c '^tool \|release download' "$ULOG")" -eq 0
+  check 'and the message says it is not published' grep -q 'is not published' "$U/out"
+  unset STUB_DRAFT
+  pu_case; STUB_ASSETS=twomsi; export STUB_ASSETS; pu
+  check 'two msi files are refused' test "$RC" -ne 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 0
+  pu_case; STUB_ASSETS=nonsis; export STUB_ASSETS; pu
+  check 'a missing setup exe is refused' test "$RC" -ne 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 0
+  unset STUB_ASSETS
+  pu_case; STUB_TOOL_FAIL=1; export STUB_TOOL_FAIL; pu
+  check 'a failing publish tool fails the step' test "$RC" -ne 0
+  unset STUB_TOOL_FAIL
+  for mode in swapped onlymsi othername none; do
+    pu_case; STUB_DIGEST=$mode; export STUB_DIGEST; pu
+    check "an installer whose digest the workflow did not print ($mode) is never signed" test "$RC" -ne 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 0
+    check "and the message says nothing was signed ($mode)" grep -q 'is not a file the PlanMind/5.1.0 workflow built' "$U/out"
+  done
+  unset STUB_DIGEST
+  pu_case; STUB_RUNS=none; export STUB_RUNS; pu
+  check 'no workflow run at all means no signature' test "$RC" -ne 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 0
+  unset STUB_RUNS
+  pu_case; pu
+  check 'the digests come from the runs of the tag, by the windows job log' grep -q '^gh run list --repo chere005/MindSuite --workflow planmind-release.yml --branch PlanMind/5.1.0' "$ULOG" && grep -q '^gh run view --job 9001 ' "$ULOG"
+  pu_case; printf '{"name":"planmind","version":"5.1"}\n' > "$U/package.json"; pu
+  check 'a version that is not x.y.z is refused' test "$RC" -ne 0 -a "$(grep -c 'gh ' "$ULOG")" -eq 0
+  check 'the temporary download folder is removed' test -z "$(ls -d "${TMPDIR:-/tmp}"/planmind-update.* 2>/dev/null)"
+}
 
 t_static() {
   new_case
@@ -1757,7 +1915,7 @@ t_entrypoints() {
 ALL_TESTS='t_dry_run t_missing_host t_host_sources t_prod_consent t_payload_refused t_deploy_test t_data_dir t_protected_perms t_php_host t_prod
   t_rollback t_lint_failure t_switch_after_lint t_verification_rolls_back t_shared_login_page t_stamp_header t_same_version t_first_install t_cas t_lock
   t_phase_failures t_path_guard t_discard_guards t_prune t_public_guard t_activate_guards t_auth_guard t_stale_dist_and_gates
-  t_upload_failure t_excludes t_package t_dtp t_static t_entrypoints t_quick_gates t_slow_answers t_lint_single t_upload_modes
+  t_upload_failure t_excludes t_package t_dtp t_static t_entrypoints t_quick_gates t_slow_answers t_lint_single t_upload_modes t_publish_update
   t_store_version t_platforms'
 
 # ---- Mutations: break a script one rule at a time; the named test must then fail ----------------------------------
@@ -1971,15 +2129,26 @@ swap_link ".planmind/$STAMP" "$PUBLIC"'
   mutf dtp-platforms-before-tag t_dtp DTP_SRC "$ROOT/tools/dtp.sh" '/^git tag "$TAG"$/d; /^git push --atomic origin main/d; $a\
 git tag "$TAG"\
 git push --atomic origin main "refs/tags/$TAG"'
-  mutf dtp-failed-platforms-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^    exit 1$#    :#'
+  mutf dtp-failed-platforms-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#\[ "$DEVICE_FAILED" = 0 \] \&\& ##'
   mutf dtp-web-shipped-not-said t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#The web shipped#Done#'
-  mutf dtp-skipped-phone-not-reported t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^  if \[ -n "$_owed" \]; then printf#  if false; then printf#'
+  mutf dtp-skipped-phone-not-reported t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^  elif \[ -n "$_owed" \]; then$#  elif false; then#'
   mutf dtp-owed-file-not-passed t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#PLANMIND_OWED_FILE=$OWED_FILE ##'
   mutf dtp-term-resumes-release t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^trap .*TERM$#trap cleanup TERM#'
   mutf tdtp-npm-test-twice t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^\# deploy.sh runs the gates itself.*#[ "$FULL" = 0 ] || npm test#'
   mutf dtp-suite-not-recorded t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^node "${MINDSUITE_RELEASE_TOOL#true || &#'
-  mutf dtp-suite-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^\[ "$SUITE_OWED" = 0 \] || exit 1$#:#'
+  mutf dtp-suite-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#\[ "$SUITE_OWED" = 0 \] \&\& ##'
+  mutf publish-update-draft-allowed t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#^\[ "$DRAFT" = false \] || .*#:#'
+  mutf publish-update-any-installer-count t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#^\[ "$NM" = 1 \] \&\& \[ "$NN" = 1 \] || .*#:#'
+  mutf publish-update-no-digest-check t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#^  grep -Fxq "$want" "$DIGESTS" || .*#  :#'
+  mutf publish-update-wrong-app t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#--app PlanMind#--app TaskMind#'
+  mutf dtp-update-without-release-check t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^if \[ -n "$RELEASE_FAILED" \]; then$#if false; then#'
+  mutf dtp-update-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#\&\& \[ -z "$UPDATE_FAILED" \] || exit 1#|| exit 1#'
+  mutf dtp-release-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#\&\& \[ -z "$RELEASE_FAILED" \]##'
+  mutf dtp-preflight-failure-ignored t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^  sh tools/preflight.sh "$TAG" || .*#  sh tools/preflight.sh "$TAG" || :#'
+  mutf dtp-preflight-never-runs t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^elif ! git cat-file -e origin/main.*#elif true; then :#'
   # build-platforms.sh: both phones by default, a phone that is away is owed and skipped, anything else fails the run
+  mutf platforms-signing-skipped t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" 's#^  sh tools/mac-sign-install.sh .*#  mkdir -p "$INSTALL_DIR/PlanMind.app/Contents/MacOS"; cp -R native/src-tauri/target/release/bundle/macos/PlanMind.app/. "$INSTALL_DIR/PlanMind.app/"#'
+  mutf platforms-ad-hoc-install t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" 's#^  sh tools/mac-sign-install.sh .*#  codesign --force --sign - native/src-tauri/target/release/bundle/macos/PlanMind.app; sh tools/mac-sign-install.sh --install-dir "$INSTALL_DIR" native/src-tauri/target/release/bundle/macos/PlanMind.app#'
   mutf platforms-first-phone-only t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" 's#^  \[ -n "${IOS_PHONES:-}" \] || IOS_PHONES=$(machine_phones planmind)#  [ -n "${IOS_PHONES:-}" ] || IOS_PHONES=$(machine_phones planmind | head -1)#'
   mutf platforms-away-not-recognized t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" "s#^PHONE_AWAY=.*#PHONE_AWAY='zzz-never'#"
   mutf platforms-hard-failure-ignored t_platforms PLATFORMS_SRC "$PLATFORMS_SRC" 's#^  \[ "$HARD" = 0 \] || exit 1#  :#'
