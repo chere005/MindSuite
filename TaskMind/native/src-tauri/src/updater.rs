@@ -687,21 +687,21 @@ mod tests {
 
     /// Start a feed announcing `announce` for the archive `archive`, signed as `sig`.
     fn feed_for(announce: &str, sig: &str, archive: Vec<u8>) -> Feed {
-        // bind first to learn the address, then serve a manifest that points back at it
-        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = probe.local_addr().unwrap();
-        drop(probe);
+        // bind once to learn the address, then serve a manifest that points back at it. The SAME listener goes to
+        // the server thread: dropping it and re-binding the port lets a parallel test (or an outbound connection)
+        // take the port in between, which was a 1-in-10 AddrInUse panic.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
         let archive_url = format!("http://{addr}/update.tar.gz");
         let routes = vec![
             ("/latest.json", 200u16, manifest(announce, &archive_url, sig)),
             ("/update.tar.gz", 200u16, archive),
         ];
-        Feed::start_on(addr, routes)
+        Feed::start_on(listener, routes)
     }
 
     impl Feed {
-        fn start_on(addr: std::net::SocketAddr, routes: Vec<(&'static str, u16, Vec<u8>)>) -> Feed {
-            let listener = TcpListener::bind(addr).unwrap();
+        fn start_on(listener: TcpListener, routes: Vec<(&'static str, u16, Vec<u8>)>) -> Feed {
             let base = format!("http://{}", listener.local_addr().unwrap());
             let hits = Arc::new(Mutex::new(Vec::new()));
             let h = hits.clone();
@@ -838,10 +838,8 @@ mod tests {
 
         // 404, 500, and garbage JSON
         for (code, body) in [(404u16, b"no".to_vec()), (500, b"boom".to_vec()), (200, b"{not json".to_vec())] {
-            let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-            let addr = probe.local_addr().unwrap();
-            drop(probe);
-            let feed = Feed::start_on(addr, vec![("/latest.json", code, body)]);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let feed = Feed::start_on(listener, vec![("/latest.json", code, body)]);
             let app = mock_app(Some(updater_config(&feed.url("/latest.json"))));
             install_plugins(app.handle()).unwrap();
             let u = ui(true);

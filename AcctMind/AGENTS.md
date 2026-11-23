@@ -42,7 +42,7 @@ The owner's ledger, CalMind's architecture (`~/GIT/CalMind`). See README.md, ARC
 ## Shorthand
 
 - **`npm run dtp` / `npm run tdtp`** (`tools/dtp.sh`, `tools/tdtp.sh`), in order:
-  0. **dtp is fast, tdtp thorough**: none named = web only for dtp, all three for tdtp (`--mac`/`--ios`/`--android` pick, `--web` = none); dtp skips the preflight unless `desktop/`/`.github/`/a manifest/`app.config.js` changed since the last tag and leaves the Release run unwatched.
+  0. **dtp is fast, tdtp thorough**: none named = web only for dtp, all three for tdtp (`--mac`/`--ios`/`--android` pick, `--web` = none); dtp skips the preflight unless `desktop/`/`.github/`/a manifest/`app.config.js` changed since the last tag and leaves the Release run unwatched; when they did change, a bare dtp implies `--mac` (signed app + update feed, so the feed never lags such a tag; `--web` opts out).
   1. **Test** (tdtp only): `npm test`, all of it, first.
   2. **Deploy**: `./deploy.sh --quick` (dtp) or `./deploy.sh` (tdtp); both write sandbox then production, with gates (quick = seconds-cost gates plus spot test). tdtp skips the repeat gesture suite when the export keys (`tools/dist-key.mjs`) match what `npm test` ran.
   3. **macOS**: `tools/build-platforms.sh --mac` from a clean export, BEFORE the tag (a broken bundle, or a signing/notarization refusal, leaves the version untagged; a re-run reuses it). It installs ONLY through `tools/mac-sign-install.sh` (Developer ID, hardened, notarized with the `DisplayMind` profile, stapled, arm64, then swapped into /Applications; a running AcctMind is asked to quit and reopened). Nothing ad hoc is ever installed. `ACCTMIND_INSTALL_DIR` redirects the install for scratch trials.

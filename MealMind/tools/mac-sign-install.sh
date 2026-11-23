@@ -301,7 +301,13 @@ PHASE=staged
 ditto "$APP" "$STAGE" || { rm -rf "$STAGE"; die "could not stage the new copy in $INSTALL_DIR"; }
 if ! verify_app "$STAGE"; then rm -rf "$STAGE"; die 'the staged copy fails verification; the installed copy was not touched'; fi
 
-running_pids() { pgrep -f -- "$DEST/Contents/MacOS/" 2>/dev/null || true; }
+# Processes whose COMMAND STARTS WITH the bundle's executable directory. pgrep -f matches the path anywhere in a
+# command line (a `less` or an editor opened on it would match), so each candidate's own command is checked.
+running_pids() {
+  for _p in $(pgrep -f -- "$DEST/Contents/MacOS/" 2>/dev/null || true); do
+    case "$(ps -o command= -p "$_p" 2>/dev/null)" in "$DEST/Contents/MacOS/"*) echo "$_p" ;; esac
+  done
+}
 
 reopen_old() { [ "$WAS_RUNNING" = 1 ] && [ "$RELAUNCH" = 1 ] && [ -d "$DEST" ] && open "$DEST" >/dev/null 2>&1 || true; }
 
@@ -310,14 +316,11 @@ if [ -d "$DEST" ] && [ -n "$(running_pids)" ]; then
   say "$NAME is running from $DEST; asking it to quit"
   osascript -e "tell application \"$DEST\" to quit" >/dev/null 2>&1 || true
   i=0; while [ -n "$(running_pids)" ] && [ "$i" -lt "${MIND_QUIT_WAIT:-20}" ]; do sleep 1; i=$((i + 1)); done
-  if [ -n "$(running_pids)" ]; then
-    # shellcheck disable=SC2046
-    kill -TERM $(running_pids) 2>/dev/null || true
-    i=0; while [ -n "$(running_pids)" ] && [ "$i" -lt 5 ]; do sleep 1; i=$((i + 1)); done
-  fi
+  # Never escalate to a kill: the window may hold the only copy of an unsaved edit. An app that has not quit after
+  # the wait stops the install with the installed copy untouched (and still open).
   if [ -n "$(running_pids)" ]; then
     rm -rf "$STAGE"
-    die "$NAME would not quit; the installed copy was not replaced"
+    die "$NAME would not quit within ${MIND_QUIT_WAIT:-20}s; the installed copy was not replaced (quit it and run again)"
   fi
 fi
 

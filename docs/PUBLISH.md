@@ -341,6 +341,13 @@ Mac sleeps, is never on the search list, and is locked again by every tool on ex
 (`FILE` with the key, `FILE.password` with its password; refused inside a git work tree, a warning on a cloud-synced path) for the
 owner's offline copy: keep them apart. Losing a key strands installed copies of that app.
 
+What the keychain protects, and what it does not: the key at rest (a copied disk, a backup, a stolen laptop) and the key while the Mac sleeps
+or sits idle. It does NOT protect against code running as the owner: the login-keychain password and the item ACLs trust `security`, so a
+process that runs during `npm ci` or a build (a compromised dependency's install script) could unlock the keychain and read the key. The
+macOS updater is separately guarded (the new app must satisfy the Developer ID requirement); the Windows installers carry no Authenticode
+signature, so for Windows the minisign key is the only check. Keep the key's accessible window small: publish from a shell that is not in the
+middle of an install or build, and treat an unexpected dependency install script as a reason to rotate the key (`--replace`).
+
 Rotation (`--replace`) never loses the old key: the new key is written under a `next` slot and proven by signing with the values read
 back, the live key is copied to a `prev` slot (verified) before the live slot is touched, then `next` becomes live. An interruption
 between any two writes leaves a complete old and a complete new key; `--recover` finishes it. Then put the new public key in

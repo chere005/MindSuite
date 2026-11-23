@@ -217,7 +217,18 @@ reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Conte
 sleep 1
 if TEST_STUBBORN=1 run > "$tmp/out" 2>&1; then fail 'a stubborn running app was replaced'; fi
 [ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail 'the stubborn app lost its old copy'
+grep -q 'would not quit' "$tmp/out" || fail 'the stubborn app was not reported'
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail 'the stubborn app was killed: the install must never escalate to a signal'
 pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
+# a process that merely MENTIONS the path (an editor, less) is not the app: it neither blocks the install nor is touched
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+( exec perl -e "sleep 300" "$INSTALL_PROBE" ) >/dev/null 2>&1 &
+mention=$!
+sleep 1
+run > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; kill "$mention" 2>/dev/null; fail 'a process that only mentions the app path blocked the install'; }
+kill -0 "$mention" 2>/dev/null || fail 'a process that only mentions the app path was signalled'
+kill "$mention" 2>/dev/null || true
+grep -q '^osascript' "$CALLS" && fail 'the app was asked to quit though it was not running'
 
 # 6. identity resolution
 reset

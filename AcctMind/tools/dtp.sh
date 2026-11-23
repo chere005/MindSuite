@@ -45,7 +45,9 @@
 #  10. the AUTO-UPDATE FEED (--mac runs only): once the Release is published, tools/publish-update.sh signs
 #      this version's app archive and the Windows installers with AcctMind's update key (it lives in this Mac's updater
 #      keychain, never in GitHub) and writes latest.json LAST to the fixed feed release AcctMind-updates. A --mac run
-#      therefore follows the Release run (dtp too); a run that installed no app publishes no feed and says so.
+#      therefore follows the Release run (dtp too); a bare dtp whose release inputs changed (desktop/, the Release
+#      workflow, a manifest) implies --mac so the feed never lags such a tag; a run that installed no app publishes no
+#      feed and says so.
 #      Reported, never fatal to the version that is already live and tagged.
 #
 # THIS REPO SHIPS ITSELF. Steps 4 and 8 were CoreMind's alone until
@@ -228,6 +230,13 @@ if [ -n "$LAST_TAG" ] &&
     ! git diff --name-only --relative "$LAST_TAG" HEAD -- . \
       | grep -qE '^desktop/|(^|/)package(-lock)?\.json$|(^|/)Cargo\.(toml|lock)$|(^|/)app\.config\.js$'; then
   RELEASE_INPUTS=0
+fi
+# A bare dtp whose release inputs changed also ships the signed app and the update feed: the Release it tags carries new
+# Windows installers and a dmg, and without the feed entry neither platform's installed copy would ever be offered it
+# (nor would the installed Mac app be the new build). Naming a platform, or --web, still selects exactly that.
+if [ "$FULL" = 0 ] && [ "$PICKED" = 0 ] && [ "$RELEASE_INPUTS" = 1 ]; then
+  WANT_MAC=1
+  echo "==> dtp: the desktop/release inputs changed since ${LAST_TAG:-the start}, so the signed app and the update feed follow (--web leaves them out)"
 fi
 
 # ------------------------------------------------------------------ the version
