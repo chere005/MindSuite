@@ -45,6 +45,14 @@ node tools/mindsuite-release.mjs check --repo "$ROOT"
   { echo "packages/mind-core needs CoreMind's tools: run npm ci in CoreMind." >&2; exit 1; }
 (cd packages/mind-core && npm run --silent check)
 bash tools/ci/test-macos-signing.sh
+bash -n CalMind/tools/mac-sign-install.sh
+bash tools/ci/test-mac-sign-install.sh
+node --check tools/publish-update.mjs
+node --check tools/updater-keygen.mjs
+node --check tools/updater-keychain.mjs
+# the shared updater and the feed tools: cargo builds of the harness crate, under the heavy-build lock
+bash tools/ci/test-updater.sh
+bash tools/ci/test-publish-update.sh
 bash tools/ci/test-release-notes.sh
 sh CoreMind/bin/check-plan.sh
 sh CoreMind/bin/check-personal-data.sh --self-test

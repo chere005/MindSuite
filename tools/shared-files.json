@@ -317,6 +317,12 @@
       "copies": ["MealMind/desktop/src-tauri/src/main.rs"]
     },
     {
+      "id": "desktop-src-tauri-src-updater-rs",
+      "origin": "CalMind/desktop/src-tauri/src/updater.rs",
+      "copies": ["MealMind/desktop/src-tauri/src/updater.rs", "AcctMind/desktop/src-tauri/src/updater.rs", "PlanMind/native/src-tauri/src/updater.rs", "TaskMind/native/src-tauri/src/updater.rs"],
+      "note": "Shared Tauri updater (menu item, check, requireSignedVersion). Inert until a shell adds `mod updater;`, the Cargo deps and plugins.updater; docs/PUBLISH.md, Updates."
+    },
+    {
       "id": "desktop-stage-dist-sh",
       "origin": "CalMind/desktop/stage-dist.sh",
       "copies": ["MealMind/desktop/stage-dist.sh"]
@@ -335,6 +341,12 @@
       "id": "tools-heavy-lock-sh",
       "origin": "CalMind/tools/heavy-lock.sh",
       "copies": ["MealMind/tools/heavy-lock.sh", "AcctMind/tools/heavy-lock.sh", "PlanMind/tools/heavy-lock.sh", "TaskMind/tools/heavy-lock.sh"]
+    },
+    {
+      "id": "tools-mac-sign-install-sh",
+      "origin": "CalMind/tools/mac-sign-install.sh",
+      "copies": ["MealMind/tools/mac-sign-install.sh", "AcctMind/tools/mac-sign-install.sh", "PlanMind/tools/mac-sign-install.sh", "TaskMind/tools/mac-sign-install.sh"],
+      "note": "Sign, notarize, staple, verify, then install a built .app. Tests: tools/ci/test-mac-sign-install.sh."
     },
     {
       "id": "tools-machine-env-sh",

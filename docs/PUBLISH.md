@@ -263,3 +263,118 @@ address-independent caps) is already in the clean tree; nothing else shipped fro
 0.58.0 and 0.59.0 in the same window; its `tools/mindsuite-canon.sha256` pins equal this tree's canon files, and its
 canon-equality test reads the canon from `COREMIND_DIR`, which must point at the shared server package once the canon
 directory is gone.
+
+## Signing, installers and updates
+
+The shared pieces every Tauri app (AcctMind, CalMind, MealMind, PlanMind, TaskMind) consumes. macOS is Apple Silicon only.
+Windows installers are NOT Authenticode signed (decision); the Windows update is protected by Tauri's own minisign signature
+plus HTTPS. Nothing here is released by being merged: each app's lane adopts it in its own release.
+
+### The Mac build users run (local and release)
+
+| Piece | What it does | Tested by |
+| --- | --- | --- |
+| `<App>/tools/mac-sign-install.sh <built .app>` (byte copy of `CalMind/tools/mac-sign-install.sh`, group `tools-mac-sign-install-sh`) | Works on a COPY of the app: signs inside-out with the FULL Developer ID name, hardened runtime, secure timestamp and optional entitlements (`--entitlements`, `--nested-entitlements`); refuses ad hoc, non-arm64, wrong team; notarizes with the `DisplayMind` keychain profile; staples; verifies (`codesign --verify --deep --strict`, `spctl` says Notarized Developer ID, `stapler validate`, `lipo` arm64 for every Mach-O); only then installs: staged beside the target, quit the running copy, atomic `renamex_np` swap, verify again, delete the old copy. Any failure keeps the old copy (and reopens it). `--no-install --out DIR` keeps the result without installing; `--verify-only APP` checks an existing app. | `bash tools/ci/test-mac-sign-install.sh` (stubs), plus one real run |
+| `tools/ci/notarize-dmg.sh <dmg>` | Notarizes and staples the dmg wrapper (Tauri only notarizes the app inside). CI: `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`; local: `--profile DisplayMind`. | `bash tools/ci/test-macos-signing.sh` |
+| `tools/ci/verify-macos-dmg.sh <dmg> <App>` | The release gate: dmg signed by the team, notarized and stapled itself; app Developer ID, hardened runtime, timestamp, notarized, stapled, every Mach-O arm64. No Windows gate. | same |
+
+The identity is never in a tracked file. `.local/machine.env` (shape: `tools/machine.env.sample`) may hold
+`MAC_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"` and `NOTARY_PROFILE`; without `MAC_SIGN_IDENTITY` the script takes the
+single Developer ID Application identity of `APPLE_TEAM_ID` and passes its full name on (it never picks among several, and
+never accepts a partial name or a hash). `--identity`, `MIND_SIGN_IDENTITY`, `--notary-profile` and `MIND_NOTARY_PROFILE` override.
+
+Consuming it in an app's `tools/build-platforms.sh --mac`: replace the ad hoc `codesign --sign -` and the bare
+`rm -rf /Applications/X.app; ditto ...` with
+
+```
+sh tools/mac-sign-install.sh [--entitlements path] native/src-tauri/target/release/bundle/macos/X.app
+```
+
+(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). Hardened runtime is applied by the script, so
+no `tauri.conf.json` change is needed for that; an app that needs entitlements passes the file. The three release workflows run
+`notarize-dmg.sh` before `verify-macos-dmg.sh`; a new release workflow cloned from them keeps both steps.
+
+### Release pages and the Latest flag
+
+Every app publishes to its own release page, `<App>/<x.y.z>`, and NO app release is ever marked Latest: the workflows run
+`gh release edit "$TAG" --draft=false --latest=false` (a version containing `-` is a pre-release). The repo-wide Latest flag moves
+between apps, so nothing may rely on `releases/latest/...`; update feeds have a fixed address instead.
+
+### The update feed (one fixed release per app)
+
+Each app has ONE release tagged `<App>-updates` (a pre-release, created and updated only by `tools/publish-update.mjs`; the tag is
+made by `gh release create`, so the pre-push hook's tag rules are not involved). Its assets are the versioned update archives, their
+`.sig` files, and `latest.json`. The endpoint never changes:
+
+```
+https://github.com/OWNER/MindSuite/releases/download/<App>-updates/latest.json      (node tools/publish-update.mjs --app <App> --feed-url --repo OWNER/MindSuite)
+```
+
+`latest.json` is Tauri's static manifest: `version`, `notes`, `pub_date` and `platforms` with `darwin-aarch64`, `windows-x86_64`
+(the NSIS installer), `windows-x86_64-nsis` and `windows-x86_64-msi`, each `{ signature, url }`. The previous version's assets stay
+(`--keep 2`) so a client mid-download never meets a deleted file; older ones are pruned.
+
+Publishing, from the app's lane AFTER its release workflow has published the installers and the stapled app is installed:
+
+```
+node ../tools/publish-update.mjs --app <App> --version <x.y.z> --repo OWNER/MindSuite \
+     --mac-app /Applications/<App>.app \
+     --win-nsis <downloaded <App>_<x.y.z>_x64-setup.exe> --win-msi <downloaded <App>_<x.y.z>_x64_en-US.msi> \
+     --notes-file <App>/docs/releases/<x.y.z>.md
+     [--dry-run DIR]          # writes the same files into DIR and touches no network
+```
+
+It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
+`<App>_<v>_aarch64.app.tar.gz` (the .app as top folder, no `._` files), signs the archive and each Windows installer with
+`tauri signer sign --app-version <v>`, writes `latest.json`, uploads artifacts and signatures first and `latest.json` LAST,
+downloads it again and compares, then prunes. A refused input (wrong version, unverified app, missing key, one platform only
+without `--allow-partial`) stops before anything is signed or uploaded. CI never signs updates: the key is not in GitHub.
+
+### Update keys
+
+One minisign key pair per app, made by `sh tools/updater-keygen.sh <App> --pub-out <file>` into a SEPARATE keychain
+(`~/Library/Keychains/mindsuite-updater.keychain-db`, `MIND_UPDATER_KEYCHAIN` overrides) that locks itself after 300 s and when the
+Mac sleeps, is never on the search list, and is locked again by every tool on exit. Its own random password sits in the login keychain
+(`MindSuite updater keychain`) so a lane runs unattended; secrets travel over stdin or the signer's environment, never argv or logs
+(the one exception, the password in `tauri signer generate -p`, lasts milliseconds once per key). Only the PUBLIC key is committed:
+`plugins.updater.pubkey`. `--status` shows whether a key exists and its public half; `--export-backup FILE` writes TWO 0600 files
+(`FILE` with the key, `FILE.password` with its password; refused inside a git work tree, a warning on a cloud-synced path) for the
+owner's offline copy: keep them apart. Losing a key strands installed copies of that app.
+
+Rotation (`--replace`) never loses the old key: the new key is written under a `next` slot and proven by signing with the values read
+back, the live key is copied to a `prev` slot (verified) before the live slot is touched, then `next` becomes live. An interruption
+between any two writes leaves a complete old and a complete new key; `--recover` finishes it. Then put the new public key in
+`plugins.updater.pubkey`, ship the transitional release (the first one carrying the new key) signed by the OLD key with
+`publish-update.mjs --sign-with-prev-key`, ship later releases normally, and only then `--drop-prev`. A second `--replace` is refused
+while a `prev` key is held.
+
+`publish-update.mjs` also refuses, before signing anything: a pre-release version (unless `--prerelease`) and a version that is not
+strictly newer than the `latest.json` already live (unless `--force-feed`). `gh release upload --clobber` is delete-then-upload, so a
+failed `latest.json` upload is retried 3 times and, if it still fails, the tool says the feed may answer 404 until it is run again.
+
+### In the app
+
+`<App>/.../src/updater.rs` is a byte copy of `CalMind/desktop/src-tauri/src/updater.rs` (group
+`desktop-src-tauri-src-updater-rs`), inert until a shell adds:
+
+- `Cargo.toml` (tauri and the CLI at 2.12 or later first; CalMind, MealMind and AcctMind are on 2.11 today):
+  `[target.'cfg(any(target_os = "macos", windows))'.dependencies]` `tauri-plugin-updater = "2.14"`, `tauri-plugin-dialog = "2"`,
+  `semver = "1"`, `serde_json = "1"`; and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
+- `tauri.conf.json`: `"plugins": { "updater": { "pubkey": "<public key>", "endpoints": ["<feed url>"], "requireSignedVersion": true } }`.
+  The module turns itself off, saying why on stderr, if the block is missing, lax (no `requireSignedVersion`, a non-https endpoint,
+  a `dangerous*` flag, `allowDowngrades`) or the key is empty. No capability or CSP change: it is driven from Rust only.
+- the code: `#[cfg(desktop)] mod updater;` and, in `setup` BEFORE the window is built,
+  `updater::init(app, updater::Options::default())?` (AcctMind: `Options { manual_only: true, ..Default::default() }`, the menu item
+  only, no background check). The build must NOT set `createUpdaterArtifacts` (CI has no key); `publish-update.mjs` makes them.
+
+Behaviour: a "Check for Updates..." item (macOS: under About; Windows: Help), a background check 10 s after launch and daily, native
+confirm dialogs, quiet failure for background checks, plain-word results for the manual one, a 256 MiB download cap, newer-only
+versions, and on macOS a check of the downloaded bundle (same bundle id, announced version, the running app's designated
+requirement or any Developer ID when the running copy is ad hoc) before the plugin swaps it in.
+
+### Tests
+
+`bash tools/ci/test-mac-sign-install.sh`, `bash tools/ci/test-macos-signing.sh` (fast, stubs); `bash tools/ci/test-updater.sh`
+(cargo, the harness `tools/updater-harness` includes the shared updater.rs and tests it against a local fixture feed) and
+`bash tools/ci/test-publish-update.sh` (real scratch keychain and signer, stub `gh`, the signatures re-verified by the Rust side).
+The two cargo tests hold the heavy-build lock.

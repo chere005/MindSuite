@@ -11,7 +11,7 @@
 #                        asked for HERE (tauri.conf.json's bundle.targets stays app/msi/nsis: create-dmg does not work on
 #                        the Mac the release lane runs on); the signed and notarized .dmg goes into the draft.
 #   publish  (ubuntu)    every expected file is on the draft; SHA256SUMS.txt is added; then the release is published
-#                        (Latest; a version with a "-" is a pre-release). A missing file leaves it a DRAFT.
+#                        (never marked Latest: each app has its own update feed; a version with a "-" is a pre-release). A missing file leaves it a DRAFT.
 #
 # Nothing here uses actions/upload-artifact or download-artifact: the account's Actions artifact storage quota is full
 # ("Failed to CreateArtifact: Artifact storage quota has been hit" failed every desktop-windows run on 2026-10-22/23), and
@@ -449,6 +449,16 @@ jobs:
           ls -l "$dmg"
 
       # Straight to the draft release, not through upload-artifact (the Actions artifact storage quota is full).
+      # Tauri notarizes the app inside the dmg; the dmg wrapper itself is notarized and stapled here, so Gatekeeper accepts the
+      # download as it is. The next step refuses a dmg or app that is not signed, notarized, stapled and arm64.
+      - name: Notarize and staple the dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash tools/ci/notarize-dmg.sh AcctMind/desktop/src-tauri/target/release/bundle/dmg/AcctMind_${VERSION}_aarch64.dmg
+
       - name: Verify signature and notarization
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -556,7 +566,7 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             gh release edit "$RELEASE_TAG" --draft=false --prerelease
           else
-            gh release edit "$RELEASE_TAG" --draft=false --latest
+            gh release edit "$RELEASE_TAG" --draft=false --latest=false
           fi
           url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
           echo "$url"

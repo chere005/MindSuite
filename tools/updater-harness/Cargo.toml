@@ -1,0 +1,21 @@
+# Compiles and tests the shared updater module (CalMind/desktop/src-tauri/src/updater.rs, the origin of every shell's
+# copy) on its own: the same dependencies a shell adds, nothing else. `sh tools/ci/test-updater.sh` runs it.
+[package]
+name = "updater-harness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2.14"
+tauri-plugin-dialog = "2"
+semver = "1"
+serde_json = "1"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+minisign-verify = "0.3"
+base64 = "0.22"
