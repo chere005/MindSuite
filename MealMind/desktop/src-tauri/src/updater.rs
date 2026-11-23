@@ -16,8 +16,12 @@
 //   - an announced version that is not strictly newer than the running one (checked here AND by the plugin);
 //   - a download that fails the signature or the signed-version check (the plugin), or is bigger than `max_download`;
 //   - macOS: a bundle whose CFBundleIdentifier is not this app's, whose version is not the announced one, or that
-//     does not satisfy the running app's designated requirement (a Developer ID anchor when the running copy is
-//     ad hoc signed). A stolen update key alone then ships nothing.
+//     does not satisfy the running app's designated requirement. When the running copy has no usable requirement the
+//     update is REFUSED (fail closed): an ad hoc copy (a dev build) accepts only a Developer ID signature of the team
+//     named by the compile-time env MINDSUITE_UPDATE_TEAM_ID (unset: it accepts none); an unsigned or unreadable
+//     copy accepts none. A stolen update key alone then ships nothing;
+//   - a check or a download that stalls: each network request has a hard timeout (`check_timeout`, `download_timeout`),
+//     so the one-check-at-a-time marker is always released and the daily check keeps running.
 //
 // QUIET. Network, feed, signature and install errors never interrupt a background check: they go to stderr only. A
 // MANUAL check (the menu item) says what happened, in plain words.
@@ -79,6 +83,9 @@ pub struct Options {
     pub interval: Duration,
     /// Hard cap on the bytes downloaded; the download is dropped when it is passed.
     pub max_download: u64,
+    /// Total time allowed for the feed request, and for the archive download (a stalled connection ends in a failure).
+    pub check_timeout: Duration,
+    pub download_timeout: Duration,
     pub bundle_check: BundleCheck,
 }
 
@@ -89,6 +96,8 @@ impl Default for Options {
             first_check_delay: Duration::from_secs(10),
             interval: Duration::from_secs(24 * 60 * 60),
             max_download: 256 * 1024 * 1024,
+            check_timeout: Duration::from_secs(30),
+            download_timeout: Duration::from_secs(10 * 60),
             bundle_check: BundleCheck::Strict,
         }
     }
@@ -237,6 +246,14 @@ pub fn guard_config(cfg: Option<&serde_json::Value>, strict_transport: bool) -> 
 #[derive(Default)]
 struct Busy(AtomicBool);
 
+/// Clears the marker when the check ends however it ends (a panic included), so one failure cannot stop every later check.
+struct BusyGuard<'a>(&'a AtomicBool);
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Register the updater and dialog plugins and the busy marker. Refuses (Err) on a config the guard rejects, so the
 /// updater plugin's own config parsing never runs on a missing or lax block.
 pub fn install_plugins<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -273,7 +290,10 @@ pub fn init<R: Runtime>(app: &mut tauri::App<R>, options: Options) -> tauri::Res
             std::thread::sleep(opts.first_check_delay);
             loop {
                 let ui = DialogUi::new(&app);
-                let _ = tauri::async_runtime::block_on(check(&app, Trigger::Background, &opts, &ui));
+                // a panic in one check must not end the daily loop
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    tauri::async_runtime::block_on(check(&app, Trigger::Background, &opts, &ui))
+                }));
                 std::thread::sleep(opts.interval);
             }
         });
@@ -345,19 +365,19 @@ pub async fn check_with<R: Runtime>(
     }
     // One check at a time per app.
     let busy = app.try_state::<Busy>();
-    if let Some(b) = &busy {
-        if b.0.swap(true, Ordering::SeqCst) {
-            if manual {
-                ui.inform("Check for Updates", "An update check is already running.");
+    let _release = match &busy {
+        Some(b) => {
+            if b.0.swap(true, Ordering::SeqCst) {
+                if manual {
+                    ui.inform("Check for Updates", "An update check is already running.");
+                }
+                return Outcome::Busy;
             }
-            return Outcome::Busy;
+            Some(BusyGuard(&b.0))
         }
-    }
-    let outcome = run(app, trigger, opts, ui, tweak).await;
-    if let Some(b) = &busy {
-        b.0.store(false, Ordering::SeqCst);
-    }
-    outcome
+        None => None,
+    };
+    run(app, trigger, opts, ui, tweak).await
 }
 
 fn friendly(err: &tauri_plugin_updater::Error) -> &'static str {
@@ -389,12 +409,12 @@ async fn run<R: Runtime>(
     tweak: impl FnOnce(UpdaterBuilder) -> UpdaterBuilder,
 ) -> Outcome {
     let manual = trigger == Trigger::Manual;
-    let builder = app.updater_builder().version_comparator(|current, release| release.version > current);
+    let builder = app.updater_builder().timeout(opts.check_timeout).version_comparator(|current, release| release.version > current);
     let updater = match tweak(builder).build() {
         Ok(u) => u,
         Err(e) => return fail(app, manual, ui, "Check for Updates", friendly(&e), format!("could not build the updater: {e}")),
     };
-    let update = match updater.check().await {
+    let mut update = match updater.check().await {
         Ok(Some(u)) => u,
         Ok(None) => {
             if manual {
@@ -417,6 +437,8 @@ async fn run<R: Runtime>(
         return Outcome::Declined(version);
     }
 
+    // The archive gets its own, longer deadline than the feed request.
+    update.timeout = Some(opts.download_timeout);
     // Download under a hard cap: the plugin buffers the whole body, so the future is dropped once the cap is passed.
     let received = Arc::new(AtomicU64::new(0));
     let counter = received.clone();
@@ -475,9 +497,22 @@ pub mod macos {
     use std::path::PathBuf;
     use std::process::Command;
 
-    /// The requirement a staged bundle must meet when the running copy has no real designated requirement (an ad hoc
-    /// build): any Developer ID Application signature.
+    /// Any Developer ID Application signature: the base of the requirement an ad hoc copy gives a staged bundle, which is
+    /// always narrowed to one team (`team_requirement`); never used alone.
     pub const DEVELOPER_ID: &str = "anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists";
+
+    /// The team a build of the app accepts updates from when its own running copy is ad hoc signed (a dev build), set at
+    /// compile time (no tracked file carries it). Unset: such a copy accepts no update.
+    const BUILD_TEAM: Option<&str> = option_env!("MINDSUITE_UPDATE_TEAM_ID");
+
+    /// A Developer ID requirement bound to one team: `team` must be a ten-character Apple team id.
+    pub fn team_requirement(team: &str) -> Result<String, String> {
+        if team.len() == 10 && team.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()) {
+            Ok(format!("{DEVELOPER_ID} and certificate leaf[subject.OU] = \"{team}\""))
+        } else {
+            Err("the update team id is not a ten-character Apple team id".into())
+        }
+    }
 
     struct TempDir(PathBuf);
     impl Drop for TempDir {
@@ -504,15 +539,28 @@ pub mod macos {
     /// The `designated => ...` line of `codesign -d -r-`, if the app has one.
     pub fn designated_requirement(app: &Path) -> Option<String> {
         let text = run("/usr/bin/codesign", &["-d", "-r-", &app.to_string_lossy()]).ok()?;
-        text.lines().find_map(|l| l.strip_prefix("designated => ").map(|r| r.trim().to_string()))
+        // newer codesign prints it as "# designated => ..."; older as "designated => ..."
+        text.lines().find_map(|l| l.trim().trim_start_matches('#').trim_start().strip_prefix("designated => ").map(|r| r.trim().to_string()))
     }
 
-    /// The requirement the staged bundle has to satisfy for a given running app (None: not a signed app).
-    pub fn requirement_for(running: Option<&Path>) -> String {
-        match running.and_then(designated_requirement) {
-            // an ad hoc build's designated requirement is its own cdhash: it says nothing about who may update it
-            Some(r) if !r.contains("cdhash") => r,
-            _ => DEVELOPER_ID.to_string(),
+    /// The requirement the staged bundle has to satisfy for a given running app, or the reason there is none (the update
+    /// is then refused). A signed app's own designated requirement; for an ad hoc copy (its designated requirement is
+    /// its own cdhash, which says nothing about who may update it) a Developer ID signature of the build's team, if the
+    /// build names one; nothing for an unsigned or unreadable copy, or one that is not an app bundle: a Developer ID
+    /// signed copy whose requirement cannot be read must never fall back to "any Developer ID".
+    pub fn requirement_for(running: Option<&Path>) -> Result<String, String> {
+        requirement_with(running, BUILD_TEAM)
+    }
+
+    pub fn requirement_with(running: Option<&Path>, build_team: Option<&str>) -> Result<String, String> {
+        let app = running.ok_or("the running copy is not an app bundle, so there is no requirement to hold the update to")?;
+        match designated_requirement(app) {
+            Some(r) if !r.contains("cdhash") => Ok(r),
+            Some(_) => match build_team {
+                Some(team) => team_requirement(team),
+                None => Err("the running copy is ad hoc signed and this build names no update team, so there is no requirement to hold the update to".into()),
+            },
+            None => Err("the running copy's designated requirement cannot be read, so there is no requirement to hold the update to".into()),
         }
     }
 
@@ -551,7 +599,7 @@ pub mod macos {
             (Some(v), Some(a), Some(c)) if v == a && v > c => {}
             _ => return Err(format!("bundle version {version} is not the announced {announced} or not newer than {current}")),
         }
-        let requirement = requirement_for(running);
+        let requirement = requirement_for(running)?;
         run("/usr/bin/codesign", &["--verify", "--deep", "--strict", &format!("-R={requirement}"), &app.to_string_lossy()])
             .map_err(|e| format!("the bundle's signature does not satisfy the requirement: {e}"))?;
         Ok(())
@@ -851,6 +899,67 @@ mod tests {
         }
     }
 
+    /// A server that accepts connections and never answers: a stalled network.
+    fn stall_server() -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for stream in listener.incoming().flatten() {
+                held.push(stream);
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn a_stalled_feed_or_download_times_out_and_frees_the_next_check() {
+        let quick = Options { check_timeout: Duration::from_secs(1), download_timeout: Duration::from_secs(1), ..opts() };
+        // the feed never answers
+        let app = mock_app(Some(updater_config(&format!("http://{}/latest.json", stall_server()))));
+        install_plugins(app.handle()).unwrap();
+        let u = ui(true);
+        let started = std::time::Instant::now();
+        assert!(matches!(run_check(&app, Trigger::Background, &quick, &u, None), Outcome::Failed(_)));
+        assert!(started.elapsed() < Duration::from_secs(20), "the check did not time out");
+        // the marker was released: the next check runs (and fails the same way), it is not "already running"
+        assert!(matches!(run_check(&app, Trigger::Manual, &quick, &u, None), Outcome::Failed(_)));
+
+        // the feed answers, the archive never arrives
+        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = probe.local_addr().unwrap();
+        drop(probe);
+        let routes = vec![("/latest.json", 200u16, manifest("2.0.0", &format!("http://{}/update.tar.gz", stall_server()), SIG_2_0_0))];
+        let feed = Feed::start_on(addr, routes);
+        let app = mock_app(Some(updater_config(&feed.url("/latest.json"))));
+        install_plugins(app.handle()).unwrap();
+        let u = ui(true);
+        let started = std::time::Instant::now();
+        assert!(matches!(run_check(&app, Trigger::Manual, &quick, &u, None), Outcome::Failed(_)));
+        assert!(started.elapsed() < Duration::from_secs(20), "the download did not time out");
+        assert!(!u.restarted.load(Ordering::SeqCst));
+        assert!(matches!(run_check(&app, Trigger::Manual, &quick, &u, None), Outcome::Failed(_)), "the marker is free again");
+    }
+
+    #[test]
+    fn the_busy_marker_is_released_when_a_check_panics() {
+        struct Panics;
+        impl Ui for Panics {
+            fn confirm(&self, _: &str, _: &str) -> bool { panic!("ui blew up") }
+            fn inform(&self, _: &str, _: &str) {}
+            fn restart(&self) {}
+        }
+        let feed = feed_for("2.0.0", SIG_2_0_0, b64_decode(ARCHIVE_B64));
+        let app = mock_app(Some(updater_config(&feed.url("/latest.json"))));
+        install_plugins(app.handle()).unwrap();
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tauri::async_runtime::block_on(check_with(app.handle(), Trigger::Manual, &opts(), &Panics, fixture_target))
+        }));
+        assert!(caught.is_err(), "the fixture UI panics inside the check");
+        let u = ui(false);
+        assert_eq!(run_check(&app, Trigger::Manual, &opts(), &u, None), Outcome::Declined("2.0.0".into()), "a later check still runs");
+    }
+
     #[test]
     fn manual_only_mode_makes_no_background_request() {
         let feed = feed_for("2.0.0", SIG_2_0_0, b64_decode(ARCHIVE_B64));
@@ -964,12 +1073,31 @@ mod tests {
             assert!(not_newer.contains("version"), "{not_newer}");
             let unsigned = macos::verify_staged_bundle(&a, "com.example.fixture", "2.0.0", "1.0.0", None).unwrap_err();
             assert!(unsigned.contains("signature") || unsigned.contains("requirement"), "{unsigned}");
+            // an ad hoc fixture meets no Developer ID requirement of any team
+            let team = macos::team_requirement("ABCDE12345").unwrap();
+            let tmp = std::env::temp_dir().join(format!("mindsuite-fixture-test-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            std::fs::create_dir_all(&tmp).unwrap();
+            std::fs::write(tmp.join("f.tar.gz"), &a).unwrap();
+            assert!(std::process::Command::new("/usr/bin/tar").arg("-xzf").arg(tmp.join("f.tar.gz")).arg("-C").arg(&tmp).status().unwrap().success());
+            let fixture = std::fs::read_dir(&tmp).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "app")).unwrap();
+            let met = std::process::Command::new("/usr/bin/codesign").args(["--verify", "--deep", "--strict", &format!("-R={team}")]).arg(&fixture).output().unwrap();
+            assert!(!met.status.success(), "the fixture must not meet a team requirement");
+            let _ = std::fs::remove_dir_all(&tmp);
             assert!(macos::verify_staged_bundle(b"not a tarball", "com.example.fixture", "2.0.0", "1.0.0", None).is_err());
         }
 
         #[test]
-        fn an_ad_hoc_running_app_asks_for_a_developer_id() {
-            assert_eq!(macos::requirement_for(None), macos::DEVELOPER_ID);
+        fn a_running_copy_without_a_real_requirement_gets_no_update_unless_the_team_is_named() {
+            // not an app bundle: nothing to hold the update to
+            assert!(macos::requirement_for(None).unwrap_err().contains("requirement"));
+            assert!(macos::requirement_with(None, Some("ABCDE12345")).is_err());
+            // the team id is checked: a malformed one never reaches codesign
+            for bad in ["", "abcde12345", "ABCDE1234", "ABCDE123456", "ABCDE1234\"", "ABCDE 2345"] {
+                assert!(macos::team_requirement(bad).is_err(), "{bad}");
+            }
+            let team = macos::team_requirement("ABCDE12345").unwrap();
+            assert!(team.starts_with(macos::DEVELOPER_ID) && team.ends_with("certificate leaf[subject.OU] = \"ABCDE12345\""), "{team}");
             // an ad hoc signed app's designated requirement is a cdhash, which says nothing about the author
             let root = std::env::temp_dir().join(format!("mindsuite-adhoc-test-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
@@ -980,8 +1108,18 @@ mod tests {
                 "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>a</string><key>CFBundleIdentifier</key><string>com.example.a</string></dict></plist>").unwrap();
             let signed = std::process::Command::new("/usr/bin/codesign").args(["--force", "--sign", "-"]).arg(root.join("A.app")).output().unwrap().status.success();
             if signed {
-                assert_eq!(macos::requirement_for(Some(&root.join("A.app"))), macos::DEVELOPER_ID);
+                let a = root.join("A.app");
+                // ad hoc and no team named: refused; ad hoc and a team named: that team's Developer ID, never "any"
+                let why = macos::requirement_with(Some(&a), None).unwrap_err();
+                assert!(why.contains("ad hoc"), "{why}");
+                assert_eq!(macos::requirement_with(Some(&a), Some("ABCDE12345")).unwrap(), team);
+                assert!(macos::requirement_with(Some(&a), Some("bad")).is_err());
             }
+            // an unsigned app, or a path that is no app: the requirement cannot be read, so nothing is accepted
+            let unsigned = root.join("U.app/Contents");
+            std::fs::create_dir_all(&unsigned).unwrap();
+            assert!(macos::requirement_with(Some(&root.join("U.app")), Some("ABCDE12345")).unwrap_err().contains("cannot be read"));
+            assert!(macos::requirement_with(Some(&root.join("missing.app")), Some("ABCDE12345")).is_err());
             let _ = std::fs::remove_dir_all(&root);
         }
 
@@ -991,8 +1129,8 @@ mod tests {
         fn a_developer_id_app_satisfies_its_own_requirement() {
             let app = std::env::var("MIND_TEST_SIGNED_APP").expect("MIND_TEST_SIGNED_APP");
             let app = Path::new(&app);
-            let req = macos::requirement_for(Some(app));
-            assert_ne!(req, macos::DEVELOPER_ID, "the app has no real designated requirement");
+            let req = macos::requirement_with(Some(app), None).expect("the app has a real designated requirement");
+            assert!(!req.contains("cdhash"), "{req}");
             let out = std::process::Command::new("/usr/bin/codesign")
                 .args(["--verify", "--deep", "--strict", &format!("-R={req}")]).arg(app).output().unwrap();
             assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
