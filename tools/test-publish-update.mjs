@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as kc from './updater-keychain.mjs';
-import { cmpVersions, versionOfAsset, feedUrl, feedTag } from './publish-update.mjs';
+import { cmpVersions, versionOfAsset, feedUrl, feedTag, checkBundleArchive } from './publish-update.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const T = mkdtempSync(path.join(os.tmpdir(), 'publish-update-test-'));
@@ -341,4 +341,27 @@ test('a failing latest.json upload is retried, and a hard failure says the feed 
   rmSync(counter);
   const again = node('publish-update.mjs', release('2.8.0'));
   assert.equal(again.status, 0, out(again)); assert.equal(feedVersion(), '2.8.0');
+});
+
+test('the archive check mirrors the updater: one top folder, plain names, no hard links, no climbing symlinks', () => {
+  const ok = (list, verbose) => checkBundleArchive('A.app', list, verbose ?? list.map((l) => (l.endsWith('/') ? 'drwxr-xr-x  0 u g 0 Nov 23 12:00 ' : '-rwxr-xr-x  0 u g 1 Nov 23 12:00 ') + l));
+  assert.equal(ok(['A.app/', 'A.app/Contents/', 'A.app/Contents/Info.plist']), null);
+  for (const bad of [['A.app/', 'zz/Contents/MacOS/a'], ['A.app/', 'B.app/x'], ['./A.app/x'], ['A.app/../x'], ['/A.app/x'], ['A.app/./x'], ['A.app/._x']]) {
+    assert.notEqual(ok(bad), null, bad.join(','));
+  }
+  const row = (t, name, extra = '') => `${t}rwxr-xr-x  0 u g 0 Nov 23 12:00 ${name}${extra}`;
+  assert.notEqual(ok(['A.app/a', 'A.app/b'], [row('-', 'A.app/a'), row('-', 'A.app/b', ' link to A.app/a')]), null, 'hard link');
+  assert.notEqual(ok(['A.app/p'], [row('p', 'A.app/p')]), null, 'fifo');
+  assert.notEqual(ok(['A.app/l'], [row('l', 'A.app/l', ' -> /Users')]), null, 'absolute symlink');
+  assert.notEqual(ok(['A.app/l'], [row('l', 'A.app/l', ' -> ../..')]), null, 'climbing symlink');
+  assert.equal(ok(['A.app/l'], [row('l', 'A.app/l', ' -> Versions/A')]), null, 'a descending symlink is fine');
+  assert.notEqual(ok(['A.app/a', 'A.app/b'], [row('-', 'A.app/a')]), null, 'listings that disagree');
+  // a real tar of a real folder tree, with an extra top-level folder, as the updater would see it
+  const dir = path.join(T, 'ar'); mkdirSync(path.join(dir, 'A.app/Contents'), { recursive: true }); mkdirSync(path.join(dir, 'zz'), { recursive: true });
+  writeFileSync(path.join(dir, 'A.app/Contents/Info.plist'), 'x'); writeFileSync(path.join(dir, 'zz/x'), 'x');
+  const list = (args) => spawnSync('tar', args, { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+  const good = path.join(T, 'good.tar.gz'); const evil = path.join(T, 'evil.tar.gz');
+  spawnSync('tar', ['-czf', good, '-C', dir, 'A.app']); spawnSync('tar', ['-czf', evil, '-C', dir, 'A.app', 'zz']);
+  assert.equal(checkBundleArchive('A.app', list(['-tzf', good]), list(['-tvzf', good])), null);
+  assert.match(checkBundleArchive('A.app', list(['-tzf', evil]), list(['-tvzf', evil])), /zz/);
 });

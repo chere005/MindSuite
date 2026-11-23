@@ -252,18 +252,17 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       TAG: ${{ needs.prepare.outputs.tag }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # A preflight keeps going when prepare fails (its job is continue-on-error): stop here, loudly, instead of building blind.
       - name: Prepare must have succeeded
         shell: bash
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -350,6 +349,8 @@ jobs:
         if: env.PREFLIGHT != 'true'
         shell: bash
         working-directory: TaskMind
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mapfile -t files < "$RUNNER_TEMP/attach.txt"
@@ -366,27 +367,16 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       TAG: ${{ needs.prepare.outputs.tag }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Prepare must have succeeded
         shell: bash
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
-      - name: Import Developer ID signing identity
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash tools/ci/macos-signing.sh
-
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -402,6 +392,18 @@ jobs:
 
       - name: Test the shell
         run: cargo test --manifest-path TaskMind/native/src-tauri/Cargo.toml
+
+      # The identity is imported only now, after `npm ci` and `cargo test` (third-party install scripts and build.rs ran
+      # without it in the keychain), and no step before it holds the release token either.
+      - name: Import Developer ID signing identity
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash tools/ci/macos-signing.sh
 
       # `--bundles dmg` is passed here only: tauri.conf.json's own bundle targets stay as they are (the local lane builds
       # the .app from them). Tauri signs the app with the hardened runtime and notarizes it inside the dmg.
@@ -463,6 +465,8 @@ jobs:
       - name: Upload into the draft release
         if: env.PREFLIGHT != 'true'
         working-directory: TaskMind
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           gh release upload "$TAG" "$(cat "$RUNNER_TEMP/attach.txt")" --clobber

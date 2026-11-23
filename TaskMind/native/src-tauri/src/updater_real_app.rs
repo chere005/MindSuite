@@ -206,7 +206,7 @@ fn a_real_signed_old_build_updates_to_the_new_one_and_refuses_everything_else() 
     let (_, info) = run("/usr/bin/codesign", &["-dv", "--verbose=4", &app.to_string_lossy()]);
     assert!(info.contains("flags=0x10000(runtime)"), "hardened runtime: {info}");
     assert!(info.contains("Authority=Developer ID Application:"), "{info}");
-    assert!(info.contains("TeamIdentifier=2LGYTL3FSJ"), "{info}");
+    assert!(info.contains(&format!("TeamIdentifier={}", env("MIND_E2E_TEAM"))), "{info}");
     let (ok, out) = run("/usr/sbin/spctl", &["-a", "-t", "exec", "-vv", &app.to_string_lossy()]);
     assert!(ok && out.contains("Notarized Developer ID"), "Gatekeeper on the updated app: {out}");
     let (ok, out) = run("/usr/bin/xcrun", &["stapler", "validate", &app.to_string_lossy()]);

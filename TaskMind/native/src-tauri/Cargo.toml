@@ -21,6 +21,11 @@ tauri-plugin-updater = "2.14"
 tauri-plugin-dialog = "2"
 semver = "1"
 
+# The macOS pre-install bundle check unpacks the archive exactly as tauri-plugin-updater does (same crates, already in its tree).
+[target.'cfg(target_os = "macos")'.dependencies]
+tar = "0.4"
+flate2 = "1"
+
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 

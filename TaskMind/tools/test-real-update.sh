@@ -28,6 +28,9 @@ plist() { /usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$1/Conte
 OLD_V=$(plist "$OLD"); NEW_V=$(plist "$NEW")
 TAURI=native/node_modules/.bin/tauri
 [ -x "$TAURI" ] || { echo "test-real-update: $TAURI is missing (npm --prefix native ci)" >&2; exit 1; }
+# The Apple team the signed builds must carry comes from this machine's untracked file (tools/machine-env.sh), never from a tracked literal.
+if [ -z "${APPLE_TEAM_ID:-}" ]; then . tools/machine-env.sh; machine_load "$PWD"; fi
+TEAM=$(. tools/machine-env.sh; machine_team) || exit 1
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/taskmind-real-update.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 FEED=$WORK/feed; mkdir -p "$FEED"
@@ -47,7 +50,7 @@ cp "$WORK/other/archive.tar.gz.sig" "$WORK/other.sig"
 . tools/heavy-lock.sh
 heavy_lock 'TaskMind real-app update trial (cargo test --ignored)'
 _rc=0
-(cd native/src-tauri && MIND_E2E_OLD_APP="$OLD" MIND_E2E_FEED_DIR="$FEED" MIND_E2E_OTHER_SIG="$WORK/other.sig" MIND_E2E_OLD="$OLD_V" MIND_E2E_NEW="$NEW_V" \
+(cd native/src-tauri && MIND_E2E_TEAM="$TEAM" MIND_E2E_OLD_APP="$OLD" MIND_E2E_FEED_DIR="$FEED" MIND_E2E_OTHER_SIG="$WORK/other.sig" MIND_E2E_OLD="$OLD_V" MIND_E2E_NEW="$NEW_V" \
   cargo test --locked a_real_signed_old_build_updates -- --ignored --nocapture) || _rc=$?
 heavy_unlock
 exit "$_rc"

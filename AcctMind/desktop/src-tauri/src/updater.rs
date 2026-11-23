@@ -19,7 +19,10 @@
 //     does not satisfy the running app's designated requirement. When the running copy has no usable requirement the
 //     update is REFUSED (fail closed): an ad hoc copy (a dev build) accepts only a Developer ID signature of the team
 //     named by the compile-time env MINDSUITE_UPDATE_TEAM_ID (unset: it accepts none); an unsigned or unreadable
-//     copy accepts none. A stolen update key alone then ships nothing;
+//     copy accepts none. The check unpacks the archive exactly as the plugin will (same crates, same "drop the first
+//     path component" mapping, `macos::unpack_like_the_plugin`) and refuses anything but one `<X>.app` tree of plain
+//     names (a second top-level entry, `..`, hard links, climbing symlinks), so the tree that is verified is the tree
+//     that is installed. A stolen update key alone then ships nothing;
 //   - a check or a download that stalls: each network request has a hard timeout (`check_timeout`, `download_timeout`),
 //     so the one-check-at-a-time marker is always released and the daily check keeps running.
 //
@@ -30,7 +33,7 @@
 //   #[cfg(desktop)] mod updater;
 //   ...setup(|app| { #[cfg(desktop)] updater::init(app, updater::Options::default())?; ... build the window ...; Ok(()) })
 //   Options { manual_only: true, ..Options::default() }   // AcctMind: the menu item only, no background check
-// plus the Cargo dependencies and the `plugins.updater` block in tauri.conf.json that docs/PUBLISH.md ("Updates")
+// plus the Cargo dependencies (macOS: `tar` and `flate2`, the plugin's own versions, for the pre-install unpack) and the `plugins.updater` block in tauri.conf.json that docs/PUBLISH.md ("Updates")
 // lists. Call `init` BEFORE the window is built so the window gets the menu. Mobile builds do not compile this.
 //
 // Tests run against a local fixture feed and a mock app; nothing leaves the machine: `cargo test` in a shell that
@@ -564,9 +567,76 @@ pub mod macos {
         }
     }
 
-    /// Unpack the update archive into a private temp dir and check the app inside: its identifier is `expect_id`, its
-    /// version is the announced one and newer than the running one, its signature verifies deep and strict, and it
-    /// satisfies the running app's designated requirement.
+    /// The largest an unpacked update may be; a real app is a fraction of it.
+    const MAX_UNPACKED: u64 = 4 << 30;
+
+    /// Unpack `archive` EXACTLY the way tauri-plugin-updater 2.14 `install_inner` does (same crates, same mapping: every
+    /// entry loses its first path component and the rest lands in one root that becomes the installed bundle), after
+    /// refusing every shape that mapping would make dangerous. Returns the root, named after the archive's one top
+    /// `<X>.app` folder. Refused: an entry outside that one top folder (a second top-level entry would be merged into
+    /// the bundle by the plugin), a path that is not plain names (`..`, absolute, `.`), a hard link, a device or fifo,
+    /// a symlink that is absolute or climbs (`..`: a later entry could then be written through it, out of the bundle),
+    /// a file where the top folder should be.
+    pub fn unpack_like_the_plugin(archive: &[u8], root_parent: &Path) -> Result<PathBuf, String> {
+        use std::path::Component;
+        use tar::EntryType;
+        let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(std::io::Cursor::new(archive)));
+        let mut top: Option<std::ffi::OsString> = None;
+        let mut root: Option<PathBuf> = None;
+        let mut total = 0u64;
+        for entry in tar.entries().map_err(|e| format!("the archive cannot be read: {e}"))? {
+            let mut entry = entry.map_err(|e| format!("the archive cannot be read: {e}"))?;
+            let path = entry.path().map_err(|e| format!("the archive has an unreadable path: {e}"))?.into_owned();
+            let mut names = Vec::new();
+            for c in path.components() {
+                match c {
+                    Component::Normal(n) => names.push(n.to_os_string()),
+                    _ => return Err(format!("the archive holds a path that is not plain names: {}", path.display())),
+                }
+            }
+            let first = names.first().ok_or("the archive holds an empty path")?;
+            if Path::new(first).extension().is_none_or(|x| x != "app") || Path::new(first).file_stem().is_none() {
+                return Err(format!("the archive holds an entry outside the one .app folder: {}", path.display()));
+            }
+            match &top {
+                None => top = Some(first.clone()),
+                Some(t) if t == first => {}
+                Some(_) => return Err(format!("the archive holds more than one top-level entry: {}", path.display())),
+            }
+            let root = root.get_or_insert_with(|| root_parent.join(first)).clone();
+            let rest: PathBuf = names[1..].iter().collect();
+            let ty = entry.header().entry_type();
+            if rest.as_os_str().is_empty() && ty != EntryType::Directory {
+                return Err("the archive's top-level .app is not a folder".into());
+            }
+            match ty {
+                EntryType::Regular | EntryType::Directory => {}
+                EntryType::Symlink => {
+                    let target = entry.link_name().map_err(|e| e.to_string())?.ok_or("a symlink without a target")?;
+                    let plain = target.components().all(|c| matches!(c, Component::Normal(_)));
+                    if !plain || target.as_os_str().is_empty() {
+                        return Err(format!("the archive holds a symlink that is absolute or climbs: {} -> {}", path.display(), target.display()));
+                    }
+                }
+                other => return Err(format!("the archive holds an entry of a kind an app does not have ({other:?}): {}", path.display())),
+            }
+            total = total.saturating_add(entry.size());
+            if total > MAX_UNPACKED {
+                return Err("the archive unpacks to more than the allowed size".into());
+            }
+            let dest = root.join(&rest);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            entry.unpack(&dest).map_err(|e| format!("unpacking {}: {e}", path.display()))?;
+        }
+        root.ok_or_else(|| "the archive holds no app".to_string())
+    }
+
+    /// Unpack the update archive into a private temp dir the way the plugin will and check the app inside: its
+    /// identifier is `expect_id`, its version is the announced one and newer than the running one, its signature
+    /// verifies deep and strict, and it satisfies the running app's designated requirement. What is verified is the
+    /// tree the plugin installs, not a look-alike.
     pub fn verify_staged_bundle(archive: &[u8], expect_id: &str, announced: &str, current: &str, running: Option<&Path>) -> Result<(), String> {
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let dir = TempDir(std::env::temp_dir().join(format!("mindsuite-update-{}-{nanos}", std::process::id())));
@@ -575,20 +645,9 @@ pub mod macos {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&dir.0, std::fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
         }
-        let tarball = dir.0.join("update.tar.gz");
-        std::fs::write(&tarball, archive).map_err(|e| e.to_string())?;
         let out = dir.0.join("out");
         std::fs::create_dir(&out).map_err(|e| e.to_string())?;
-        run("/usr/bin/tar", &["-xzf", &tarball.to_string_lossy(), "-C", &out.to_string_lossy()])?;
-        let mut apps: Vec<PathBuf> = std::fs::read_dir(&out)
-            .map_err(|e| e.to_string())?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x == "app"))
-            .collect();
-        if apps.len() != 1 {
-            return Err(format!("the archive holds {} apps, expected 1", apps.len()));
-        }
-        let app = apps.remove(0);
+        let app = unpack_like_the_plugin(archive, &out)?;
         let info = app.join("Contents/Info.plist");
         let id = plist_value(&info, "CFBundleIdentifier")?;
         if id != expect_id {
@@ -1121,6 +1180,102 @@ mod tests {
             assert!(macos::requirement_with(Some(&root.join("U.app")), Some("ABCDE12345")).unwrap_err().contains("cannot be read"));
             assert!(macos::requirement_with(Some(&root.join("missing.app")), Some("ABCDE12345")).is_err());
             let _ = std::fs::remove_dir_all(&root);
+        }
+
+        /// A gzip'd tar of raw entries (name, kind, body, link target): the tar crate's own setters refuse the hostile
+        /// names these tests need, so the header bytes are written directly.
+        fn tgz(entries: &[(&str, tar::EntryType, &[u8], &str)]) -> Vec<u8> {
+            let mut b = tar::Builder::new(Vec::new());
+            for (name, ty, body, link) in entries {
+                let mut h = tar::Header::new_gnu();
+                h.set_entry_type(*ty);
+                h.set_size(body.len() as u64);
+                h.set_mode(0o755);
+                h.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+                if !link.is_empty() {
+                    h.as_old_mut().linkname[..link.len()].copy_from_slice(link.as_bytes());
+                }
+                h.set_cksum();
+                b.append(&h, *body).unwrap();
+            }
+            let tarball = b.into_inner().unwrap();
+            let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            gz.write_all(&tarball).unwrap();
+            gz.finish().unwrap()
+        }
+
+        fn scratch(tag: &str) -> std::path::PathBuf {
+            let d = std::env::temp_dir().join(format!("mindsuite-unpack-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        }
+
+        #[test]
+        fn the_plugins_view_of_the_archive_is_what_gets_checked() {
+            use tar::EntryType::{Directory as D, Link, Regular as F, Symlink as L, Fifo};
+            let ok = |name: &str, ty, body: &[u8], link: &str| (name.to_string(), ty, body.to_vec(), link.to_string());
+            // (label, entries, a word the refusal must contain)
+            let cases: Vec<(&str, Vec<(String, tar::EntryType, Vec<u8>, String)>, &str)> = vec![
+                // the exploit: the real app plus a second top-level folder the plugin would merge into the bundle
+                ("extra top-level folder", vec![ok("A.app/", D, b"", ""), ok("A.app/Contents/Info.plist", F, b"x", ""), ok("zz/Contents/MacOS/a", F, b"x", "")], "outside the one .app"),
+                ("extra top-level app", vec![ok("A.app/Contents/Info.plist", F, b"x", ""), ok("B.app/Contents/MacOS/a", F, b"x", "")], "more than one top-level"),
+                ("extra top-level file", vec![ok("A.app/Contents/Info.plist", F, b"x", ""), ok("README", F, b"x", "")], "outside the one .app"),
+                ("dot-slash prefix (the plugin would strip the dot, not the app)", vec![ok("./A.app/Contents/Info.plist", F, b"x", "")], "not plain names"),
+                ("parent climb", vec![ok("A.app/../../evil", F, b"x", "")], "not plain names"),
+                ("absolute path", vec![ok("/etc/evil", F, b"x", "")], "not plain names"),
+                ("top-level app that is a file", vec![ok("A.app", F, b"x", "")], "not a folder"),
+                ("hard link", vec![ok("A.app/Contents/a", F, b"x", ""), ok("A.app/Contents/b", Link, b"", "A.app/Contents/a")], "kind an app does not have"),
+                ("fifo", vec![ok("A.app/Contents/f", Fifo, b"", "")], "kind an app does not have"),
+                ("absolute symlink", vec![ok("A.app/Contents/l", L, b"", "/Users")], "absolute or climbs"),
+                ("climbing symlink", vec![ok("A.app/Contents/l", L, b"", "../../..")], "absolute or climbs"),
+                ("symlink to dot-dot inside a name", vec![ok("A.app/Contents/l", L, b"", "a/../..")], "absolute or climbs"),
+            ];
+            for (label, entries, word) in cases {
+                let raw: Vec<(&str, tar::EntryType, &[u8], &str)> = entries.iter().map(|(n, t, b, l)| (n.as_str(), *t, b.as_slice(), l.as_str())).collect();
+                let bytes = tgz(&raw);
+                let dir = scratch("bad");
+                let why = macos::unpack_like_the_plugin(&bytes, &dir).unwrap_err();
+                assert!(why.contains(word), "{label}: {why}");
+                let why = macos::verify_staged_bundle(&bytes, "com.example.fixture", "2.0.0", "1.0.0", None).unwrap_err();
+                assert!(why.contains(word), "{label} (whole check): {why}");
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+            // a plain, descending symlink inside the bundle is fine, and nothing lands outside the root
+            let bytes = tgz(&[("A.app/", D, b"", ""), ("A.app/Contents/Info.plist", F, b"x", ""), ("A.app/Contents/Current", L, b"", "Info.plist")]);
+            let dir = scratch("good");
+            let root = macos::unpack_like_the_plugin(&bytes, &dir).unwrap();
+            assert_eq!(root, dir.join("A.app"));
+            assert!(root.join("Contents/Current").is_symlink() && root.join("Contents/Info.plist").is_file());
+            assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "only the app is in the staging dir");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn the_unpacked_fixture_is_the_tree_a_plain_tar_makes() {
+            let a = archive_bytes();
+            let dir = scratch("same");
+            let root = macos::unpack_like_the_plugin(&a, &dir.join("mine")).unwrap();
+            std::fs::create_dir(dir.join("theirs")).unwrap();
+            std::fs::write(dir.join("f.tar.gz"), &a).unwrap();
+            assert!(std::process::Command::new("/usr/bin/tar").arg("-xzf").arg(dir.join("f.tar.gz")).arg("-C").arg(dir.join("theirs")).status().unwrap().success());
+            let list = |base: &Path| -> Vec<String> {
+                let mut v = Vec::new();
+                let mut stack = vec![base.to_path_buf()];
+                while let Some(p) = stack.pop() {
+                    for e in std::fs::read_dir(&p).unwrap() {
+                        let e = e.unwrap().path();
+                        v.push(e.strip_prefix(base).unwrap().to_string_lossy().to_string());
+                        if e.is_dir() && !e.is_symlink() { stack.push(e); }
+                    }
+                }
+                v.sort();
+                v
+            };
+            let theirs = dir.join("theirs").join(root.file_name().unwrap());
+            assert_eq!(list(&root), list(&theirs));
+            assert!(!list(&root).is_empty());
+            let _ = std::fs::remove_dir_all(&dir);
         }
 
         /// Needs a real Developer ID app: MIND_TEST_SIGNED_APP=/path/App.app (not run in CI).

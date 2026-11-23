@@ -139,8 +139,34 @@ function archiveApp(appDir, outFile) {
   if (spawnSync('tar', ['--no-mac-metadata', '--version'], { stdio: 'ignore' }).status === 0) flags.push('--no-mac-metadata');
   run('tar', [...flags, '-czf', outFile, '-C', parent, base], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
   const list = run('tar', ['-tzf', outFile]).split('\n').filter(Boolean);
-  if (list.some((l) => /(^|\/)\._/.test(l))) die('the archive holds ._ metadata files');
-  if (!list.every((l) => l === `${base}/` || l.startsWith(`${base}/`))) die(`the archive's top folder is not ${base}`);
+  const verbose = run('tar', ['-tvzf', outFile]).split('\n').filter(Boolean);
+  const why = checkBundleArchive(base, list, verbose);
+  if (why) die(why);
+}
+
+/**
+ * What the updater will do with this archive: tauri-plugin-updater drops the FIRST path component of EVERY entry and merges
+ * the rest into one tree that becomes the installed app. So every entry must sit under the one `<base>/` folder, in plain
+ * names (no `..`, no leading `./`, no absolute path), and nothing may be a hard link, a device/fifo, or a symlink that is
+ * absolute or climbs (a later entry could be written through it). `list` is `tar -tzf`, `verbose` is `tar -tvzf` (the same
+ * entries in the same order). Returns the reason it is unsafe, or null.
+ */
+export function checkBundleArchive(base, list, verbose) {
+  if (list.some((l) => /(^|\/)\._/.test(l))) return 'the archive holds ._ metadata files';
+  if (verbose.length !== list.length) return 'the archive listing is ambiguous (an entry name holds a newline)';
+  const plain = (p) => p.split('/').every((c, i, a) => (c !== '' || i === a.length - 1) && c !== '.' && c !== '..');
+  for (const [i, l] of list.entries()) {
+    if (l.startsWith('/') || !plain(l) || !(l === `${base}/` || l.startsWith(`${base}/`))) return `the archive's entry ${JSON.stringify(l)} is not a plain path under the top folder ${base}`;
+    const v = verbose[i];
+    const kind = v[0];
+    if (!'-dl'.includes(kind)) return `the archive's entry ${JSON.stringify(l)} is a kind an app does not have (${kind})`;
+    if (kind === '-' && / link to /.test(v)) return `the archive's entry ${JSON.stringify(l)} is a hard link`;
+    if (kind === 'l') {
+      const target = v.slice(v.lastIndexOf(' -> ') + 4);
+      if (target.startsWith('/') || target.split('/').some((c) => c === '..' || c === '.')) return `the archive's symlink ${JSON.stringify(l)} is absolute or climbs: ${target}`;
+    }
+  }
+  return null;
 }
 
 function plistVersion(appDir) {

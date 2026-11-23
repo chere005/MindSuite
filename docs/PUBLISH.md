@@ -359,7 +359,7 @@ failed `latest.json` upload is retried 3 times and, if it still fails, the tool 
 
 - `Cargo.toml` (tauri and the CLI at 2.12 or later first; CalMind, MealMind and AcctMind are on 2.11 today):
   `[target.'cfg(any(target_os = "macos", windows))'.dependencies]` `tauri-plugin-updater = "2.14"`, `tauri-plugin-dialog = "2"`,
-  `semver = "1"`, `serde_json = "1"`; and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
+  `semver = "1"`, `serde_json = "1"`; on macOS also `tar = "0.4"` and `flate2 = "1"` (the pre-install unpack mirrors the plugin's, which uses the same crates); and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
 - `tauri.conf.json`: `"plugins": { "updater": { "pubkey": "<public key>", "endpoints": ["<feed url>"], "requireSignedVersion": true } }`.
   The module turns itself off, saying why on stderr, if the block is missing, lax (no `requireSignedVersion`, a non-https endpoint,
   a `dangerous*` flag, `allowDowngrades`) or the key is empty. No capability or CSP change: it is driven from Rust only.
