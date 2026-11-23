@@ -79,12 +79,36 @@ export function repeatDates(start: string, rep: Repeat | null, from: string, to:
   // newer client's data.
   if (!repeatAdvances(start, rep)) return start >= from && start <= to ? [start] : [];
   const out: string[] = [];
-  for (let i = 0; i < REPEAT_MAX; i++) {
+  // Steps that end before `from` are skipped, not walked: a daily repeat that
+  // began last year costs the window, not 400 date constructions per call.
+  // The cap still counts from the rule's first step, so what a window holds is
+  // exactly what the full walk would have found (test/repeatwindow.test.ts).
+  for (let i = firstIdx(start, rep, from); i < REPEAT_MAX; i++) {
     const d = repeatStep(start, rep, i);
     if (d > to) break;
     if (d >= from) out.push(d);
   }
   return out;
+}
+
+/**
+ * A step index at or before the first occurrence on/after `from` — the steps
+ * before it end before the window and can be skipped. Only ever too LOW, never
+ * too high (a step lands n units later, whatever clamping does to its day), and
+ * one lower again than the rounded-down estimate, as margin.
+ */
+function firstIdx(start: string, rep: Repeat, from: string): number {
+  if (from <= start) return 0;
+  const [y1, m1, d1] = start.split('-').map(Number) as [number, number, number];
+  const [y2, m2, d2] = from.split('-').map(Number) as [number, number, number];
+  let est: number;
+  if (rep.unit === 'day' || rep.unit === 'week') {
+    const days = Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+    est = Math.floor(days / (rep.n * (rep.unit === 'week' ? 7 : 1)));
+  } else {
+    est = Math.floor(((y2 - y1) * 12 + (m2 - m1)) / (rep.n * (rep.unit === 'year' ? 12 : 1)));
+  }
+  return Number.isFinite(est) ? Math.max(0, est - 1) : 0;
 }
 
 /**

@@ -1,5 +1,5 @@
 /** Calendar content stays outside the sync snapshot and refreshes on foreground. */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { hasCalendarFeed, subIdentity, type AnyRec, type Rec } from '@calmind/core';
@@ -14,9 +14,9 @@ export function useSubIcs(recs: AnyRec[], session: Session | null): Record<strin
   // hold several CalMind instances. Never reuse one account's remote feed.
   const scope = session ? JSON.stringify([session.serverUrl, session.username]) : '';
   const [state, setState] = useState<{ scope: string; feeds: Record<string, CachedFeed> }>({ scope, feeds: {} });
-  const subs = recs.filter((r): r is Rec<'calsub'> => r.type === 'calsub');
+  const subs = useMemo(() => recs.filter((r): r is Rec<'calsub'> => r.type === 'calsub'), [recs]);
   // Renaming/recolouring does not refetch; a connection or credential change does.
-  const subsKey = JSON.stringify(subs.map((r) => [r.id, subIdentity(r.payload), r.payload.source, r.payload.password]));
+  const subsKey = useMemo(() => JSON.stringify(subs.map((r) => [r.id, subIdentity(r.payload), r.payload.source, r.payload.password])), [subs]);
   const previous = useRef<{ scope: string; ids: Set<string> }>({ scope, ids: new Set() });
 
   useEffect(() => {
@@ -90,9 +90,15 @@ export function useSubIcs(recs: AnyRec[], session: Session | null): Record<strin
     return () => { dead = true; clearInterval(timer); appstate.remove(); };
   }, [scope, subsKey, session?.token]);
 
-  if (state.scope !== scope) return {};
-  return Object.fromEntries(subs.flatMap((sub) => {
-    const feed = state.feeds[sub.id];
-    return feed?.identity === subIdentity(sub.payload) ? [[sub.id, feed.ics]] : [];
-  }));
+  // One object per (feeds, scope, subscriptions): Calendar's marks memo keys on
+  // it, and a fresh object every render re-derived all the month's marks on
+  // every tap (selecting a day, a tick) even with nothing fetched.
+  return useMemo(() => {
+    if (state.scope !== scope) return {};
+    return Object.fromEntries(subs.flatMap((sub) => {
+      const feed = state.feeds[sub.id];
+      return feed?.identity === subIdentity(sub.payload) ? [[sub.id, feed.ics]] : [];
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, scope, subsKey]);
 }

@@ -16,6 +16,8 @@ import { CircleBtn, Field, Scroll } from '../ui';
 import { Dropdown } from '../components/Dropdown';
 import { CalendarIcon, PageIcon, TickCircleIcon } from '../components/KindIcons';
 
+/** Rows drawn before "Show all": a one-letter query matches thousands of records, and drawing them all on every keystroke froze typing. */
+const SHOWN_HITS = 100;
 const ALL_KINDS: SearchKind[] = ['reminder', 'note', 'event'];
 const KIND_LABEL: Record<SearchKind, string> = { reminder: 'Reminders', note: 'Notes', event: 'Events' };
 const SORT_OPTIONS = [
@@ -57,6 +59,8 @@ export function SearchBody({ query, onOpen }: { query: string; onOpen: (hit: Sea
   const [sort, setSort] = useState<SearchSort>('relevance');
   const [desc, setDesc] = useState(false);
   const [kindsOpen, setKindsOpen] = useState(false);
+  // "Show all" belongs to the query it was pressed for; typing again folds back to the top hits.
+  const [allFor, setAllFor] = useState<string | null>(null);
   // The filter is a synced pref, validated on read like every stored id
   // list: junk drops out, and empty means all three.
   const stored = prefsOf(recs, 'suite').searchKinds ?? [];
@@ -99,7 +103,7 @@ export function SearchBody({ query, onOpen }: { query: string; onOpen: (hit: Sea
         {query.trim() !== '' && hits.length === 0 && (
           <Text testID="search-none" style={s.none}>Nothing matches.</Text>
         )}
-        {hits.map((h) => (
+        {(allFor === query ? hits : hits.slice(0, SHOWN_HITS)).map((h) => (
           <Pressable key={`${h.kind}-${h.id}`} testID="search-row" style={s.row} onPress={() => onOpen(h)}>
             <View style={s.rowIcon}>
               {h.kind === 'reminder' && <TickCircleIcon size={16} />}
@@ -110,6 +114,11 @@ export function SearchBody({ query, onOpen }: { query: string; onOpen: (hit: Sea
             {h.date && <Text style={s.rowDate}>{h.date}</Text>}
           </Pressable>
         ))}
+        {allFor !== query && hits.length > SHOWN_HITS && (
+          <Pressable testID="search-more" style={s.more} onPress={() => setAllFor(query)}>
+            <Text style={s.moreText}>Show all {hits.length} results</Text>
+          </Pressable>
+        )}
       </Scroll>
       {kindsOpen && (
         <Modal transparent animationType="fade" onRequestClose={() => setKindsOpen(false)}>
@@ -158,6 +167,8 @@ const s = themed(() => StyleSheet.create({
   rowText: { color: T.text, fontSize: 15, flex: 1 },
   rowDone: { color: T.dim, textDecorationLine: 'line-through' },
   rowDate: { color: T.dim, fontSize: 12 },
+  more: { paddingVertical: 14, alignItems: 'center' },
+  moreText: { color: T.accent, fontSize: 15, fontWeight: '600' },
   backdrop: { flex: 1, backgroundColor: '#0007', alignItems: 'center', justifyContent: 'center' },
   menu: {
     minWidth: 220, backgroundColor: T.surface, borderWidth: 1, borderColor: T.line,

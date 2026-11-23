@@ -106,6 +106,98 @@ export function dayItems(recs: AnyRec[], date: string, today: string, modes?: Re
   return { events, reminders, notes };
 }
 
+/** What lands on each date of a window, keyed by date — see dayItemsRange. */
+export type DayWindow = Map<string, DayItems>;
+
+/**
+ * `dayItems` for every date in `dates` at once: ONE pass over the records for
+ * the whole window instead of one pass per day. A month grid asks 35 days and
+ * the list view 92, and each of those passes used to expand every repeating
+ * event and reminder from its first occurrence; this expands each record once
+ * over the window and files it under the days it lands on.
+ *
+ * It returns exactly what `dayItems` returns for each date — same members,
+ * same order, same flags (test/dayrange.test.ts compares the two on a fuzzed
+ * record set) — so a caller can swap one for the other. `dates` may hold nulls
+ * (the month grid's leading blanks), repeats and any order; each real date
+ * gets an entry, empty or not. Not for a window of years: the work is a
+ * walk over every day an event spans.
+ */
+export function dayItemsRange(
+  recs: AnyRec[],
+  dates: readonly (string | null)[],
+  today: string,
+  modes?: Record<string, FolderMode>,
+): DayWindow {
+  const buckets: DayWindow = new Map();
+  let lo = '';
+  let hi = '';
+  for (const d of dates) {
+    if (!d) continue;
+    if (!buckets.has(d)) buckets.set(d, { events: [], reminders: [], notes: [] });
+    if (!lo || d < lo) lo = d;
+    if (!hi || d > hi) hi = d;
+  }
+  if (buckets.size === 0) return buckets;
+
+  for (const e of of(recs, 'event')) {
+    const span = normalizeEndDate(e.payload.date, e.payload.endDate);
+    const dur = span ? dayDiff(e.payload.date, span) : 0;
+    // Occurrences starting in [lo - dur, hi] are the ones whose span can touch the window.
+    for (const s of repeatDates(e.payload.date, e.payload.repeat, dur ? addDays(lo, -dur) : lo, hi)) {
+      // The days s .. s+dur inside [lo, hi]; the event is listed once per day even where occurrences overlap.
+      for (let k = s < lo ? dayDiff(s, lo) : 0; k <= dur; k++) {
+        const d = k === 0 ? s : addDays(s, k);
+        if (d > hi) break;
+        const b = buckets.get(d);
+        if (b && b.events[b.events.length - 1] !== e) b.events.push(e);
+      }
+    }
+  }
+
+  const modeById = new Map(
+    of(recs, 'folder')
+      .filter((f) => folderApp(f.payload) === 'reminders')
+      .map((f) => [f.id, folderMode(f.payload, f.id, modes)]),
+  );
+  const todayBucket = buckets.get(today);
+  for (const r of of(recs, 'reminder')) {
+    const { due, done, repeat, folderId } = r.payload;
+    const mode = modeById.get(folderId) ?? 'dated';
+    if (mode === 'none') continue;
+    // The same three tests dayItems makes for one date, here for the dates this
+    // reminder can land on: its occurrences in the window, and today.
+    const emit = (date: string, onDate: boolean) => {
+      const rider = !due && mode === 'all' && date === today;
+      const late = !!due && due < today && date === today;
+      if (rider || onDate || late) {
+        const list = buckets.get(date)!.reminders;
+        if (list[list.length - 1]?.rec !== r) list.push({ rec: r, overdue: late && !done, rider, late: late && !onDate });
+      }
+    };
+    let onToday = false;
+    if (due) {
+      for (const d of repeatDates(due, repeat, lo, hi)) {
+        if (!buckets.has(d)) continue;
+        if (d === today) onToday = true;
+        emit(d, true);
+      }
+    }
+    if (todayBucket && !onToday) emit(today, false);
+  }
+  for (const b of buckets.values()) {
+    b.events.sort((a, c) => (a.payload.time ?? '') < (c.payload.time ?? '') ? -1 : (a.payload.time ?? '') > (c.payload.time ?? '') ? 1 : byRecOrd(a, c));
+    b.reminders.sort((a, c) => {
+      const ka = `${a.rec.payload.due ?? ''}\u0000${a.rec.payload.time ?? ''}`;
+      const kb = `${c.rec.payload.due ?? ''}\u0000${c.rec.payload.time ?? ''}`;
+      return ka < kb ? -1 : ka > kb ? 1 : byOrd(a.rec.payload, c.rec.payload);
+    });
+  }
+  for (const n of of(recs, 'note')) if (n.payload.date) buckets.get(n.payload.date)?.notes.push(n);
+  for (const b of buckets.values()) b.notes.sort(byRecOrd);
+  return buckets;
+}
+
 /** One month-cell icon: a kind, its colour, and (for reminders) the worst state. */
 export type CellMark = { kind: 'event' | 'reminder' | 'note'; color: string; state?: 'open' | 'overdue' | 'done' };
 
@@ -117,9 +209,16 @@ export type CellMark = { kind: 'event' | 'reminder' | 'note'; color: string; sta
  * colour is ticked.
  */
 export function cellMarks(recs: AnyRec[], date: string, today: string, modes?: Record<string, FolderMode>): CellMark[] {
-  const items = dayItems(recs, date, today, modes);
-  const calById = new Map(of(recs, 'calendar').map((c) => [c.id, c.payload.color]));
-  const folderById = new Map(of(recs, 'folder').map((f) => [f.id, f.payload.color]));
+  return marksOf(dayItems(recs, date, today, modes), colorMaps(recs));
+}
+
+type ColorMaps = { calById: Map<string, string>; folderById: Map<string, string> };
+const colorMaps = (recs: AnyRec[]): ColorMaps => ({
+  calById: new Map(of(recs, 'calendar').map((c) => [c.id, c.payload.color])),
+  folderById: new Map(of(recs, 'folder').map((f) => [f.id, f.payload.color])),
+});
+
+function marksOf(items: DayItems, { calById, folderById }: ColorMaps): CellMark[] {
   const out: CellMark[] = [];
   for (const e of items.events) {
     const color = calById.get(e.payload.calendarId) ?? '#60a5fa';
@@ -142,6 +241,21 @@ export function cellMarks(recs: AnyRec[], date: string, today: string, modes?: R
   return out;
 }
 
+/** `cellMarks` for every date of a window: one pass over the records for the whole window (see dayItemsRange). */
+export function cellMarksRange(
+  recs: AnyRec[],
+  dates: readonly (string | null)[],
+  today: string,
+  modes?: Record<string, FolderMode>,
+  win?: DayWindow,
+): Map<string, CellMark[]> {
+  const w = win ?? dayItemsRange(recs, dates, today, modes);
+  const colors = colorMaps(recs);
+  const out = new Map<string, CellMark[]>();
+  for (const d of dates) if (d && !out.has(d)) out.set(d, marksOf(w.get(d)!, colors));
+  return out;
+}
+
 export type LegendRow = { kind: 'event' | 'reminder' | 'note'; id: string; name: string; color: string };
 
 /**
@@ -161,13 +275,15 @@ export function monthLegend(
   today: string,
   modes?: Record<string, FolderMode>,
   showDone = false,
+  win?: DayWindow,
 ): LegendRow[] {
+  const w = win ?? dayItemsRange(recs, dates, today, modes);
   const cals = new Set<string>();
   const remFolders = new Set<string>();
   const noteFolders = new Set<string>();
   for (const d of dates) {
     if (!d) continue;
-    const items = dayItems(recs, d, today, modes);
+    const items = w.get(d)!;
     for (const e of items.events) cals.add(e.payload.calendarId);
     // Same rule the cell draws by: a finished reminder is HIDDEN unless
     // Completed is showing, so a folder whose every item in the window is
