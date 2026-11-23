@@ -26,13 +26,17 @@ try {
     } elseif ($method === 'GET') {
         $csrf = $_SESSION['csrf']; $theme = theme_get(); $calmind = pm_calmind_hidden() ? 'hidden' : 'shown'; $bothColor = \PlanMind\both_color_get(); session_write_close();
         $data = $planStore->transaction('tasks', fn($db) => $db);
-        $snapshot = \PlanMind\snapshot($data, $user);
-        // ?since=N is a poll: the same validated read, but nothing is sent when the client already holds this revision.
-        $since = $_GET['since'] ?? null;
-        if (is_string($since) && preg_match('/^(?:0|[1-9][0-9]{0,14})$/D', $since) === 1 && (int)$since === $snapshot['revision']) {
-            echo json_encode(['unchanged' => true, 'revision' => $snapshot['revision']], JSON_THROW_ON_ERROR);
+        // ?since=N is a poll: nothing is sent when the client already holds this revision, and then the store is not validated and copied for nothing (a read that sends data still is).
+        $since = \PlanMind\poll_since($_GET['since'] ?? null);
+        if (\PlanMind\poll_unchanged($data, $user, $since)) {
+            echo json_encode(['unchanged' => true, 'revision' => $since], JSON_THROW_ON_ERROR);
         } else {
-            echo json_encode(['user' => $user, 'csrf' => $csrf, 'theme' => $theme, 'calmind' => $calmind, 'bothColor' => $bothColor, 'timezone' => app_config()['timezone'] ?? 'America/Chicago', 'people' => \PlanMind\pm_people(), ...$snapshot], JSON_THROW_ON_ERROR);
+            $snapshot = \PlanMind\snapshot($data, $user);
+            if ($since !== null && $since === $snapshot['revision']) {
+                echo json_encode(['unchanged' => true, 'revision' => $snapshot['revision']], JSON_THROW_ON_ERROR);
+            } else {
+                echo json_encode(['user' => $user, 'csrf' => $csrf, 'theme' => $theme, 'calmind' => $calmind, 'bothColor' => $bothColor, 'timezone' => app_config()['timezone'] ?? 'America/Chicago', 'people' => \PlanMind\pm_people(), ...$snapshot], JSON_THROW_ON_ERROR);
+            }
         }
     } elseif ($method === 'POST') {
         pm_csrf();
@@ -60,7 +64,7 @@ try {
         }
         $today = pm_today();
         $data = $planStore->transaction('tasks', fn($db) => \PlanMind\mutate($db, $input, $user, $today));
-        echo json_encode(\PlanMind\snapshot($data, $user), JSON_THROW_ON_ERROR);
+        echo json_encode(\PlanMind\snapshot($data, $user, true), JSON_THROW_ON_ERROR);
     } else { header('Allow: GET, POST'); throw new \PlanMind\RequestError('Method not allowed.', 405); }
 } catch (\PlanMind\RequestError $e) {
     http_response_code($e->status); echo json_encode($e->body(), JSON_INVALID_UTF8_SUBSTITUTE);
