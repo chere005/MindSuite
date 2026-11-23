@@ -42,10 +42,11 @@ const TAP_SLOP = 10;
 
 /** Builds the page and keeps it in step with the state. `tab` is the phone tab a page that reloaded itself puts the person back on. Returns what takes it down again. */
 export function mountShell(root: HTMLElement, state: AppState, tab?: string | null): () => void {
-  let unmount: Unmount | undefined, pending = false, pointerDown = false, touching = false, keyDown = false, awaitClick = false;
+  let unmount: Unmount | undefined, pending = false, mustDraw = false, pointerDown = false, touching = false, keyDown = false, awaitClick = false;
   const heldKeys = new Set<string>();
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
-  const ctx = makeContext(state, () => { pending = true; later(); }, message => {
+  // A panel that asks for a redraw wants its page rebuilt (a drag that ended where it began, a form it put away): that one is always drawn.
+  const ctx = makeContext(state, () => { pending = true; mustDraw = true; later(); }, message => {
     // Emptied first, so the same words said twice are read twice.
     const live = root.querySelector<HTMLElement>('#live')!;
     live.textContent = '';
@@ -155,16 +156,34 @@ export function mountShell(root: HTMLElement, state: AppState, tab?: string | nu
       if (area === host) { break; }
     }
   }
+  /**
+   * Whether the page still is exactly what `lastMarkup` drew: no field holds anything the markup did not put there (a box ticked, words typed or set by code),
+   * so drawing the same markup again would change nothing the person can see. Anything else (a refused tick that must be put back, an unsent word) is drawn again as always.
+   */
+  const untouched = () => [...host.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select')].every(field => {
+    if (field instanceof HTMLSelectElement) { return [...field.options].every(option => option.selected === option.defaultSelected); }
+    // A box has no words of its own (its `value` reads "on" against a `defaultValue` of nothing): only whether it is ticked as the markup had it.
+    if (field instanceof HTMLInputElement && (field.type === 'checkbox' || field.type === 'radio')) { return field.checked === field.defaultChecked; }
+    return field.value === field.defaultValue;
+  });
+  let lastMarkup = '', lastKey = '', lastEpoch = -1;
   function render(force: boolean) {
     if (!force && !quiet()) { pending = true; return; }
     pending = false;
-    const restoreFocus = rememberFocus(), restoreScroll = rememberScroll();
-    unmount?.();
     // Chores replaces the page of the open period on a phone, and the planner's panels know nothing of it.
     const panel = choresPage() ? chores : PANELS[state.view];
+    const markup = panel.html(ctx), key = `${state.view}|${state.date}|${choresPage()}`;
+    // The answer to a write the screen had already laid over the snapshot (a tick, a chore mark, an entry moved: state.epoch does not move for it) tells the page what it shows
+    // in the markup it drew, so it draws nothing: the panel stays mounted as it is, and the redraw's layouts and the page's repaint are not paid for. Anything else that
+    // reached the state since the last draw (a poll with changes, a refused write, a note saved elsewhere: a panel paints more than its markup from the data when it mounts),
+    // a redraw the shell forces and one a panel asked for are always drawn.
+    if (!force && !mustDraw && state.epoch === lastEpoch && markup === lastMarkup && key === lastKey && host.firstElementChild && untouched()) { syncBusy(); return; }
+    lastMarkup = markup; lastKey = key; lastEpoch = state.epoch; mustDraw = false;
+    const restoreFocus = rememberFocus(), restoreScroll = rememberScroll();
+    unmount?.();
     host.dataset.view = state.view;
     host.classList.toggle('wide-month', state.view === 'month');
-    host.innerHTML = panel.html(ctx);
+    host.innerHTML = markup;
     unmount = panel.mount(host, ctx);
     sidebar.drawTools();
     syncBusy();

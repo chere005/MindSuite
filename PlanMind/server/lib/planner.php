@@ -158,9 +158,10 @@ function validate_db(array $db): void { Invariants::validate($db); }
  * What GET and every successful POST return for `$user`: lists, records and notes as lists (never a raw map),
  * and only that user's own preferences (the picker state and whether the desktop sidebar is shown). Validates first, so corrupt or old data fails closed.
  */
-function snapshot(array $db, string $user): array {
+function snapshot(array $db, string $user, bool $checked = false): array {
     if (!in_array($user, pm_person_lists(), true)) { throw new RequestError('Access denied.', 403, 'forbidden'); }
-    $db = Invariants::load($db);
+    // `$checked`: the db is what mutate() just returned, which validated it (the given db when nothing changed, the settled result when something did), so a current-version db is not walked a third time.
+    $db = $checked && ($db['v'] ?? null) === MODEL['storeVersion'] ? $db : Invariants::load($db);
     $lists = array_values($db['lists']);
     usort($lists, fn($a, $b) => [$a['order'], $a['id']] <=> [$b['order'], $b['id']]);
     $chores = array_values($db['chores']);
@@ -170,6 +171,22 @@ function snapshot(array $db, string $user): array {
         'events' => array_values($db['events']), 'notes' => array_values($db['notes']),
         'chores' => $chores, 'choreMarks' => array_values($db['choreMarks']), 'rhythm' => $db['rhythm'],
         'prefs' => ['selection' => Invariants::selection($db, $db['prefs'][$user]['selection'] ?? null), 'sidebar' => Invariants::sidebar($db['prefs'][$user]['sidebar'] ?? null)]];
+}
+
+/**
+ * The revision a poll (`?since=N`) says it holds, or null when `$since` is no revision (a first read, a malformed value).
+ */
+function poll_since(mixed $since): ?int {
+    return is_string($since) && preg_match('/^(?:0|[1-9][0-9]{0,14})$/D', $since) === 1 ? (int)$since : null;
+}
+
+/**
+ * Whether a poll that holds `$since` has nothing to hear, known from the stored db's own revision without validating and copying all of it (the work of a
+ * full read, which grows with the store and which a poll with nothing new does not need: it sends no data). Only a current-version db answers here; an old one
+ * (converted in memory by a read) or an empty one takes the full path, and so does anyone who is not one of the two people.
+ */
+function poll_unchanged(array $db, string $user, ?int $since): bool {
+    return $since !== null && in_array($user, pm_person_lists(), true) && ($db['v'] ?? null) === MODEL['storeVersion'] && ($db['revision'] ?? null) === $since;
 }
 
 /**

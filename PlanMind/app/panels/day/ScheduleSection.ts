@@ -67,12 +67,20 @@ const place = (el: HTMLElement) => {
  * A block shows as many lines of its words as its height holds (--lines, read by .day-ev-text), and an ellipsis after the last one when
  * there is more. A hidden block or one with no room still gets one line. The words are never cut at a number of characters.
  */
-function fitLines(el: HTMLElement) {
-  const text = el.querySelector<HTMLElement>('.day-ev-text');
-  if (!text) { return; }
-  const box = getComputedStyle(el), line = parseFloat(getComputedStyle(text).lineHeight) || 15;
-  const room = el.clientHeight - (parseFloat(box.paddingTop) || 0) - (parseFloat(box.paddingBottom) || 0);
-  el.style.setProperty('--lines', String(Math.max(1, Math.floor((room + 0.5) / line))));
+function fitLines(el: HTMLElement) { fitAll([el]); }
+/**
+ * Every block's room is read first and every `--lines` written after (and only when it changed), so a redraw costs one layout, not one per block:
+ * a write between two reads makes the browser lay the whole page out again for the next read.
+ */
+function fitAll(blocks: HTMLElement[]) {
+  const lines = blocks.map(el => {
+    const text = el.querySelector<HTMLElement>('.day-ev-text');
+    if (!text) { return null; }
+    const box = getComputedStyle(el), line = parseFloat(getComputedStyle(text).lineHeight) || 15;
+    const room = el.clientHeight - (parseFloat(box.paddingTop) || 0) - (parseFloat(box.paddingBottom) || 0);
+    return String(Math.max(1, Math.floor((room + 0.5) / line)));
+  });
+  blocks.forEach((el, i) => { const n = lines[i]; if (n !== null && el.style.getPropertyValue('--lines') !== n) { el.style.setProperty('--lines', n); } });
 }
 
 /** What a screen reader says for a block: the words, when, and whose. */
@@ -250,8 +258,9 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
   scrollbarSize.observe(timeline);
   scrollbarSize.observe(lanesEl);
   cleanups.push(() => { scrollbarSize.disconnect(); cancelAnimationFrame(scrollbarFrame); });
-  const sized = new ResizeObserver(blocks => blocks.forEach(b => fitLines(b.target as HTMLElement)));
-  evs.querySelectorAll<HTMLElement>('.day-ev').forEach(block => { fitLines(block); sized.observe(block); });
+  const sized = new ResizeObserver(blocks => fitAll(blocks.map(b => b.target as HTMLElement)));
+  const dayBlocks = [...evs.querySelectorAll<HTMLElement>('.day-ev')];
+  fitAll(dayBlocks); dayBlocks.forEach(block => sized.observe(block));
   cleanups.push(() => sized.disconnect());
   if (focusAfter) {
     const again = [...evs.querySelectorAll<HTMLElement>('.day-ev:not(.day-editing)')].find(b => b.dataset.id === focusAfter);
@@ -504,7 +513,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     if (step.ok && !shape(step.start, step.start + event.length, win)) { generation++; ctx.announce(`${name} cannot move ${later ? 'later' : 'earlier'} on this half of the day: switch to ${win.half === 'am' ? 'PM' : 'AM'}.`); return; }
     if (!step.ok) { generation++; ctx.announce(step.reason === 'window' ? `${name} cannot move ${later ? 'later' : 'earlier'}: it is at the ${later ? 'end' : 'start'} of the schedule.` : `${name} cannot move ${later ? 'later' : 'earlier'}: it would overlap ${step.with.text}.`); return; }
     const result = await moveTo(event, step.start);
-    if (!result.ok) { generation++; } else { focusAfter = id; }
+    if (!result.ok) { generation++; } else { focusAfter = id; ctx.rerender(); }   // the answer only confirms the move, so the shell would keep the page: this redraw is what gives the focus back
     ctx.announce(result.ok ? `${name} moved to ${spanLabel(step.start, event.length)}.` : result.skipped ? '' : result.message);
   }
   /**
@@ -522,7 +531,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     if (start === null) { generation++; ctx.announce(`${name} cannot be for ${forWhom(aim.owners)}: there is no room.`); return; }
     if (!shape(start, start + event.length, win)) { generation++; ctx.announce(`${name} cannot be for ${forWhom(aim.owners)} on this half of the day: switch to ${win.half === 'am' ? 'PM' : 'AM'}.`); return; }
     const result = await moveTo(event, start, aim.owners);
-    if (!result.ok) { generation++; } else { focusAfter = id; }
+    if (!result.ok) { generation++; } else { focusAfter = id; ctx.rerender(); }   // the answer only confirms the move, so the shell would keep the page: this redraw is what gives the focus back
     ctx.announce(result.ok ? `${name} is for ${forWhom(aim.owners)}, ${spanLabel(start, event.length)}.` : result.skipped ? '' : result.message);
   }
   section.addEventListener('keydown', key => {

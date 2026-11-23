@@ -389,9 +389,12 @@ test.describe('Day panel, desktop', () => {
       expect((await dinner.boundingBox())!.width).toBeGreaterThan(lanes.width - 6);
       expect((await owner.snapshot()).priorities.find((p: { text: string }) => p.text === 'Family dinner')).toMatchObject({ owners: [OWNER, PARTNER], slots: { [PARTNER]: 2, [OWNER]: 2 } });
       // Editing it changes the words for both lists and keeps both owners; the field is as wide as the cell it replaces.
+      // Measured before the press: the redraw that opens the field can come before the next call, and the cell it replaces is gone then.
+      const was = (await dinner.boundingBox())!;
       await dinner.click();
       const dinnerField = field(page, 'Edit priority 2: Family dinner');
-      const [was, now] = [(await dinner.boundingBox())!, (await page.locator('.day-cell.day-editing').boundingBox())!];
+      await expect(dinnerField).toBeVisible();
+      const now = (await page.locator('.day-cell.day-editing').boundingBox())!;
       expect(Math.abs(now.width - was.width)).toBeLessThanOrEqual(2);
       expect(Math.abs(now.y - was.y)).toBeLessThanOrEqual(2);
       await dinnerField.fill('Family dinner out');

@@ -102,14 +102,22 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   /** A quiet write is over, answered or not: the last one tells the shell, which may be waiting for it to load a new release. */
   const quietWriteEnded = () => { quietWrites--; if (alive && quietWrites === 0) { emit('status'); } };
 
+  /**
+   * Counts the 'data' announcements that may have changed what a panel reads. The one that does not count is the answer to an optimistic write that landed alone
+   * (`confirming`: the revision moved by exactly that write): the screen already shows it (core optimistic.ts), so the shell may keep the page it drew.
+   * Anything else, a poll that brought changes included, counts, and the page is drawn again as ever.
+   */
+  let epoch = 0;
+  const changed = () => { epoch++; emit('data'); };
+
   /** Takes a snapshot in when it is newer than the one held. Returns whether anything changed. */
-  function applyResponse(response: Loaded): boolean {
+  function applyResponse(response: Loaded, confirming = false): boolean {
     if (!alive || 'unchanged' in response || response.revision <= session.revision) { return false; }
     session = { ...session, ...response, prefs: session.prefs };
     // A full answer to a read (not to a write) says this person's stored Both color, so a pick made on another device arrives with the next change; one of ours in flight is not overruled.
     if ('bothColor' in response && !bothSaving) { bothColor = (response as Session).bothColor ?? null; bothConfirmed = bothColor; }
     selection = resolveSelection(selection, session.lists);
-    emit('data');
+    if (confirming) { emit('data'); } else { changed(); }
     return true;
   }
 
@@ -139,7 +147,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
       const allDay = Array.isArray(reply.allDay) ? reply.allDay : [];
       const changed = JSON.stringify(reply.events) !== JSON.stringify(calmindEvents) || JSON.stringify(allDay) !== JSON.stringify(calmindAllDay);
       calmindEvents = reply.events; calmindAllDay = allDay; calmindRange = { from, to };
-      if (changed && !calmindHidden) { emit('data'); }
+      if (changed && !calmindHidden) { epoch++; emit('data'); }
     } catch { /* kept as it was; the next poll asks again */ }
     finally { calmindFetching = false; }
   }
@@ -188,7 +196,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
       }
       queueVersion++;
       error = null; status = 'Saving…';
-      if (optimistic) { emit('data'); }
+      if (optimistic) { changed(); }
       emitBusy(); emit('status');
       void pump();
     });
@@ -208,7 +216,9 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
         if (!alive) { return; }
         // The answer is taken in while the write still counts as queued, so a write the screen cannot answer (`busy`) holds the shell's redraw until it has been handled; an optimistic one is already drawn.
         if (reply) {
-          if (!applyResponse(reply)) { emit('data'); }
+          // An optimistic write whose reply moves the revision by exactly that write: no one else's change came in between, so the reply only confirms what the screen shows.
+          const confirming = entry.optimistic && reply.revision === session.revision + 1;
+          if (!applyResponse(reply, confirming)) { changed(); }
           queue.shift(); queueVersion++;
           if (queue.length === 0) { setStatus('Saved'); }
           entry.waiters.forEach(done => done({ ok: true }));
@@ -223,7 +233,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
           queue = queue.filter(other => other !== entry && !behind.includes(other)); queueVersion++;
           // The line still counts as busy for a macrotask, so the shell holds its redraw until the code that awaited the refused write has run (a form shows its reason first), then draws the corrected picture.
           settling++; setTimeout(() => { settling--; if (alive && settling === 0) { wasBusy = isBusy(); wasQueued = isQueued(); emit('busy'); } }, 0);
-          emit('data'); emit('status');
+          changed(); emit('status');
           entry.waiters.forEach(done => done({ ok: false, message, code: failure!.code, uncertain: failure!.uncertain }));
           behind.forEach(other => other.waiters.forEach(done => done(SKIPPED)));
         }
@@ -285,6 +295,8 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     /** The middle of the 15-row date list; moves with shiftCenter. */
     get center() { return center; },
     get today() { return today; },
+    /** How many 'data' announcements may have changed what a panel reads (not counting a write's answer that only confirms what the screen showed): the shell keeps its page while it has not moved. */
+    get epoch() { return epoch; },
     get busy() { return isBusy(); },
     /** Whether any write, an optimistic one too, is waiting or on its way. */
     get queued() { return isQueued(); },
@@ -366,7 +378,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     async setCalmindHidden(next: boolean): Promise<void> {
       if (next === calmindHidden) { return; }
       const mine = ++calmindTry, before = calmindHidden;
-      calmindHidden = next; emit('data');
+      calmindHidden = next; changed();
       if (!next) { void syncCalmind(true); }
       if (!io.setCalmind) { return; }
       quietWrites++;
@@ -375,7 +387,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
         if (reply?.calmind !== (next ? 'hidden' : 'shown')) { throw new ApiFailure('That could not be saved.', 200, 'unavailable'); }
       } catch (e) {
         if (mine === calmindTry && alive) {
-          calmindHidden = before; emit('data');
+          calmindHidden = before; changed();
           setError(e instanceof ApiFailure && !e.uncertain ? e.message : 'Could not save whether CalMind events show.', 'panel');
         }
       } finally { quietWriteEnded(); }
@@ -388,7 +400,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
     async saveBothColor(next: ColorKey): Promise<ThemeResult> {
       if (next === (bothColor ?? session.settings.bothColor)) { return { ok: true }; }
       const mine = ++bothTry;
-      bothColor = next; bothSaving = true; emit('data');
+      bothColor = next; bothSaving = true; changed();
       if (!io.setBothColor) { bothConfirmed = next; bothSaving = false; return { ok: true }; }
       const previous = bothQueue;
       let release!: () => void;
@@ -401,7 +413,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
         bothConfirmed = next;
         return { ok: true };
       } catch (e) {
-        if (mine === bothTry && alive) { bothColor = bothConfirmed; emit('data'); }
+        if (mine === bothTry && alive) { bothColor = bothConfirmed; changed(); }
         const failure = e instanceof ApiFailure ? e : null;
         return { ok: false, message: failure?.uncertain ? 'Could not confirm the change, so your Both color stays as it was.' : failure?.message || 'That color could not be saved.' };
       } finally { release(); if (mine === bothTry) { bothSaving = false; bothQueue = null; } quietWriteEnded(); }
