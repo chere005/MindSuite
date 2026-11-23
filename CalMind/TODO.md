@@ -30,7 +30,7 @@ file, and run this as part of ANY future compression.
 
 ## Suite counts, as of this commit
 
-core **1073** · app **261** · gesture **358** (+3 skipped: two live specs and the opt-in benchmark) · WebKit **26** · server **88** ·
+core **1087** · app **261** · gesture **358** (+3 skipped: two live specs and the opt-in benchmark) · WebKit **26** · server **88** ·
 live **19** with the API · desktop **7** (+3 and the 11 Rust cases of `desktop/test-signin.sh` in `npm run test:desktop`) · deploy guards **15** · plus the four
 native seam checkers no browser can reach: `npm run test:watch`,
 `npm run test:widget`, `npm run test:deploy`.
