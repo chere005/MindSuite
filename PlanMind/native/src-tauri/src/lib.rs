@@ -1,5 +1,10 @@
 use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
 
+// The shared updater (a byte copy of CalMind's): macOS and Windows have a feed entry; the Linux and mobile builds
+// do not compile it (its plugins are macOS/Windows dependencies in Cargo.toml).
+#[cfg(any(target_os = "macos", windows))]
+mod updater;
+
 const PRODUCTION: &str = "https://seancheren.com/PlanMind/";
 // One address per build, fixed at compile time: a build can only reach the address it was built for.
 const START: &str = match option_env!("PLANMIND_APP_URL") {
@@ -46,6 +51,10 @@ pub fn run() {
     assert!(approved_start(&start), "PLANMIND_APP_URL is not an approved PlanMind address");
     tauri::Builder::default()
         .setup(move |app| {
+            // Before the window is built, so the window gets the "Check for Updates..." menu item. A config that is
+            // not the strict one leaves the updater off and the app unaffected.
+            #[cfg(any(target_os = "macos", windows))]
+            updater::init(app, updater::Options::default())?;
             let origin = start.clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(start.clone()))
                 .title("PlanMind")

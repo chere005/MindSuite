@@ -64,7 +64,7 @@ fi
 # What devicectl says when a phone is simply not there to install onto (anything else is a real failure and fails the run).
 PHONE_AWAY='locked|not connected|isn.t connected|is not connected|unavailable|not available|offline|unreachable|disconnected|unable to connect|not paired|could not be found|no devices|timed out|timeout|passcode'
 if [ "$DRY" = 1 ]; then
-  [ "$MAC" = 0 ] || echo 'would: build the PlanMind app on macOS (no dmg: that needs Finder), then install only PlanMind.app'
+  [ "$MAC" = 0 ] || echo 'would: build the PlanMind app on macOS (the dmg comes from the Release workflow), sign it with Developer ID, notarize and staple it, verify it, then install only PlanMind.app'
   [ "$WINDOWS" = 0 ] || echo 'would: build PlanMind msi + exe on Windows'
   [ "$IOS" = 0 ] || echo 'would: build the signed iOS app on macOS (SPACE mounted); install onto the udids in IOS_PHONES (default: the phones listed for it in .local/machine.env), skipping with a warning any phone that is offline or locked'
   exit 0
@@ -91,15 +91,16 @@ command -v cargo >/dev/null || { echo 'Rust and the platform build tools are req
 if [ "$MAC" = 1 ]; then
   heavy_lock 'PlanMind macOS'
   npm --prefix native ci
-  # The dmg needs Finder/AppleScript and fails after a good .app; the Release workflow builds installers.
+  # The dmg is the Release workflow's (signed, notarized and stapled there); this lane builds the .app only.
   (cd native && npm run build -- --bundles app)
-  WAS_OPEN=0; if pgrep -x planmind >/dev/null; then WAS_OPEN=1; pkill -x planmind; sleep 1; fi
-  rm -rf /Applications/PlanMind.app
-  ditto native/src-tauri/target/release/bundle/macos/PlanMind.app /Applications/PlanMind.app
-  test -x /Applications/PlanMind.app/Contents/MacOS/planmind
-  [ "$WAS_OPEN" = 0 ] || open /Applications/PlanMind.app
-  MAC_DONE=1
   heavy_unlock
+  # Sign with the full Developer ID name, notarize, staple, verify (arm64, team, hardened runtime), and only then replace
+  # /Applications/PlanMind.app; a running copy is quit and reopened by the script. Nothing ad hoc is ever installed.
+  # PLANMIND_INSTALL_DIR: a scratch install directory (tests, update trials); the default is the real /Applications.
+  INSTALL_DIR=${PLANMIND_INSTALL_DIR:-/Applications}
+  sh tools/mac-sign-install.sh --install-dir "$INSTALL_DIR" native/src-tauri/target/release/bundle/macos/PlanMind.app
+  test -x "$INSTALL_DIR/PlanMind.app/Contents/MacOS/planmind"
+  MAC_DONE=1
 fi
 if [ "$WINDOWS" = 1 ]; then
   case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ;; *) echo 'Windows (Git Bash) is required for the Windows packages.' >&2; exit 1 ;; esac
