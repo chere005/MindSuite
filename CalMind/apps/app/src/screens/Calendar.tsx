@@ -12,12 +12,13 @@ import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   LONG_PRESS_MS,
   addDays,
-  cellMarks,
+  cellMarksRange,
   chefDatedDays,
   chefDatesOn,
   type CellMark,
   dayHeading,
   dayItems,
+  dayItemsRange,
   duplicateItem,
   eventLine,
   monthGridFilled,
@@ -209,21 +210,28 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
     });
   }, [visibleSubs, subIcs, cells]);
   const subDay = useMemo(() => subOccs.filter((o) => o.occ.date === day), [subOccs, day]);
-  const marks = useMemo(
-    () => new Map(cells.filter(Boolean).map((d) => [d!, [
-      ...cellMarks(drawn, d!, today, folderModes),
-      ...cellMarks(sharedDrawn, d!, today, folderModes),
+  // One pass over the records for the whole window, shared by the cell marks,
+  // the legend and (wide) the cell lines: they used to ask dayItems per cell,
+  // each time expanding every repeat from its first step.
+  const gridDates = useMemo(() => cells.filter((d): d is string => !!d), [cells]);
+  const winMine = useMemo(() => dayItemsRange(drawn, gridDates, today, folderModes), [drawn, gridDates, today, folderModes]);
+  const winTheirs = useMemo(() => dayItemsRange(sharedDrawn, gridDates, today, folderModes), [sharedDrawn, gridDates, today, folderModes]);
+  const marks = useMemo(() => {
+    const mine = cellMarksRange(drawn, gridDates, today, folderModes, winMine);
+    const theirs = cellMarksRange(sharedDrawn, gridDates, today, folderModes, winTheirs);
+    return new Map(gridDates.map((d) => [d, [
+      ...mine.get(d)!,
+      ...theirs.get(d)!,
       // Subscribed events wear the event glyph in the subscription's colour —
       // one glyph per subscription per day, the cell rule's shape.
       ...[...new Map(subOccs.filter((o) => o.occ.date === d).map((o) => [o.subId, o])).values()]
         .map((o): CellMark => ({ kind: 'event', color: o.color })),
-    ]])),
-    [drawn, sharedDrawn, cells, today, folderModes, subOccs],
-  );
+    ]]));
+  }, [drawn, sharedDrawn, gridDates, today, folderModes, subOccs, winMine, winTheirs]);
   // Same modes the grid draws through, so the key can only name things the
   // window actually holds.
-  const legend = useMemo(() => monthLegend(drawn, cells, today, folderModes, showDone), [drawn, cells, today, folderModes, showDone]);
-  const sharedLegend = useMemo(() => monthLegend(sharedDrawn, cells, today, folderModes, showDone), [sharedDrawn, cells, today, folderModes, showDone]);
+  const legend = useMemo(() => monthLegend(drawn, cells, today, folderModes, showDone, winMine), [drawn, cells, today, folderModes, showDone, winMine]);
+  const sharedLegend = useMemo(() => monthLegend(sharedDrawn, cells, today, folderModes, showDone, winTheirs), [sharedDrawn, cells, today, folderModes, showDone, winTheirs]);
   const items = useMemo(() => dayItems(drawn, day, today, folderModes), [drawn, day, today, folderModes]);
   /**
    * MealMind recipes CalMind has planned for a day (the owner, 2026-09-16).
@@ -317,9 +325,10 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   const agenda = useMemo(() => {
     if (calView !== 'list') return [];
     const out: { date: string; items: ReturnType<typeof dayItems>; chef: Rec<'note'>[] }[] = [];
-    for (let i = 0; i < LIST_DAYS; i++) {
-      const d = addDays(today, i);
-      const it = dayItems(drawn, d, today, folderModes);
+    const days = Array.from({ length: LIST_DAYS }, (_, i) => addDays(today, i));
+    const win = dayItemsRange(drawn, days, today, folderModes); // one pass, not ninety-two
+    for (const d of days) {
+      const it = win.get(d)!;
       const shown = it.reminders.filter(({ rec: r, late }) => !r.payload.done || (showDone && !late));
       // A day that holds nothing but a planned recipe is still a day with
       // something on it — the list would otherwise disagree with the grid,
@@ -586,8 +595,8 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   const cellLines = new Map<string, CellLine[]>();
   if (wide && calView !== 'list') {
     for (const d of cells) {
-      const mine = dayItems(drawn, d, today, folderModes);
-      const theirs = dayItems(sharedDrawn, d, today, folderModes);
+      const mine = winMine.get(d)!;
+      const theirs = winTheirs.get(d)!;
       const out: CellLine[] = [];
       for (const e of [...mine.events, ...theirs.events]) {
         out.push({
@@ -985,9 +994,11 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
   const upcoming = useMemo(() => {
     if (!beside) return [];
     const out: { date: string; items: ReturnType<typeof dayItems>; chef: Rec<'note'>[] }[] = [];
-    for (let i = 1; i <= 30 && out.length < 5; i++) {
-      const d = addDays(day, i);
-      const it = dayItems(drawn, d, today, folderModes);
+    const days = Array.from({ length: 30 }, (_, i) => addDays(day, i + 1));
+    const win = dayItemsRange(drawn, days, today, folderModes);
+    for (const d of days) {
+      if (out.length >= 5) break;
+      const it = win.get(d)!;
       const shown = it.reminders.filter(({ rec: r, late }) => !r.payload.done || (showDone && !late));
       const chef = chefDatesOn(recs, chefRecs, d);
       if (it.events.length + shown.length + it.notes.length + chef.length > 0) out.push({ date: d, items: { ...it, reminders: shown }, chef });
