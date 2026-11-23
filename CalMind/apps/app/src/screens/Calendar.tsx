@@ -72,6 +72,8 @@ const LIST_IDS: AgendaIds = { day: { testID: 'cal-list-day' }, head: { testID: '
 /** The resting pane's upcoming days: own ids, so the list view's never double up. */
 const UP_IDS: AgendaIds = { day: { testID: 'cal-up-day' }, head: { testID: 'cal-up-head' }, chef: { testID: 'cal-up-chef' } };
 
+const dueLabels = new Map<string, string>();
+
 export function calSelectedDay(): string {
   return calDay ?? todayStr();
 }
@@ -643,8 +645,17 @@ export function Calendar({ onNoteCreated }: { onNoteCreated?: (id: string) => vo
     }
   }
 
-  const dueLabel = (d: string) =>
-    new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const dueLabel = (d: string) => {
+    // One Intl format per distinct date, not per late row per render: a day panel
+    // that has collected hundreds of overdue rows asked for the same few dates
+    // hundreds of times on every tick.
+    let label = dueLabels.get(d);
+    if (label === undefined) {
+      label = new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      dueLabels.set(d, label);
+    }
+    return label;
+  };
   /**
    * "Thursday, Aug 13" — the month ABBREVIATED, on the owner's word (2026-08-13):
    * "use 3 chars for month name in the calendar view like 'Aug' instead of
