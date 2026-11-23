@@ -6,7 +6,8 @@
 #
 # It needs, in order: the release PlanMind/<version> PUBLISHED on GitHub with its Windows installers (the workflow
 # .github/workflows/planmind-release.yml does that), and the signed, notarized PlanMind.app of exactly this version
-# installed (tools/build-platforms.sh --mac does that). It downloads the two Windows installers, then
+# installed (tools/build-platforms.sh --mac does that). It downloads the two Windows installers, refuses any whose SHA-256 the
+# workflow's windows job did not print into its run log (see below), then
 # ../tools/publish-update.mjs verifies the app, signs the archive and both installers with PlanMind's update key (from the
 # separate keychain, never printed), uploads them, and writes latest.json LAST to the fixed feed release PlanMind-updates.
 # Nothing here is ever fatal to a release that already shipped; the caller says what is still owed.
@@ -41,6 +42,27 @@ for f in "$WORK"/*; do
   esac
 done
 [ "$NM" = 1 ] && [ "$NN" = 1 ] || { echo "publish-update: expected one PlanMind_${VERSION}_x64*.msi and one -setup.exe on $TAG, found $NM and $NN" >&2; exit 1; }
+
+# The installers are signed with the update key, and Windows checks nothing but that signature, so each one must be the file the
+# workflow built. The windows job prints "MINDSUITE-DIGEST sha256 <hex> <file name>" for every installer into its run log (which a
+# release token cannot edit); a file whose digest no run of this tag printed (swapped on the release after the build) is never
+# signed. No run log, no signature: the step can be run again.
+sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+WF=planmind-release.yml
+RUNS=$("$GH" run list --repo "$REPO" --workflow "$WF" --branch "$TAG" --limit 30 --json databaseId --jq '.[].databaseId' 2>/dev/null | tr -d '\r' || true)
+DIGESTS="$WORK/built-digests.txt"; : > "$DIGESTS"
+for run in $RUNS; do
+  printf '%s\n' "$run" | grep -Eq '^[0-9]+$' || continue
+  for job in $("$GH" run view "$run" --repo "$REPO" --json jobs --jq '.jobs[] | select(.name | startswith("Windows")) | .databaseId' 2>/dev/null | tr -d '\r' || true); do
+    printf '%s\n' "$job" | grep -Eq '^[0-9]+$' || continue
+    "$GH" run view --job "$job" --repo "$REPO" --log 2>/dev/null | tr -d '\r' \
+      | sed -n 's/.*MINDSUITE-DIGEST sha256 \([0-9a-f]\{64\}\) \(.*\)$/\1 \2/p' >> "$DIGESTS" || true
+  done
+done
+for f in "$MSI" "$NSIS"; do
+  want="$(sha256_of "$f") $(basename "$f")"
+  grep -Fxq "$want" "$DIGESTS" || { echo "publish-update: $(basename "$f") (sha256 ${want%% *}) is not a file the $TAG workflow built: no run of $WF printed that digest. Nothing was signed or uploaded." >&2; exit 1; }
+done
 
 if [ -s "docs/releases/$VERSION.md" ]; then set -- --notes-file "docs/releases/$VERSION.md" "$@"; else set -- --notes "PlanMind $VERSION" "$@"; fi
 node "$TOOL" --app PlanMind --version "$VERSION" --repo "$REPO" --mac-app "$APP" --win-nsis "$NSIS" --win-msi "$MSI" "$@"

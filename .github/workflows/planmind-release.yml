@@ -268,7 +268,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: PlanMind/native/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to a commit (a moved tag could run foreign code next to the signing identity); with a SHA the toolchain is named.
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       - name: Install deps
         working-directory: PlanMind/native
@@ -280,7 +283,7 @@ jobs:
 
       # No createUpdaterArtifacts: CI has no update key (it lives on the owner's Mac); the lane makes the update files.
       - name: Build the Windows bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           projectPath: PlanMind/native
           args: --bundles msi,nsis
@@ -330,6 +333,19 @@ jobs:
           printf 'Will attach: %s\n' "${files[@]}"
           printf '%s\n' "${files[@]}" > "$RUNNER_TEMP/attach.txt"
 
+      # The digest of each installer as the build made it, in the run's log, which a release token cannot edit. The owner's
+      # publish-update step signs the installers it downloads from the release only if their SHA-256 is printed here, so a
+      # file swapped on the release after this job is never signed with the update key (tools/publish-update.sh).
+      - name: Record the installers' digests
+        shell: bash
+        working-directory: PlanMind
+        run: |
+          set -euo pipefail
+          mapfile -t files < "$RUNNER_TEMP/attach.txt"
+          for f in "${files[@]}"; do
+            printf 'MINDSUITE-DIGEST sha256 %s %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
+          done
+
       - name: Upload into the draft release
         if: env.PREFLIGHT != 'true'
         shell: bash
@@ -375,7 +391,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: PlanMind/native/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to a commit (a moved tag could run foreign code next to the signing identity); with a SHA the toolchain is named.
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       - name: Install deps
         working-directory: PlanMind/native
@@ -392,7 +411,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           projectPath: PlanMind/native
           args: --bundles dmg

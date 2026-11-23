@@ -1697,6 +1697,22 @@ pu_case() {
 echo "gh $*" >> "$ULOG"
 case "$1 $2" in
   "release view") echo "${STUB_DRAFT:-false}" ;;
+  "run list") case "${STUB_RUNS:-one}" in one) echo 111; echo 112 ;; none) ;; esac ;;
+  "run view")
+    case " $* " in
+      *" --json "*) echo 9001 ;;
+      *" --job "*)
+        # the log lines carry the job, step and timestamp in front; the script text echoed by the run: block must not count
+        printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:03Z printf MINDSUITE-DIGEST sha256 %%s %%s\n'
+        e=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        case "${STUB_DIGEST:-match}" in
+          match) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_en-US.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_fr-FR.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64-setup.exe\n' "$e" "$e" "$e" ;;
+          swapped) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_en-US.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %064d PlanMind_5.1.0_x64-setup.exe\n' "$e" 7 ;;
+          onlymsi) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_5.1.0_x64_en-US.msi\n' "$e" ;;
+          othername) printf 'Windows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_4.0.0_x64_en-US.msi\nWindows msi + exe\tRecord\t2026-11-23T01:02:04Z MINDSUITE-DIGEST sha256 %s PlanMind_4.0.0_x64-setup.exe\n' "$e" "$e" ;;
+          none) ;;
+        esac ;;
+    esac ;;
   "release download")
     while [ $# -gt 0 ]; do [ "$1" != --dir ] || d=$2; shift; done
     case "${STUB_ASSETS:-both}" in
@@ -1729,6 +1745,17 @@ t_publish_update() {
   pu_case; STUB_TOOL_FAIL=1; export STUB_TOOL_FAIL; pu
   check 'a failing publish tool fails the step' test "$RC" -ne 0
   unset STUB_TOOL_FAIL
+  for mode in swapped onlymsi othername none; do
+    pu_case; STUB_DIGEST=$mode; export STUB_DIGEST; pu
+    check "an installer whose digest the workflow did not print ($mode) is never signed" test "$RC" -ne 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 0
+    check "and the message says nothing was signed ($mode)" grep -q 'is not a file the PlanMind/5.1.0 workflow built' "$U/out"
+  done
+  unset STUB_DIGEST
+  pu_case; STUB_RUNS=none; export STUB_RUNS; pu
+  check 'no workflow run at all means no signature' test "$RC" -ne 0 -a "$(grep -c '^tool ' "$ULOG")" -eq 0
+  unset STUB_RUNS
+  pu_case; pu
+  check 'the digests come from the runs of the tag, by the windows job log' grep -q '^gh run list --repo chere005/MindSuite --workflow planmind-release.yml --branch PlanMind/5.1.0' "$ULOG" && grep -q '^gh run view --job 9001 ' "$ULOG"
   pu_case; printf '{"name":"planmind","version":"5.1"}\n' > "$U/package.json"; pu
   check 'a version that is not x.y.z is refused' test "$RC" -ne 0 -a "$(grep -c 'gh ' "$ULOG")" -eq 0
   check 'the temporary download folder is removed' test -z "$(ls -d "${TMPDIR:-/tmp}"/planmind-update.* 2>/dev/null)"
@@ -2112,6 +2139,7 @@ git push --atomic origin main "refs/tags/$TAG"'
   mutf dtp-suite-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#\[ "$SUITE_OWED" = 0 \] \&\& ##'
   mutf publish-update-draft-allowed t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#^\[ "$DRAFT" = false \] || .*#:#'
   mutf publish-update-any-installer-count t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#^\[ "$NM" = 1 \] \&\& \[ "$NN" = 1 \] || .*#:#'
+  mutf publish-update-no-digest-check t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#^  grep -Fxq "$want" "$DIGESTS" || .*#  :#'
   mutf publish-update-wrong-app t_publish_update PUBLISH_UPDATE_SRC "$ROOT/tools/publish-update.sh" 's#--app PlanMind#--app TaskMind#'
   mutf dtp-update-without-release-check t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#^if \[ -n "$RELEASE_FAILED" \]; then$#if false; then#'
   mutf dtp-update-failure-exit-0 t_dtp DTP_SRC "$ROOT/tools/dtp.sh" 's#\&\& \[ -z "$UPDATE_FAILED" \] || exit 1#|| exit 1#'
