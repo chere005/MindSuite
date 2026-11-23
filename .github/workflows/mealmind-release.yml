@@ -9,7 +9,7 @@
 #   mac      (macos-15) Apple silicon (the runner is an arm64 Mac): typecheck, tests, export the web app, tauri build with
 #                       `--bundles dmg` -> MealMind_<version>_aarch64.dmg, uploaded into the draft after signature and notarization checks.
 #   publish  (ubuntu)   every expected file is on the draft; SHA256SUMS.txt is written and attached; the release is published
-#                       (Latest; a version containing "-" is a pre-release). A missing file leaves the release a DRAFT.
+#                       (never marked Latest: each app has its own update feed; a version containing "-" is a pre-release). A missing file leaves the release a DRAFT.
 #
 # NO actions/upload-artifact OR download-artifact, anywhere: this account's Actions artifact storage quota is full ("Artifact
 # storage quota has been hit" failed the old Windows-only workflow on 2026-10-22/23). Release assets are not
@@ -447,6 +447,16 @@ jobs:
           ls -l "$dmg"
           hdiutil verify "$dmg"
 
+      # Tauri notarizes the app inside the dmg; the dmg wrapper itself is notarized and stapled here, so Gatekeeper accepts the
+      # download as it is. The next step refuses a dmg or app that is not signed, notarized, stapled and arm64.
+      - name: Notarize and staple the dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash tools/ci/notarize-dmg.sh MealMind/desktop/src-tauri/target/release/bundle/dmg/MealMind_${VERSION}_aarch64.dmg
+
       - name: Verify signature and notarization
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -541,7 +551,7 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             gh release edit "$TAG" --draft=false --prerelease
           else
-            gh release edit "$TAG" --draft=false --latest
+            gh release edit "$TAG" --draft=false --latest=false
           fi
           gh release view "$TAG" --json url --jq .url
 

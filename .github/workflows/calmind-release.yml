@@ -8,7 +8,7 @@
 #                       and launch of the MSI; the two installers are uploaded into the draft.
 #   macos    (macos-15) the same gates, then a signed, notarized Apple-silicon dmg verified before upload.
 #   linux    (ubuntu)   the same gates, then deb + AppImage (x64), the deb installed and launched under Xvfb; uploaded.
-#   publish  (ubuntu)   every expected file is on the draft; SHA256SUMS.txt is added; the release is published (Latest; a
+#   publish  (ubuntu)   every expected file is on the draft; SHA256SUMS.txt is added; the release is published (never marked Latest; a
 #                       version containing "-" is a pre-release). A missing file leaves the release a DRAFT.
 #
 # A failed build job leaves the release a draft nobody sees: fix it, then re-run the failed jobs (publish runs after them).
@@ -460,6 +460,16 @@ jobs:
           echo "Will attach: $dmg"
           echo "$dmg" > "$RUNNER_TEMP/attach.txt"
 
+      # Tauri notarizes the app inside the dmg; the dmg wrapper itself is notarized and stapled here, so Gatekeeper accepts the
+      # download as it is. The next step refuses a dmg or app that is not signed, notarized, stapled and arm64.
+      - name: Notarize and staple the dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash tools/ci/notarize-dmg.sh CalMind/desktop/src-tauri/target/release/bundle/dmg/CalMind_${VERSION}_aarch64.dmg
+
       - name: Verify signature and notarization
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -751,7 +761,7 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             gh release edit "$TAG" --draft=false --prerelease
           else
-            gh release edit "$TAG" --draft=false --latest
+            gh release edit "$TAG" --draft=false --latest=false
           fi
           gh release view "$TAG" --json url --jq .url
 
