@@ -3,7 +3,7 @@
  * list, and the + that opens the form.
  */
 import {
-  createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode,
+  createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ReactNode,
 } from 'react';
 import {
   Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text,
@@ -227,9 +227,28 @@ function TransactionsBody({
    * enter by accident, on a gesture with no affordance, one row at a time.
    */
   const [edit, setEdit] = useState(false);
-  // The pencil flips at once; the rows follow (each grows three buttons, which
-  // is most of a second of work on a long ledger). They read this copy.
-  const rowsEdit = useDeferredValue(edit);
+  /*
+   * Flipping the mode re-renders every row (each grows, or loses, a cluster of
+   * buttons: most of a second on a long ledger). The flip is a TRANSITION, so
+   * that second is spent without freezing the page, but `edit` itself is the
+   * only copy of the mode: the pencil, the label, the rows' controls and what
+   * a tap on them does all read it, and all change in the same commit. Nothing
+   * on screen ever shows controls for a mode the page is not in, so a tap
+   * cannot land on a delete button that the header says is gone. While the
+   * rows catch up, the pencil is dimmed (`flipping`) and says nothing yet.
+   */
+  const [flipping, startFlip] = useTransition();
+  /** The mode the last press asked for, which `edit` follows: a second press flips back. */
+  const wantEdit = useRef(false);
+  /** The mode the rows are drawn in right now (the last commit). */
+  const shownEdit = useRef(false);
+  useEffect(() => { shownEdit.current = edit; }, [edit]);
+  /**
+   * Between a press and the commit that follows it the rows still show the OLD
+   * mode, and the finger that just pressed the pencil is not aiming at them: a
+   * tap on a row in that gap is dropped (`stable`, `RowCell`).
+   */
+  const flippingNow = () => wantEdit.current !== shownEdit.current;
   /**
    * The rows picked out — MealMind's selection, brought over 2026-09-21.
    *
@@ -257,11 +276,24 @@ function TransactionsBody({
    * no way to tell which one Return will land on.
    */
   const [inline, setInline] = useState<{ id: string; field: 'name' | 'amount' } | null>(null);
-  const leaveEdit = useCallback(() => { setEdit(false); setSwipedId(null); }, []);
+  // A row's action ends edit mode at once (not as a transition: that press is
+  // already the answer, and the rows must not keep a cluster for an action that
+  // has been taken).
+  const leaveEdit = useCallback(() => {
+    setSwipedId(null);
+    if (!wantEdit.current) return;
+    wantEdit.current = false;
+    startFlip(() => setEdit(false));
+  }, [startFlip]);
   // Both directions clear the park. Edit mode HIDES it rather than cancelling
   // it, so without this the pencil pressed twice brought back a delete armed
   // on a row the finger left minutes ago.
-  const enterEdit = () => { setSwipedId(null); setEdit(true); };
+  const flipEdit = () => {
+    const next = !wantEdit.current;
+    wantEdit.current = next;
+    setSwipedId(null);
+    startFlip(() => setEdit(next));
+  };
   /** The sort dropdown, open or not. Owned here so the bar row stays dumb. */
   const [sorting, setSorting] = useState(false);
   /** Is a row mid-drag anywhere? Only the ScrollView needs to know. */
@@ -398,20 +430,21 @@ function TransactionsBody({
    * one row", which is the question a per-account drag asked; one row in
    * each of two accounts is now a move.
    */
-  const canMove = rowsEdit && !filtered && drawn >= rowTotal && onMove !== undefined
+  const canMove = edit && !filtered && drawn >= rowTotal && onMove !== undefined
     && (flatRows.filter((x) => x.kind === 'row').length > 1 || sections.length > 1);
   /*
    * Handlers whose identity never changes, reading the latest props through a
    * ref, so a memoised row is not handed a new function on every render of the
    * screen (the parent's callbacks are rebuilt each time the ledger changes).
    */
-  const latest = useRef({ onAction, onInline, onDate, onCleared });
-  latest.current = { onAction, onInline, onDate, onCleared };
+  const latest = useRef({ onAction, onInline, onDate, onCleared, busy: flippingNow });
+  latest.current = { onAction, onInline, onDate, onCleared, busy: flippingNow };
   const stable: RowHandlers = useMemo(() => ({
-    onPick: (id: string) => setPicked((p) => toggleSelected(p, id)),
-    onInline: (t: Txn, patch: InlinePatch) => latest.current.onInline?.(t, patch),
-    onDate: (t: Txn) => latest.current.onDate?.(t),
-    onCleared: (t: Txn, c: boolean) => latest.current.onCleared?.(t, c),
+    busy: () => latest.current.busy(),
+    onPick: (id: string) => { if (!latest.current.busy()) setPicked((p) => toggleSelected(p, id)); },
+    onInline: (t: Txn, patch: InlinePatch) => { if (!latest.current.busy()) latest.current.onInline?.(t, patch); },
+    onDate: (t: Txn) => { if (!latest.current.busy()) latest.current.onDate?.(t); },
+    onCleared: (t: Txn, c: boolean) => { if (!latest.current.busy()) latest.current.onCleared?.(t, c); },
     onAction: (a: RowAction, t: Txn) => latest.current.onAction?.(a, t),
   }), []);
   // What a row's category dropdown offers: through context, so only an OPEN
@@ -446,7 +479,8 @@ function TransactionsBody({
             {onAction !== undefined && (
               <CircleBtn
                 on={edit}
-                onPress={() => (edit ? leaveEdit() : enterEdit())}
+                pending={flipping}
+                onPress={flipEdit}
                 label={edit ? 'Done editing' : 'Edit rows'}
                 testID="edit-toggle"
               >
@@ -582,7 +616,7 @@ function TransactionsBody({
             onToggle={() => toggle(account.id)}
             onFoldAll={foldAllAccounts}
             onAdd={() => onAdd(account.id)}
-            edit={rowsEdit}
+            edit={edit}
             limit={limits[at] ?? 0}
             onEdited={leaveEdit}
             picked={pickedSet}
@@ -959,6 +993,8 @@ function Section({
 
 /** The handlers a row calls, none of which ever changes identity (see `stable`). */
 type RowHandlers = {
+  /** The page is changing mode: a tap on a row is dropped (see `flippingNow`). */
+  busy: () => boolean;
   onPick: (id: string) => void;
   onInline: (t: Txn, p: InlinePatch) => void;
   onDate: (t: Txn) => void;
@@ -1017,7 +1053,7 @@ const RowCell = memo(function RowCell(p: {
         onInline={p.hasInline ? (patch) => h.onInline(t, patch) : undefined}
         onDate={p.hasDate ? () => h.onDate(t) : undefined}
         onCleared={p.hasCleared ? (c) => h.onCleared(t, c) : undefined}
-        onAction={(a) => { p.setSwipedId(null); p.onEdited(); if (p.hasAction) h.onAction(a, t); }}
+        onAction={(a) => { if (h.busy()) return; p.setSwipedId(null); if (p.hasAction) h.onAction(a, t); p.onEdited(); }}
         grip={p.grip}
         lifted={p.lifted}
         dy={p.dy}

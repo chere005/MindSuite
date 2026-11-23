@@ -64,7 +64,7 @@ export function TopBar({ title, titleTestID, controls, picker, menu, showAppStat
  * with no word anywhere near it, and the word existed all along — it was
  * simply only being told to the people who could not see the mark.
  */
-export function CircleBtn({ glyph, label, onPress, on = false, off = false, testID, children }: {
+export function CircleBtn({ glyph, label, onPress, on = false, off = false, pending = false, testID, children }: {
   glyph?: string;
   label: string;
   onPress: () => void;
@@ -78,6 +78,12 @@ export function CircleBtn({ glyph, label, onPress, on = false, off = false, test
    * because "why is this greyed out" is exactly when the word helps.
    */
   off?: boolean;
+  /**
+   * The press was taken and the screen is still catching up with it: the ring
+   * is dimmed, nothing more. It stays pressable (a second press asks for the
+   * opposite), and `on` still says what is TRUE until the screen has changed.
+   */
+  pending?: boolean;
   testID?: string | undefined;
   children?: ReactNode;
 }) {
@@ -95,7 +101,7 @@ export function CircleBtn({ glyph, label, onPress, on = false, off = false, test
       testID={testID}
     >
       <TipBubble text={label} shown={tip.shown} />
-      <View style={[styles.ring, on && styles.ringOn, off && styles.ringOff]}>
+      <View style={[styles.ring, on && styles.ringOn, (off || pending) && styles.ringOff]}>
         {/* Three characters do not fit a 32pt circle at a single glyph's
             size — `.00` is a label, not an icon, and gets the smaller face. */}
         {children ?? (

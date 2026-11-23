@@ -76,11 +76,11 @@ function expectedNames(account: 'A' | 'B'): string[] {
   return own.map((t) => t.name);
 }
 
-function ledger(): string {
-  const txns = Array.from({ length: ROWS }, (_, i) => ({
+function ledger(rows: number = ROWS): string {
+  const txns = Array.from({ length: rows }, (_, i) => ({
     id: `t${String(i).padStart(3, '0')}`, name: `Shop ${i}`, description: '', amount: -(100 + i),
     date: `2026-08-${String(1 + (i % 28)).padStart(2, '0')}`, account: i % 2 === 0 ? 'A' : 'B', category: null,
-    order: ROWS - i, created: i + 1, updated: i + 1,
+    order: rows - i, created: i + 1, updated: i + 1,
   }));
   return JSON.stringify({
     v: 4,
@@ -92,12 +92,12 @@ function ledger(): string {
   });
 }
 
-async function open(page: Page): Promise<void> {
+async function open(page: Page, rows: number = ROWS): Promise<void> {
   await page.addInitScript(COUNTER);
   await page.addInitScript(SLICES);
-  await withStore(page, ledger());
+  await withStore(page, ledger(rows));
   // The list is drawn in slices; wait for the last row, not the first.
-  await expect(page.getByTestId('txn-row')).toHaveCount(ROWS);
+  await expect(page.getByTestId('txn-row')).toHaveCount(rows);
   await page.waitForTimeout(200);
 }
 
@@ -144,6 +144,108 @@ test('picking, clearing and filing one row render a handful of components, not t
     await expect(page.getByTestId('sort-menu-backdrop')).toBeVisible();
   });
   expect(sortMenu, 'opening the sort menu').toBeLessThan(MEMOISED);
+});
+
+test('a long ledger is drawn in a few bounded slices, not one per hundred rows', async ({ page }) => {
+  // A fixed step made the browser lay out everything drawn so far once per
+  // slice: ten thousand rows spent more time in layout than drawing them in
+  // one go. Slices grow with the list (to a cap), so the count of them grows
+  // with its logarithm, and none is bigger than the cap.
+  const LONG = 2000;
+  await open(page, LONG);
+  const counts = await page.evaluate(() => (window as any).__counts as number[]);
+  expect(counts[counts.length - 1]).toBe(LONG);
+  expect(counts[0], 'the first paint is a slice').toBeLessThan(150);
+  // 2000 rows in steps of 150 would be 14 slices; growing steps are fewer.
+  expect(counts.length, 'slices').toBeLessThanOrEqual(11);
+  expect(counts.length, 'slices').toBeGreaterThan(2);
+  const steps = counts.slice(1).map((n, i) => n - counts[i]!);
+  expect(Math.max(...steps), 'no slice is bigger than the cap').toBeLessThanOrEqual(500);
+});
+
+/**
+ * Edit mode shows controls on every row, so flipping it renders every row: a
+ * second of work on a long ledger. That work is a transition (the page stays
+ * alive), but the page must never SHOW a mixed state: the pencil's label, the
+ * rows' controls and what a tap on a row does all change in one commit, and a
+ * tap that lands while the rows are still the old mode's is dropped rather than
+ * taken for the new one's.
+ */
+test.describe('edit mode never shows controls that disagree with the mode', () => {
+  const WATCH = `
+  (() => {
+    const bad = window.__mixed = [];
+    const check = () => {
+      const label = document.querySelector('[data-testid="edit-toggle"]')?.getAttribute('aria-label');
+      const actions = document.querySelectorAll('[data-testid="row-actions"]').length;
+      const rows = document.querySelectorAll('[data-testid="txn-row"]').length;
+      if (!label || rows === 0) return;
+      const editing = label === 'Done editing';
+      if (editing !== (actions > 0) || (actions > 0 && actions !== rows)) bad.push({ label, actions, rows });
+    };
+    new MutationObserver(check).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label'] });
+  })();`;
+
+  test('the label, the controls and the rows change in one commit, both ways', async ({ page }) => {
+    await page.addInitScript(WATCH);
+    await open(page);
+    await page.getByTestId('edit-toggle').click();
+    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
+    await expect(page.getByTestId('edit-toggle')).toHaveAttribute('aria-label', 'Done editing');
+    await page.getByTestId('edit-toggle').click();
+    await expect(page.getByTestId('row-actions')).toHaveCount(0);
+    await expect(page.getByTestId('edit-toggle')).toHaveAttribute('aria-label', 'Edit rows');
+    // And pressed twice at once, the last press wins and nothing is half done.
+    await page.getByTestId('edit-toggle').dblclick();
+    await page.waitForTimeout(600);
+    await expect(page.getByTestId('row-actions')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).__mixed), 'no frame mixed the two modes').toEqual([]);
+  });
+
+  test('a tap on a row while the rows still show the old mode is dropped', async ({ page }) => {
+    await open(page);
+    await page.getByTestId('edit-toggle').click();
+    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
+    await page.waitForTimeout(300);
+    const del = await page.getByTestId('row-delete').first().boundingBox();
+    const clr = await page.getByTestId('txn-cleared-t000').boundingBox();
+    expect(del).not.toBeNull();
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 25 });
+    // Done is pressed; the rows go on showing delete buttons for a good while
+    // (25x slower), and a tap on one of them lands in that window.
+    await page.getByTestId('edit-toggle').click();
+    await page.mouse.click(del!.x + del!.width / 2, del!.y + del!.height / 2);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    await expect(page.getByTestId('edit-toggle')).toHaveAttribute('aria-label', 'Edit rows');
+    await expect(page.getByTestId('row-actions')).toHaveCount(0);
+    await page.waitForTimeout(300);
+    const txns = ((await stored(page)) as { txns: { deleted?: boolean }[] }).txns;
+    expect(txns.filter((t) => t.deleted === true), 'nothing was deleted by the stale tap').toHaveLength(0);
+    await expect(page.getByTestId('txn-row')).toHaveCount(ROWS);
+
+    // The same window the other way: Edit is pressed and a tap on a cleared
+    // box (what a tap does OUTSIDE edit mode) must not toggle it.
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 25 });
+    await page.getByTestId('edit-toggle').click();
+    if (clr !== null) await page.mouse.click(clr.x + clr.width / 2, clr.y + clr.height / 2);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
+    const after = ((await stored(page)) as { txns: { id: string; cleared?: boolean }[] }).txns;
+    expect(after.filter((t) => t.cleared === true), 'no row was cleared by the stale tap').toHaveLength(0);
+  });
+
+  test('choosing a row action still ends edit mode and does the action', async ({ page }) => {
+    await open(page);
+    await page.getByTestId('edit-toggle').click();
+    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
+    await page.getByTestId('txn-row').filter({ has: page.getByText('Shop 5', { exact: true }) }).getByTestId('row-delete').click();
+    await expect(page.getByTestId('txn-row')).toHaveCount(ROWS - 1);
+    await expect(page.getByTestId('row-actions')).toHaveCount(0);
+    await expect(page.getByTestId('edit-toggle')).toHaveAttribute('aria-label', 'Edit rows');
+    const deleted = ((await stored(page)) as { txns: { name: string; deleted?: boolean }[] }).txns.filter((t) => t.deleted === true);
+    expect(deleted.map((t) => t.name)).toEqual(['Shop 5']);
+  });
 });
 
 test('folding and unfolding an account does not re-render the other account', async ({ page }) => {
