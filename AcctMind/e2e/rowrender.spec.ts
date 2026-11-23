@@ -164,12 +164,12 @@ test('a long ledger is drawn in a few bounded slices, not one per hundred rows',
 });
 
 /**
- * Edit mode shows controls on every row, so flipping it renders every row: a
- * second of work on a long ledger. That work is a transition (the page stays
- * alive), but the page must never SHOW a mixed state: the pencil's label, the
- * rows' controls and what a tap on a row does all change in one commit, and a
- * tap that lands while the rows are still the old mode's is dropped rather than
- * taken for the new one's.
+ * Edit mode shows controls on every row, so flipping it renders every row (most
+ * of a second on a long ledger, and that cost is real: it is not deferred or
+ * moved off the click, because a header that says "Edit rows" over rows that
+ * still carry the old mode's delete buttons is a screen a tap can mislead). The
+ * pencil's label, the rows' controls and what a tap on a row does change in one
+ * commit, both ways.
  */
 test.describe('edit mode never shows controls that disagree with the mode', () => {
   const WATCH = `
@@ -195,44 +195,7 @@ test.describe('edit mode never shows controls that disagree with the mode', () =
     await page.getByTestId('edit-toggle').click();
     await expect(page.getByTestId('row-actions')).toHaveCount(0);
     await expect(page.getByTestId('edit-toggle')).toHaveAttribute('aria-label', 'Edit rows');
-    // And pressed twice at once, the last press wins and nothing is half done.
-    await page.getByTestId('edit-toggle').dblclick();
-    await page.waitForTimeout(600);
-    await expect(page.getByTestId('row-actions')).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).__mixed), 'no frame mixed the two modes').toEqual([]);
-  });
-
-  test('a tap on a row while the rows still show the old mode is dropped', async ({ page }) => {
-    await open(page);
-    await page.getByTestId('edit-toggle').click();
-    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
-    await page.waitForTimeout(300);
-    const del = await page.getByTestId('row-delete').first().boundingBox();
-    const clr = await page.getByTestId('txn-cleared-t000').boundingBox();
-    expect(del).not.toBeNull();
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 25 });
-    // Done is pressed; the rows go on showing delete buttons for a good while
-    // (25x slower), and a tap on one of them lands in that window.
-    await page.getByTestId('edit-toggle').click();
-    await page.mouse.click(del!.x + del!.width / 2, del!.y + del!.height / 2);
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
-    await expect(page.getByTestId('edit-toggle')).toHaveAttribute('aria-label', 'Edit rows');
-    await expect(page.getByTestId('row-actions')).toHaveCount(0);
-    await page.waitForTimeout(300);
-    const txns = ((await stored(page)) as { txns: { deleted?: boolean }[] }).txns;
-    expect(txns.filter((t) => t.deleted === true), 'nothing was deleted by the stale tap').toHaveLength(0);
-    await expect(page.getByTestId('txn-row')).toHaveCount(ROWS);
-
-    // The same window the other way: Edit is pressed and a tap on a cleared
-    // box (what a tap does OUTSIDE edit mode) must not toggle it.
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 25 });
-    await page.getByTestId('edit-toggle').click();
-    if (clr !== null) await page.mouse.click(clr.x + clr.width / 2, clr.y + clr.height / 2);
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
-    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
-    const after = ((await stored(page)) as { txns: { id: string; cleared?: boolean }[] }).txns;
-    expect(after.filter((t) => t.cleared === true), 'no row was cleared by the stale tap').toHaveLength(0);
   });
 
   test('choosing a row action still ends edit mode and does the action', async ({ page }) => {
@@ -397,5 +360,104 @@ test.describe('the wide table', () => {
 
     const select = await renders(page, () => page.getByTestId('wide-row').nth(5).click());
     expect(select, 'selecting one row').toBeLessThan(MEMOISED);
+  });
+});
+
+/**
+ * The sort is applied in the commit that says it was chosen. (It was deferred
+ * with the filter once, and the rows kept the old order for the length of the
+ * deferred render: a menu saying Amount over rows in date order. The throttle
+ * makes any such lag long enough to read.)
+ */
+test('the rows are in the new order as soon as the sort menu has closed', async ({ page }) => {
+  await open(page);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 20 });
+  await pickSort(page, 'amount');
+  const first = await page.evaluate(() => document.querySelector('[data-testid="txn-name"]')?.textContent);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  expect(first, 'the first row read straight after the menu closed').toBe('Shop 238');
+});
+
+/**
+ * All and Delete act on what the search box asks for, never on the list it is
+ * still drawing. The list trails the box by a render, and a render that is
+ * deferred cannot start until the task that asked for it is over: so typing and
+ * both presses happen in ONE task here, which makes the lag certain rather than
+ * a race. With the guard the presses are ignored (nothing selected, nothing
+ * deleted); without it All takes every row of the stale list and Delete removes
+ * the whole ledger.
+ */
+test('All then Delete while the list still lags the search takes nothing', async ({ page }) => {
+  await open(page);
+  await page.evaluate(async () => {
+    const q = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+    // React renders what a click set in a microtask; the deferred list needs a
+    // task of its own, so awaiting here lets the bar update and keeps the lag.
+    const settle = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+    const box = q('txn-search') as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, 'Shop 17');
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    q('picked-all').click();
+    await settle();
+    q('picked-delete').click();
+    await settle();
+    q('picked-delete').click();
+    await settle();
+  });
+  await expect(page.getByTestId('txn-search')).toHaveValue('Shop 17');
+  await expect(page.getByTestId('txn-row')).toHaveCount(11);
+  await page.waitForTimeout(500);
+  const gone = ((await stored(page)) as { txns: { name: string; deleted?: boolean }[] }).txns.filter((t) => t.deleted === true);
+  expect(gone, 'nothing was picked or deleted while the list was catching up').toHaveLength(0);
+});
+
+/**
+ * A row that is on screen stays on screen while the list grows. Rows drawn in
+ * slices used to be handed out to the sections in order every render, so
+ * anything that raised the total (an unfold, an insert, a sync) moved rows out
+ * of a later section and back, losing whatever the row held (an open editor).
+ */
+const REMOVALS = `
+(() => {
+  window.__removed = 0;
+  const sel = '[data-testid="txn-row"]';
+  new MutationObserver((ms) => {
+    for (const m of ms) for (const n of m.removedNodes) {
+      if (n.nodeType !== 1) continue;
+      window.__removed += (n.matches(sel) ? 1 : 0) + n.querySelectorAll(sel).length;
+    }
+  }).observe(document, { childList: true, subtree: true });
+})();`;
+
+test.describe('rows already drawn are never taken down while the list grows', () => {
+  test('unfolding the first account leaves the second account\'s rows alone', async ({ page }) => {
+    const LONG = 2000;
+    await page.addInitScript(COUNTER);
+    await page.addInitScript(REMOVALS);
+    await page.addInitScript(() => window.localStorage.setItem('acctmind.prefs.v1', JSON.stringify({ collapsed: ['A'] })));
+    await withStore(page, ledger(LONG));
+    // Checking is folded: only Savings' thousand rows arrive, in slices.
+    await expect(page.getByTestId('txn-row')).toHaveCount(LONG / 2, { timeout: 30_000 });
+    await page.waitForTimeout(200);
+    await page.getByTestId('account-head-A').click();
+    await expect(page.getByTestId('txn-row')).toHaveCount(LONG, { timeout: 30_000 });
+    expect(await page.evaluate(() => (window as any).__removed as number), 'rows removed on the way').toBe(0);
+  });
+
+  test('a transaction added to a ledger that was exactly drawn takes nothing down', async ({ page }) => {
+    // 500 is where the slice sequence (50, 200, 350, 500) lands exactly on the total.
+    const EXACT = 500;
+    await page.addInitScript(REMOVALS);
+    await open(page, EXACT);
+    await page.getByTestId('add-button').click();
+    await page.getByTestId('name-input').fill('Newest');
+    await page.getByTestId('amount-input').fill('450');
+    await page.getByTestId('save-button').click();
+    await expect(page.getByTestId('save-button')).toBeHidden();
+    await expect(page.getByTestId('txn-row')).toHaveCount(EXACT + 1, { timeout: 30_000 });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => (window as any).__removed as number), 'rows removed on the way').toBe(0);
   });
 });

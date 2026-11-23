@@ -3,7 +3,7 @@
  * list, and the + that opens the form.
  */
 import {
-  createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ReactNode,
+  createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import {
   Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text,
@@ -26,7 +26,7 @@ import {
   ClipboardIcon, DuplicateIcon, HammerIcon, PencilIcon, XIcon,
 } from './Icons';
 import { PickBar } from './PickBar';
-import { useProgressive } from './progressive';
+import { sectionLimits, useProgressive, type DrawnSection } from './progressive';
 import { useRowDrag, type RowDrag } from './rowdrag';
 import { TipBubble, useTip } from './Tip';
 import { BarRow, CircleBtn, TopBar } from './TopBar';
@@ -157,13 +157,14 @@ function TransactionsBody({
   const [filterOpen, setFilterOpen] = useState(false);
   const [resultFolds, setResultFolds] = useState<readonly string[]>([]);
   /*
-   * The list is drawn from a DEFERRED copy of the filter and the sort: the
-   * search box and the sort menu answer at once, and the two thousand rows
-   * behind them catch up when the thread is free (and a second keystroke
-   * abandons the first's render rather than queueing behind it).
+   * The list is drawn from a DEFERRED copy of the filter: the search box
+   * answers at once and the two thousand rows behind it catch up when the
+   * thread is free (a second keystroke abandons the first's render rather than
+   * queueing behind it). The SORT is not deferred: a menu that says "Amount"
+   * over rows still in date order is a screen that disagrees with itself, and
+   * the work after it is memoised and keyed, so the reorder is cheap.
    */
   const listFilter = useDeferredValue(filter);
-  const listSort = useDeferredValue(sort);
   const filtered = hasTxnFilter(listFilter);
   const filterCount = Number(filter.category !== undefined) + Number(filter.status !== 'any')
     + Number(filter.from !== null || filter.through !== null);
@@ -179,9 +180,9 @@ function TransactionsBody({
       const all = txns.filter((txn) => txn.account === account.id);
       const rows = filtered ? filterTransactions(all, listFilter) : all;
       if (filtered && rows.length === 0) return [];
-      return [{ account, rows: sortTxns(rows, listSort), balance: total(all), clearedBalance: clearedTotal(all) }];
+      return [{ account, rows: sortTxns(rows, sort), balance: total(all), clearedBalance: clearedTotal(all) }];
     });
-  }, [txns, accounts, view, filtered, listFilter, listSort]);
+  }, [txns, accounts, view, filtered, listFilter, sort]);
   const anyRows = sections.some((sec) => sec.rows.length > 0);
 
   /*
@@ -227,28 +228,6 @@ function TransactionsBody({
    * enter by accident, on a gesture with no affordance, one row at a time.
    */
   const [edit, setEdit] = useState(false);
-  /*
-   * Flipping the mode re-renders every row (each grows, or loses, a cluster of
-   * buttons: most of a second on a long ledger). The flip is a TRANSITION, so
-   * that second is spent without freezing the page, but `edit` itself is the
-   * only copy of the mode: the pencil, the label, the rows' controls and what
-   * a tap on them does all read it, and all change in the same commit. Nothing
-   * on screen ever shows controls for a mode the page is not in, so a tap
-   * cannot land on a delete button that the header says is gone. While the
-   * rows catch up, the pencil is dimmed (`flipping`) and says nothing yet.
-   */
-  const [flipping, startFlip] = useTransition();
-  /** The mode the last press asked for, which `edit` follows: a second press flips back. */
-  const wantEdit = useRef(false);
-  /** The mode the rows are drawn in right now (the last commit). */
-  const shownEdit = useRef(false);
-  useEffect(() => { shownEdit.current = edit; }, [edit]);
-  /**
-   * Between a press and the commit that follows it the rows still show the OLD
-   * mode, and the finger that just pressed the pencil is not aiming at them: a
-   * tap on a row in that gap is dropped (`stable`, `RowCell`).
-   */
-  const flippingNow = () => wantEdit.current !== shownEdit.current;
   /**
    * The rows picked out — MealMind's selection, brought over 2026-09-21.
    *
@@ -276,24 +255,14 @@ function TransactionsBody({
    * no way to tell which one Return will land on.
    */
   const [inline, setInline] = useState<{ id: string; field: 'name' | 'amount' } | null>(null);
-  // A row's action ends edit mode at once (not as a transition: that press is
-  // already the answer, and the rows must not keep a cluster for an action that
-  // has been taken).
-  const leaveEdit = useCallback(() => {
-    setSwipedId(null);
-    if (!wantEdit.current) return;
-    wantEdit.current = false;
-    startFlip(() => setEdit(false));
-  }, [startFlip]);
+  // One state, one commit: the pencil, its label and every row's controls change
+  // together, so no frame shows controls for a mode the header does not say. The
+  // setter is stable, which keeps `leaveEdit` stable for the memoised rows.
+  const leaveEdit = useCallback(() => { setEdit(false); setSwipedId(null); }, []);
   // Both directions clear the park. Edit mode HIDES it rather than cancelling
   // it, so without this the pencil pressed twice brought back a delete armed
   // on a row the finger left minutes ago.
-  const flipEdit = () => {
-    const next = !wantEdit.current;
-    wantEdit.current = next;
-    setSwipedId(null);
-    startFlip(() => setEdit(next));
-  };
+  const enterEdit = () => { setSwipedId(null); setEdit(true); };
   /** The sort dropdown, open or not. Owned here so the bar row stays dumb. */
   const [sorting, setSorting] = useState(false);
   /** Is a row mid-drag anywhere? Only the ScrollView needs to know. */
@@ -407,11 +376,16 @@ function TransactionsBody({
   // Draw the rows in slices on the way in: see `useProgressive`.
   const rowTotal = flatRows.length - sections.length;
   const drawn = useProgressive(rowTotal);
-  let undrawn = drawn;
-  const limits = sections.map(({ account, rows }) => {
-    const n = folds.includes(account.id) ? 0 : Math.min(undrawn, rows.length);
-    undrawn -= n;
-    return n;
+  // What each section drew at the last commit (read in render, written after a
+  // commit, so a render that is abandoned changes nothing): see `sectionLimits`.
+  const drawnBefore = useRef(new Map<string, DrawnSection>());
+  const limits = sectionLimits(
+    sections.map(({ account, rows }) => ({ id: account.id, count: rows.length, shut: folds.includes(account.id) })),
+    drawnBefore.current,
+    drawn,
+  );
+  useEffect(() => {
+    drawnBefore.current = new Map(sections.map(({ account, rows }, at) => [account.id, { limit: limits[at] ?? 0, count: rows.length }]));
   });
 
   const drag = useRowDrag(flatRows.length, (from, to) => {
@@ -437,14 +411,13 @@ function TransactionsBody({
    * ref, so a memoised row is not handed a new function on every render of the
    * screen (the parent's callbacks are rebuilt each time the ledger changes).
    */
-  const latest = useRef({ onAction, onInline, onDate, onCleared, busy: flippingNow });
-  latest.current = { onAction, onInline, onDate, onCleared, busy: flippingNow };
+  const latest = useRef({ onAction, onInline, onDate, onCleared });
+  latest.current = { onAction, onInline, onDate, onCleared };
   const stable: RowHandlers = useMemo(() => ({
-    busy: () => latest.current.busy(),
-    onPick: (id: string) => { if (!latest.current.busy()) setPicked((p) => toggleSelected(p, id)); },
-    onInline: (t: Txn, patch: InlinePatch) => { if (!latest.current.busy()) latest.current.onInline?.(t, patch); },
-    onDate: (t: Txn) => { if (!latest.current.busy()) latest.current.onDate?.(t); },
-    onCleared: (t: Txn, c: boolean) => { if (!latest.current.busy()) latest.current.onCleared?.(t, c); },
+    onPick: (id: string) => setPicked((p) => toggleSelected(p, id)),
+    onInline: (t: Txn, patch: InlinePatch) => latest.current.onInline?.(t, patch),
+    onDate: (t: Txn) => latest.current.onDate?.(t),
+    onCleared: (t: Txn, c: boolean) => latest.current.onCleared?.(t, c),
     onAction: (a: RowAction, t: Txn) => latest.current.onAction?.(a, t),
   }), []);
   // What a row's category dropdown offers: through context, so only an OPEN
@@ -479,8 +452,7 @@ function TransactionsBody({
             {onAction !== undefined && (
               <CircleBtn
                 on={edit}
-                pending={flipping}
-                onPress={flipEdit}
+                onPress={() => (edit ? leaveEdit() : enterEdit())}
                 label={edit ? 'Done editing' : 'Edit rows'}
                 testID="edit-toggle"
               >
@@ -641,7 +613,7 @@ function TransactionsBody({
             /* Dragging is offered only in CUSTOM order. Anywhere else a
                hand-placed row is a statement the app cannot keep: the next
                render puts it back, which reads as the app ignoring you. */
-            canMove={canMove && listSort === 'custom'}
+            canMove={canMove && sort === 'custom'}
             headIdx={headIdxOf(account.id)}
             flatIdxOf={flatIdxOf}
           />
@@ -993,8 +965,6 @@ function Section({
 
 /** The handlers a row calls, none of which ever changes identity (see `stable`). */
 type RowHandlers = {
-  /** The page is changing mode: a tap on a row is dropped (see `flippingNow`). */
-  busy: () => boolean;
   onPick: (id: string) => void;
   onInline: (t: Txn, p: InlinePatch) => void;
   onDate: (t: Txn) => void;
@@ -1053,7 +1023,7 @@ const RowCell = memo(function RowCell(p: {
         onInline={p.hasInline ? (patch) => h.onInline(t, patch) : undefined}
         onDate={p.hasDate ? () => h.onDate(t) : undefined}
         onCleared={p.hasCleared ? (c) => h.onCleared(t, c) : undefined}
-        onAction={(a) => { if (h.busy()) return; p.setSwipedId(null); if (p.hasAction) h.onAction(a, t); p.onEdited(); }}
+        onAction={(a) => { p.setSwipedId(null); p.onEdited(); if (p.hasAction) h.onAction(a, t); }}
         grip={p.grip}
         lifted={p.lifted}
         dy={p.dy}

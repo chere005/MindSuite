@@ -42,3 +42,39 @@ export function useProgressive(total: number, first = FIRST_ROWS, step = MORE_RO
   }, [reached, total, step]);
   return Math.min(reached, total);
 }
+
+/** What a list drew for one section the last time it committed. */
+export type DrawnSection = { limit: number; count: number };
+
+/**
+ * How many rows of each section to draw, given how many rows the whole list may
+ * draw now (`drawn`, from `useProgressive`) and what each section drew when the
+ * list last committed (`prev`, by section id).
+ *
+ * A row that is on screen stays on screen: a section never draws fewer rows than
+ * it already did (unless it has fewer, or is folded), so growing the budget, an
+ * unfold, a sync or an insert tears down nothing and remounts nothing. A section
+ * that had drawn ALL its rows keeps drawing all of them when a few more arrive
+ * (up to MAX_ROWS at once: a bigger arrival is sliced like a first mount). Only
+ * the budget beyond what is already drawn is handed out, in section order.
+ */
+export function sectionLimits(
+  sections: readonly { id: string; count: number; shut: boolean }[],
+  prev: ReadonlyMap<string, DrawnSection>,
+  drawn: number,
+): number[] {
+  const base = sections.map(({ id, count, shut }) => {
+    const was = prev.get(id);
+    if (shut || was === undefined) return 0;
+    if (was.limit >= was.count && count - was.count <= MAX_ROWS) return count;
+    return Math.min(was.limit, count);
+  });
+  let spare = Math.max(0, drawn - base.reduce((a, b) => a + b, 0));
+  return sections.map(({ count, shut }, at) => {
+    const have = base[at] ?? 0;
+    if (shut) return 0;
+    const more = Math.min(spare, count - have);
+    spare -= more;
+    return have + more;
+  });
+}
