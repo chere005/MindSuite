@@ -5,7 +5,8 @@
 //
 //   node tools/publish-desktop.cjs --dir dist/release [--repo OWNER/MindSuite] [--keep 2] [--dry-run]
 //
-// Order: the checks, the release page MindSuiteDesktop/<version> (dmg, zip, SHA256SUMS; never flagged Latest), then the
+// Order: the checks, the release page MindSuiteDesktop/<version> (dmg, zip, SHA256SUMS; never flagged Latest; an existing page
+// holding exactly these files is resumed, one whose files differ is refused), then the
 // fixed feed release MindSuiteDesktop-updates: the zip first, latest-mac.yml LAST (installed copies only see a new version
 // once everything it points at is there), a read-back of the feed, and the pruning of zips beyond --keep. The tag of the
 // release page must already be on origin (the release lane pushes it with main). The feed release is created by this
@@ -68,9 +69,25 @@ async function publish({ dir, repo = 'chere005/MindSuite', keep = 2, dryRun = fa
     return result;
   };
   const file = name => path.join(dir, name);
-  const page = gh(['release', 'view', record.tag, '--repo', repo, '--json', 'tagName']);
-  if (page.status === 0) fail(`${record.tag} already has a release page; versions are published once`);
-  doGh(['release', 'create', record.tag, file(dmg), file(zip), file('SHA256SUMS'), '--repo', repo, '--verify-tag', '--title', `MindSuite ${version}`, '--notes-file', notesFile, '--latest=false'], 'the release page');
+  const page = gh(['release', 'view', record.tag, '--repo', repo, '--json', 'tagName,assets']);
+  if (page.status !== 0) {
+    doGh(['release', 'create', record.tag, file(dmg), file(zip), file('SHA256SUMS'), '--repo', repo, '--verify-tag', '--title', `MindSuite ${version}`, '--notes-file', notesFile, '--latest=false'], 'the release page');
+  } else {
+    // The page exists but the live feed is still older (checked above): an earlier run died after the page and before the feed.
+    // Resume at the feed when the page holds exactly these files; refuse when any of them differs, because versions are published once.
+    let listed;
+    try { listed = JSON.parse(page.stdout).assets || []; } catch { fail(`${record.tag} already has a release page that could not be read; check it with gh release view`); }
+    const missing = [];
+    for (const name of [dmg, zip, 'SHA256SUMS']) {
+      const there = listed.find(asset => asset.name === name);
+      if (!there) { missing.push(name); continue; }
+      const bytes = fs.readFileSync(file(name));
+      const same = there.size === bytes.length && (!there.digest || there.digest === `sha256:${lib.sha256Hex(bytes)}`);
+      if (!same) fail(`${record.tag} already has a release page whose ${name} differs from this build; versions are published once, so fix or delete that page on purpose`);
+    }
+    for (const name of missing) doGh(['release', 'upload', record.tag, file(name), '--repo', repo], `adding ${name} to the existing release page`);
+    log(`${record.tag} already has its release page with these files; resuming at the feed`);
+  }
   const feedRelease = gh(['release', 'view', lib.FEED_TAG, '--repo', repo, '--json', 'tagName']);
   if (feedRelease.status !== 0) {
     doGh(['release', 'create', lib.FEED_TAG, '--repo', repo, '--prerelease', '--latest=false', '--target', 'main', '--title', 'MindSuite Desktop updates', '--notes', 'The fixed update feed of MindSuite Desktop. Not a release: install from a MindSuite Desktop release page.'], 'the feed release');
@@ -79,7 +96,7 @@ async function publish({ dir, repo = 'chere005/MindSuite', keep = 2, dryRun = fa
   doGh(['release', 'upload', lib.FEED_TAG, file('latest-mac.yml'), '--repo', repo, '--clobber'], 'the feed document upload');
   if (!dryRun) {
     const back = await fetchText(`${lib.feedUrl(repo)}/latest-mac.yml`);
-    if (back !== feedText) fail('the live feed does not read back as what was uploaded; run this again');
+    if (back !== feedText) fail('the live feed does not read back as what was uploaded; run this again (an existing release page with these files is resumed, not refused)');
     const listed = JSON.parse(doGh(['release', 'view', lib.FEED_TAG, '--repo', repo, '--json', 'assets'], 'listing the feed').stdout || '{"assets":[]}').assets
       .map(asset => ({ name: asset.name, version: /^MindSuite-(\d+\.\d+\.\d+)-arm64-mac\.zip$/.exec(asset.name)?.[1] })).filter(asset => asset.version)
       .sort((a, b) => compare(b.version, a.version));

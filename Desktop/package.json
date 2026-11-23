@@ -19,6 +19,7 @@
 		"test:mac": "node test/smoke.cjs",
 		"release:mac": "node tools/release-mac.cjs",
 		"publish:mac": "node tools/publish-desktop.cjs",
+		"install:mac": "sh tools/mac-sign-install.sh --install-prebuilt dist/release/signed/MindSuite.app",
 		"test:update": "node test/update-e2e.cjs"
 	},
 	"dependencies": {

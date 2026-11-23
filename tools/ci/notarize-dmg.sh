@@ -36,7 +36,7 @@ if [[ $status != Accepted ]]; then
 fi
 n=0
 until xcrun stapler staple "$dmg"; do
-  n=$((n + 1)); [[ $n -lt 6 ]] || fail "stapler staple failed after 6 tries"
+  n=$((n + 1)); [[ $n -lt ${MIND_STAPLE_TRIES:-30} ]] || fail "stapler staple failed after $n tries (Apple's ticket may not be published yet; MIND_STAPLE_TRIES / MIND_STAPLE_WAIT raise the window)"
   sleep "${MIND_STAPLE_WAIT:-10}"
 done
 xcrun stapler validate "$dmg" >/dev/null || fail "the dmg does not validate after stapling"

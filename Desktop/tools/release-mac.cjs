@@ -62,10 +62,21 @@ lib.checkAppFeedFile(fs.readFileSync(path.join(unsigned, 'Contents/Resources/app
 const staged = JSON.parse(fs.readFileSync(path.join(unsigned, 'Contents/Resources/mindsuite-local/MANIFEST.json'), 'utf8'));
 if (!scratch && (!staged.release || !staged.notemind.notarized || !staged.scrollmind.notarized)) die('the hosted apps are not release builds');
 
+// The notary profile is resolved ONCE and handed to both submissions (the app and the dmg), in the order
+// mac-sign-install.sh uses: MIND_NOTARY_PROFILE, NOTARY_PROFILE in .local/machine.env, then DisplayMind.
+function notaryProfile() {
+  if (process.env.MIND_NOTARY_PROFILE) return process.env.MIND_NOTARY_PROFILE;
+  const fromFile = spawnSync('sh', ['-c', '. "$1/tools/machine-env.sh" && machine_load "$1" >/dev/null 2>&1 && printf %s "${NOTARY_PROFILE:-}"', 'sh', root], { encoding: 'utf8' });
+  return (fromFile.status === 0 && fromFile.stdout.trim()) || 'DisplayMind';
+}
+const profile = notaryProfile();
+if (!/^[A-Za-z0-9._ -]+$/.test(profile)) die('the notary profile name has unexpected characters');
+say(`notarizing with the keychain profile '${profile}'`);
+
 // 3. sign (hardened runtime, every nested Mach-O including koffi.node and scroll-pen), notarize, staple, verify
 run('plutil', ['-lint', path.join(root, 'entitlements.mac.plist')], { capture: true });
 const signedDir = path.join(out, 'signed');
-run('sh', [path.join(root, 'tools/mac-sign-install.sh'), '--no-install', '--out', signedDir,
+run('sh', [path.join(root, 'tools/mac-sign-install.sh'), '--no-install', '--notary-profile', profile, '--out', signedDir,
   '--entitlements', path.join(root, 'entitlements.mac.plist'), '--nested-entitlements', path.join(root, 'entitlements.mac.plist'), unsigned]);
 const app = path.join(signedDir, 'MindSuite.app');
 const shown = spawnSync('/usr/bin/codesign', ['-dvv', app], { encoding: 'utf8' });
@@ -109,7 +120,6 @@ fs.writeFileSync(path.join(out, 'latest-mac.yml'), feedText);
     // the dmg is signed by the same identity that signed the app (its leaf Authority line)
     const identity = /^Authority=(Developer ID Application: .*)$/m.exec(`${shown.stderr}${shown.stdout}`)?.[1];
     if (!identity) die('could not read the signing identity for the dmg');
-    const profile = process.env.MIND_NOTARY_PROFILE || 'DisplayMind';
     run('bash', [path.join(suite, 'tools/ci/notarize-dmg.sh'), '--profile', profile, dmg], { env: { ...process.env, APPLE_SIGNING_IDENTITY: identity } });
     run('bash', [path.join(suite, 'tools/ci/verify-macos-dmg.sh'), dmg, 'MindSuite'], { env: { ...process.env, APPLE_TEAM_ID: team } });
     files.unshift(path.basename(dmg));

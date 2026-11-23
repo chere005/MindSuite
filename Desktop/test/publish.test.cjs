@@ -24,7 +24,7 @@ function release({ version = '0.4.0', releaseFlag = true, mutate = () => {} } = 
   return { dir, notes };
 }
 
-function deps({ live = null, tag = true, existing = [], assets = [] } = {}) {
+function deps({ live = null, tag = true, existing = [], assets = [], pageAssets = [] } = {}) {
   const calls = [];
   let uploaded = null;
   return {
@@ -32,7 +32,10 @@ function deps({ live = null, tag = true, existing = [], assets = [] } = {}) {
     deps: {
       gh: args => {
         calls.push(args.join(' '));
-        if (args[1] === 'view' && args.includes('tagName')) return { status: existing.includes(args[2]) ? 0 : 1, stdout: '', stderr: 'release not found' };
+        if (args[1] === 'view' && args.some(a => a.includes('tagName'))) {
+          const there = existing.includes(args[2]);
+          return { status: there ? 0 : 1, stdout: there ? JSON.stringify({ tagName: args[2], assets: pageAssets }) : '', stderr: 'release not found' };
+        }
         if (args[1] === 'view') return { status: 0, stdout: JSON.stringify({ assets: assets.map(name => ({ name })) }), stderr: '' };
         if (args[1] === 'upload' && args.some(a => a.endsWith('latest-mac.yml'))) uploaded = fs.readFileSync(args.find(a => a.endsWith('latest-mac.yml')), 'utf8');
         return { status: 0, stdout: '', stderr: '' };
@@ -69,7 +72,8 @@ test('refuses a scratch build, a mismatch, a stale version, a missing tag and an
     [release({ mutate: dir => fs.appendFileSync(join(dir, lib.zipName('0.4.0')), 'x') }), {}, /SHA256SUMS/],
     [release({ mutate: dir => fs.writeFileSync(join(dir, 'latest-mac.yml'), fs.readFileSync(join(dir, 'latest-mac.yml'), 'utf8').replace('size: 3', 'size: 4')) }), {}, /SHA256SUMS/],
     [release(), { tag: false }, /not on origin/],
-    [release(), { existing: ['MindSuiteDesktop/0.4.0'] }, /published once/],
+    [release(), { existing: ['MindSuiteDesktop/0.4.0'], pageAssets: [{ name: lib.dmgName('0.4.0'), size: 99 }] }, /differs from this build/],
+    [release(), { existing: ['MindSuiteDesktop/0.4.0'], pageAssets: [{ name: lib.zipName('0.4.0'), size: 3, digest: `sha256:${'0'.repeat(64)}` }] }, /differs from this build/],
     [release(), { live: lib.feedYaml({ version: '0.4.0', file: lib.zipName('0.4.0'), sha512: 'A'.repeat(86) + '==', size: 1, releaseDate: 'x' }) }, /not newer/],
     [release(), { live: lib.feedYaml({ version: '0.5.0', file: lib.zipName('0.5.0'), sha512: 'A'.repeat(86) + '==', size: 1, releaseDate: 'x' }) }, /not newer/],
   ];
@@ -89,4 +93,26 @@ test('a dry run writes nothing', async () => {
   const steps = await publish(publishArgs(built, { dryRun: true }), fakes);
   assert.equal(steps.length, 4, "the page, the feed release, the zip and the feed document");
   assert.equal(calls.some(call => /release (create|upload|delete-asset)/.test(call)), false);
+});
+
+test('an earlier run that died after the release page is resumed at the feed, and nothing is created twice', async () => {
+  const built = release();
+  const page = [lib.dmgName('0.4.0'), lib.zipName('0.4.0'), 'SHA256SUMS'].map(name => ({ name, size: fs.statSync(join(built.dir, name)).size, digest: `sha256:${lib.sha256Hex(fs.readFileSync(join(built.dir, name)))}` }));
+  const { calls, deps: fakes } = deps({ existing: ['MindSuiteDesktop/0.4.0', 'MindSuiteDesktop-updates'], pageAssets: page, assets: [lib.zipName('0.4.0'), 'latest-mac.yml'] });
+  const live = fs.readFileSync(join(built.dir, 'latest-mac.yml'), 'utf8').replace(/0\.4\.0/g, '0.3.0');
+  fakes.fetchText = (original => async url => (calls.some(call => call.includes('upload') && call.includes('latest-mac.yml')) ? original(url) : live))(fakes.fetchText);
+  await publish(publishArgs(built), fakes);
+  const writes = calls.filter(call => /release (create|upload|delete-asset)/.test(call));
+  assert.equal(writes.some(call => call.includes('release create MindSuiteDesktop/0.4.0')), false, 'the page was not created again');
+  assert.match(writes[0], /release upload MindSuiteDesktop-updates .*arm64-mac\.zip .*--clobber/);
+  assert.match(writes[1], /release upload MindSuiteDesktop-updates .*latest-mac\.yml/);
+  // a page that lacks a file gets it added (never replaced), then the feed follows
+  const half = deps({ existing: ['MindSuiteDesktop/0.4.0', 'MindSuiteDesktop-updates'], pageAssets: page.slice(0, 2), assets: [lib.zipName('0.4.0')] });
+  const again = release();
+  const liveAgain = fs.readFileSync(join(again.dir, 'latest-mac.yml'), 'utf8').replace(/0\.4\.0/g, '0.3.0');
+  half.deps.fetchText = (original => async url => (half.calls.some(call => call.includes('upload') && call.includes('latest-mac.yml')) ? original(url) : liveAgain))(half.deps.fetchText);
+  await publish(publishArgs(again), half.deps);
+  const added = half.calls.filter(call => /release upload MindSuiteDesktop\/0\.4\.0/.test(call));
+  assert.equal(added.length, 1);
+  assert.match(added[0], /SHA256SUMS --repo o\/MindSuite$/);
 });

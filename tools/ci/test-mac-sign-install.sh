@@ -241,4 +241,40 @@ bash "$SCRIPT" --verify-only "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || fai
 expect_fail '--verify-only on an unsigned app' bash "$SCRIPT" --verify-only "$tmp/in/Example.app"
 expect_fail 'a non-app' bash "$SCRIPT" --no-install "$tmp/machine.env"
 
+# 8. --install-prebuilt installs a release's own signed, stapled bytes: no signing, no Apple, nothing unverified
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
+: > "$CALLS"; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+bash "$SCRIPT" --install-prebuilt --install-dir "$tmp/install" "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail '--install-prebuilt failed on a signed app'; }
+[ ! -e "$tmp/install/Example.app/Contents/OLDMARK" ] && [ -f "$tmp/install/Example.app/Contents/_stapled" ] || fail '--install-prebuilt did not install'
+grep -q 'notarytool\|--force\|stapler staple' "$CALLS" && fail '--install-prebuilt signed or notarized something'
+cmp -s "$tmp/out-dir/Example.app/Contents/_sig" "$tmp/install/Example.app/Contents/_sig" || fail '--install-prebuilt changed the signature'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail '--install-prebuilt left leftovers'
+# an unsigned or unstapled app is refused and the installed copy stays
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+if bash "$SCRIPT" --install-prebuilt --install-dir "$tmp/install" "$tmp/in/Example.app" > "$tmp/out" 2>&1; then fail '--install-prebuilt accepted an unsigned app'; fi
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--install-prebuilt lost the old copy'
+rm -f "$tmp/out-dir/Example.app/Contents/_stapled"
+if bash "$SCRIPT" --install-prebuilt --install-dir "$tmp/install" "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1; then fail '--install-prebuilt accepted an unstapled app'; fi
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--install-prebuilt lost the old copy (unstapled)'
+
+# 9. the staple window is a budget (MIND_STAPLE_TRIES), not a fixed six tries
+reset; : > "$tmp/staple-count"
+cat > "$tmp/bin/xcrun" <<'SH'
+#!/bin/bash
+echo "xcrun $*" >> "$CALLS"
+case "$1" in
+  notarytool) printf '{"id":"sub-123","status":"Accepted"}\n' ;;
+  stapler)
+    app=${@: -1}
+    case "$2" in
+      staple) echo x >> "$STAPLE_COUNT"; [ "$(wc -l < "$STAPLE_COUNT")" -ge 12 ] || exit 65; touch "$app/Contents/_stapled" ;;
+      validate) [ -f "$app/Contents/_stapled" ] ;;
+    esac ;;
+esac
+SH
+STAPLE_COUNT="$tmp/staple-count" run --no-install --out "$tmp/out-dir" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail 'a ticket that appears on the 12th try was not waited for'; }
+reset; : > "$tmp/staple-count"
+if STAPLE_COUNT="$tmp/staple-count" MIND_STAPLE_TRIES=5 run --no-install --out "$tmp/out-dir" > "$tmp/out" 2>&1; then fail 'MIND_STAPLE_TRIES=5 did not stop at 5'; fi
+grep -q 'after 5 tries' "$tmp/out" || fail 'the staple failure did not say how many tries'
+
 echo 'mac-sign-install guards passed'

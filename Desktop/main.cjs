@@ -212,6 +212,7 @@ function start() {
       window.close();
     } catch (error) {
       quitting = false;
+      installing = false;
       closing = false;
       if (testing) { console.error(error); app.exit(1); return; }
       update(state);

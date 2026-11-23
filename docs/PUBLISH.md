@@ -324,7 +324,9 @@ node ../tools/publish-update.mjs --app <App> --version <x.y.z> --repo OWNER/Mind
      [--dry-run DIR]          # writes the same files into DIR and touches no network
 ```
 
-It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
+It first binds every artifact to `--app`: the .app must be named `<App>.app` and carry the `CFBundleIdentifier` of that app's own
+`tauri.conf.json`, and each Windows installer's file name must start `<App>_` (an installer of another app would otherwise be signed
+with this app's key, and the Windows updater checks only the signature). It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
 `<App>_<v>_aarch64.app.tar.gz` (the .app as top folder, no `._` files), signs the archive and each Windows installer with
 `tauri signer sign --app-version <v>`, writes `latest.json`, uploads artifacts and signatures first and `latest.json` LAST,
 downloads it again and compares, then prunes. A refused input (wrong version, unverified app, missing key, one platform only
@@ -393,7 +395,7 @@ nested Mach-O re-signed inside-out including `scroll-pen` and `koffi.node`, nota
 `tools/ci/notarize-dmg.sh` and gated by `tools/ci/verify-macos-dmg.sh`, then `SHA256SUMS` and `release.json`. A release needs a
 clean tracked tree under `Desktop/`. `--scratch` runs the same steps but marks the result as not releasable (and `--no-dmg`, with
 `--scratch` only, skips the dmg and its Apple submission); `publish-desktop.cjs` refuses a scratch build. The signing identity,
-team and notary profile (`DisplayMind`) resolve exactly as for the Tauri apps, from `Desktop/.local/machine.env`
+team and notary profile (`DisplayMind`) resolve exactly as for the Tauri apps (the profile once, then used for the app and the dmg), from `Desktop/.local/machine.env`
 (`APPLE_TEAM_ID`, optional `MAC_SIGN_IDENTITY`, `NOTARY_PROFILE`) or `MIND_SIGN_IDENTITY` / `MIND_NOTARY_PROFILE`.
 
 Entitlements (`Desktop/entitlements.mac.plist`, used for the app and the Electron helpers): `com.apple.security.cs.allow-jit`
@@ -439,9 +441,20 @@ provider is NOT used: it follows the repository-wide Latest release, which moves
 `node tools/publish-desktop.cjs --dir dist/release` (from `Desktop/`, after the release lane has pushed main and the tag
 `MindSuiteDesktop/<x.y.z>`, which `tools/githooks/pre-push` allows) refuses a scratch build, a file that does not match
 `SHA256SUMS`, a feed that does not describe the zip's bytes, a missing `Desktop/docs/releases/<x.y.z>.md`, a version that is not
-newer than the live feed's, and a version that already has a release page. Then: release page, the feed release if it does not
+newer than the live feed's, and a release page whose files differ from the local build. Then: release page (created, or an existing
+page that already holds exactly these files is resumed, so a run that died after the page can be run again), the feed release if it does not
 exist, the zip, `latest-mac.yml` LAST, a read-back of the live feed, and pruning to the newest two zips. `--dry-run` prints the
 plan and writes nothing.
+
+Installing it: `npm run install:mac` (= `sh tools/mac-sign-install.sh --install-prebuilt dist/release/signed/MindSuite.app`) verifies
+the already signed, notarized, stapled app AS IT IS and swaps exactly those bytes into `/Applications` (no re-signing, no second Apple
+submission, so the installed copy is byte-identical to the one in the published zip and dmg). The ad hoc MindSuite.app that may be there
+now never updates itself (updates need a Developer ID signature), so this install is what starts the update line.
+
+Before the FIRST release: the real Apple acceptance of the hosted binaries (`scroll-pen`, `koffi.node`, Electron's helpers and
+Squirrel's ShipIt) is only proven by a real submission, and the earlier scratch run did not make one (the `DisplayMind` notary
+profile was not in that shell's keychain). The first `npm run release:mac` is that proof: it stops after the first submission if Apple
+answers Invalid and prints Apple's log. The staple wait is a budget (`MIND_STAPLE_TRIES`, default 30, every `MIND_STAPLE_WAIT` = 10 s).
 
 ### In the app
 
@@ -460,11 +473,12 @@ Tests: `npm run check` (guard, eligibility, flows, feed, publisher with a fake `
 copy and a loopback feed on 127.0.0.1, `node test/update-e2e.cjs --app <signed MindSuite.app> --feed <dir> --to <x.y.z>`
 (`--reject` for a refused update; `--unnotarized-ok` is honoured only with the smoke root and a loopback feed).
 
-### Windows and Linux: recorded exceptions
+### Windows and Linux: recorded exceptions (NOT yet confirmed by the owner)
 
 Desktop has no Windows or Linux installer or updater: the hosted ScrollMind and NoteMind are macOS-only here (`isMac` gates in
 `main.cjs`), `build:windows` and `build:linux` have never run in CI, and Windows installers are unsigned by decision. Nothing is
-built for them in this lane. Adding a Windows NSIS build would need the staging step to exist off the Mac first.
+built for them in this lane. Adding a Windows NSIS build would need the staging step to exist off the Mac first. The owner's list of exceptions to record
+names only ReadMind and DisplayMind, so "MindSuite Desktop on Windows" is an open decision for the owner, not a settled exception.
 
 ### First launch of the signed app
 
