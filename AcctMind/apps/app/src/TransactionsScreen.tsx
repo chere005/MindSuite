@@ -13,7 +13,7 @@ import {
   EMPTY_TXN_FILTER, INCOME, INCOME_NAME, LONG_PRESS_MS, amountDigits, amountInput, amountSeed, claimsSwipe,
   clearedTotal, dropTarget, filterTransactions, foldLevel, formatAmount, formatDay, hasTxnFilter, parseAmount, pickTap, rowTap,
   selectedTotal, slotEntries, splitLabel,
-  signedCents, sortTxns, swipeArms, toggleSelected, total,
+  signedCents, sortTxns, swipeArms, toggleSelected, today, total,
   type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn, type TxnFilter,
 } from '@acctmind/core';
 import { CategoryMenu, NO_CATEGORY } from './CategoryPick';
@@ -747,6 +747,13 @@ function Section({
   flatIdxOf: (id: string) => number;
 }) {
   const readOnly = useIsReadOnly();
+  /*
+   * The year a row's date is read against. `formatDay` drops it when it is the
+   * current one, so the clock is an input of every row even though no row is
+   * handed it: a memoised row compares equal across New Year's Eve unless this
+   * is one of its props. A primitive, so it changes only when the year does.
+   */
+  const year = today().slice(0, 4);
 
   /*
    * A parked delete outranks this header too.
@@ -936,6 +943,7 @@ function Section({
           <RowCell
             key={t.id}
             t={t}
+            year={year}
             reg={drag.registerKey(t.id)}
             dropLine={i !== -1 && drag.slot === i}
             edit={edit && onAction !== undefined}
@@ -996,7 +1004,7 @@ function RowCategoryMenu(p: { onPick: (id: string | null) => void; onSplit: () =
  * new on each render, which turns this back into a render of every row.
  */
 const RowCell = memo(function RowCell(p: {
-  t: Txn; reg: (ref: View | null) => void; dropLine: boolean; edit: boolean; picked: boolean; inline: 'name' | 'amount' | null;
+  t: Txn; year: string; reg: (ref: View | null) => void; dropLine: boolean; edit: boolean; picked: boolean; inline: 'name' | 'amount' | null;
   setInline: (n: { id: string; field: 'name' | 'amount' } | null) => void; amountMode: AmountMode;
   hasInline: boolean; hasDate: boolean; hasCleared: boolean; hasAction: boolean;
   h: RowHandlers;
@@ -1013,6 +1021,7 @@ const RowCell = memo(function RowCell(p: {
       {p.dropLine && <View style={styles.dropLine} testID="drop-line" />}
       <Row
         txn={t}
+        year={p.year}
         edit={p.edit}
         picked={p.picked}
         onPick={() => h.onPick(t.id)}
@@ -1038,10 +1047,12 @@ const RowCell = memo(function RowCell(p: {
 });
 
 function Row({
-  txn, edit, picked, onPick, inline, onOpenInline, onCloseInline, amountMode, onInline, onDate, onCleared,
+  txn, year, edit, picked, onPick, inline, onOpenInline, onCloseInline, amountMode, onInline, onDate, onCleared,
   onAction, grip, lifted, dy, swiped, parked, lineName, onDismiss, onSwipe,
 }: {
   txn: Txn;
+  /** The current year, which its date leaves off (`formatDay`). Here so a memoised row redraws when it changes. */
+  year: string;
   /** Is the page in edit mode? Then this row shows its controls. */
   edit: boolean;
   /** Is this row picked out? */
@@ -1328,7 +1339,7 @@ function Row({
         onPress={onTap(onDate)}
         testID="txn-date-tap"
       >
-        <Text style={styles.date} testID="txn-date">{formatDay(txn.date)}</Text>
+        <Text style={styles.date} testID="txn-date">{formatDay(txn.date, `${year}-01-01`)}</Text>
       </Pressable>
       {/*
         CLEARED — the far-right column (the owner, 2026-09-15): has this row shown

@@ -64,6 +64,7 @@ export function WideTransactions({
   const acctName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '';
   const catName = (id: string | null) => id === null ? null : id === INCOME ? INCOME_NAME : choices.find((c) => c.id === id)?.name ?? null;
   const head = one ? acctName(account) : 'All accounts';
+  const year = today().slice(0, 4);
 
   return (
     <View style={styles.fill} testID="wide-transactions">
@@ -112,7 +113,7 @@ export function WideTransactions({
           const cat = splitLabel(txn, (id) => catName(id) ?? 'Uncategorized') ?? catName(txn.category);
           return (
             <WideRow
-              key={txn.id} txn={txn} balance={balance} cat={cat} one={one} readOnly={readOnly}
+              key={txn.id} txn={txn} year={year} balance={balance} cat={cat} one={one} readOnly={readOnly}
               acct={one ? '' : acctName(txn.account)} selected={txn.id === selectedId} h={stable}
             />
           );
@@ -137,9 +138,13 @@ export function WideTransactions({
   );
 }
 
-/** One table row, memoised, so a click that concerns one row re-renders one row (props: primitives and stable handlers only). */
-const WideRow = memo(function WideRow({ txn, balance, cat, one, readOnly, acct, selected, h }: {
-  txn: Txn; balance: number | null; cat: string | null; one: boolean; readOnly: boolean; acct: string; selected: boolean;
+/**
+ * One table row, memoised, so a click that concerns one row re-renders one row (props: primitives and stable
+ * handlers only). `year` is the clock's one input: the date leaves the current year off (`formatDay`), so a
+ * row memoised across New Year's Eve would keep the old reading unless it is a prop.
+ */
+const WideRow = memo(function WideRow({ txn, year, balance, cat, one, readOnly, acct, selected, h }: {
+  txn: Txn; year: string; balance: number | null; cat: string | null; one: boolean; readOnly: boolean; acct: string; selected: boolean;
   h: { onSelect: (t: Txn) => void; onCleared: (t: Txn, v: boolean) => void; onAcceptCategory: (t: Txn) => void };
 }) {
   return (
@@ -148,7 +153,7 @@ const WideRow = memo(function WideRow({ txn, balance, cat, one, readOnly, acct, 
       style={[styles.row, styles.trow, selected && { backgroundColor: SELECTED_ROW }]}
       testID="wide-row"
     >
-      <Text style={[styles.td, styles.dim, { width: W.date }]} numberOfLines={1}>{formatDay(txn.date)}</Text>
+      <Text style={[styles.td, styles.dim, { width: W.date }]} numberOfLines={1}>{formatDay(txn.date, `${year}-01-01`)}</Text>
       <Text style={[styles.td, styles.grow, styles.nameCol, styles.name]} numberOfLines={1} testID="wide-row-name">{txn.name}</Text>
       <View style={styles.categoryCell}>
         <Text style={[styles.td, styles.grow, cat === null && styles.dim]} numberOfLines={1} testID="wide-row-category">{cat ?? 'Uncategorized'}</Text>

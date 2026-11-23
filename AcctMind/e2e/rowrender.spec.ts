@@ -461,3 +461,64 @@ test.describe('rows already drawn are never taken down while the list grows', ()
     expect(await page.evaluate(() => (window as any).__removed as number), 'rows removed on the way').toBe(0);
   });
 });
+
+/**
+ * A row's date drops the year when it is the current one (`formatDay`), so the
+ * year is an input of the row even though no row's props mention the clock. The
+ * rows are memoised, so a clock that crosses New Year's Eve while the page is
+ * open must reach them through a prop: the first interaction after midnight
+ * draws every date again, and the ones after it do not. (Without the input a
+ * tap re-rendered the list's parent, the rows compared equal, and 125 of 200
+ * dates kept reading "Aug 3" under a year that had moved on.)
+ */
+test.describe('a year that rolls over while the ledger is open', () => {
+  const ROLL = 200;
+  const NEW_YEARS_EVE = new Date(2026, 11, 31, 23, 59, 30);
+  const AFTER_MIDNIGHT = new Date(NEW_YEARS_EVE.getTime() + 60_000);
+
+  test('the phone list gives every row its year after the first interaction, then stays memoised', async ({ page }) => {
+    await page.clock.setFixedTime(NEW_YEARS_EVE);
+    await open(page, ROLL);
+    const before = await page.getByTestId('txn-date').allTextContents();
+    expect(before.length).toBe(ROLL);
+    expect(before.every((d) => !/\d{4}$/.test(d)), 'this year is left off').toBe(true);
+
+    await page.clock.setFixedTime(AFTER_MIDNIGHT);
+    await page.getByTestId('txn-pick-t003').click();
+    await expect(page.getByTestId('txn-pick-t003')).toHaveAttribute('aria-label', 'Shop 3 selected');
+    const after = await page.getByTestId('txn-date').allTextContents();
+    expect(after.length).toBe(ROLL);
+    const stale = after.filter((d) => !d.endsWith(', 2026'));
+    expect(stale, `${stale.length} of ${ROLL} dates still read as this year`).toEqual([]);
+
+    const again = await renders(page, () => page.getByTestId('txn-pick-t005').click());
+    expect(again, 'a click once the year has moved').toBeLessThan(MEMOISED);
+  });
+
+  test.describe('the wide table', () => {
+    test.use({ viewport: { width: 1280, height: 820 } });
+
+    test('gives every row its year after the first selection, then stays memoised', async ({ page }) => {
+      await page.addInitScript(COUNTER);
+      await page.clock.setFixedTime(NEW_YEARS_EVE);
+      await withStore(page, ledger(ROLL));
+      await page.getByTestId('wide-account-all').click();
+      await expect(page.getByTestId('wide-row')).toHaveCount(ROLL);
+      await page.waitForTimeout(200);
+      const dates = () => page.getByTestId('wide-row').evaluateAll(
+        (rows) => rows.map((r) => (r.firstElementChild as HTMLElement).textContent ?? ''));
+      expect((await dates()).every((d) => !/\d{4}$/.test(d)), 'this year is left off').toBe(true);
+
+      await page.clock.setFixedTime(AFTER_MIDNIGHT);
+      await page.getByTestId('wide-row').nth(5).click();
+      await page.waitForTimeout(300);
+      const after = await dates();
+      expect(after.length).toBe(ROLL);
+      const stale = after.filter((d) => !d.endsWith(', 2026'));
+      expect(stale, `${stale.length} of ${ROLL} dates still read as this year`).toEqual([]);
+
+      const again = await renders(page, () => page.getByTestId('wide-row').nth(7).click());
+      expect(again, 'a selection once the year has moved').toBeLessThan(MEMOISED);
+    });
+  });
+});
