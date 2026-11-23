@@ -248,7 +248,8 @@ pub fn install_plugins<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 }
 
 /// Wire the updater into the app: plugins, the menu item, and (unless `manual_only`) the background check. A config
-/// that is not the strict one leaves the updater off and the app unaffected. Call from `setup`, before the window.
+/// that is not the strict one, or a menu that cannot be edited, leaves the updater (or its menu item) off and the app
+/// unaffected: `init` never returns Err, so it can never abort `setup`. Call from `setup`, before the window.
 pub fn init<R: Runtime>(app: &mut tauri::App<R>, options: Options) -> tauri::Result<()> {
     if !supported() {
         return Ok(());
@@ -258,7 +259,10 @@ pub fn init<R: Runtime>(app: &mut tauri::App<R>, options: Options) -> tauri::Res
         eprintln!("updater: off ({why})");
         return Ok(());
     }
-    add_menu_item(&handle)?;
+    // The menu item is a convenience: a menu that cannot be edited must never stop the app from starting.
+    if let Err(why) = add_menu_item(&handle) {
+        eprintln!("updater: no \"Check for Updates...\" menu item ({why})");
+    }
     let for_menu = (handle.clone(), options.clone());
     app.on_menu_event(move |_, event| {
         if event.id().as_ref() == MENU_ID {
@@ -687,22 +691,24 @@ mod tests {
 
     /// Start a feed announcing `announce` for the archive `archive`, signed as `sig`.
     fn feed_for(announce: &str, sig: &str, archive: Vec<u8>) -> Feed {
-        // bind first to learn the address, then serve a manifest that points back at it
-        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = probe.local_addr().unwrap();
-        drop(probe);
-        let archive_url = format!("http://{addr}/update.tar.gz");
-        let routes = vec![
-            ("/latest.json", 200u16, manifest(announce, &archive_url, sig)),
-            ("/update.tar.gz", 200u16, archive),
-        ];
-        Feed::start_on(addr, routes)
+        let (announce, sig) = (announce.to_string(), sig.to_string());
+        Feed::start_with(move |addr| {
+            let archive_url = format!("http://{addr}/update.tar.gz");
+            vec![
+                ("/latest.json", 200u16, manifest(&announce, &archive_url, &sig)),
+                ("/update.tar.gz", 200u16, archive),
+            ]
+        })
     }
 
     impl Feed {
-        fn start_on(addr: std::net::SocketAddr, routes: Vec<(&'static str, u16, Vec<u8>)>) -> Feed {
-            let listener = TcpListener::bind(addr).unwrap();
-            let base = format!("http://{}", listener.local_addr().unwrap());
+        /// Bind first and keep the listener, so the port can never be taken by a parallel test between "pick a port" and
+        /// "serve on it"; `routes` is built from the address the listener really has (a manifest names its own archive URL).
+        fn start_with(routes: impl FnOnce(std::net::SocketAddr) -> Vec<(&'static str, u16, Vec<u8>)>) -> Feed {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let routes = routes(addr);
+            let base = format!("http://{addr}");
             let hits = Arc::new(Mutex::new(Vec::new()));
             let h = hits.clone();
             std::thread::spawn(move || {
@@ -721,6 +727,22 @@ mod tests {
                         let _ = s.write_all(head.as_bytes());
                         let _ = s.write_all(&body);
                     });
+                }
+            });
+            Feed { base, hits }
+        }
+
+        /// A server that accepts every connection and hangs up without a word: a feed that is down, with no port that a
+        /// parallel test could have taken (a port that is merely "not listening" any more is a race).
+        fn hangs_up() -> Feed {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let hits = Arc::new(Mutex::new(Vec::new()));
+            let h = hits.clone();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    h.lock().unwrap().push("connect".into());
+                    drop(stream);
                 }
             });
             Feed { base, hits }
@@ -822,11 +844,9 @@ mod tests {
 
     #[test]
     fn network_and_feed_failures_are_quiet_unless_manual() {
-        // nothing is listening
-        let dead = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = dead.local_addr().unwrap();
-        drop(dead);
-        let app = mock_app(Some(updater_config(&format!("http://{addr}/latest.json"))));
+        // the feed host is down: it answers every connection with silence
+        let dead = Feed::hangs_up();
+        let app = mock_app(Some(updater_config(&dead.url("/latest.json"))));
         install_plugins(app.handle()).unwrap();
         let u = ui(true);
         assert!(matches!(run_check(&app, Trigger::Background, &opts(), &u, None), Outcome::Failed(_)));
@@ -838,10 +858,7 @@ mod tests {
 
         // 404, 500, and garbage JSON
         for (code, body) in [(404u16, b"no".to_vec()), (500, b"boom".to_vec()), (200, b"{not json".to_vec())] {
-            let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-            let addr = probe.local_addr().unwrap();
-            drop(probe);
-            let feed = Feed::start_on(addr, vec![("/latest.json", code, body)]);
+            let feed = Feed::start_with(move |_| vec![("/latest.json", code, body)]);
             let app = mock_app(Some(updater_config(&feed.url("/latest.json"))));
             install_plugins(app.handle()).unwrap();
             let u = ui(true);

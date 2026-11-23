@@ -12,6 +12,8 @@
 #   --notary-profile NAME       notarytool keychain profile (default DisplayMind)
 #   --notary-timeout 30m        how long to wait for Apple
 #   --no-relaunch               do not reopen the app when it was running
+#   --no-kill                   only ASK the running app to quit; if it will not, stop with the installed copy untouched
+#                               (without it the script sends the app a TERM after the polite quit has had its time)
 #   --verify-only               assert an existing app (signed, notarized, stapled, arm64) and exit
 #   --already-signed            the input is a copy this script already signed (see --out): verify it in full, then
 #                               install it as is (no signing, no Apple submission). A lane that smoke-tests the signed
@@ -51,6 +53,7 @@ IDENTITY="${MIND_SIGN_IDENTITY:-}"
 PROFILE="${MIND_NOTARY_PROFILE:-}"
 NOTARY_TIMEOUT=30m
 RELAUNCH=1
+NO_KILL=0
 VERIFY_ONLY=0
 ALREADY_SIGNED=0
 APP_IN=
@@ -70,6 +73,7 @@ while [ $# -gt 0 ]; do
     --notary-profile) PROFILE=${2:?}; shift 2 ;;
     --notary-timeout) NOTARY_TIMEOUT=${2:?}; shift 2 ;;
     --no-relaunch) RELAUNCH=0; shift ;;
+    --no-kill) NO_KILL=1; shift ;;
     --verify-only) VERIFY_ONLY=1; shift ;;
     --already-signed) ALREADY_SIGNED=1; shift ;;
     -h|--help) usage ;;
@@ -324,7 +328,7 @@ if [ -d "$DEST" ] && [ -n "$(running_pids)" ]; then
   say "$NAME is running from $DEST; asking it to quit"
   osascript -e "tell application \"$DEST\" to quit" >/dev/null 2>&1 || true
   i=0; while [ -n "$(running_pids)" ] && [ "$i" -lt "${MIND_QUIT_WAIT:-20}" ]; do sleep 1; i=$((i + 1)); done
-  if [ -n "$(running_pids)" ]; then
+  if [ -n "$(running_pids)" ] && [ "$NO_KILL" = 0 ]; then
     # shellcheck disable=SC2046
     kill -TERM $(running_pids) 2>/dev/null || true
     i=0; while [ -n "$(running_pids)" ] && [ "$i" -lt 5 ]; do sleep 1; i=$((i + 1)); done

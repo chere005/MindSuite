@@ -335,6 +335,24 @@ It verifies the app with `mac-sign-install.sh --verify-only` (and that its versi
 downloads it again and compares, then prunes. A refused input (wrong version, unverified app, missing key, one platform only
 without `--allow-partial`) stops before anything is signed or uploaded. CI never signs updates: the key is not in GitHub.
 
+The key is checked against what the app trusts: the keychain's public key must equal `plugins.updater.pubkey` in the app's
+`tauri.conf.json` (`--conf FILE` names another), every fresh `.sig` is verified against that public key
+(`tools/minisign-verify.mjs`, checked against the Rust verifier by the tests), and the tauri CLI must know `signer sign
+--app-version` (tauri-cli 2.12 or later: run `npm ci` in the app after the Cargo/CLI bump, before the first dtp). A mismatch (a
+recreated keychain, a rotated key whose pubkey was not committed) refuses the publish, because a feed signed by a key nobody trusts
+would look healthy and silently strand every installed copy. `publish-update.mjs --app <App> --preflight` runs the same checks with
+no artifacts; the app's dtp lane calls it BEFORE it deploys or tags. While a rotation's previous key is still kept, a publish
+without `--sign-with-prev-key` is refused (`dtp` passes it when `MIND_SIGN_WITH_PREV_KEY=1`; so does `publish-update-from-release.sh
+--sign-with-prev-key`).
+
+**Limit of the Windows update.** The Windows installers that the local key signs are downloaded from the public GitHub release and
+checked against `SHA256SUMS.txt`, an asset of the same release; nothing binds them to the CI build that produced them, and there is no
+Authenticode layer (decision). Whoever can write release assets in the window between publication and the lane's download (up to
+30 minutes) could substitute an installer and its checksum file and have it signed with the update key. The update key therefore
+protects against transport and CDN tampering, not against the loss of release-write access. macOS is anchored separately (the
+Developer ID team check on the app inside the dmg, and the app's own bundle check at update time). Closing the gap needs a build
+provenance attestation (`gh attestation verify`) or a hash CI cannot be asked to rewrite; neither is wired.
+
 ### Update keys
 
 One minisign key pair per app, made by `sh tools/updater-keygen.sh <App> --pub-out <file>` into a SEPARATE keychain
@@ -351,7 +369,7 @@ back, the live key is copied to a `prev` slot (verified) before the live slot is
 between any two writes leaves a complete old and a complete new key; `--recover` finishes it. Then put the new public key in
 `plugins.updater.pubkey`, ship the transitional release (the first one carrying the new key) signed by the OLD key with
 `publish-update.mjs --sign-with-prev-key`, ship later releases normally, and only then `--drop-prev`. A second `--replace` is refused
-while a `prev` key is held.
+while a `prev` key is held, and so is a plain publish (see above).
 
 `publish-update.mjs` also refuses, before signing anything: a pre-release version (unless `--prerelease`) and a version that is not
 strictly newer than the `latest.json` already live (unless `--force-feed`). `gh release upload --clobber` is delete-then-upload, so a

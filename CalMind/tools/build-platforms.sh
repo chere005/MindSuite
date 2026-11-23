@@ -282,9 +282,10 @@ if [ "$WANT_MAC" = 1 ]; then
     echo "    $APPNAME is open — quitting it so the copy lands on a bundle nobody is running"
     # ASKED, NOT KILLED. This is the gesture desktop/smoke.sh already uses. The
     # app holds the only copy of whatever is unsaved in that window, and a
-    # release has no business destroying it, so this never escalates to
-    # kill -9: if it has not gone after a few seconds, say so and install over
-    # it anyway — a stale window is a smaller problem than a skipped deploy.
+    # release has no business destroying it, so this never escalates to a
+    # TERM or kill -9 (the install below passes --no-kill): if it has not gone
+    # after a few seconds, say so and SKIP the install — the old copy stays, the
+    # app stays open, the release goes on, and the way out is printed below.
     #
     # `with timeout` is not decoration. A quit is an Apple Event, and osascript
     # WAITS for the reply — two minutes by default. An app sitting on a "save
@@ -301,7 +302,7 @@ if [ "$WANT_MAC" = 1 ]; then
       pgrep -f "/Applications/$APPNAME.app/Contents/MacOS/" >/dev/null 2>&1 || { GONE=1; break; }
       sleep 1
     done
-    [ "$GONE" = 1 ] || echo "    $APPNAME would not quit — installing over it anyway" >&2
+    [ "$GONE" = 1 ] || echo "    $APPNAME would not quit — it is left running and the signed copy will not be installed over it" >&2
   fi
   # The smoke's middle check is the one worth having: the content-hashed
   # bundle name links the .app to THIS export, so "it built" cannot be
@@ -317,12 +318,12 @@ if [ "$WANT_MAC" = 1 ]; then
   # /Applications, swaps it in, verifies it THERE, and puts the old copy back
   # on any failure. It never reopens the app: this block does, below, when the
   # app was open before the lane started.
-  if sh "$ROOT/tools/mac-sign-install.sh" --already-signed --no-relaunch "$APPBUNDLE"; then
+  if sh "$ROOT/tools/mac-sign-install.sh" --already-signed --no-relaunch --no-kill "$APPBUNDLE"; then
     echo "    installed: /Applications/$(basename "$APPBUNDLE")"
   elif [ "$GONE" = 0 ]; then
-    # His open window would not quit, so the script left the installed copy alone: say so, keep the release going (the
-    # old behaviour: a stale window is a smaller problem than a skipped deploy) and name the way out.
-    echo "    $APPNAME is open and would not quit — the signed copy was NOT installed; quit it and run: sh tools/mac-sign-install.sh --already-signed $APPBUNDLE" >&2
+    # His open window would not quit, and --no-kill means it was never terminated: the script left the installed copy
+    # alone. Say so, keep the release going (a stale window is a smaller problem than a skipped deploy) and name the way out.
+    echo "    $APPNAME is open and did not quit — the signed copy was NOT installed and the app was left running; quit it and run: sh tools/mac-sign-install.sh --already-signed $APPBUNDLE" >&2
   else
     echo "the signed app could not be installed into /Applications" >&2; exit 1
   fi

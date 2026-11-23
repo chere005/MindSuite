@@ -50,6 +50,7 @@ bash tools/ci/test-mac-sign-install.sh
 node --check tools/publish-update.mjs
 node --check tools/updater-keygen.mjs
 node --check tools/updater-keychain.mjs
+node --check tools/minisign-verify.mjs
 # the shared updater and the feed tools: cargo builds of the harness crate, under the heavy-build lock
 bash tools/ci/test-updater.sh
 bash tools/ci/test-publish-update.sh

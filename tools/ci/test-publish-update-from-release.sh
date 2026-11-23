@@ -53,6 +53,12 @@ for want in "--app Example" "--version $V" "--repo owner/Suite" "--mac-app " "--
   case "$line" in *"$want"*) ;; *) fail "the publisher call lacks '$want': $line" ;; esac
 done
 [ "$(grep -c '^publish ' "$CALLS")" = 1 ] || fail 'the publisher ran more than once'
+case "$line" in *--sign-with-prev-key*) fail 'the previous key is used without being asked' ;; esac
+# the transitional release of a key rotation: the flag, or MIND_SIGN_WITH_PREV_KEY=1, reaches the publisher
+: > "$CALLS"; run --wait 3 --sign-with-prev-key > "$tmp/out" 2>&1 || fail '--sign-with-prev-key was refused'
+grep '^publish ' "$CALLS" | grep -q -- '--sign-with-prev-key' || fail '--sign-with-prev-key was not passed on'
+: > "$CALLS"; MIND_SIGN_WITH_PREV_KEY=1 run --wait 3 > "$tmp/out" 2>&1 || fail 'MIND_SIGN_WITH_PREV_KEY was refused'
+grep '^publish ' "$CALLS" | grep -q -- '--sign-with-prev-key' || fail 'MIND_SIGN_WITH_PREV_KEY was not passed on'
 
 # 2. a draft is waited for, then given up on, and nothing is published
 : > "$CALLS"; echo true > "$STATE_FILE"

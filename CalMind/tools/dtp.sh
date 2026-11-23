@@ -168,6 +168,18 @@ if [ "$FULL" = 1 ]; then
   done
 fi
 
+# ---------------------------------------------------- can the update feed be signed?
+# Checked BEFORE anything ships: the update step further down runs after the tag, and a tauri CLI too old to bind a version
+# (tauri-cli 2.12+, run npm ci), or a keychain key that is not the one CalMind's tauri.conf.json trusts, would otherwise be
+# found only once the release is live and every installed copy is waiting for a feed that cannot be written. A kept previous
+# key (a rotation) needs MIND_SIGN_WITH_PREV_KEY=1 for its transitional release (docs/PUBLISH.md).
+FEED_PREV=""; [ "${MIND_SIGN_WITH_PREV_KEY:-0}" = 1 ] && FEED_PREV="--sign-with-prev-key"
+if [ -f ../tools/publish-update.mjs ]; then
+  # shellcheck disable=SC2086
+  node ../tools/publish-update.mjs --app CalMind --preflight $FEED_PREV \
+    || { echo "refusing: the update feed could not be signed (the lines above) — nothing has shipped." >&2; exit 1; }
+fi
+
 # What the Release workflow builds from, changed since the last tag? Read
 # BEFORE the bump commit, which touches those manifests every time.
 LAST_TAG=$(git describe --tags --abbrev=0 --match 'CalMind/[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
@@ -396,6 +408,7 @@ elif [ ! -f ../tools/publish-update-from-release.sh ]; then
 else
   echo "==> update feed for $NEW (waits for the published release)"
   FEED_INSTALL="--install"; [ "$WANT_MAC" = 1 ] && FEED_INSTALL=""
+  FEED_INSTALL="$FEED_INSTALL $FEED_PREV"
   # shellcheck disable=SC2086
   if ! sh ../tools/publish-update-from-release.sh CalMind "$TAG" "$NEW" $FEED_INSTALL; then
     UPDATE_FAILED="the update feed for $NEW was not published; retry from the suite root: sh tools/publish-update-from-release.sh CalMind $TAG $NEW $FEED_INSTALL"

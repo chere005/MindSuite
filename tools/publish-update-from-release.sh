@@ -2,7 +2,7 @@
 # Publish an app's auto-update feed entry from its PUBLISHED GitHub release, and (optionally) install the released app.
 #
 #   sh tools/publish-update-from-release.sh <App> <tag> <version> [--repo OWNER/MindSuite] [--wait SECONDS]
-#                                           [--notes-file FILE] [--install] [--dry-run DIR]
+#                                           [--notes-file FILE] [--install] [--dry-run DIR] [--sign-with-prev-key]
 #
 # WHY. The release workflow (calmind-release.yml and its clones) builds the Windows installers and the signed, notarized,
 # stapled dmg on GitHub runners; the update feed is signed LOCALLY (the update key never leaves the separate keychain,
@@ -18,6 +18,8 @@
 #                     <App>/tools/mac-sign-install.sh --already-signed (the same full verification, atomic swap,
 #                     rollback; the running app is asked to quit and is reopened). The installed copy is then the very
 #                     app the feed serves.
+#   --sign-with-prev-key   sign with the PREVIOUS update key: the transitional release of a key rotation (also
+#                     MIND_SIGN_WITH_PREV_KEY=1). Without it a kept previous key refuses the publish.
 #   --dry-run DIR     write the feed files into DIR and touch no network upload (publish-update.mjs --dry-run); the
 #                     release is still read with gh. Nothing is installed.
 #
@@ -28,17 +30,19 @@ set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 die() { echo "publish-update-from-release: $*" >&2; exit 1; }
 say() { echo "publish-update-from-release: $*" >&2; }
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 [ $# -ge 3 ] || usage
 APP=$1; TAG=$2; VERSION=$3; shift 3
-REPO=; WAIT=1800; NOTES=; INSTALL=0; DRY=
+REPO=; WAIT=1800; NOTES=; INSTALL=0; DRY=; PREV=0
+[ "${MIND_SIGN_WITH_PREV_KEY:-0}" != 1 ] || PREV=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO=${2:?}; shift 2 ;;
     --wait) WAIT=${2:?}; shift 2 ;;
     --notes-file) NOTES=${2:?}; shift 2 ;;
     --install) INSTALL=1; shift ;;
+    --sign-with-prev-key) PREV=1; shift ;;
     --dry-run) DRY=${2:?}; shift 2 ;;
     -h|--help) usage ;;
     *) echo "publish-update-from-release: unknown option $1" >&2; usage ;;
@@ -118,6 +122,7 @@ MNT=
 set -- --app "$APP" --version "$VERSION" --repo "$REPO" --mac-app "$WORK/app/$APP.app" --win-nsis "$NSIS" --win-msi "$MSI"
 [ -z "$NOTES" ] || set -- "$@" --notes-file "$NOTES"
 [ -z "$DRY" ] || set -- "$@" --dry-run "$DRY"
+[ "$PREV" = 0 ] || set -- "$@" --sign-with-prev-key
 if [ -n "${MIND_PUBLISH_UPDATE:-}" ]; then
   "$MIND_PUBLISH_UPDATE" "$@" || die "publish-update failed"
 else

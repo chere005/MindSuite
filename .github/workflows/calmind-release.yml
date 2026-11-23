@@ -119,7 +119,7 @@ jobs:
       need_macos: ${{ steps.draft.outputs.need_macos || 'true' }}
       need_linux: ${{ steps.draft.outputs.need_linux || 'true' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           # Preflight builds the commit the run was dispatched on (no tag exists yet); a release builds the tag.
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', env.REQ_TAG) }}
@@ -259,16 +259,18 @@ jobs:
         shell: bash
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: CalMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       - name: Install deps
         working-directory: CalMind
@@ -293,7 +295,7 @@ jobs:
         run: npm run export:web
 
       - name: Build the Windows bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           projectPath: CalMind/desktop
           args: --bundles msi,nsis
@@ -385,7 +387,7 @@ jobs:
         shell: bash
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
@@ -399,12 +401,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: bash tools/ci/macos-signing.sh
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: CalMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       - name: Install deps
         working-directory: CalMind
@@ -431,7 +435,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           projectPath: CalMind/desktop
           args: --bundles dmg
@@ -516,16 +520,18 @@ jobs:
       - name: Prepare must have succeeded
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: CalMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       # WebKitGTK 4.1 (the soup3 API this repo's tauri/wry resolve to), and the tools the AppImage bundler and the smoke
       # need: patchelf for the bundler, xvfb + xdotool because "is there a window" is unanswerable without a display.
@@ -565,7 +571,7 @@ jobs:
       # which the runner lacks. NO_STRIP: linuxdeploy's bundled strip chokes on newer toolchains' .relr.dyn sections, and
       # Cargo's release profile already strips the binary.
       - name: Build the Linux bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           NO_STRIP: "true"
