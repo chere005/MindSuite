@@ -504,7 +504,23 @@ function containerWord(text: string, unit: string | null, name: string): '' | 'c
  *  the whole thing, and one per thing it names when it says 'X and Y'. */
 type Ident = { key: string; parts: string[] };
 
+const IDENT_CACHE = new Map<string, Ident>();
+const IDENT_CACHE_MAX = 50000;
+
+/** `identify` is a pure function of the text and is the hot spot of every
+ *  "what is left to buy" count (each recipe line and every pantry row, per
+ *  recipe), so the answer is kept by text. Bounded so a long-lived page never
+ *  grows without limit. The Ident is shared: callers only read it. */
 function identify(text: string): Ident {
+  const hit = IDENT_CACHE.get(text);
+  if (hit !== undefined) return hit;
+  const id = identifyUncached(text);
+  if (IDENT_CACHE.size >= IDENT_CACHE_MAX) IDENT_CACHE.clear();
+  IDENT_CACHE.set(text, id);
+  return id;
+}
+
+function identifyUncached(text: string): Ident {
   const t = text.trim();
   const p = ingredientParts(t);
   const name = p.name || t;
@@ -548,12 +564,28 @@ export function pantryHas(rows: readonly string[], text: string, except = -1): b
 }
 
 /** The pantry as shelf things: identity → the first ROW that holds it. */
-function shelf(pantry: readonly string[]): Map<string, string> {
+function buildShelf(pantry: readonly string[]): Map<string, string> {
   const have = new Map<string, string>();
   for (const row of pantry) {
     const key = pantryRowKey(row);
     if (key !== '' && !have.has(key)) have.set(key, row);
   }
+  return have;
+}
+
+/** The shelf of one pantry ARRAY, built once and handed to every count made
+ *  against it: the recipe list asks "what is left to buy" of every recipe, and
+ *  a recipe's detail asks it of every line, all against the same array, so
+ *  rebuilding the shelf per ask was recipes x pantry work on every change.
+ *  Keyed by the array itself (a changed pantry is a new array, see
+ *  `pantryTexts`); the length is checked too, so an array that was grown in
+ *  place is rebuilt rather than served stale. The map is only ever read. */
+const SHELF_CACHE = new WeakMap<readonly string[], { size: number; have: Map<string, string> }>();
+function shelf(pantry: readonly string[]): Map<string, string> {
+  const hit = SHELF_CACHE.get(pantry);
+  if (hit !== undefined && hit.size === pantry.length) return hit.have;
+  const have = buildShelf(pantry);
+  SHELF_CACHE.set(pantry, { size: pantry.length, have });
   return have;
 }
 
@@ -931,7 +963,7 @@ function pantryNameOf(text: string): string {
     const out = words.join(' ');
     return c === '' || /\b(?:canned|tinned|jarred)\b/i.test(out) ? out : `${c === 'can' ? 'canned' : 'jarred'} ${out}`;
   };
-  const covered = (n: string) => coveredBy(shelf([n]), identify(t)) !== null;
+  const covered = (n: string) => coveredBy(buildShelf([n]), identify(t)) !== null;
   const lower = (w: string) => w.toLowerCase();
   const KEEP_FORM = new Set(['crushed', 'diced', 'chopped', 'peeled']);
   // Preparation words go ('crushed red pepper' and a canned product's form stay).
