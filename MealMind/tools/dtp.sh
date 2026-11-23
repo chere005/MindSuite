@@ -412,7 +412,7 @@ if [ "$WANT_MAC" = 0 ]; then
 elif [ "$RELEASE_OK" = 1 ]; then
   echo "==> publishing the update feed for $NEW (signs with MealMind's key from the updater keychain)"
   sh tools/publish-update.sh \
-    || UPDATE_FAILED="the update feed for $NEW was not published (the lines above say why); once fixed: sh tools/publish-update.sh"
+    || UPDATE_FAILED="the update feed for $NEW was not published (the lines above say why); once fixed: sh tools/publish-update.sh (add --force-feed if it says the feed already holds $NEW)"
 fi
 if [ -n "$UPDATE_FAILED" ]; then
   echo "" >&2

@@ -4,8 +4,8 @@
 #   prepare  (ubuntu)   the tag must be the app's version in EVERY file that carries it (tools/release-versions.mjs); a tag that
 #                       is already a PUBLISHED release stops the run; notes use docs/releases/<version>.md (or a plain
 #                       app/version) plus Installing guidance; a DRAFT release "MealMind <version>" is made (an earlier run's draft is reused).
-#   windows  (windows)  typecheck, export the web app, cargo test of the shell (the shared updater against a fixture feed),
-#                       tauri build -> the .msi and the NSIS .exe (x64), the MSI installed and launched on the runner as a smoke
+#   windows  (windows)  typecheck, export the web app (the shell's cargo tests run on the mac job only: a Windows test binary has
+#                       no comctl32 v6 manifest and cannot load), tauri build -> the .msi and the NSIS .exe (x64), the MSI installed and launched on the runner as a smoke
 #                       test, each installer's SHA-256 printed into the run log, then both uploaded into the draft.
 #   mac      (macos-15) Apple silicon (the runner is an arm64 Mac): typecheck, tests, export the web app, cargo test of the shell,
 #                       tauri build with `--bundles dmg` -> MealMind_<version>_aarch64.dmg, Developer ID signed, notarized and
@@ -290,15 +290,6 @@ jobs:
       - name: Patch the exported head
         working-directory: MealMind
         run: node tools/patch-web-html.mjs app/dist/index.html
-
-      # The shell's own tests, on the platform that updates by running an installer: the shared updater against a local fixture
-      # feed. tauri-build wants the staged web export to exist (frontendDist), so it is staged first, exactly as `tauri build`'s
-      # beforeBuildCommand does.
-      - name: Test the shell
-        working-directory: MealMind
-        run: |
-          bash desktop/stage-dist.sh
-          cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
       # The targets are tauri.conf.json's: on Windows that is msi and nsis (the "app" target is macOS-only).
       # No createUpdaterArtifacts: CI has no update key (it lives on the owner's Mac); tools/publish-update.sh makes the update files.
