@@ -2,7 +2,9 @@
  * The one screen: a header that says Transactions, the running total, the
  * list, and the + that opens the form.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode,
+} from 'react';
 import {
   Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text,
   TextInput, View, type PanResponderInstance,
@@ -24,6 +26,7 @@ import {
   ClipboardIcon, DuplicateIcon, HammerIcon, PencilIcon, XIcon,
 } from './Icons';
 import { PickBar } from './PickBar';
+import { useProgressive } from './progressive';
 import { useRowDrag, type RowDrag } from './rowdrag';
 import { TipBubble, useTip } from './Tip';
 import { BarRow, CircleBtn, TopBar } from './TopBar';
@@ -153,7 +156,15 @@ function TransactionsBody({
   const [filter, setFilter] = useState(EMPTY_TXN_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
   const [resultFolds, setResultFolds] = useState<readonly string[]>([]);
-  const filtered = hasTxnFilter(filter);
+  /*
+   * The list is drawn from a DEFERRED copy of the filter and the sort: the
+   * search box and the sort menu answer at once, and the two thousand rows
+   * behind them catch up when the thread is free (and a second keystroke
+   * abandons the first's render rather than queueing behind it).
+   */
+  const listFilter = useDeferredValue(filter);
+  const listSort = useDeferredValue(sort);
+  const filtered = hasTxnFilter(listFilter);
   const filterCount = Number(filter.category !== undefined) + Number(filter.status !== 'any')
     + Number(filter.from !== null || filter.through !== null);
   const folds = filtered ? resultFolds : collapsed;
@@ -162,9 +173,9 @@ function TransactionsBody({
   const shown = view === null ? accounts : accounts.filter((a) => a.id === view);
   const sections = shown.flatMap((account) => {
     const all = txns.filter((txn) => txn.account === account.id);
-    const rows = filtered ? filterTransactions(all, filter) : all;
+    const rows = filtered ? filterTransactions(all, listFilter) : all;
     if (filtered && rows.length === 0) return [];
-    return [{ account, rows: sortTxns(rows, sort), balance: total(all), clearedBalance: clearedTotal(all) }];
+    return [{ account, rows: sortTxns(rows, listSort), balance: total(all), clearedBalance: clearedTotal(all) }];
   });
   const anyRows = sections.some((sec) => sec.rows.length > 0);
 
@@ -211,6 +222,9 @@ function TransactionsBody({
    * enter by accident, on a gesture with no affordance, one row at a time.
    */
   const [edit, setEdit] = useState(false);
+  // The pencil flips at once; the rows follow (each grows three buttons, which
+  // is most of a second of work on a long ledger). They read this copy.
+  const rowsEdit = useDeferredValue(edit);
   /**
    * The rows picked out — MealMind's selection, brought over 2026-09-21.
    *
@@ -223,6 +237,7 @@ function TransactionsBody({
    * Clear is one press, an inch from the count it acts on.
    */
   const [picked, setPicked] = useState<readonly string[]>([]);
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
   /**
    * The field being typed into in place, if any.
    *
@@ -237,7 +252,7 @@ function TransactionsBody({
    * no way to tell which one Return will land on.
    */
   const [inline, setInline] = useState<{ id: string; field: 'name' | 'amount' } | null>(null);
-  const leaveEdit = () => { setEdit(false); setSwipedId(null); };
+  const leaveEdit = useCallback(() => { setEdit(false); setSwipedId(null); }, []);
   // Both directions clear the park. Edit mode HIDES it rather than cancelling
   // it, so without this the pencil pressed twice brought back a delete armed
   // on a row the finger left minutes ago.
@@ -332,17 +347,40 @@ function TransactionsBody({
     for (const t of rows) flatRows.push({ kind: 'row', rec: t, sectionId: account.id });
   }
 
+  /*
+   * Where each drawn entry sits in the flat list, by id — one pass, instead
+   * of a `findIndex` per row (a quadratic walk on a two-thousand-row ledger).
+   * Rows and headings are registered with the drag BY KEY (`rowKey`/`headKey`)
+   * and resolved to an index only when a drag measures, so an insert, delete
+   * or fold above a row does not change what that row is handed and it can
+   * stay memoised.
+   */
+  const keyIdx = new Map<string, number>();
+  flatRows.forEach((x, i) => keyIdx.set(x.kind === 'row' ? x.rec.id : headKey(x.sectionId), i));
+  const flatIdxOf = (id: string) => keyIdx.get(id) ?? -1;
+  const headIdxOf = (id: string) => keyIdx.get(headKey(id)) ?? -1;
+  // The drag reads these through its own ref, so it always sees the latest.
+  const indexOfKey = (key: string) => keyIdx.get(key);
+
+  // Draw the rows in slices on the way in: see `useProgressive`.
+  const rowTotal = flatRows.length - sections.length;
+  const drawn = useProgressive(rowTotal);
+  let undrawn = drawn;
+  const limits = sections.map(({ account, rows }) => {
+    const n = folds.includes(account.id) ? 0 : Math.min(undrawn, rows.length);
+    undrawn -= n;
+    return n;
+  });
+
   const drag = useRowDrag(flatRows.length, (from, to) => {
     const src = flatRows[from];
     if (src?.kind !== 'row') return;
     const target = dropTarget(slotEntries(flatRows), from, to);
     if (target === null) return;
     onMove?.(src.rec, target.sectionId, target.beforeId);
-  });
+  }, indexOfKey);
   useEffect(() => { setDragging(drag.dragIdx !== null); }, [drag.dragIdx]);
 
-  const flatIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'row' && x.rec.id === id);
-  const headIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'head' && x.sectionId === id);
   /*
    * A grip is offered when there is anywhere for the row to GO — and, as
    * before, only in CUSTOM order: a hand order the next render would undo is
@@ -350,8 +388,27 @@ function TransactionsBody({
    * one row", which is the question a per-account drag asked; one row in
    * each of two accounts is now a move.
    */
-  const canMove = edit && !filtered && onMove !== undefined
+  const canMove = rowsEdit && !filtered && drawn >= rowTotal && onMove !== undefined
     && (flatRows.filter((x) => x.kind === 'row').length > 1 || sections.length > 1);
+  /*
+   * Handlers whose identity never changes, reading the latest props through a
+   * ref, so a memoised row is not handed a new function on every render of the
+   * screen (the parent's callbacks are rebuilt each time the ledger changes).
+   */
+  const latest = useRef({ onAction, onInline, onDate, onCleared });
+  latest.current = { onAction, onInline, onDate, onCleared };
+  const stable: RowHandlers = useMemo(() => ({
+    onPick: (id: string) => setPicked((p) => toggleSelected(p, id)),
+    onInline: (t: Txn, patch: InlinePatch) => latest.current.onInline?.(t, patch),
+    onDate: (t: Txn) => latest.current.onDate?.(t),
+    onCleared: (t: Txn, c: boolean) => latest.current.onCleared?.(t, c),
+    onAction: (a: RowAction, t: Txn) => latest.current.onAction?.(a, t),
+  }), []);
+  // What a row's category dropdown offers: through context, so only an OPEN
+  // dropdown hears about it. Handed to every row as props, a reorder of the
+  // choices (the list is ranked by use, so filing one row can move them)
+  // re-rendered the whole ledger.
+  const menuSource = useMemo(() => ({ lines: categoryOptions, categories }), [categoryOptions, categories]);
   const deleteSelected = () => {
     if (onDeleteMany === undefined || selection.length === 0) return;
     onDeleteMany(selection);
@@ -499,7 +556,8 @@ function TransactionsBody({
           </View>
         )}
 
-        {sections.map(({ account, rows, balance, clearedBalance }) => (
+        <MenuSourceContext.Provider value={menuSource}>
+        {sections.map(({ account, rows, balance, clearedBalance }, at) => (
           <Section
             key={account.id}
             account={account}
@@ -510,10 +568,11 @@ function TransactionsBody({
             onToggle={() => toggle(account.id)}
             onFoldAll={foldAllAccounts}
             onAdd={() => onAdd(account.id)}
-            edit={edit}
+            edit={rowsEdit}
+            limit={limits[at] ?? 0}
             onEdited={leaveEdit}
-            picked={picked}
-            onPick={(id) => setPicked((p) => toggleSelected(p, id))}
+            picked={pickedSet}
+            h={stable}
             inline={inline}
             setInline={setInline}
             amountMode={amountMode}
@@ -521,8 +580,6 @@ function TransactionsBody({
             onDate={onDate}
             onCleared={onCleared}
             lineName={lineName}
-            lines={categoryOptions}
-            categories={categories}
             reconciling={reconciling}
             onReconcileOpen={(account, what) => setReconciling({ account, what })}
             onReconcile={(id, stated, what) => {
@@ -536,11 +593,12 @@ function TransactionsBody({
             /* Dragging is offered only in CUSTOM order. Anywhere else a
                hand-placed row is a statement the app cannot keep: the next
                render puts it back, which reads as the app ignoring you. */
-            canMove={canMove && sort === 'custom'}
+            canMove={canMove && listSort === 'custom'}
             headIdx={headIdxOf(account.id)}
             flatIdxOf={flatIdxOf}
           />
         ))}
+        </MenuSourceContext.Provider>
 
         {/* The boundary BELOW everything — one past the last entry, so it
             belongs to the list rather than to whichever account happens to
@@ -618,8 +676,8 @@ function TransactionsBody({
  * number of hooks whenever an account appeared or was filtered away.
  */
 function Section({
-  account, rows, balance, clearedBalance, shut, onToggle, onFoldAll, onAdd, edit, onEdited, picked, onPick,
-  inline, setInline, amountMode, onInline, onDate, onCleared, lineName, lines, categories,
+  account, rows, balance, clearedBalance, shut, onToggle, onFoldAll, onAdd, edit, limit, onEdited, picked, h,
+  inline, setInline, amountMode, onInline, onDate, onCleared, lineName,
   swipedId, setSwipedId, onAction, drag, canMove, headIdx, flatIdxOf,
   reconciling, onReconcileOpen, onReconcile,
 }: {
@@ -634,11 +692,13 @@ function Section({
   onAdd: () => void;
   /** Is the page in edit mode? Every row shows its controls when it is. */
   edit: boolean;
+  /** How many of `rows` to draw yet (the rest follow: `useProgressive`). */
+  limit: number;
   /** An action was chosen — edit mode ends, so nobody has to turn it off. */
   onEdited: () => void;
+  h: RowHandlers;
   /** The ids picked out in edit mode. */
-  picked: readonly string[];
-  onPick: (id: string) => void;
+  picked: ReadonlySet<string>;
   inline: { id: string; field: 'name' | 'amount' } | null;
   setInline: (next: { id: string; field: 'name' | 'amount' } | null) => void;
   /** How a row's amount, edited in place, reads bare digits. */
@@ -649,9 +709,6 @@ function Section({
   onCleared?: ((txn: Txn, cleared: boolean) => void) | undefined;
   /** The row whose delete is parked, if any. One at a time, like openId. */
   lineName: (id: string | null) => string;
-  /** What the row's category dropdown offers. */
-  lines: readonly CategoryChoice[];
-  categories: readonly Category[];
   /** The account, and which of its two figures, open as a field — if any. */
   reconciling: { account: string; what: Reconciled } | null;
   onReconcileOpen: (account: string, what: Reconciled) => void;
@@ -693,7 +750,7 @@ function Section({
       {/* THE HEADING IS A DROP TARGET, and has to be measured to be one —
           see the screen's `flatRows`. Registered open or shut, which is what
           lets a row be dropped into a folded account. */}
-      <View style={styles.head} ref={drag.registerRow(headIdx)} collapsable={false}>
+      <View style={styles.head} ref={drag.registerKey(headKey(account.id))} collapsable={false}>
         <Pressable
           onPress={parked ? dismiss : onToggle}
           // Hold it and every account follows this one — see foldAllAccounts.
@@ -849,48 +906,120 @@ function Section({
         </Pressable>}
       </View>
 
-      {!shut && rows.map((t) => {
-        const i = flatIdxOf(t.id);
+      {!shut && (rows.length > limit ? rows.slice(0, limit) : rows).map((t) => {
+        // Everything below is a primitive, a stable function or a value that
+        // only moves when THIS row's own state does, so RowCell can skip a
+        // render that does not concern it. Nothing here is the row's position
+        // unless it is needed by the one row involved (a drag).
+        const i = canMove || drag.slot !== null || drag.dragIdx !== null ? flatIdxOf(t.id) : -1;
         return (
-        <View key={t.id} ref={drag.registerRow(i)} collapsable={false}>
-          {/* One line, at the boundary the row would land on. Nothing else
-              moves while a drag is live — a list that rearranges under a
-              moving finger is a list you cannot aim at. */}
-          {drag.slot === i && <View style={styles.dropLine} testID="drop-line" />}
-          <Row
-            txn={t}
+          <RowCell
+            key={t.id}
+            t={t}
+            reg={drag.registerKey(t.id)}
+            dropLine={i !== -1 && drag.slot === i}
             edit={edit && onAction !== undefined}
-            picked={picked.includes(t.id)}
-            onPick={() => onPick(t.id)}
+            picked={picked.has(t.id)}
             inline={inline?.id === t.id ? inline.field : null}
-            onOpenInline={(field) => setInline({ id: t.id, field })}
-            onCloseInline={() => setInline(null)}
+            setInline={setInline}
             amountMode={amountMode}
-            onInline={onInline === undefined ? undefined : (patch) => onInline(t, patch)}
-            onDate={onDate === undefined ? undefined : () => onDate(t)}
-            onCleared={onCleared === undefined ? undefined : (c) => onCleared(t, c)}
-            onAction={(a) => { setSwipedId(null); onEdited(); onAction?.(a, t); }}
+            hasInline={onInline !== undefined}
+            hasDate={onDate !== undefined}
+            hasCleared={onCleared !== undefined}
+            hasAction={onAction !== undefined}
+            h={h}
+            setSwipedId={setSwipedId}
+            onEdited={onEdited}
             grip={canMove ? drag.gripFor(i) : undefined}
-            lifted={drag.dragIdx === i}
-            dy={drag.dragIdx === i ? drag.dragDy : 0}
+            lifted={i !== -1 && drag.dragIdx === i}
+            dy={i !== -1 && drag.dragIdx === i ? drag.dragDy : 0}
             lineName={splitLabel(t, (id) => lineName(id) || NO_CATEGORY) ?? lineName(t.category)}
-            lines={lines}
-            categories={categories}
             swiped={swipedId === t.id}
             parked={swipedId !== null}
-            onDismiss={() => setSwipedId(null)}
-            onSwipe={() => setSwipedId(t.id)}
           />
-        </View>
         );
       })}
     </View>
   );
 }
 
+/** The handlers a row calls, none of which ever changes identity (see `stable`). */
+type RowHandlers = {
+  onPick: (id: string) => void;
+  onInline: (t: Txn, p: InlinePatch) => void;
+  onDate: (t: Txn) => void;
+  onCleared: (t: Txn, c: boolean) => void;
+  onAction: (a: RowAction, t: Txn) => void;
+};
+
+/** The headings are drag targets too; this keeps their key apart from a row's id. */
+const headKey = (accountId: string) => `head:${accountId}`;
+
+/**
+ * The category dropdown's choices and headings. Context rather than props on
+ * every row: only an OPEN dropdown reads it, so a change to the choices
+ * re-renders that one menu and not two thousand rows.
+ */
+const MenuSourceContext = createContext<{ lines: readonly CategoryChoice[]; categories: readonly Category[] }>({
+  lines: [], categories: [],
+});
+
+function RowCategoryMenu(p: { onPick: (id: string | null) => void; onSplit: () => void; onClose: () => void }) {
+  const { lines, categories } = useContext(MenuSourceContext);
+  return <CategoryMenu categories={categories} lines={lines} onPick={p.onPick} onSplit={p.onSplit} onClose={p.onClose} />;
+}
+
+/**
+ * One row, memoised: a tap that concerns one row re-renders one row. Every prop
+ * is a primitive, a value shared by the whole list that rarely changes, or a
+ * function made once — see where `Section` builds it before adding one that is
+ * new on each render, which turns this back into a render of every row.
+ */
+const RowCell = memo(function RowCell(p: {
+  t: Txn; reg: (ref: View | null) => void; dropLine: boolean; edit: boolean; picked: boolean; inline: 'name' | 'amount' | null;
+  setInline: (n: { id: string; field: 'name' | 'amount' } | null) => void; amountMode: AmountMode;
+  hasInline: boolean; hasDate: boolean; hasCleared: boolean; hasAction: boolean;
+  h: RowHandlers;
+  setSwipedId: (id: string | null) => void; onEdited: () => void;
+  grip: PanResponderInstance['panHandlers'] | undefined; lifted: boolean; dy: number; lineName: string;
+  swiped: boolean; parked: boolean;
+}) {
+  const { t, h } = p;
+  return (
+    <View ref={p.reg} collapsable={false}>
+      {/* One line, at the boundary the row would land on. Nothing else
+          moves while a drag is live — a list that rearranges under a
+          moving finger is a list you cannot aim at. */}
+      {p.dropLine && <View style={styles.dropLine} testID="drop-line" />}
+      <Row
+        txn={t}
+        edit={p.edit}
+        picked={p.picked}
+        onPick={() => h.onPick(t.id)}
+        inline={p.inline}
+        onOpenInline={(field) => p.setInline({ id: t.id, field })}
+        onCloseInline={() => p.setInline(null)}
+        amountMode={p.amountMode}
+        onInline={p.hasInline ? (patch) => h.onInline(t, patch) : undefined}
+        onDate={p.hasDate ? () => h.onDate(t) : undefined}
+        onCleared={p.hasCleared ? (c) => h.onCleared(t, c) : undefined}
+        onAction={(a) => { p.setSwipedId(null); p.onEdited(); if (p.hasAction) h.onAction(a, t); }}
+        grip={p.grip}
+        lifted={p.lifted}
+        dy={p.dy}
+        lineName={p.lineName}
+        swiped={p.swiped}
+        parked={p.parked}
+        onDismiss={() => p.setSwipedId(null)}
+        onSwipe={() => p.setSwipedId(t.id)}
+      />
+    </View>
+  );
+});
+
 function Row({
   txn, edit, picked, onPick, inline, onOpenInline, onCloseInline, amountMode, onInline, onDate, onCleared,
-  onAction, grip, lifted, dy, swiped, parked, lineName, lines, categories, onDismiss, onSwipe,
+  onAction, grip, lifted, dy, swiped, parked, lineName, onDismiss, onSwipe,
 }: {
   txn: Txn;
   /** Is the page in edit mode? Then this row shows its controls. */
@@ -930,8 +1059,6 @@ function Row({
   parked: boolean;
   /** What this row is filed against, already resolved to a word. */
   lineName: string;
-  lines: readonly CategoryChoice[];
-  categories: readonly Category[];
   /** Put away a parked delete — a tap on any row does it. */
   onDismiss: () => void;
   /** A firm left swipe landed — park the delete. */
@@ -1143,9 +1270,7 @@ function Row({
         <AcceptCategory name={txn.name} category={lineName} onPress={() => onTap(() => onAction('accept-category'))?.()} />
       )}
       {filing && onInline !== undefined && (
-        <CategoryMenu
-          categories={categories}
-          lines={lines}
+        <RowCategoryMenu
           onPick={(id) => { if (id !== txn.category) onInline({ category: id }); }}
           onSplit={() => onAction('split')}
           onClose={() => setFiling(false)}

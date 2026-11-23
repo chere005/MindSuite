@@ -607,6 +607,16 @@ export default function App() {
   };
 
   const ledger = phase.k === 'ready' ? phase.store : null;
+  /*
+   * The live (not deleted) slices, filtered once per change to that slice
+   * rather than once per render of this screen. A fresh array each render
+   * made every screen below it see "new" data on every tap, so a tap on one
+   * row re-did the work for all of them.
+   */
+  const txnsLive = useMemo(() => ledger === null ? [] : live(ledger.txns), [ledger?.txns]);
+  const accountsLive = useMemo(() => ledger === null ? [] : live(ledger.accounts), [ledger?.accounts]);
+  const linesLive = useMemo(() => ledger === null ? [] : live(ledger.lines), [ledger?.lines]);
+  const categoriesLive = useMemo(() => ledger === null ? [] : live(ledger.categories), [ledger?.categories]);
   const choices = useMemo(() => ledger === null ? [] : categoryChoices(ledger), [ledger]);
   const rules = useMemo(() => ledger === null ? [] : categoryRules(ledger), [ledger]);
 
@@ -674,9 +684,11 @@ export default function App() {
     />
   ) : null;
 
+  // One object while its two parts stand still: a fresh one each render re-renders every consumer of the context.
+  const readOnlyValue = useMemo(() => ({ readOnly, badge }), [readOnly, badge]);
   return (
     <SafeAreaProvider>
-      <ReadOnlyContext.Provider value={{ readOnly, badge }}>
+      <ReadOnlyContext.Provider value={readOnlyValue}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'left', 'right']}>
         {phase.k === 'loading' && (
@@ -705,9 +717,9 @@ export default function App() {
             {!wide && tab === 'budget' && (
               <BudgetScreen
                 key={calendarMonth}
-                txns={live(phase.store.txns)}
-                categories={live(phase.store.categories)}
-                lines={live(phase.store.lines)}
+                txns={txnsLive}
+                categories={categoriesLive}
+                lines={linesLive}
                 budgets={phase.store.budgets}
                 settings={phase.store.settings}
                 start={budgetStart(phase.store)}
@@ -803,7 +815,7 @@ export default function App() {
             {/* Tombstones travel; they are not shown. */}
             {!wide && tab === 'transactions' && (
             <TransactionsScreen
-              txns={live(phase.store.txns)}
+              txns={txnsLive}
               onAdd={(account) => {
                 setEditing(null);
                 setAddingTo(account);
@@ -849,7 +861,7 @@ export default function App() {
               peers={peers}
               menu={appMenu}
               undo={undoBtn}
-              accounts={live(phase.store.accounts)}
+              accounts={accountsLive}
               sort={prefs.sort}
               onSort={(m) => setPref('sort', m)}
               // The cog's Whole dollars, for a row's amount edited in place —
@@ -858,9 +870,9 @@ export default function App() {
               collapsed={prefs.collapsed}
               onCollapsed={(ids) => setPref('collapsed', [...ids])}
               onManage={() => setManaging('accounts')}
-              lines={live(phase.store.lines)}
+              lines={linesLive}
               categoryOptions={choices}
-              categories={live(phase.store.categories)}
+              categories={categoriesLive}
               /*
                * Reconcile: say what the account actually holds, and the
                * difference becomes one transaction dated TODAY — the owner,

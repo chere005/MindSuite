@@ -26,6 +26,13 @@ import { PanResponder, type PanResponderInstance, type View } from 'react-native
 export type RowDrag = {
   /** Attach to row `i`'s View so the grant can measure where it is. */
   registerRow: (i: number) => (ref: View | null) => void;
+  /**
+   * The same, for a row known by a KEY rather than its position: the callback
+   * for one key never changes identity, so a row whose neighbours came or went
+   * (an insert above it, a fold, a delete) keeps its props and can stay
+   * memoised. Its index is looked up with `indexOfKey` when a drag measures.
+   */
+  registerKey: (key: string) => (ref: View | null) => void;
   /** Pan handlers for row `i`'s grip. */
   gripFor: (i: number) => PanResponderInstance['panHandlers'];
   /** The row being dragged, or null. */
@@ -36,7 +43,12 @@ export type RowDrag = {
   slot: number | null;
 };
 
-export function useRowDrag(count: number, onDrop: (from: number, to: number) => void): RowDrag {
+export function useRowDrag(
+  count: number,
+  onDrop: (from: number, to: number) => void,
+  /** Where a keyed row sits NOW, or undefined when it is not in the list. */
+  indexOfKey?: (key: string) => number | undefined,
+): RowDrag {
   const [ui, setUi] = useState<{ dragIdx: number | null; dragDy: number; slot: number | null }>({
     dragIdx: null, dragDy: 0, slot: null,
   });
@@ -45,21 +57,52 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
   // gesture on the floor — in CalMind that showed up as the browser starting
   // a text selection instead of a drag — so the responders are created once
   // per index and read everything through here.
-  const cfg = useRef({ count, onDrop });
-  cfg.current = { count, onDrop };
+  const cfg = useRef({ count, onDrop, indexOfKey });
+  cfg.current = { count, onDrop, indexOfKey };
 
   const rows = useRef(new Map<number, View>());
   /** Each row's midpoint in WINDOW space, filled at grant. */
   const mids = useRef(new Map<number, number>());
   const responders = useRef(new Map<number, PanResponderInstance>());
 
-  const registerRow = (i: number) => (ref: View | null) => {
-    if (ref) rows.current.set(i, ref);
-    else rows.current.delete(i);
+  // One callback per index (and per key), made once. A fresh function each
+  // render makes React detach and re-attach every row's ref on every render.
+  const regCache = useRef(new Map<number, (ref: View | null) => void>());
+  const registerRow = (i: number) => {
+    let f = regCache.current.get(i);
+    if (f === undefined) {
+      f = (ref: View | null) => {
+        if (ref) rows.current.set(i, ref);
+        else rows.current.delete(i);
+      };
+      regCache.current.set(i, f);
+    }
+    return f;
+  };
+
+  const keyed = useRef(new Map<string, View>());
+  const keyCache = useRef(new Map<string, (ref: View | null) => void>());
+  const registerKey = (key: string) => {
+    let f = keyCache.current.get(key);
+    if (f === undefined) {
+      f = (ref: View | null) => {
+        if (ref) keyed.current.set(key, ref);
+        else keyed.current.delete(key);
+      };
+      keyCache.current.set(key, f);
+    }
+    return f;
   };
 
   const measure = async (): Promise<void> => {
     const entries = [...rows.current.entries()];
+    const lookup = cfg.current.indexOfKey;
+    if (lookup !== undefined) {
+      for (const [key, ref] of keyed.current) {
+        const i = lookup(key);
+        if (i !== undefined) entries.push([i, ref]);
+      }
+    }
     const measured = await Promise.all(entries.map(([i, ref]) =>
       new Promise<{ i: number; mid: number }>((res) => {
         ref.measureInWindow((_x, y, _w, h) => res({ i, mid: y + h / 2 }));
@@ -136,5 +179,5 @@ export function useRowDrag(count: number, onDrop: (from: number, to: number) => 
     return responders.current.get(i)!.panHandlers;
   };
 
-  return { ...ui, registerRow, gripFor };
+  return { ...ui, registerRow, registerKey, gripFor };
 }
