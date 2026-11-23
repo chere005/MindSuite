@@ -3,10 +3,13 @@
 // commands app sign-in needs (src/signin.rs): the page signs in through the
 // suite's /account/app/ in the system browser and the shell catches the
 // return on a one-shot 127.0.0.1 listener. The app name comes from
-// tauri.conf.json.
+// tauri.conf.json. src/updater.rs adds the "Check for Updates..." menu item and a quiet daily check (macOS, Windows).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod signin;
+// macOS and Windows only: Linux has no update feed entry (docs/PUBLISH.md, "Updates").
+#[cfg(any(target_os = "macos", windows))]
+mod updater;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -75,6 +78,14 @@ fn signin_cancel(s: State<'_, SignIn>) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            // BEFORE the window exists, so the window gets the "Check for Updates..." menu item.
+            #[cfg(any(target_os = "macos", windows))]
+            updater::init(app, updater::Options::default())?;
+            #[cfg(not(any(target_os = "macos", windows)))]
+            let _ = app;
+            Ok(())
+        })
         .manage(SignIn::default())
         .invoke_handler(tauri::generate_handler![signin_listen, open_in_browser, signin_wait, signin_cancel])
         .run(tauri::generate_context!())

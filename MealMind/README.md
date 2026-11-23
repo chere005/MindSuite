@@ -11,7 +11,7 @@ Feel free to deploy this on your own website, build and deploy the iOS version, 
 ## Quick start / Install
 
 - Web: [seancheren.com/MealMind](https://seancheren.com/MealMind). Installs as a PWA. Sign in with a CalMind account.
-- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/MindSuite/releases) (the `MealMind/` tags). Unsigned.
+- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/MindSuite/releases), one page per version (the `MealMind/` tags; MealMind is never the repo's "Latest"). macOS (Apple silicon): `MealMind_<version>_aarch64.dmg`, Developer ID signed and notarized. Windows (x64): `.msi` and `-setup.exe`, not code-signed, so SmartScreen may ask once (More info, then Run anyway). Installed copies check for new versions themselves ("Check for Updates..." in the app menu on macOS, Help on Windows).
 - iOS and Android: build from source, see Building.
 
 ## Platforms
@@ -63,7 +63,7 @@ For local or native builds, `EXPO_PUBLIC_API_URL` can select another `/api/index
 
 Deploy production with `./deploy.sh --yes-prod`, or TEST only with `./deploy.sh --test`. Each selects a fixed web root and its own CalMind API. `--dry-run` previews transfers; `--verify` checks the selected instance. `deploy.conf` supplies only the SSH login. TEST uses the same source and gates, without changing the release version or any account data.
 
-Needs a sibling `../CalMind` checkout. Phones: `sh tools/build-platforms.sh --ios` or `--android`. Desktop: `npm run desktop`. Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub.
+Needs a sibling `../CalMind` checkout. Phones: `sh tools/build-platforms.sh --ios` or `--android`. Desktop: `npm run desktop`. Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub, and the lane signs and publishes the update feed (see ARCHITECTURE.md, "Updates").
 
 ## Documentation
 
