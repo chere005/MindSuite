@@ -58,6 +58,9 @@ SH
 cat > "$tmp/bin/spctl" <<'SH'
 #!/bin/bash
 echo "spctl $*" >> "$CALLS"
+# TEST_TERM_AT=<glob>: when asked about that path, send the install script (the parent of the command-substitution
+# subshell this runs in) a TERM, as a Ctrl-C or kill during the install would.
+if [ -n "${TEST_TERM_AT:-}" ]; then case "${@: -1}" in $TEST_TERM_AT) kill -TERM "$(ps -o ppid= -p "$PPID" | tr -d ' ')" ;; esac; fi
 echo "${@: -1}: accepted" >&2
 echo "source=${TEST_SPCTL_SOURCE:-Notarized Developer ID}" >&2
 SH
@@ -179,6 +182,25 @@ if TEST_FAIL_DEST=1 bash "$SCRIPT" --install-dir "$tmp/install" "$tmp/in/Example
 [ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "rollback leftovers $(ls -A "$tmp/install")"
 grep -q 'rolled back' "$tmp/out" || fail 'rollback not reported'
 
+# 4b. an interrupt (kill) at any point restores the old copy and leaves nothing behind
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+# while the STAGED copy is being verified: the staging directory must not stay
+if TEST_TERM_AT='*/.Example.app.new.*' bash "$SCRIPT" --install-dir "$tmp/install" "$tmp/in/Example.app" > "$tmp/out" 2>&1; then fail 'a terminated install reported success'; fi
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail 'a kill during staging lost the old copy'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "a kill during staging left $(ls -A "$tmp/install")"
+# after the swap, before the copy in place is verified: the old copy comes back, the new one is discarded
+for noswap in 0 1; do
+  reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+  if MIND_NO_SWAP=$noswap TEST_TERM_AT="$tmp/install/Example.app" bash "$SCRIPT" --install-dir "$tmp/install" "$tmp/in/Example.app" > "$tmp/out" 2>&1; then fail "a terminated install reported success (no-swap $noswap)"; fi
+  [ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail "a kill after the swap did not restore the old copy (no-swap $noswap)"
+  [ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "a kill after the swap left $(ls -A "$tmp/install") (no-swap $noswap)"
+  [ ! -e "$tmp/install/Example.app.bad.$$" ] || fail 'a .bad copy stayed'
+done
+# a first install (nothing to restore) that is killed leaves no staging directory
+reset
+if TEST_TERM_AT='*/.Example.app.new.*' bash "$SCRIPT" --install-dir "$tmp/install" "$tmp/in/Example.app" > "$tmp/out" 2>&1; then fail 'a terminated first install reported success'; fi
+[ -z "$(ls -A "$tmp/install")" ] || fail "a kill during a first install left $(ls -A "$tmp/install")"
+
 # 5. a running app is quit before the swap and reopened afterwards; a stubborn one blocks the install
 reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
 printf '#!/bin/sh\nexec sleep 300\n' > "$tmp/install/Example.app/Contents/MacOS/example"
@@ -207,7 +229,8 @@ grep -q 'more than one' "$tmp/out" || fail 'ambiguity not reported'
 reset; expect_fail 'a partial identity name' bash "$SCRIPT" --identity 'Developer ID Application' --no-install --out "$tmp/out-dir" "$tmp/in/Example.app"
 reset; expect_fail 'a hash' bash "$SCRIPT" --identity 1111111111111111111111111111111111111111 --no-install --out "$tmp/out-dir" "$tmp/in/Example.app"
 reset; expect_fail 'no identity and no team' env MIND_MACHINE_ENV="$tmp/missing.env" bash "$SCRIPT" --no-install --out "$tmp/out-dir" "$tmp/in/Example.app"
-reset; expect_fail 'identity of another team' env APPLE_TEAM_ID=OTHERTEAM1 bash "$SCRIPT" --identity "$FULL" --no-install --out "$tmp/out-dir" "$tmp/in/Example.app"
+OTHER_TEAM=OTHERTEAM1   # not written as a team assignment: CoreMind/bin/check-personal-data.sh flags those
+reset; expect_fail 'identity of another team' env "APPLE_TEAM_ID=$OTHER_TEAM" bash "$SCRIPT" --identity "$FULL" --no-install --out "$tmp/out-dir" "$tmp/in/Example.app"
 reset; printf 'MAC_SIGN_IDENTITY="%s"\nNOTARY_PROFILE=Other\n' "$FULL" > "$tmp/machine2.env"
 env MIND_MACHINE_ENV="$tmp/machine2.env" bash "$SCRIPT" --no-install --out "$tmp/out-dir" "$tmp/in/Example.app" > "$tmp/out" 2>&1 || fail 'machine.env identity failed'
 grep -q -- '--keychain-profile Other' "$CALLS" || fail 'NOTARY_PROFILE from machine.env was ignored'

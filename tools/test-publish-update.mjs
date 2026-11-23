@@ -45,6 +45,9 @@ case "$1 $2" in
   "release create") mkdir -p "$S/$3" ;;
   "release upload")
     tag=$3; shift 3
+    if printf '%s\\n' "$@" | grep -q 'latest.json$' && [ -f "$S/../fail-latest" ]; then
+      n=$(cat "$S/../fail-latest"); if [ "$n" -gt 0 ]; then echo $((n-1)) > "$S/../fail-latest"; rm -f "$S/$tag/latest.json"; echo "HTTP 502" >&2; exit 1; fi
+    fi
     while [ $# -gt 0 ]; do case "$1" in --*) break ;; *) cp "$1" "$S/$tag/" ;; esac; shift; done ;;
   "release download")
     tag=$3; dir=; pat=
@@ -63,6 +66,7 @@ const baseEnv = {
   MIND_MACHINE_ENV: path.join(T, 'no-such-machine.env'),
   GH_STATE: path.join(T, 'gh-state'),
   GH_LOG: path.join(T, 'gh.log'),
+  MIND_UPLOAD_RETRY_WAIT: '0',
 };
 process.env.MIND_UPDATER_KEYCHAIN = kcPath; process.env.MIND_UPDATER_KEYCHAIN_PASSWORD = baseEnv.MIND_UPDATER_KEYCHAIN_PASSWORD;
 const node = (script, args, env = {}) => spawnSync(process.execPath, [path.join(ROOT, 'tools', script), ...args], { encoding: 'utf8', env: { ...baseEnv, ...env } });
@@ -108,17 +112,86 @@ test('keygen creates the key in a scratch keychain, prints only the public key, 
   assert.notEqual(noKey.status, 0);
 });
 
-test('a backup is a 0600 file, refused inside a git work tree and over an existing file', () => {
+test('a backup is two 0600 files (key, password) outside git, refused over existing files', () => {
   const dest = path.join(T, 'backup.json');
   const r = node('updater-keygen.mjs', [APP, '--export-backup', dest]);
   assert.equal(r.status, 0, out(r));
   const j = JSON.parse(readFileSync(dest, 'utf8'));
-  assert.equal(j.app, APP); assert.ok(j.privateKey && j.password && j.publicKey === pubkey);
-  assert.equal(statSync(dest).mode & 0o777, 0o600);
+  assert.equal(j.app, APP); assert.ok(j.privateKey && j.publicKey === pubkey);
+  assert.equal(j.password, undefined, 'the key file must not carry its password');
+  assert.ok(!readFileSync(dest, 'utf8').includes(secretValues[1]), 'the password is in the key file');
+  assert.equal(readFileSync(`${dest}.password`, 'utf8').trim(), secretValues[1]);
+  assert.equal(statSync(dest).mode & 0o777, 0o600); assert.equal(statSync(`${dest}.password`).mode & 0o777, 0o600);
   for (const v of secretValues) assert.ok(!out(r).includes(v));
   assert.notEqual(node('updater-keygen.mjs', [APP, '--export-backup', dest]).status, 0);
   assert.notEqual(node('updater-keygen.mjs', [APP, '--export-backup', path.join(ROOT, 'tools/never-written.json')]).status, 0);
-  assert.ok(!existsSync(path.join(ROOT, 'tools/never-written.json')));
+  assert.ok(!existsSync(path.join(ROOT, 'tools/never-written.json')) && !existsSync(path.join(ROOT, 'tools/never-written.json.password')));
+  const synced = path.join(T, 'Dropbox'); mkdirSync(synced);
+  const w = node('updater-keygen.mjs', [APP, '--export-backup', path.join(synced, 'k.json')]);
+  assert.equal(w.status, 0, out(w)); assert.match(w.stderr, /cloud-synced/);
+});
+
+test('a failed check never leaves the key file in the temp dir', () => {
+  const tmp = path.join(T, 'keygen-tmp'); mkdirSync(tmp);
+  const real = kc.findTauri(ROOT, APP);
+  const wrapper = path.join(T, 'tauri-no-sign'); writeFileSync(wrapper, `#!/bin/bash\n[ "$1 $2" != "signer sign" ] || { echo refused >&2; exit 1; }\nexec "${real}" "$@"\n`); chmodSync(wrapper, 0o755);
+  const r = node('updater-keygen.mjs', ['NoSignApp'], { TMPDIR: tmp, TAURI_BIN: wrapper });
+  assert.notEqual(r.status, 0); assert.match(out(r), /could not sign a probe/);
+  assert.deepEqual(readdirSync(tmp), [], 'the temporary key file was left behind');
+  kc.unlock(); assert.equal(kc.get('NoSignApp', 'private-key'), null, 'a key that cannot sign was stored'); kc.lock();
+});
+
+test('rotation keeps the old key as "prev", never loses it, and the transitional release is signed by it', () => {
+  const R = 'RotApp';
+  assert.equal(node('updater-keygen.mjs', [R, '--replace']).status, 1, '--replace without a key is refused');
+  const first = node('updater-keygen.mjs', [R]); assert.equal(first.status, 0, out(first));
+  kc.unlock(); const A = kc.getSlot(R, ''); kc.lock();
+  assert.ok(kc.slotComplete(A));
+  const rot = node('updater-keygen.mjs', [R, '--replace']);
+  assert.equal(rot.status, 0, out(rot));
+  kc.unlock(); const live = kc.getSlot(R, ''); const prev = kc.getSlot(R, 'prev'); const next = kc.getSlot(R, 'next'); kc.lock();
+  assert.ok(kc.slotComplete(live) && live.publicKey !== A.publicKey, 'a new key is live');
+  assert.deepEqual(prev, A, 'the old key is kept whole');
+  assert.ok(kc.slotEmpty(next), 'the next slot is cleaned up');
+  for (const v of [live.privateKey, live.password, A.privateKey, A.password]) assert.ok(!out(rot).includes(v), 'a secret was printed');
+  assert.match(out(rot), new RegExp(live.publicKey.replace(/[+/]/g, '\\$&')));
+  assert.match(out(node('updater-keygen.mjs', [R, '--status'])), /previous key kept/);
+  // a second rotation is refused until the first one is finished
+  assert.match(out(node('updater-keygen.mjs', [R, '--replace'])), /--drop-prev/);
+  // default release: the NEW key; transitional release: the OLD key
+  const base = ['--app', R, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite'];
+  const sigOk = (dir, pub) => { const f = path.join(dir, `${R}_${VERSION}_aarch64.app.tar.gz`); return verify(pub, f, `${f}.sig`, VERSION).status === 0; };
+  const d1 = path.join(T, 'rot-new'); assert.equal(node('publish-update.mjs', [...base, '--dry-run', d1]).status, 0);
+  assert.ok(sigOk(d1, live.publicKey) && !sigOk(d1, A.publicKey), 'default signs with the new key');
+  const d2 = path.join(T, 'rot-prev'); const tr = node('publish-update.mjs', [...base, '--sign-with-prev-key', '--dry-run', d2]);
+  assert.equal(tr.status, 0, out(tr));
+  assert.ok(sigOk(d2, A.publicKey) && !sigOk(d2, live.publicKey), '--sign-with-prev-key signs with the old key');
+  for (const v of [A.privateKey, A.password]) assert.ok(!out(tr).includes(v));
+  // finishing the rotation
+  assert.equal(node('updater-keygen.mjs', [R, '--drop-prev']).status, 0);
+  assert.notEqual(node('publish-update.mjs', [...base, '--sign-with-prev-key', '--dry-run', path.join(T, 'rot-gone')]).status, 0);
+  assert.notEqual(node('updater-keygen.mjs', [R, '--drop-prev']).status, 0, 'nothing left to drop');
+});
+
+test('an interrupted rotation is repaired by --recover and never loses either key', () => {
+  const mk = (name) => { assert.equal(node('updater-keygen.mjs', [name]).status, 0); kc.unlock(); const x = kc.getSlot(name, ''); kc.lock(); return x; };
+  const A = mk('RotSrcA'), B = mk('RotSrcB');
+  const cases = {
+    'crashed before the old key was copied': () => { kc.putSlot('RotCrash', '', A); kc.putSlot('RotCrash', 'next', B); },
+    'crashed with the live slot half rewritten': () => { kc.putSlot('RotCrash', '', A); kc.putSlot('RotCrash', 'prev', A); kc.putSlot('RotCrash', 'next', B); kc.putSlot('RotCrash', '', { ...A, password: B.password }); },
+  };
+  for (const [name, setup] of Object.entries(cases)) {
+    kc.unlock(); kc.removeSlot('RotCrash', ''); kc.removeSlot('RotCrash', 'prev'); kc.removeSlot('RotCrash', 'next'); setup(); kc.lock();
+    assert.match(out(node('updater-keygen.mjs', ['RotCrash', '--replace'])), /--recover/, `${name}: a new rotation must wait`);
+    const r = node('updater-keygen.mjs', ['RotCrash', '--recover']);
+    assert.equal(r.status, 0, `${name}: ${out(r)}`);
+    kc.unlock(); const got = { live: kc.getSlot('RotCrash', ''), prev: kc.getSlot('RotCrash', 'prev'), next: kc.getSlot('RotCrash', 'next') }; kc.lock();
+    assert.deepEqual(got.live, B, `${name}: the new key is live`); assert.deepEqual(got.prev, A, `${name}: the old key is kept`); assert.ok(kc.slotEmpty(got.next));
+  }
+  // a "next" that was never finished is discarded and the live key is untouched
+  kc.unlock(); kc.removeSlot('RotCrash', ''); kc.removeSlot('RotCrash', 'prev'); kc.putSlot('RotCrash', '', A); kc.putSlot('RotCrash', 'next', B); kc.remove('RotCrash', 'private-key.next'); kc.lock();
+  assert.equal(node('updater-keygen.mjs', ['RotCrash', '--recover']).status, 0);
+  kc.unlock(); assert.deepEqual(kc.getSlot('RotCrash', ''), A); assert.ok(kc.slotEmpty(kc.getSlot('RotCrash', 'next'))); kc.lock();
 });
 
 test('helpers: versions order and feed urls', () => {
@@ -222,4 +295,50 @@ test('refusals: nothing is signed or uploaded', () => {
   const ok = node('publish-update.mjs', ['--app', APP, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite', '--dry-run', path.join(T, 'r8')]);
   assert.equal(ok.status, 0, out(ok));
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(path.join(T, 'r8/latest.json'), 'utf8')).platforms), ['darwin-aarch64']);
+});
+
+// ---- feed guards, upload retries --------------------------------------------------------------------------------
+function release(v) {
+  const mac = makeApp(path.join(T, `mac-${v}`), v);
+  const n = path.join(win, `${APP}_${v}_x64-setup.exe`); writeFileSync(n, `nsis ${v}`);
+  const m = path.join(win, `${APP}_${v}_x64_en-US.msi`); writeFileSync(m, `msi ${v}`);
+  return ['--app', APP, '--version', v, '--mac-app', mac, '--win-nsis', n, '--win-msi', m, '--repo', 'OWNER/MindSuite'];
+}
+const feedFile = () => path.join(T, 'gh-state/TestApp-updates/latest.json');
+const feedVersion = () => JSON.parse(readFileSync(feedFile(), 'utf8')).version;
+
+test('the feed refuses pre-releases and versions that are not newer, before anything is signed', () => {
+  assert.equal(feedVersion(), '2.5.0');
+  const rc = node('publish-update.mjs', [...release('2.6.0-rc.1'), '--dry-run', path.join(T, 'rc-dry')]);
+  assert.notEqual(rc.status, 0); assert.match(out(rc), /pre-release/); assert.ok(!existsSync(path.join(T, 'rc-dry')));
+  const rcOk = node('publish-update.mjs', [...release('2.6.0-rc.1'), '--prerelease', '--dry-run', path.join(T, 'rc-ok')]);
+  assert.equal(rcOk.status, 0, out(rcOk));
+  writeFileSync(baseEnv.GH_LOG, '');
+  for (const v of ['2.5.0', '2.3.1']) {
+    const r = node('publish-update.mjs', release(v));
+    assert.notEqual(r.status, 0, `${v} was accepted`); assert.match(out(r), /not newer/);
+    assert.equal(feedVersion(), '2.5.0', 'the feed was changed');
+  }
+  const log = readFileSync(baseEnv.GH_LOG, 'utf8');
+  assert.ok(!/release upload|release create|delete-asset/.test(log), `a refused publish uploaded: ${log}`);
+  // on purpose
+  const forced = node('publish-update.mjs', [...release('2.4.0'), '--force-feed']);
+  assert.equal(forced.status, 0, out(forced)); assert.equal(feedVersion(), '2.4.0');
+});
+
+test('a failing latest.json upload is retried, and a hard failure says the feed must be restored', () => {
+  const counter = path.join(T, 'fail-latest');
+  writeFileSync(counter, '2\n');
+  const ok = node('publish-update.mjs', release('2.7.0'));
+  assert.equal(ok.status, 0, out(ok)); assert.equal(feedVersion(), '2.7.0');
+  const tries = readFileSync(baseEnv.GH_LOG, 'utf8').split('\n').filter((l) => l.startsWith('gh release upload') && l.includes('latest.json'));
+  assert.ok(tries.length >= 3, `retried: ${tries.length}`);
+  writeFileSync(counter, '9\n');
+  const bad = node('publish-update.mjs', release('2.8.0'));
+  assert.notEqual(bad.status, 0); assert.match(out(bad), /feed .*may answer 404.*run publish-update again/s);
+  assert.ok(!existsSync(feedFile()), 'the stub fixture models the deleted latest.json');
+  // the re-run restores it (a missing latest.json does not block the version check)
+  rmSync(counter);
+  const again = node('publish-update.mjs', release('2.8.0'));
+  assert.equal(again.status, 0, out(again)); assert.equal(feedVersion(), '2.8.0');
 });

@@ -170,8 +170,33 @@ fi
 
 NAME=$(basename "$APP_IN")
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/mac-sign-install.XXXXXX")
-cleanup() { rm -rf "$WORK"; }
+# Install state the cleanup needs (set further down): DEST, STAGE (the staged NEW copy, until it is moved), OLD (the old
+# copy, once it is set aside) and PHASE: staged | moved (old aside, new not yet in place) | swapped (new in place, not yet
+# verified there) | committed (verified; the old copy may go). A Ctrl-C or kill at any point puts the old copy back and
+# leaves no staging directory behind.
+DEST=; STAGE=; OLD=; PHASE=
+restore_old() { # put the old copy back at $DEST and discard whatever is there now
+  [ -n "$OLD" ] && [ -d "$OLD" ] || return 1
+  if [ -d "$DEST" ]; then
+    rm -rf "$DEST.bad.$$"
+    mv "$DEST" "$DEST.bad.$$" || return 1
+  fi
+  mv "$OLD" "$DEST" || return 1
+  rm -rf "$DEST.bad.$$"
+  OLD=
+}
+cleanup() {
+  trap - EXIT INT TERM
+  case "$PHASE" in
+    moved|swapped) [ -z "$OLD" ] || restore_old || echo "mac-sign-install: could not put the old copy back; it is at $OLD" >&2 ;;
+    committed) [ -z "$OLD" ] || rm -rf "$OLD" ;;
+  esac
+  [ -z "$STAGE" ] || rm -rf "$STAGE"
+  rm -rf "$WORK"
+}
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 APP="$WORK/$NAME"
 
 say "copying $NAME for signing (the build output stays untouched)"
@@ -270,9 +295,9 @@ fi
 [ -d "$INSTALL_DIR" ] || die "no such install directory: $INSTALL_DIR"
 DEST="$INSTALL_DIR/$NAME"
 STAGE="$INSTALL_DIR/.${NAME}.new.$$"
-OLD=
 WAS_RUNNING=0
 rm -rf "$STAGE"
+PHASE=staged
 ditto "$APP" "$STAGE" || { rm -rf "$STAGE"; die "could not stage the new copy in $INSTALL_DIR"; }
 if ! verify_app "$STAGE"; then rm -rf "$STAGE"; die 'the staged copy fails verification; the installed copy was not touched'; fi
 
@@ -312,26 +337,36 @@ PY
 if [ -d "$DEST" ]; then
   if swap_dirs "$DEST" "$STAGE"; then
     OLD=$STAGE          # after the swap the staging name holds the OLD copy
+    STAGE=
+    PHASE=swapped
   else
     OLD="$INSTALL_DIR/.${NAME}.old.$$"
-    mv "$DEST" "$OLD" || { rm -rf "$STAGE"; reopen_old; die 'could not move the installed copy aside'; }
-    if ! mv "$STAGE" "$DEST"; then mv "$OLD" "$DEST" || true; rm -rf "$STAGE"; reopen_old; die 'could not move the new copy into place; the old one is back'; fi
+    mv "$DEST" "$OLD" || { OLD=; rm -rf "$STAGE"; reopen_old; die 'could not move the installed copy aside'; }
+    PHASE=moved
+    if ! mv "$STAGE" "$DEST"; then restore_old || true; PHASE=; rm -rf "$STAGE"; reopen_old; die 'could not move the new copy into place; the old one is back'; fi
+    STAGE=
+    PHASE=swapped
   fi
 else
   mv "$STAGE" "$DEST" || { rm -rf "$STAGE"; die 'could not move the new copy into place'; }
+  STAGE=
+  PHASE=swapped
 fi
 
 if ! verify_app "$DEST"; then
   say 'the installed copy fails verification; putting the old one back'
   if [ -n "$OLD" ] && [ -d "$OLD" ]; then
-    rm -rf "$DEST.bad.$$" && mv "$DEST" "$DEST.bad.$$" && mv "$OLD" "$DEST" && rm -rf "$DEST.bad.$$"
+    restore_old || say "could not put the old copy back; it is at $OLD"
   else
     rm -rf "$DEST"
   fi
+  PHASE=
   reopen_old
   die 'install rolled back'
 fi
+PHASE=committed
 [ -z "$OLD" ] || rm -rf "$OLD"
+OLD=
 say "installed $DEST${VERSION:+ ($VERSION)}"
 if [ "$WAS_RUNNING" = 1 ] && [ "$RELAUNCH" = 1 ]; then open "$DEST" >/dev/null 2>&1 || say 'could not reopen the app'; fi
 echo "$DEST"

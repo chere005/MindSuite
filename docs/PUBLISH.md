@@ -337,9 +337,20 @@ One minisign key pair per app, made by `sh tools/updater-keygen.sh <App> --pub-o
 Mac sleeps, is never on the search list, and is locked again by every tool on exit. Its own random password sits in the login keychain
 (`MindSuite updater keychain`) so a lane runs unattended; secrets travel over stdin or the signer's environment, never argv or logs
 (the one exception, the password in `tauri signer generate -p`, lasts milliseconds once per key). Only the PUBLIC key is committed:
-`plugins.updater.pubkey`. `--status` shows whether a key exists and its public half; `--export-backup FILE` writes a 0600 file
-(refused inside a git work tree) for the owner's offline copy. Losing a key strands installed copies of that app, and a key is never
-replaced without `--replace`: rotate by shipping a release signed by the OLD key whose `pubkey` is the new one, then replace.
+`plugins.updater.pubkey`. `--status` shows whether a key exists and its public half; `--export-backup FILE` writes TWO 0600 files
+(`FILE` with the key, `FILE.password` with its password; refused inside a git work tree, a warning on a cloud-synced path) for the
+owner's offline copy: keep them apart. Losing a key strands installed copies of that app.
+
+Rotation (`--replace`) never loses the old key: the new key is written under a `next` slot and proven by signing with the values read
+back, the live key is copied to a `prev` slot (verified) before the live slot is touched, then `next` becomes live. An interruption
+between any two writes leaves a complete old and a complete new key; `--recover` finishes it. Then put the new public key in
+`plugins.updater.pubkey`, ship the transitional release (the first one carrying the new key) signed by the OLD key with
+`publish-update.mjs --sign-with-prev-key`, ship later releases normally, and only then `--drop-prev`. A second `--replace` is refused
+while a `prev` key is held.
+
+`publish-update.mjs` also refuses, before signing anything: a pre-release version (unless `--prerelease`) and a version that is not
+strictly newer than the `latest.json` already live (unless `--force-feed`). `gh release upload --clobber` is delete-then-upload, so a
+failed `latest.json` upload is retried 3 times and, if it still fails, the tool says the feed may answer 404 until it is run again.
 
 ### In the app
 

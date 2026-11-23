@@ -100,6 +100,28 @@ export function get(app, kind, env = process.env) {
   return r.stdout.replace(/\n$/, '');
 }
 
+// A key set is three items (private key, its password, public key). A SLOT names a copy of the set: '' is the live one, 'next'
+// a freshly made one that is not yet live, 'prev' the one a rotation replaced (kept so the transitional release can still be
+// signed by the key the installed copies trust).
+const SLOT_ITEMS = [['password', 'password'], ['publicKey', 'public-key'], ['privateKey', 'private-key']];   // private key LAST
+export const slotKind = (kind, slot) => (slot ? `${kind}.${slot}` : kind);
+
+/** { privateKey, password, publicKey }: each the stored value or null. */
+export function getSlot(app, slot = '', env = process.env) {
+  const out = {};
+  for (const [field, kind] of SLOT_ITEMS) out[field] = get(app, slotKind(kind, slot), env);
+  return out;
+}
+export const slotComplete = (set) => !!(set && set.privateKey && set.password && set.publicKey);
+export const slotEmpty = (set) => !(set.privateKey || set.password || set.publicKey);
+/** Write a whole set; the private key goes last, so a live private key means the others were written before it. */
+export function putSlot(app, slot, set, env = process.env) {
+  for (const [field, kind] of SLOT_ITEMS) put(app, slotKind(kind, slot), set[field], env);
+}
+export function removeSlot(app, slot, env = process.env) {
+  for (const [, kind] of SLOT_ITEMS) remove(app, slotKind(kind, slot), env);
+}
+
 export function remove(app, kind, env = process.env) {
   spawnSync('security', ['delete-generic-password', '-s', service(app, kind), '-a', kind, keychainPath(env)], { stdio: 'ignore' });
 }

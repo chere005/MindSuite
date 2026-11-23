@@ -10,6 +10,9 @@
 //        [--dry-run DIR]                                      write the feed files into DIR; touch no network
 //        [--mac-archive file.app.tar.gz]                      a prebuilt archive instead of --mac-app
 //        [--allow-partial] [--keep 2] [--tauri PATH]
+//        [--prerelease]       allow a pre-release version (a feed every installed copy follows is for releases)
+//        [--force-feed]       allow a version that is not newer than the one latest.json holds now
+//        [--sign-with-prev-key]  sign with the PREVIOUS key (the transitional release of a key rotation, see updater-keygen.mjs)
 //   node tools/publish-update.mjs --app CalMind --feed-url --repo OWNER/MindSuite    print the endpoint to configure
 //
 // THE FEED. Every app has ONE fixed release, tagged "<App>-updates" (a pre-release, never "Latest"), whose assets are the
@@ -17,8 +20,13 @@
 //   https://github.com/OWNER/MindSuite/releases/download/<App>-updates/latest.json
 // which never changes, however many apps release and whichever release the repo calls Latest (docs/PUBLISH.md, "Updates").
 //
-// ORDER. Artifacts and signatures are uploaded first, latest.json LAST (replacing the old one in one upload): a client
-// never sees a feed that names a file that is not there yet. After the upload the feed is downloaded again and compared.
+// ORDER. Artifacts and signatures are uploaded first, latest.json LAST: a client never sees a feed that names a file that is
+// not there yet. `gh release upload --clobber` deletes the old asset and then uploads the new one, so it is NOT atomic: a
+// failed latest.json upload is retried, and if it still fails the tool says plainly that the feed is missing and must be
+// restored by running it again. After the upload the feed is downloaded again and compared.
+//
+// GUARDS. A pre-release version, and a version that is not strictly newer than the one latest.json holds, are refused
+// before anything is signed (--prerelease, --force-feed), so a stray run cannot move every installed copy to an rc or back.
 //
 // WHAT IS SIGNED. macOS: the .app that passed `mac-sign-install.sh --verify-only` (Developer ID, hardened runtime,
 // notarized, stapled, arm64; its CFBundleShortVersionString must equal --version), re-archived as <App>_<v>_aarch64.app.tar.gz
@@ -44,7 +52,7 @@ const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 function die(msg) { console.error(`publish-update: ${msg}`); process.exit(1); }
 function usage() {
   console.error('usage: publish-update.mjs --app <App> --version <x.y.z> [--mac-app APP | --mac-archive TGZ] [--win-nsis EXE] [--win-msi MSI]\n'
-    + '       [--notes-file FILE | --notes TEXT] [--repo OWNER/MindSuite] [--dry-run DIR] [--allow-partial] [--keep N] [--tauri PATH]\n'
+    + '       [--notes-file FILE | --notes TEXT] [--repo OWNER/MindSuite] [--dry-run DIR] [--allow-partial] [--keep N] [--tauri PATH]\n       [--prerelease] [--force-feed] [--sign-with-prev-key]\n'
     + '       publish-update.mjs --app <App> --feed-url --repo OWNER/MindSuite');
   process.exit(2);
 }
@@ -67,6 +75,9 @@ export function parseArgs(argv) {
       case '--repo': o.repo = next(); break;
       case '--dry-run': o.dryRun = next(); break;
       case '--allow-partial': o.allowPartial = true; break;
+      case '--prerelease': o.prerelease = true; break;
+      case '--force-feed': o.forceFeed = true; break;
+      case '--sign-with-prev-key': o.prevKey = true; break;
       case '--keep': o.keep = Number(next()); break;
       case '--tauri': o.tauri = next(); break;
       case '--feed-url': o.feedUrl = true; break;
@@ -148,6 +159,37 @@ function sign(tauri, file, version, secrets) {
   return sig;
 }
 
+const UPLOAD_TRIES = 3;
+/** `gh release upload --clobber`, retried. Returns true when it worked; dies on the last failure unless `soft`. */
+function upload(repo, tag, filesToSend, what, soft = false) {
+  let last = '';
+  for (let i = 1; i <= UPLOAD_TRIES; i++) {
+    const r = spawnSync('gh', ['release', 'upload', tag, ...filesToSend, '--clobber', '--repo', repo], { encoding: 'utf8' });
+    if (r.status === 0) return true;
+    last = (r.stderr || r.stdout || r.error?.message || '').trim().split('\n').slice(-1)[0];
+    if (i < UPLOAD_TRIES) spawnSync('sleep', [String(Number(process.env.MIND_UPLOAD_RETRY_WAIT ?? 3))]);
+  }
+  if (soft) return false;
+  return die(`uploading ${what} failed ${UPLOAD_TRIES} times: ${last}`);
+}
+
+/** The version latest.json holds now, or null when the feed release or its latest.json does not exist yet. */
+function currentFeedVersion(repo, tag, stage) {
+  const view = spawnSync('gh', ['release', 'view', tag, '--repo', repo, '--json', 'assets', '-q', '.assets[].name'], { encoding: 'utf8' });
+  if (view.status !== 0) {
+    // a missing release is fine (first publish); anything else (network, auth) must not be mistaken for it
+    if (/not found|404/i.test(`${view.stderr}${view.stdout}`)) return null;
+    die(`could not read the feed release ${tag}: ${(view.stderr || view.stdout || '').trim().split('\n')[0]}`);
+  }
+  if (!view.stdout.split('\n').includes('latest.json')) return null;
+  const dir = mkdtempSync(path.join(stage, 'cur-'));
+  run('gh', ['release', 'download', tag, '--repo', repo, '--pattern', 'latest.json', '--dir', dir, '--clobber']);
+  let v;
+  try { v = JSON.parse(readFileSync(path.join(dir, 'latest.json'), 'utf8')).version; } catch { die('the live latest.json is not valid JSON; restore it, or pass --force-feed'); }
+  if (typeof v !== 'string' || !SEMVER.test(v)) die('the live latest.json has no valid version; restore it, or pass --force-feed');
+  return v;
+}
+
 function mustContainVersion(file, version) {
   // an installer for another version is the classic mix-up: Tauri names files <App>_<version>_...
   if (!path.basename(file).includes(`_${version}_`)) die(`${path.basename(file)} does not look like version ${version} (no "_${version}_" in its name)`);
@@ -172,6 +214,7 @@ function main() {
   }
   if (!o.version || !SEMVER.test(o.version)) die('--version x.y.z is required');
   const version = o.version;
+  if (version.includes('-') && !o.prerelease) die(`${version} is a pre-release; the feed is what every installed copy follows. Pass --prerelease to publish it on purpose.`);
   const wantMac = o.macApp || o.macArchive;
   const wantWin = o.winNsis || o.winMsi;
   if (!wantMac && !wantWin) die('nothing to publish: pass --mac-app and/or --win-nsis/--win-msi');
@@ -187,6 +230,14 @@ function main() {
 
   const stage = mkdtempSync(path.join(os.tmpdir(), 'publish-update-'));
   process.on('exit', () => { try { rmSync(stage, { recursive: true, force: true }); } catch { /* best effort */ } kc.lock(); });
+
+  // ---- 0. the feed must not go backwards (before anything is signed) ----------------------------------------------
+  if (realUpload) {
+    const cur = currentFeedVersion(feedRepo, tag, stage);
+    if (cur && !o.forceFeed && cmpVersions(version, cur) <= 0) {
+      die(`the feed already holds ${cur}; ${version} is not newer. Every installed copy would be moved ${cmpVersions(version, cur) === 0 ? 'to a rebuild of the same version' : 'back'}. Pass --force-feed to do it on purpose.`);
+    }
+  }
   const files = [];       // files to upload, artifacts and signatures, in order
   const entries = {};
 
@@ -223,9 +274,10 @@ function main() {
   // ---- 2. sign (the only step that touches the key) ---------------------------------------------------------
   const tauri = o.tauri || kc.findTauri(ROOT, o.app);
   kc.unlock();
-  const key = kc.get(o.app, 'private-key');
-  const password = kc.get(o.app, 'password');
-  if (!key || !password) die(`no update key for ${o.app}: run tools/updater-keygen.sh ${o.app}`);
+  const slot = o.prevKey ? 'prev' : '';
+  const key = kc.get(o.app, kc.slotKind('private-key', slot));
+  const password = kc.get(o.app, kc.slotKind('password', slot));
+  if (!key || !password) die(o.prevKey ? `${o.app} holds no previous update key (a rotation made by updater-keygen.mjs --replace keeps one)` : `no update key for ${o.app}: run tools/updater-keygen.sh ${o.app}`);
   const secrets = { key, password };
   if (macFile) {
     const sig = sign(tauri, macFile, version, secrets);
@@ -264,8 +316,11 @@ function main() {
   if (!exists) {
     gh(['release', 'create', tag, '--title', `${o.app} update feed`, '--notes', `Update feed for ${o.app}. Not a release to download: latest.json and the update archives live here.`, '--prerelease', '--latest=false']);
   }
-  gh(['release', 'upload', tag, ...files, '--clobber']);
-  gh(['release', 'upload', tag, latest, '--clobber']);
+  upload(feedRepo, tag, files, 'the update artifacts');
+  // --clobber deletes the old latest.json first: if this upload fails for good, the fixed feed URL answers 404.
+  if (!upload(feedRepo, tag, [latest], 'latest.json', true)) {
+    die(`latest.json could not be uploaded after ${UPLOAD_TRIES} tries and the OLD one may already be deleted: the feed ${feedUrl(feedRepo, o.app)} may answer 404 until you run publish-update again with the same arguments (the artifacts are already up; a missing latest.json does not block a re-run)`);
+  }
 
   // ---- 5. read it back ---------------------------------------------------------------------------------------
   const back = mkdtempSync(path.join(stage, 'back-'));
