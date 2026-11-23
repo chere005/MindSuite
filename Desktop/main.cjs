@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, WebContentsView } = require('electron');
+const { appendFile } = require('node:fs/promises');
 const { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { origin, installCalMindProtocol } = require('./calmind.cjs');
@@ -10,6 +11,10 @@ const { flag, runLease } = require('./scroll-lease.cjs');
 const { configurePermissions, external, lockWebContents, preferences } = require('./web-contents.cjs');
 const { apps, restore, select, toggle, paneBounds, ratioFor } = require('./workspace.cjs');
 const picker = require('./picker.js');
+const updater = require('./updater.cjs');
+
+// The one fixed feed (package.json build.publish writes it into the app as Resources/app-update.yml).
+const FEED = 'https://github.com/chere005/MindSuite/releases/download/MindSuiteDesktop-updates';
 
 if (process.argv.includes(flag) && process.env.MINDSUITE_SCROLL_PROFILE) {
   runLease(app);
@@ -37,10 +42,12 @@ function start() {
   try { initial = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { /* a new workspace */ }
   let state = restore(initial);
   let window, calmindSession, scroll, note, suiteMenu, closing = false, cleanClose = false, quitting = false;
+  let updates = null, updatesOffReason = 'Updates are not available.', installing = false;
   let saveTimer, editingPicker = false;
   const views = new Map(), pending = new Map(), errors = new Map();
 
   const splitMenuItem = { label: 'Split View', accelerator: 'CmdOrCtrl+Alt+S', click: () => update(toggle(state)) };
+  const updateMenuItem = { label: 'Check for Updates…', click: () => { void checkForUpdates(); } };
   const appFor = key => apps.find(entry => entry.key === key);
   const isOpen = key => key === state.left || key === state.right;
   const shortMessage = error => typeof error?.message === 'string' ? error.message.split('\n')[0].slice(0, 260) : 'Could not open the app.';
@@ -48,7 +55,10 @@ function start() {
     ...state, apps,
     errors: Object.fromEntries(errors),
     ready: [...views.keys()].filter(key => !pending.has(key) && !errors.has(key)),
-    ...(testing && { bounds: Object.fromEntries([...views].map(([key, view]) => [key, view.getBounds()])) }),
+    ...(testing && {
+      bounds: Object.fromEntries([...views].map(([key, view]) => [key, view.getBounds()])),
+      menu: Menu.getApplicationMenu()?.items.map(item => [item.label, (item.submenu?.items ?? []).map(entry => entry.label)]),
+    }),
   });
 
   function publishMenu(noteMenu = note?.menu) {
@@ -144,6 +154,7 @@ function start() {
         closeSuite: () => window.close(),
         menuChanged: publishMenu,
         splitMenuItem,
+        updateMenuItem,
         testing,
       });
       return;
@@ -211,6 +222,61 @@ function start() {
     }
   }
 
+  const logUpdate = (level, text) => {
+    void appendFile(join(app.getPath('userData'), 'update.log'), `${new Date().toISOString()} ${level} ${text}\n`).catch(() => {});
+  };
+
+  function startUpdates() {
+    // Tests drive the real updater only against a loopback feed, and answer its prompts from MINDSUITE_UPDATE_ANSWERS
+    // (comma separated button indexes). Without MINDSUITE_SMOKE_ROOT neither variable is read.
+    const feed = testing ? updater.loopbackFeed(process.env.MINDSUITE_UPDATE_FEED) : null;
+    const bundle = isMac ? join(app.getPath('exe'), '../../..') : '';
+    const signature = isMac && app.isPackaged ? updater.readSignature(bundle) : null;
+    const eligible = updater.updateEligibility({
+      platform: process.platform, arch: process.arch, packaged: app.isPackaged, testing, feedOverride: Boolean(feed),
+      hasFeedFile: app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')), bundle, signature,
+    });
+    if (!eligible.ok) { updatesOffReason = eligible.why; return; }
+    try {
+      if (!feed) {
+        updater.checkFeedFile(readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8'), FEED);
+      }
+      const { MacUpdater } = require('electron-updater');
+      const Guarded = updater.guardedMacUpdater(MacUpdater, {
+        verify: updater.verifyUpdateZip,
+        getRunning: () => ({ version: app.getVersion(), team: signature.team }),
+        notarized: feed && process.env.MINDSUITE_UPDATE_UNNOTARIZED === '1' ? 'skip' : 'required',
+      });
+      const autoUpdater = new Guarded(feed ? { provider: 'generic', url: feed } : undefined);
+      if (feed) autoUpdater.forceDevUpdateConfig = true;
+      const answers = feed ? (process.env.MINDSUITE_UPDATE_ANSWERS || '').split(',').filter(Boolean).map(Number) : null;
+      updates = updater.createUpdater({
+        autoUpdater, version: app.getVersion(), log: logUpdate, firstCheckMs: feed ? 1000 : undefined,
+        dialog: answers ? { showMessageBox: async (...args) => {
+          logUpdate('dialog', args.at(-1).message);
+          return { response: answers.shift() ?? 0 };
+        } } : dialog,
+        getWindow: () => window,
+        install: () => {
+          installing = true;
+          quitting = true;
+          if (window) window.close(); else app.quit();
+        },
+      });
+      updates.start();
+    } catch (error) {
+      updatesOffReason = 'The updater could not start.';
+      logUpdate('error', `the updater did not start: ${error?.message ?? error}`);
+    }
+  }
+
+  async function checkForUpdates() {
+    if (updates) return updates.check({ manual: true });
+    return dialog.showMessageBox(window && !window.isDestroyed() ? window : undefined, {
+      type: 'info', message: 'Updates are off for this copy', detail: updatesOffReason, buttons: ['OK'], noLink: true,
+    });
+  }
+
   function showWindow() {
     if (window) { if (window.isMinimized()) window.restore(); window.focus(); return; }
     cleanClose = false;
@@ -232,7 +298,12 @@ function start() {
       note = null;
       if (suiteMenu) Menu.setApplicationMenu(suiteMenu);
       window = null;
-      if (quitting || testing) setImmediate(() => app.quit());
+      if (installing && updates) {
+        // The workspaces are flushed and closed; hand over to Squirrel.Mac, which quits the app and swaps the copy.
+        setImmediate(() => {
+          try { updates.quitAndInstall(!testing); } catch (error) { logUpdate('error', `install failed: ${error?.message ?? error}`); app.quit(); }
+        });
+      } else if (quitting || testing) setImmediate(() => app.quit());
     });
     window.once('ready-to-show', () => { if (!testing) window.show(); });
     void window.loadFile(join(__dirname, 'shell.html')).then(() => update(state));
@@ -241,6 +312,7 @@ function start() {
   app.on('second-instance', showWindow);
   app.on('activate', showWindow);
   app.on('window-all-closed', () => { if (!isMac) setImmediate(() => app.quit()); });
+  app.on('will-quit', () => updates?.dispose());
   app.on('before-quit', event => {
     if (window && !cleanClose) { event.preventDefault(); quitting = true; window.close(); }
   });
@@ -270,8 +342,12 @@ function start() {
       });
     }
 
+    const appMenu = { label: app.name, submenu: [
+      { role: 'about' }, updateMenuItem, { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' },
+    ] };
     const menu = [
-      { role: 'appMenu' }, { role: 'editMenu' },
+      appMenu, { role: 'editMenu' },
       { label: 'View', submenu: [
         splitMenuItem,
         { type: 'separator' },
@@ -284,6 +360,7 @@ function start() {
     ];
     suiteMenu = Menu.buildFromTemplate(isMac ? menu : menu.slice(1));
     Menu.setApplicationMenu(suiteMenu);
+    startUpdates();
     showWindow();
   }).catch(error => { console.error(error); app.exit(1); });
 }

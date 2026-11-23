@@ -340,18 +340,18 @@
     {
       "id": "tools-heavy-lock-sh",
       "origin": "CalMind/tools/heavy-lock.sh",
-      "copies": ["MealMind/tools/heavy-lock.sh", "AcctMind/tools/heavy-lock.sh", "PlanMind/tools/heavy-lock.sh", "TaskMind/tools/heavy-lock.sh"]
+      "copies": ["MealMind/tools/heavy-lock.sh", "AcctMind/tools/heavy-lock.sh", "PlanMind/tools/heavy-lock.sh", "TaskMind/tools/heavy-lock.sh", "Desktop/tools/heavy-lock.sh"]
     },
     {
       "id": "tools-mac-sign-install-sh",
       "origin": "CalMind/tools/mac-sign-install.sh",
-      "copies": ["MealMind/tools/mac-sign-install.sh", "AcctMind/tools/mac-sign-install.sh", "PlanMind/tools/mac-sign-install.sh", "TaskMind/tools/mac-sign-install.sh"],
+      "copies": ["MealMind/tools/mac-sign-install.sh", "AcctMind/tools/mac-sign-install.sh", "PlanMind/tools/mac-sign-install.sh", "TaskMind/tools/mac-sign-install.sh", "Desktop/tools/mac-sign-install.sh"],
       "note": "Sign, notarize, staple, verify, then install a built .app. Tests: tools/ci/test-mac-sign-install.sh."
     },
     {
       "id": "tools-machine-env-sh",
       "origin": "CalMind/tools/machine-env.sh",
-      "copies": ["MealMind/tools/machine-env.sh", "AcctMind/tools/machine-env.sh", "PlanMind/tools/machine-env.sh", "TaskMind/tools/machine-env.sh"]
+      "copies": ["MealMind/tools/machine-env.sh", "AcctMind/tools/machine-env.sh", "PlanMind/tools/machine-env.sh", "TaskMind/tools/machine-env.sh", "Desktop/tools/machine-env.sh"]
     },
     {
       "id": "tools-retry-installs-sh",
@@ -362,7 +362,7 @@
     {
       "id": "tools-machine-env-sample",
       "origin": "CalMind/tools/machine.env.sample",
-      "copies": ["MealMind/tools/machine.env.sample", "AcctMind/tools/machine.env.sample", "PlanMind/tools/machine.env.sample", "TaskMind/tools/machine.env.sample"]
+      "copies": ["MealMind/tools/machine.env.sample", "AcctMind/tools/machine.env.sample", "PlanMind/tools/machine.env.sample", "TaskMind/tools/machine.env.sample", "Desktop/tools/machine.env.sample"]
     },
     {
       "id": "tools-patch-web-html-mjs",

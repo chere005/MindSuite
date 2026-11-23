@@ -4,7 +4,7 @@
 #   for a remote named by `git config --get-all mindsuite.publicRemote` (a remote name or url), fail closed:
 #     - only these remote refs may be written:
 #         refs/heads/main
-#         refs/tags/<App>/<x.y.z>   App = AcctMind CalMind MealMind CoreMind PlanMind ReadMind TaskMind (the lanes' tags)
+#         refs/tags/<App>/<x.y.z>   App = AcctMind CalMind MealMind CoreMind PlanMind ReadMind TaskMind MindSuiteDesktop (the lanes' tags)
 #                                   or MindSuite (the suite's own version, tools/mindsuite-release.mjs)
 #         refs/heads/preflight/<acctmind|calmind|mealmind>/<sha7..40>   (the lanes' throwaway preflight branches)
 #       never a <App>/legacy/<version> marker, any other branch or tag, or an old-style tag;
@@ -28,7 +28,7 @@ public=0
 for p in $(git config --get-all mindsuite.publicRemote); do
   if [ "$p" = "$remote" ] || [ "$p" = "$url" ]; then public=1; fi
 done
-APPS='AcctMind|CalMind|MealMind|CoreMind|PlanMind|ReadMind|TaskMind|MindSuite'
+APPS='AcctMind|CalMind|MealMind|CoreMind|PlanMind|ReadMind|TaskMind|MindSuiteDesktop|MindSuite'
 PREFLIGHT='refs/heads/preflight/(acctmind|calmind|mealmind)/[0-9a-f]{7,40}'
 public_ref_ok() {
   printf '%s\n' "$1" | grep -Eqx "refs/heads/main|refs/tags/($APPS)/[0-9]+\.[0-9]+\.[0-9]+|$PREFLIGHT"

@@ -1,0 +1,4 @@
+provider: generic
+url: https://github.com/chere005/MindSuite/releases/download/MindSuiteDesktop-updates
+channel: latest
+updaterCacheDirName: mindsuite-desktop-updater
