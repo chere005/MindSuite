@@ -4,13 +4,14 @@
  * with the shown rows' count and totals, and — when the ledger is editable —
  * the quick-entry row on top. Every rule is core's (`ledgerTable`, `quickDraft`).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   EMPTY_TXN_FILTER, INCOME, INCOME_NAME, formatAmount, formatDay, ledgerTable, quickDraft, splitLabel, today,
   type Account, type AmountMode, type CategoryChoice, type CategoryRule, type Draft, type Txn,
 } from '@acctmind/core';
 import { T } from '../theme';
+import { useProgressive } from '../progressive';
 import { AcceptCategory } from '../AcceptCategory';
 import { Btn, CHECK, SELECTED_ROW } from './shared';
 
@@ -50,10 +51,20 @@ export function WideTransactions({
     [query, uncleared],
   );
   const { rows, foot } = useMemo(() => ledgerTable(txns, accounts, account, filter), [txns, accounts, account, filter]);
+  const latest = useRef({ onSelect, onCleared, onAcceptCategory });
+  latest.current = { onSelect, onCleared, onAcceptCategory };
+  const stable = useMemo(() => ({
+    onSelect: (t: Txn) => latest.current.onSelect(t),
+    onCleared: (t: Txn, v: boolean) => latest.current.onCleared(t, v),
+    onAcceptCategory: (t: Txn) => latest.current.onAcceptCategory(t),
+  }), []);
+  // The table is drawn in slices (see `useProgressive`), so it opens at once.
+  const drawn = useProgressive(rows.length);
   const one = account !== null;
   const acctName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '';
   const catName = (id: string | null) => id === null ? null : id === INCOME ? INCOME_NAME : choices.find((c) => c.id === id)?.name ?? null;
   const head = one ? acctName(account) : 'All accounts';
+  const year = today().slice(0, 4);
 
   return (
     <View style={styles.fill} testID="wide-transactions">
@@ -97,42 +108,14 @@ export function WideTransactions({
             showAccount={!one} showBalance={one} onAdd={onQuickAdd}
           />
         )}
-        {rows.map(({ txn, balance }) => {
+        {(rows.length > drawn ? rows.slice(0, drawn) : rows).map(({ txn, balance }) => {
           // A split row says so, and which lines: core's `splitLabel`.
           const cat = splitLabel(txn, (id) => catName(id) ?? 'Uncategorized') ?? catName(txn.category);
           return (
-            <Pressable
-              key={txn.id} onPress={() => onSelect(txn)} accessibilityRole="button"
-              style={[styles.row, styles.trow, txn.id === selectedId && { backgroundColor: SELECTED_ROW }]}
-              testID="wide-row"
-            >
-              <Text style={[styles.td, styles.dim, { width: W.date }]} numberOfLines={1}>{formatDay(txn.date)}</Text>
-              <Text style={[styles.td, styles.grow, styles.nameCol, styles.name]} numberOfLines={1} testID="wide-row-name">{txn.name}</Text>
-              <View style={styles.categoryCell}>
-                <Text style={[styles.td, styles.grow, cat === null && styles.dim]} numberOfLines={1} testID="wide-row-category">{cat ?? 'Uncategorized'}</Text>
-                {!readOnly && txn.categoryNeedsReview && cat !== null && (
-                  <AcceptCategory name={txn.name} category={cat} onPress={() => onAcceptCategory(txn)} />
-                )}
-              </View>
-              {!one && <Text style={[styles.td, styles.dim, { width: W.acct }]} numberOfLines={1}>{acctName(txn.account)}</Text>}
-              <Text style={[styles.td, styles.num, txn.amount > 0 && styles.pos, { width: W.amount }]} numberOfLines={1} testID="wide-row-amount">
-                {txn.amount > 0 ? '+' : ''}{formatAmount(txn.amount)}
-              </Text>
-              {one && <Text style={[styles.td, styles.num, { width: W.balance }]} numberOfLines={1} testID="wide-row-balance">{formatAmount(balance ?? 0)}</Text>}
-              <View style={[styles.mid, { width: W.cleared }]}>
-                {readOnly ? (
-                  <Text style={CHECK.tick}>{txn.cleared === true ? '✓' : ''}</Text>
-                ) : (
-                  <Pressable
-                    onPress={() => onCleared(txn, txn.cleared !== true)} accessibilityRole="checkbox"
-                    accessibilityState={{ checked: txn.cleared === true }} accessibilityLabel="Cleared"
-                    style={[CHECK.box, txn.cleared === true && CHECK.boxOn]} testID="wide-row-cleared"
-                  >
-                    {txn.cleared === true && <Text style={CHECK.boxTick}>✓</Text>}
-                  </Pressable>
-                )}
-              </View>
-            </Pressable>
+            <WideRow
+              key={txn.id} txn={txn} year={year} balance={balance} cat={cat} one={one} readOnly={readOnly}
+              acct={one ? '' : acctName(txn.account)} selected={txn.id === selectedId} h={stable}
+            />
           );
         })}
         {rows.length === 0 && <Text style={styles.empty} testID="wide-empty">No transactions.</Text>}
@@ -154,6 +137,51 @@ export function WideTransactions({
     </View>
   );
 }
+
+/**
+ * One table row, memoised, so a click that concerns one row re-renders one row (props: primitives and stable
+ * handlers only). `year` is the clock's one input: the date leaves the current year off (`formatDay`), so a
+ * row memoised across New Year's Eve would keep the old reading unless it is a prop.
+ */
+const WideRow = memo(function WideRow({ txn, year, balance, cat, one, readOnly, acct, selected, h }: {
+  txn: Txn; year: string; balance: number | null; cat: string | null; one: boolean; readOnly: boolean; acct: string; selected: boolean;
+  h: { onSelect: (t: Txn) => void; onCleared: (t: Txn, v: boolean) => void; onAcceptCategory: (t: Txn) => void };
+}) {
+  return (
+    <Pressable
+      onPress={() => h.onSelect(txn)} accessibilityRole="button"
+      style={[styles.row, styles.trow, selected && { backgroundColor: SELECTED_ROW }]}
+      testID="wide-row"
+    >
+      <Text style={[styles.td, styles.dim, { width: W.date }]} numberOfLines={1}>{formatDay(txn.date, `${year}-01-01`)}</Text>
+      <Text style={[styles.td, styles.grow, styles.nameCol, styles.name]} numberOfLines={1} testID="wide-row-name">{txn.name}</Text>
+      <View style={styles.categoryCell}>
+        <Text style={[styles.td, styles.grow, cat === null && styles.dim]} numberOfLines={1} testID="wide-row-category">{cat ?? 'Uncategorized'}</Text>
+        {!readOnly && txn.categoryNeedsReview && cat !== null && (
+          <AcceptCategory name={txn.name} category={cat} onPress={() => h.onAcceptCategory(txn)} />
+        )}
+      </View>
+      {!one && <Text style={[styles.td, styles.dim, { width: W.acct }]} numberOfLines={1}>{acct}</Text>}
+      <Text style={[styles.td, styles.num, txn.amount > 0 && styles.pos, { width: W.amount }]} numberOfLines={1} testID="wide-row-amount">
+        {txn.amount > 0 ? '+' : ''}{formatAmount(txn.amount)}
+      </Text>
+      {one && <Text style={[styles.td, styles.num, { width: W.balance }]} numberOfLines={1} testID="wide-row-balance">{formatAmount(balance ?? 0)}</Text>}
+      <View style={[styles.mid, { width: W.cleared }]}>
+        {readOnly ? (
+          <Text style={CHECK.tick}>{txn.cleared === true ? '✓' : ''}</Text>
+        ) : (
+          <Pressable
+            onPress={() => h.onCleared(txn, txn.cleared !== true)} accessibilityRole="checkbox"
+            accessibilityState={{ checked: txn.cleared === true }} accessibilityLabel="Cleared"
+            style={[CHECK.box, txn.cleared === true && CHECK.boxOn]} testID="wide-row-cleared"
+          >
+            {txn.cleared === true && <Text style={CHECK.boxTick}>✓</Text>}
+          </Pressable>
+        )}
+      </View>
+    </Pressable>
+  );
+});
 
 /**
  * The quick-entry row: date, name, category, amount. Return adds it through

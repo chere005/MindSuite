@@ -2,7 +2,9 @@
  * The one screen: a header that says Transactions, the running total, the
  * list, and the + that opens the form.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode,
+} from 'react';
 import {
   Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text,
   TextInput, View, type PanResponderInstance,
@@ -11,7 +13,7 @@ import {
   EMPTY_TXN_FILTER, INCOME, INCOME_NAME, LONG_PRESS_MS, amountDigits, amountInput, amountSeed, claimsSwipe,
   clearedTotal, dropTarget, filterTransactions, foldLevel, formatAmount, formatDay, hasTxnFilter, parseAmount, pickTap, rowTap,
   selectedTotal, slotEntries, splitLabel,
-  signedCents, sortTxns, swipeArms, toggleSelected, total,
+  signedCents, sortTxns, swipeArms, toggleSelected, today, total,
   type Account, type AmountMode, type Category, type CategoryChoice, type SortMode, type Txn, type TxnFilter,
 } from '@acctmind/core';
 import { CategoryMenu, NO_CATEGORY } from './CategoryPick';
@@ -24,11 +26,12 @@ import {
   ClipboardIcon, DuplicateIcon, HammerIcon, PencilIcon, XIcon,
 } from './Icons';
 import { PickBar } from './PickBar';
+import { sectionLimits, useProgressive, type DrawnSection } from './progressive';
 import { useRowDrag, type RowDrag } from './rowdrag';
 import { TipBubble, useTip } from './Tip';
 import { BarRow, CircleBtn, TopBar } from './TopBar';
 import { SPACE, T, TAP } from './theme';
-import { useReadOnly } from './readonly';
+import { useIsReadOnly } from './readonly';
 
 export type RowAction = 'edit' | 'split' | 'accept-category' | 'duplicate' | 'copy' | 'delete';
 
@@ -133,7 +136,7 @@ type Props = {
  * handler exists), and Section and Row hide the + and the reconcile hammer.
  */
 export function TransactionsScreen(props: Props) {
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const p: Props = readOnly ? {
     ...props, onAction: undefined, onMove: undefined, onInline: undefined, onDate: undefined,
     onCleared: undefined, onDeleteMany: undefined,
@@ -147,25 +150,39 @@ function TransactionsBody({
   onInline, onDate, onCleared, onDeleteMany,
 }: Props) {
   // Ordering is core's, not the list's — see spec/sort.json.
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [filter, setFilter] = useState(EMPTY_TXN_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
   const [resultFolds, setResultFolds] = useState<readonly string[]>([]);
-  const filtered = hasTxnFilter(filter);
+  /*
+   * The list is drawn from a DEFERRED copy of the filter: the search box
+   * answers at once and the two thousand rows behind it catch up when the
+   * thread is free (a second keystroke abandons the first's render rather than
+   * queueing behind it). The SORT is not deferred: a menu that says "Amount"
+   * over rows still in date order is a screen that disagrees with itself, and
+   * the work after it is memoised and keyed, so the reorder is cheap.
+   */
+  const listFilter = useDeferredValue(filter);
+  const filtered = hasTxnFilter(listFilter);
   const filterCount = Number(filter.category !== undefined) + Number(filter.status !== 'any')
     + Number(filter.from !== null || filter.through !== null);
   const folds = filtered ? resultFolds : collapsed;
   const setFolds = filtered ? setResultFolds : onCollapsed;
 
-  const shown = view === null ? accounts : accounts.filter((a) => a.id === view);
-  const sections = shown.flatMap((account) => {
-    const all = txns.filter((txn) => txn.account === account.id);
-    const rows = filtered ? filterTransactions(all, filter) : all;
-    if (filtered && rows.length === 0) return [];
-    return [{ account, rows: sortTxns(rows, sort), balance: total(all), clearedBalance: clearedTotal(all) }];
-  });
+  // The filter, sort and totals are a pass over every row: made once per change
+  // to their inputs, not once per render (the list renders again for every
+  // slice it draws, and for every tap).
+  const sections = useMemo(() => {
+    const shown = view === null ? accounts : accounts.filter((a) => a.id === view);
+    return shown.flatMap((account) => {
+      const all = txns.filter((txn) => txn.account === account.id);
+      const rows = filtered ? filterTransactions(all, listFilter) : all;
+      if (filtered && rows.length === 0) return [];
+      return [{ account, rows: sortTxns(rows, sort), balance: total(all), clearedBalance: clearedTotal(all) }];
+    });
+  }, [txns, accounts, view, filtered, listFilter, sort]);
   const anyRows = sections.some((sec) => sec.rows.length > 0);
 
   /*
@@ -223,6 +240,7 @@ function TransactionsBody({
    * Clear is one press, an inch from the count it acts on.
    */
   const [picked, setPicked] = useState<readonly string[]>([]);
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
   /**
    * The field being typed into in place, if any.
    *
@@ -237,7 +255,10 @@ function TransactionsBody({
    * no way to tell which one Return will land on.
    */
   const [inline, setInline] = useState<{ id: string; field: 'name' | 'amount' } | null>(null);
-  const leaveEdit = () => { setEdit(false); setSwipedId(null); };
+  // One state, one commit: the pencil, its label and every row's controls change
+  // together, so no frame shows controls for a mode the header does not say. The
+  // setter is stable, which keeps `leaveEdit` stable for the memoised rows.
+  const leaveEdit = useCallback(() => { setEdit(false); setSwipedId(null); }, []);
   // Both directions clear the park. Edit mode HIDES it rather than cancelling
   // it, so without this the pencil pressed twice brought back a delete armed
   // on a row the finger left minutes ago.
@@ -285,9 +306,9 @@ function TransactionsBody({
    * everything folded All picks nothing, and the count saying 0 is the
    * honest answer — there is nothing on the screen to pick.
    */
-  const visible = sections.filter((sec) => !folds.includes(sec.account.id))
-    .flatMap((sec) => sec.rows.map((t) => t.id));
-  const visibleIds = filtered ? new Set(visible) : null;
+  const visible = useMemo(() => sections.filter((sec) => !folds.includes(sec.account.id))
+    .flatMap((sec) => sec.rows.map((t) => t.id)), [sections, folds]);
+  const visibleIds = useMemo(() => filtered ? new Set(visible) : null, [filtered, visible]);
   const selection = visibleIds === null ? picked : picked.filter((id) => visibleIds.has(id));
 
   /**
@@ -325,12 +346,47 @@ function TransactionsBody({
   type FlatEntry =
     | { kind: 'row'; rec: Txn; sectionId: string }
     | { kind: 'head'; sectionId: string };
-  const flatRows: FlatEntry[] = [];
-  for (const { account, rows } of sections) {
-    flatRows.push({ kind: 'head', sectionId: account.id });
-    if (folds.includes(account.id)) continue;
-    for (const t of rows) flatRows.push({ kind: 'row', rec: t, sectionId: account.id });
-  }
+  const { flatRows, keyIdx } = useMemo(() => {
+    const flat: FlatEntry[] = [];
+    for (const { account, rows } of sections) {
+      flat.push({ kind: 'head', sectionId: account.id });
+      if (folds.includes(account.id)) continue;
+      for (const t of rows) flat.push({ kind: 'row', rec: t, sectionId: account.id });
+    }
+    /*
+     * Where each drawn entry sits in the flat list, by id — one pass, instead
+     * of a `findIndex` per row (a quadratic walk on a two-thousand-row ledger).
+     */
+    const idx = new Map<string, number>();
+    flat.forEach((x, i) => idx.set(x.kind === 'row' ? x.rec.id : headKey(x.sectionId), i));
+    return { flatRows: flat, keyIdx: idx };
+  }, [sections, folds]);
+
+  /*
+   * Rows and headings are registered with the drag BY KEY (`rowKey`/`headKey`)
+   * and resolved to an index (`keyIdx`, above) only when a drag measures, so
+   * an insert, delete or fold above a row does not change what that row is
+   * handed and it can stay memoised.
+   */
+  const flatIdxOf = (id: string) => keyIdx.get(id) ?? -1;
+  const headIdxOf = (id: string) => keyIdx.get(headKey(id)) ?? -1;
+  // The drag reads these through its own ref, so it always sees the latest.
+  const indexOfKey = (key: string) => keyIdx.get(key);
+
+  // Draw the rows in slices on the way in: see `useProgressive`.
+  const rowTotal = flatRows.length - sections.length;
+  const drawn = useProgressive(rowTotal);
+  // What each section drew at the last commit (read in render, written after a
+  // commit, so a render that is abandoned changes nothing): see `sectionLimits`.
+  const drawnBefore = useRef(new Map<string, DrawnSection>());
+  const limits = sectionLimits(
+    sections.map(({ account, rows }) => ({ id: account.id, count: rows.length, shut: folds.includes(account.id) })),
+    drawnBefore.current,
+    drawn,
+  );
+  useEffect(() => {
+    drawnBefore.current = new Map(sections.map(({ account, rows }, at) => [account.id, { limit: limits[at] ?? 0, count: rows.length }]));
+  });
 
   const drag = useRowDrag(flatRows.length, (from, to) => {
     const src = flatRows[from];
@@ -338,11 +394,9 @@ function TransactionsBody({
     const target = dropTarget(slotEntries(flatRows), from, to);
     if (target === null) return;
     onMove?.(src.rec, target.sectionId, target.beforeId);
-  });
+  }, indexOfKey);
   useEffect(() => { setDragging(drag.dragIdx !== null); }, [drag.dragIdx]);
 
-  const flatIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'row' && x.rec.id === id);
-  const headIdxOf = (id: string) => flatRows.findIndex((x) => x.kind === 'head' && x.sectionId === id);
   /*
    * A grip is offered when there is anywhere for the row to GO — and, as
    * before, only in CUSTOM order: a hand order the next render would undo is
@@ -350,10 +404,33 @@ function TransactionsBody({
    * one row", which is the question a per-account drag asked; one row in
    * each of two accounts is now a move.
    */
-  const canMove = edit && !filtered && onMove !== undefined
+  const canMove = edit && !filtered && drawn >= rowTotal && onMove !== undefined
     && (flatRows.filter((x) => x.kind === 'row').length > 1 || sections.length > 1);
+  /*
+   * Handlers whose identity never changes, reading the latest props through a
+   * ref, so a memoised row is not handed a new function on every render of the
+   * screen (the parent's callbacks are rebuilt each time the ledger changes).
+   */
+  const latest = useRef({ onAction, onInline, onDate, onCleared });
+  latest.current = { onAction, onInline, onDate, onCleared };
+  const stable: RowHandlers = useMemo(() => ({
+    onPick: (id: string) => setPicked((p) => toggleSelected(p, id)),
+    onInline: (t: Txn, patch: InlinePatch) => latest.current.onInline?.(t, patch),
+    onDate: (t: Txn) => latest.current.onDate?.(t),
+    onCleared: (t: Txn, c: boolean) => latest.current.onCleared?.(t, c),
+    onAction: (a: RowAction, t: Txn) => latest.current.onAction?.(a, t),
+  }), []);
+  // What a row's category dropdown offers: through context, so only an OPEN
+  // dropdown hears about it. Handed to every row as props, a reorder of the
+  // choices (the list is ranked by use, so filing one row can move them)
+  // re-rendered the whole ledger.
+  const menuSource = useMemo(() => ({ lines: categoryOptions, categories }), [categoryOptions, categories]);
+  // The list lags the search box by a render. While it does, `selection` and
+  // `visible` describe rows that are not yet the ones the box asks for, so All
+  // and Delete wait for the list to catch up rather than act on a stale view.
+  const lagging = filter !== listFilter;
   const deleteSelected = () => {
-    if (onDeleteMany === undefined || selection.length === 0) return;
+    if (lagging || onDeleteMany === undefined || selection.length === 0) return;
     onDeleteMany(selection);
     setPicked([]);
   };
@@ -499,7 +576,8 @@ function TransactionsBody({
           </View>
         )}
 
-        {sections.map(({ account, rows, balance, clearedBalance }) => (
+        <MenuSourceContext.Provider value={menuSource}>
+        {sections.map(({ account, rows, balance, clearedBalance }, at) => (
           <Section
             key={account.id}
             account={account}
@@ -511,9 +589,10 @@ function TransactionsBody({
             onFoldAll={foldAllAccounts}
             onAdd={() => onAdd(account.id)}
             edit={edit}
+            limit={limits[at] ?? 0}
             onEdited={leaveEdit}
-            picked={picked}
-            onPick={(id) => setPicked((p) => toggleSelected(p, id))}
+            picked={pickedSet}
+            h={stable}
             inline={inline}
             setInline={setInline}
             amountMode={amountMode}
@@ -521,8 +600,6 @@ function TransactionsBody({
             onDate={onDate}
             onCleared={onCleared}
             lineName={lineName}
-            lines={categoryOptions}
-            categories={categories}
             reconciling={reconciling}
             onReconcileOpen={(account, what) => setReconciling({ account, what })}
             onReconcile={(id, stated, what) => {
@@ -541,6 +618,7 @@ function TransactionsBody({
             flatIdxOf={flatIdxOf}
           />
         ))}
+        </MenuSourceContext.Provider>
 
         {/* The boundary BELOW everything — one past the last entry, so it
             belongs to the list rather than to whichever account happens to
@@ -592,7 +670,7 @@ function TransactionsBody({
         prefix="picked"
         count={selection.length}
         detail={selection.length > 0 ? formatAmount(selectedTotal(txns, selection)) : undefined}
-        onAll={() => setPicked(visible)}
+        onAll={() => { if (!lagging) setPicked(visible); }}
         onClear={() => setPicked([])}
         onDelete={deleteSelected}
       />}
@@ -618,8 +696,8 @@ function TransactionsBody({
  * number of hooks whenever an account appeared or was filtered away.
  */
 function Section({
-  account, rows, balance, clearedBalance, shut, onToggle, onFoldAll, onAdd, edit, onEdited, picked, onPick,
-  inline, setInline, amountMode, onInline, onDate, onCleared, lineName, lines, categories,
+  account, rows, balance, clearedBalance, shut, onToggle, onFoldAll, onAdd, edit, limit, onEdited, picked, h,
+  inline, setInline, amountMode, onInline, onDate, onCleared, lineName,
   swipedId, setSwipedId, onAction, drag, canMove, headIdx, flatIdxOf,
   reconciling, onReconcileOpen, onReconcile,
 }: {
@@ -634,11 +712,13 @@ function Section({
   onAdd: () => void;
   /** Is the page in edit mode? Every row shows its controls when it is. */
   edit: boolean;
+  /** How many of `rows` to draw yet (the rest follow: `useProgressive`). */
+  limit: number;
   /** An action was chosen — edit mode ends, so nobody has to turn it off. */
   onEdited: () => void;
+  h: RowHandlers;
   /** The ids picked out in edit mode. */
-  picked: readonly string[];
-  onPick: (id: string) => void;
+  picked: ReadonlySet<string>;
   inline: { id: string; field: 'name' | 'amount' } | null;
   setInline: (next: { id: string; field: 'name' | 'amount' } | null) => void;
   /** How a row's amount, edited in place, reads bare digits. */
@@ -649,9 +729,6 @@ function Section({
   onCleared?: ((txn: Txn, cleared: boolean) => void) | undefined;
   /** The row whose delete is parked, if any. One at a time, like openId. */
   lineName: (id: string | null) => string;
-  /** What the row's category dropdown offers. */
-  lines: readonly CategoryChoice[];
-  categories: readonly Category[];
   /** The account, and which of its two figures, open as a field — if any. */
   reconciling: { account: string; what: Reconciled } | null;
   onReconcileOpen: (account: string, what: Reconciled) => void;
@@ -669,7 +746,14 @@ function Section({
   /** A row's index in that same list. */
   flatIdxOf: (id: string) => number;
 }) {
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
+  /*
+   * The year a row's date is read against. `formatDay` drops it when it is the
+   * current one, so the clock is an input of every row even though no row is
+   * handed it: a memoised row compares equal across New Year's Eve unless this
+   * is one of its props. A primitive, so it changes only when the year does.
+   */
+  const year = today().slice(0, 4);
 
   /*
    * A parked delete outranks this header too.
@@ -693,7 +777,7 @@ function Section({
       {/* THE HEADING IS A DROP TARGET, and has to be measured to be one —
           see the screen's `flatRows`. Registered open or shut, which is what
           lets a row be dropped into a folded account. */}
-      <View style={styles.head} ref={drag.registerRow(headIdx)} collapsable={false}>
+      <View style={styles.head} ref={drag.registerKey(headKey(account.id))} collapsable={false}>
         <Pressable
           onPress={parked ? dismiss : onToggle}
           // Hold it and every account follows this one — see foldAllAccounts.
@@ -849,50 +933,126 @@ function Section({
         </Pressable>}
       </View>
 
-      {!shut && rows.map((t) => {
-        const i = flatIdxOf(t.id);
+      {!shut && (rows.length > limit ? rows.slice(0, limit) : rows).map((t) => {
+        // Everything below is a primitive, a stable function or a value that
+        // only moves when THIS row's own state does, so RowCell can skip a
+        // render that does not concern it. Nothing here is the row's position
+        // unless it is needed by the one row involved (a drag).
+        const i = canMove || drag.slot !== null || drag.dragIdx !== null ? flatIdxOf(t.id) : -1;
         return (
-        <View key={t.id} ref={drag.registerRow(i)} collapsable={false}>
-          {/* One line, at the boundary the row would land on. Nothing else
-              moves while a drag is live — a list that rearranges under a
-              moving finger is a list you cannot aim at. */}
-          {drag.slot === i && <View style={styles.dropLine} testID="drop-line" />}
-          <Row
-            txn={t}
+          <RowCell
+            key={t.id}
+            t={t}
+            year={year}
+            reg={drag.registerKey(t.id)}
+            dropLine={i !== -1 && drag.slot === i}
             edit={edit && onAction !== undefined}
-            picked={picked.includes(t.id)}
-            onPick={() => onPick(t.id)}
+            picked={picked.has(t.id)}
             inline={inline?.id === t.id ? inline.field : null}
-            onOpenInline={(field) => setInline({ id: t.id, field })}
-            onCloseInline={() => setInline(null)}
+            setInline={setInline}
             amountMode={amountMode}
-            onInline={onInline === undefined ? undefined : (patch) => onInline(t, patch)}
-            onDate={onDate === undefined ? undefined : () => onDate(t)}
-            onCleared={onCleared === undefined ? undefined : (c) => onCleared(t, c)}
-            onAction={(a) => { setSwipedId(null); onEdited(); onAction?.(a, t); }}
+            hasInline={onInline !== undefined}
+            hasDate={onDate !== undefined}
+            hasCleared={onCleared !== undefined}
+            hasAction={onAction !== undefined}
+            h={h}
+            setSwipedId={setSwipedId}
+            onEdited={onEdited}
             grip={canMove ? drag.gripFor(i) : undefined}
-            lifted={drag.dragIdx === i}
-            dy={drag.dragIdx === i ? drag.dragDy : 0}
+            lifted={i !== -1 && drag.dragIdx === i}
+            dy={i !== -1 && drag.dragIdx === i ? drag.dragDy : 0}
             lineName={splitLabel(t, (id) => lineName(id) || NO_CATEGORY) ?? lineName(t.category)}
-            lines={lines}
-            categories={categories}
             swiped={swipedId === t.id}
             parked={swipedId !== null}
-            onDismiss={() => setSwipedId(null)}
-            onSwipe={() => setSwipedId(t.id)}
           />
-        </View>
         );
       })}
     </View>
   );
 }
 
+/** The handlers a row calls, none of which ever changes identity (see `stable`). */
+type RowHandlers = {
+  onPick: (id: string) => void;
+  onInline: (t: Txn, p: InlinePatch) => void;
+  onDate: (t: Txn) => void;
+  onCleared: (t: Txn, c: boolean) => void;
+  onAction: (a: RowAction, t: Txn) => void;
+};
+
+/** The headings are drag targets too; this keeps their key apart from a row's id. */
+const headKey = (accountId: string) => `head:${accountId}`;
+
+/**
+ * The category dropdown's choices and headings. Context rather than props on
+ * every row: only an OPEN dropdown reads it, so a change to the choices
+ * re-renders that one menu and not two thousand rows.
+ */
+const MenuSourceContext = createContext<{ lines: readonly CategoryChoice[]; categories: readonly Category[] }>({
+  lines: [], categories: [],
+});
+
+function RowCategoryMenu(p: { onPick: (id: string | null) => void; onSplit: () => void; onClose: () => void }) {
+  const { lines, categories } = useContext(MenuSourceContext);
+  return <CategoryMenu categories={categories} lines={lines} onPick={p.onPick} onSplit={p.onSplit} onClose={p.onClose} />;
+}
+
+/**
+ * One row, memoised: a tap that concerns one row re-renders one row. Every prop
+ * is a primitive, a value shared by the whole list that rarely changes, or a
+ * function made once — see where `Section` builds it before adding one that is
+ * new on each render, which turns this back into a render of every row.
+ */
+const RowCell = memo(function RowCell(p: {
+  t: Txn; year: string; reg: (ref: View | null) => void; dropLine: boolean; edit: boolean; picked: boolean; inline: 'name' | 'amount' | null;
+  setInline: (n: { id: string; field: 'name' | 'amount' } | null) => void; amountMode: AmountMode;
+  hasInline: boolean; hasDate: boolean; hasCleared: boolean; hasAction: boolean;
+  h: RowHandlers;
+  setSwipedId: (id: string | null) => void; onEdited: () => void;
+  grip: PanResponderInstance['panHandlers'] | undefined; lifted: boolean; dy: number; lineName: string;
+  swiped: boolean; parked: boolean;
+}) {
+  const { t, h } = p;
+  return (
+    <View ref={p.reg} collapsable={false}>
+      {/* One line, at the boundary the row would land on. Nothing else
+          moves while a drag is live — a list that rearranges under a
+          moving finger is a list you cannot aim at. */}
+      {p.dropLine && <View style={styles.dropLine} testID="drop-line" />}
+      <Row
+        txn={t}
+        year={p.year}
+        edit={p.edit}
+        picked={p.picked}
+        onPick={() => h.onPick(t.id)}
+        inline={p.inline}
+        onOpenInline={(field) => p.setInline({ id: t.id, field })}
+        onCloseInline={() => p.setInline(null)}
+        amountMode={p.amountMode}
+        onInline={p.hasInline ? (patch) => h.onInline(t, patch) : undefined}
+        onDate={p.hasDate ? () => h.onDate(t) : undefined}
+        onCleared={p.hasCleared ? (c) => h.onCleared(t, c) : undefined}
+        onAction={(a) => { p.setSwipedId(null); p.onEdited(); if (p.hasAction) h.onAction(a, t); }}
+        grip={p.grip}
+        lifted={p.lifted}
+        dy={p.dy}
+        lineName={p.lineName}
+        swiped={p.swiped}
+        parked={p.parked}
+        onDismiss={() => p.setSwipedId(null)}
+        onSwipe={() => p.setSwipedId(t.id)}
+      />
+    </View>
+  );
+});
+
 function Row({
-  txn, edit, picked, onPick, inline, onOpenInline, onCloseInline, amountMode, onInline, onDate, onCleared,
-  onAction, grip, lifted, dy, swiped, parked, lineName, lines, categories, onDismiss, onSwipe,
+  txn, year, edit, picked, onPick, inline, onOpenInline, onCloseInline, amountMode, onInline, onDate, onCleared,
+  onAction, grip, lifted, dy, swiped, parked, lineName, onDismiss, onSwipe,
 }: {
   txn: Txn;
+  /** The current year, which its date leaves off (`formatDay`). Here so a memoised row redraws when it changes. */
+  year: string;
   /** Is the page in edit mode? Then this row shows its controls. */
   edit: boolean;
   /** Is this row picked out? */
@@ -930,8 +1090,6 @@ function Row({
   parked: boolean;
   /** What this row is filed against, already resolved to a word. */
   lineName: string;
-  lines: readonly CategoryChoice[];
-  categories: readonly Category[];
   /** Put away a parked delete — a tap on any row does it. */
   onDismiss: () => void;
   /** A firm left swipe landed — park the delete. */
@@ -956,7 +1114,7 @@ function Row({
    * grabs at one pixel fires on a tap that wobbled. Both thresholds and both
    * decisions are core's; see `claimsSwipe` and `swipeArms`.
    */
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   const pan = useRef(
@@ -1143,9 +1301,7 @@ function Row({
         <AcceptCategory name={txn.name} category={lineName} onPress={() => onTap(() => onAction('accept-category'))?.()} />
       )}
       {filing && onInline !== undefined && (
-        <CategoryMenu
-          categories={categories}
-          lines={lines}
+        <RowCategoryMenu
           onPick={(id) => { if (id !== txn.category) onInline({ category: id }); }}
           onSplit={() => onAction('split')}
           onClose={() => setFiling(false)}
@@ -1183,7 +1339,7 @@ function Row({
         onPress={onTap(onDate)}
         testID="txn-date-tap"
       >
-        <Text style={styles.date} testID="txn-date">{formatDay(txn.date)}</Text>
+        <Text style={styles.date} testID="txn-date">{formatDay(txn.date, `${year}-01-01`)}</Text>
       </Pressable>
       {/*
         CLEARED — the far-right column (the owner, 2026-09-15): has this row shown
