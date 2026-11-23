@@ -22,8 +22,9 @@
 #      tdtp's without a second full gesture run when its export is the one
 #      step 1 just passed, byte for byte (see "the gesture verdict" below).
 #      A failed deploy stops everything — never tag around one.
-#   4. the macOS bundle, from a clean export of what just shipped — BEFORE
-#      the tag, so a broken desktop build leaves the version untagged and a
+#   4. the macOS bundle, from a clean export of what just shipped, SIGNED with Developer ID, notarized,
+#      stapled and verified (tools/mac-sign-install.sh) before it replaces /Applications/AcctMind.app —
+#      BEFORE the tag, so a broken desktop build or a refused signature leaves the version untagged and a
 #      re-run reuses it, exactly as a failed deploy does
 #   5. PREFLIGHT (tools/preflight.sh), right before the tag: the Release
 #      workflow's real jobs (Windows msi/exe build and smoke, macOS dmg
@@ -41,6 +42,11 @@
 #   9. the device builds — iOS on the phone, Android on an emulator — AFTER
 #      the push and reported rather than fatal, because the release has
 #      already happened and an unplugged phone must not read as a failed one
+#  10. the AUTO-UPDATE FEED (--mac runs only): once the Release is published, tools/publish-update.sh signs
+#      this version's app archive and the Windows installers with AcctMind's update key (it lives in this Mac's updater
+#      keychain, never in GitHub) and writes latest.json LAST to the fixed feed release AcctMind-updates. A --mac run
+#      therefore follows the Release run (dtp too); a run that installed no app publishes no feed and says so.
+#      Reported, never fatal to the version that is already live and tagged.
 #
 # THIS REPO SHIPS ITSELF. Steps 4 and 8 were CoreMind's alone until
 # 2026-08-23 (its bin/build-platforms.sh, the AcctMind row), and the hole
@@ -396,11 +402,16 @@ fi
 # itself (3 runs at most). NOT FATAL TO THE SHIP: the deploy and the tag are done, so an unpublished release is reported
 # loudly with the command that retries it, and the lane ends non-zero for it (below), like an owed device build.
 RELEASE_FAILED=""
+UPDATE_FAILED=""
+RELEASE_FOLLOWED=0
 if command -v gh >/dev/null 2>&1; then
-  if [ "$FULL" = 0 ]; then
+  if [ "$FULL" = 0 ] && [ "$WANT_MAC" = 0 ]; then
     # dtp does not wait; the next lane run says so at its start if it never published (gh-bot.sh last-release).
     echo "==> Release for $NEW handed to the bot (dtp does not watch it): $(gh repo view --json url --jq .url 2>/dev/null | tr -d '\r')/actions/workflows/acctmind-release.yml"
   else
+    # tdtp always follows; a dtp that installed the signed app (--mac) follows too, because the update feed (below) needs the PUBLISHED
+    # release: its Windows installers are what the feed offers.
+    RELEASE_FOLLOWED=1
     echo "==> following the release of $NEW (the Windows and macOS builds take a while)"
     if ! sh tools/gh-bot.sh release "$TAG"; then
       RELEASE_FAILED="the release of $NEW was not published"
@@ -410,6 +421,25 @@ if command -v gh >/dev/null 2>&1; then
       echo "    gh workflow run acctmind-release.yml --ref $TAG -f tag=$TAG" >&2
     fi
   fi
+fi
+
+# ------------------------------------------------------------- the update feed
+# AcctMind updates itself from ONE fixed feed (the pre-release AcctMind-updates on this repository), checked only when the
+# person chooses Check for Updates (never in the background). The feed entry needs the published release (its Windows
+# installers) and THIS version's signed app installed above; it is signed here, on this Mac, because the update key is not in
+# GitHub. A failure leaves the version live and tagged and the feed on the previous version, which is a working state.
+if [ "$WANT_MAC" = 1 ]; then
+  if [ "$RELEASE_FOLLOWED" = 0 ]; then
+    UPDATE_FAILED="gh is not installed, so the Release run was not watched and the update feed was not published; then: sh tools/publish-update.sh"
+  elif [ -n "$RELEASE_FAILED" ]; then
+    echo "==> update feed: not published (the release is not); once it is: sh tools/publish-update.sh"
+  else
+    echo "==> publishing the update feed for $NEW (signs with AcctMind's key from the updater keychain)"
+    sh tools/publish-update.sh \
+      || UPDATE_FAILED="the update feed for $NEW was not published (the lines above say why); once fixed: sh tools/publish-update.sh"
+  fi
+else
+  echo "==> update feed: not published (this run installed no signed app); after sh tools/build-platforms.sh --mac, run: sh tools/publish-update.sh"
 fi
 
 # ------------------------------------------------------------- the device builds
@@ -436,7 +466,8 @@ if [ -n "$DEVICE_FAILED" ]; then
 fi
 
 # A release or build failure after the push still makes the lane exit non-zero.
-if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ]; then
+if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ] || [ -n "$UPDATE_FAILED" ]; then
+  [ -z "$UPDATE_FAILED" ] || echo "==> $NEW is live and tagged; the lane ends non-zero because $UPDATE_FAILED"
   [ -z "$DEVICE_FAILED" ] || echo "==> $NEW is live and tagged; the lane ends non-zero for the device builds above"
   [ -z "$SUITE_FAILED" ] || echo "==> $NEW is live and tagged; the lane ends non-zero because $SUITE_FAILED"
   [ -z "$RELEASE_FAILED" ] || echo "==> $NEW is live and tagged; the lane ends non-zero because $RELEASE_FAILED (see above)"
