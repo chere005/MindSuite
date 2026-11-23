@@ -58,7 +58,7 @@ import { WideApp } from './src/wide/WideApp';
 import { SnoozeLineContext } from './src/wide/snooze';
 import { ReportsScreen } from './src/ReportsScreen';
 import { useLedgerAccess } from './src/access';
-import { ReadOnlyBadge, ReadOnlyContext } from './src/readonly';
+import { ReadOnlyBadge, ReadOnlyProvider } from './src/readonly';
 
 /** What the line editor's bar says: the category the line lives in. */
 type Phase =
@@ -684,11 +684,9 @@ export default function App() {
     />
   ) : null;
 
-  // One object while its two parts stand still: a fresh one each render re-renders every consumer of the context.
-  const readOnlyValue = useMemo(() => ({ readOnly, badge }), [readOnly, badge]);
   return (
     <SafeAreaProvider>
-      <ReadOnlyContext.Provider value={readOnlyValue}>
+      <ReadOnlyProvider readOnly={readOnly} badge={badge}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'left', 'right']}>
         {phase.k === 'loading' && (
@@ -1156,7 +1154,7 @@ export default function App() {
           </>
         )}
       </SafeAreaView>
-      </ReadOnlyContext.Provider>
+      </ReadOnlyProvider>
     </SafeAreaProvider>
   );
 }

@@ -73,7 +73,12 @@ export function useRowDrag(
     if (f === undefined) {
       f = (ref: View | null) => {
         if (ref) rows.current.set(i, ref);
-        else rows.current.delete(i);
+        else {
+          // Unmounted: drop the callback too, so a long session of imports and
+          // deletes does not keep one per index ever drawn.
+          rows.current.delete(i);
+          if (regCache.current.get(i) === f) regCache.current.delete(i);
+        }
       };
       regCache.current.set(i, f);
     }
@@ -87,7 +92,10 @@ export function useRowDrag(
     if (f === undefined) {
       f = (ref: View | null) => {
         if (ref) keyed.current.set(key, ref);
-        else keyed.current.delete(key);
+        else {
+          keyed.current.delete(key);
+          if (keyCache.current.get(key) === f) keyCache.current.delete(key);
+        }
       };
       keyCache.current.set(key, f);
     }

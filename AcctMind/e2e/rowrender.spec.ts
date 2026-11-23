@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { stored, withStore } from './helpers';
+import { deflateRawSync } from 'node:zlib';
+import { CK_FIELD, CK_RECORD_NAME } from '@acctmind/core';
+import { dragGrip, pickSort, stored, withStore } from './helpers';
 
 /**
  * A tap that concerns one row must not re-render the ledger.
@@ -51,6 +53,29 @@ const COUNTER = `
 })();
 `;
 
+/**
+ * Records every distinct count of drawn rows the page passes through, so a test
+ * can see the list arrive in slices rather than all at once.
+ */
+const SLICES = `
+(() => {
+  const seen = window.__counts = [];
+  const note = () => {
+    const n = document.querySelectorAll('[data-testid="txn-row"],[data-testid="wide-row"]').length;
+    if (n > 0 && seen[seen.length - 1] !== n) seen.push(n);
+  };
+  new MutationObserver(note).observe(document, { childList: true, subtree: true });
+})();
+`;
+
+/** The same shape of ledger the screen draws, newest first within an account (core's date order). */
+function expectedNames(account: 'A' | 'B'): string[] {
+  const own = (JSON.parse(ledger()) as { txns: { name: string; date: string; created: number; account: string }[] }).txns
+    .filter((t) => t.account === account);
+  own.sort((a, b) => b.date.localeCompare(a.date) || b.created - a.created);
+  return own.map((t) => t.name);
+}
+
 function ledger(): string {
   const txns = Array.from({ length: ROWS }, (_, i) => ({
     id: `t${String(i).padStart(3, '0')}`, name: `Shop ${i}`, description: '', amount: -(100 + i),
@@ -69,6 +94,7 @@ function ledger(): string {
 
 async function open(page: Page): Promise<void> {
   await page.addInitScript(COUNTER);
+  await page.addInitScript(SLICES);
   await withStore(page, ledger());
   // The list is drawn in slices; wait for the last row, not the first.
   await expect(page.getByTestId('txn-row')).toHaveCount(ROWS);
@@ -85,12 +111,21 @@ async function renders(page: Page, act: () => Promise<void>): Promise<number> {
 
 test('every row is drawn, in order, though the list is drawn in slices', async ({ page }) => {
   await open(page);
-  const names = await page.getByTestId('txn-name').allTextContents();
-  expect(names).toHaveLength(ROWS);
-  expect(new Set(names).size, 'no row is drawn twice').toBe(ROWS);
-  // Newest first within an account, as before: the two accounts' rows are each
-  // in one block, in the order core gave them (not the order they were drawn).
-  expect(await page.getByTestId('account-section').count()).toBe(2);
+  const sections = page.getByTestId('account-section');
+  expect(await sections.count()).toBe(2);
+  // Each account holds exactly its own rows, in core's date order — the slices
+  // must not put a row in the wrong account or shuffle the order they arrive in.
+  expect(await sections.nth(0).getByTestId('txn-name').allTextContents()).toEqual(expectedNames('A'));
+  expect(await sections.nth(1).getByTestId('txn-name').allTextContents()).toEqual(expectedNames('B'));
+
+  // And the list really arrived in pieces: a first slice well short of the
+  // whole, then more, ending at all of it. Returning `total` from
+  // useProgressive would draw it in one go and fail here.
+  const counts = await page.evaluate(() => (window as any).__counts as number[]);
+  expect(counts[0], 'the first paint is a slice').toBeLessThan(ROWS / 2);
+  expect(counts.length, 'more than one slice').toBeGreaterThan(1);
+  expect(counts[counts.length - 1]).toBe(ROWS);
+  expect([...counts].sort((a, b) => a - b), 'the count only grows').toEqual(counts);
 });
 
 test('picking, clearing and filing one row render a handful of components, not the ledger', async ({ page }) => {
@@ -146,4 +181,119 @@ test('a search narrows the drawn list and clearing it brings every row back', as
   await expect(page.getByTestId('txn-row')).toHaveCount(1);
   await page.getByTestId('txn-search-clear').click();
   await expect(page.getByTestId('txn-row')).toHaveCount(ROWS);
+});
+
+test('a search shows exactly the matching rows, and All then Delete takes exactly those', async ({ page }) => {
+  await open(page);
+  await page.getByTestId('txn-search').pressSequentially('Shop 17');
+  // "Shop 17" and "Shop 170" to "Shop 179"; the deferred list must settle on the
+  // final text, not an earlier keystroke's.
+  await expect(page.getByTestId('txn-row')).toHaveCount(11);
+  const names = await page.getByTestId('txn-name').allTextContents();
+  expect(names.every((n) => n.startsWith('Shop 17'))).toBe(true);
+
+  await page.getByTestId('picked-all').click();
+  await expect(page.getByTestId('picked-count')).toContainText('11 selected');
+  await page.getByTestId('picked-delete').click();
+  await page.getByTestId('picked-delete').click();
+  await expect(page.getByTestId('txn-row')).toHaveCount(0);
+  const left = ((await stored(page)) as { txns: { name: string; deleted?: boolean }[] }).txns
+    .filter((t) => t.deleted !== true);
+  expect(left, 'only the eleven matches went').toHaveLength(ROWS - 11);
+  expect(left.some((t) => t.name.startsWith('Shop 17'))).toBe(false);
+  await page.getByTestId('txn-search-clear').click();
+  await expect(page.getByTestId('txn-row')).toHaveCount(ROWS - 11);
+});
+
+test('the sort changes the drawn order, and a pick or edit toggle keeps it', async ({ page }) => {
+  await open(page);
+  const first = async () => page.getByTestId('account-section').nth(0).getByTestId('txn-name').first().textContent();
+  expect(await first()).toBe(expectedNames('A')[0]);
+  await pickSort(page, 'amount');
+  // Largest absolute amount first: Shop 238 is the biggest in Checking.
+  await expect(page.getByTestId('account-section').nth(0).getByTestId('txn-name').first()).toHaveText('Shop 238');
+  await page.getByTestId('txn-pick-t003').click();
+  await expect(page.getByTestId('account-section').nth(0).getByTestId('txn-name').first()).toHaveText('Shop 238');
+});
+
+test.describe('a ledger longer than the first slice can still be dragged', () => {
+  test.skip(({ browserName }) => browserName !== 'chromium', 'CDP touch events');
+
+  test('a grip drag in custom order re-files the row once every row is drawn', async ({ page }) => {
+    await open(page);
+    await pickSort(page, 'custom');
+    await page.getByTestId('edit-toggle').click();
+    await expect(page.getByTestId('row-actions')).toHaveCount(ROWS);
+    const grip = page.getByTestId('txn-row').filter({ hasText: 'Shop 0' }).first().getByTestId('row-grip');
+    const onto = page.getByTestId('txn-row').filter({ hasText: 'Shop 4' }).first();
+    // Custom order here is the stored order, biggest first: Shop 0, 2, 4, 6 in Checking.
+    await dragGrip(page, grip, onto, 8);
+    const orders = new Map(((await stored(page)) as { txns: { name: string; order: number }[] }).txns
+      .map((t) => [t.name, t.order] as const));
+    expect(orders.get('Shop 0')!, 'below Shop 4').toBeLessThan(orders.get('Shop 4')!);
+    expect(orders.get('Shop 0')!, 'above Shop 6').toBeGreaterThan(orders.get('Shop 6')!);
+  });
+});
+
+test.describe('read-only (a signed-in browser reading the phone\'s copy)', () => {
+  test.use({ baseURL: 'http://acct.example.com:8791/AcctMind/' });   // mapped in playwright.config.ts
+
+  test('an app-level change does not re-render the ledger', async ({ page }) => {
+    const record = deflateRawSync(Buffer.from(ledger(), 'utf8')).toString('base64');
+    await page.addInitScript(COUNTER);
+    await page.route('**/cdn.apple-cloudkit.com/**', (r) => r.abort());
+    await page.addInitScript(({ record, name, field }) => {
+      (window as unknown as Record<string, unknown>).CloudKit = {
+        configure() {},
+        getDefaultContainer() {
+          return {
+            async setUpAuth() { return { userRecordName: '_me' }; },
+            whenUserSignsIn() { return new Promise<void>(() => {}); },
+            whenUserSignsOut() { return new Promise<void>(() => {}); },
+            privateCloudDatabase: {
+              async fetchRecords(names: string[]) {
+                if (names[0] !== name) return { hasErrors: true, errors: [{ serverErrorCode: 'NOT_FOUND' }], records: [] };
+                return { hasErrors: false, errors: [], records: [{ fields: { [field]: { value: record } }, modified: { timestamp: Date.now() - 3600_000 } }] };
+              },
+            },
+          };
+        },
+      };
+    }, { record, name: CK_RECORD_NAME, field: CK_FIELD });
+    await page.goto('./');
+    await page.getByTestId('tab-transactions').click();
+    await expect(page.getByTestId('readonly-badge')).toBeVisible();
+    await expect(page.getByTestId('txn-row')).toHaveCount(ROWS);
+    await page.waitForTimeout(200);
+
+    // Folding writes a preference in App: App renders, and the badge element it
+    // builds is new. The rows read only the flag, so none of them follows.
+    const fold = await renders(page, () => page.getByTestId('account-head-A').click());
+    expect(fold, 'folding Checking in read-only mode').toBeLessThan(MEMOISED);
+    await expect(page.getByTestId('txn-row')).toHaveCount(ROWS / 2);
+  });
+});
+
+test.describe('the wide table', () => {
+  test.use({ viewport: { width: 1280, height: 820 } });
+
+  test('is drawn in slices, in order, and selecting a row does not re-render the table', async ({ page }) => {
+    await page.addInitScript(COUNTER);
+    await page.addInitScript(SLICES);
+    await withStore(page, ledger());
+    await page.getByTestId('wide-account-all').click();
+    await expect(page.getByTestId('wide-row')).toHaveCount(ROWS);
+    await page.waitForTimeout(200);
+    const names = await page.getByTestId('wide-row-name').allTextContents();
+    expect(new Set(names).size).toBe(ROWS);
+    const expected = (JSON.parse(ledger()) as { txns: { name: string; date: string; created: number }[] }).txns
+      .sort((a, b) => b.date.localeCompare(a.date) || b.created - a.created).map((t) => t.name);
+    expect(names).toEqual(expected);
+    const counts = await page.evaluate(() => (window as any).__counts as number[]);
+    expect(counts[0], 'the first paint is a slice').toBeLessThan(ROWS / 2);
+    expect(counts.length, 'more than one slice').toBeGreaterThan(1);
+
+    const select = await renders(page, () => page.getByTestId('wide-row').nth(5).click());
+    expect(select, 'selecting one row').toBeLessThan(MEMOISED);
+  });
 });

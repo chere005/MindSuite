@@ -11,8 +11,27 @@ import { readOnlyBanner, type SyncInfo } from '@acctmind/core';
 import { SPACE, T, TAP } from './theme';
 
 export type ReadOnlyValue = { readOnly: boolean; badge: ReactNode };
-export const ReadOnlyContext = createContext<ReadOnlyValue>({ readOnly: false, badge: null });
-export const useReadOnly = (): ReadOnlyValue => useContext(ReadOnlyContext);
+/*
+ * Two contexts, not one. The badge is an element built fresh on every render of
+ * App, so any context value carrying it changes every render and re-renders
+ * every consumer — including every ledger row, which only needs the flag. The
+ * flag travels alone (a boolean, equal across renders); only the two bars that
+ * draw the badge listen to the other.
+ */
+const FlagContext = createContext(false);
+const BadgeContext = createContext<ReactNode>(null);
+export function ReadOnlyProvider({ readOnly, badge, children }: {
+  readOnly: boolean; badge: ReactNode; children: ReactNode;
+}) {
+  return (
+    <FlagContext.Provider value={readOnly}>
+      <BadgeContext.Provider value={badge}>{children}</BadgeContext.Provider>
+    </FlagContext.Provider>
+  );
+}
+/** Only the flag: a consumer that never draws the badge does not re-render when it is rebuilt. */
+export const useIsReadOnly = (): boolean => useContext(FlagContext);
+export const useReadOnly = (): ReadOnlyValue => ({ readOnly: useContext(FlagContext), badge: useContext(BadgeContext) });
 
 export function ReadOnlyBadge({ info, onReload, onSignIn }: {
   info: SyncInfo; onReload: () => void; onSignIn: () => void;

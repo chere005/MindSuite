@@ -31,7 +31,7 @@ import { useRowDrag, type RowDrag } from './rowdrag';
 import { TipBubble, useTip } from './Tip';
 import { BarRow, CircleBtn, TopBar } from './TopBar';
 import { SPACE, T, TAP } from './theme';
-import { useReadOnly } from './readonly';
+import { useIsReadOnly } from './readonly';
 
 export type RowAction = 'edit' | 'split' | 'accept-category' | 'duplicate' | 'copy' | 'delete';
 
@@ -136,7 +136,7 @@ type Props = {
  * handler exists), and Section and Row hide the + and the reconcile hammer.
  */
 export function TransactionsScreen(props: Props) {
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const p: Props = readOnly ? {
     ...props, onAction: undefined, onMove: undefined, onInline: undefined, onDate: undefined,
     onCleared: undefined, onDeleteMany: undefined,
@@ -150,7 +150,7 @@ function TransactionsBody({
   onInline, onDate, onCleared, onDeleteMany,
 }: Props) {
   // Ordering is core's, not the list's — see spec/sort.json.
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [filter, setFilter] = useState(EMPTY_TXN_FILTER);
@@ -170,13 +170,18 @@ function TransactionsBody({
   const folds = filtered ? resultFolds : collapsed;
   const setFolds = filtered ? setResultFolds : onCollapsed;
 
-  const shown = view === null ? accounts : accounts.filter((a) => a.id === view);
-  const sections = shown.flatMap((account) => {
-    const all = txns.filter((txn) => txn.account === account.id);
-    const rows = filtered ? filterTransactions(all, listFilter) : all;
-    if (filtered && rows.length === 0) return [];
-    return [{ account, rows: sortTxns(rows, listSort), balance: total(all), clearedBalance: clearedTotal(all) }];
-  });
+  // The filter, sort and totals are a pass over every row: made once per change
+  // to their inputs, not once per render (the list renders again for every
+  // slice it draws, and for every tap).
+  const sections = useMemo(() => {
+    const shown = view === null ? accounts : accounts.filter((a) => a.id === view);
+    return shown.flatMap((account) => {
+      const all = txns.filter((txn) => txn.account === account.id);
+      const rows = filtered ? filterTransactions(all, listFilter) : all;
+      if (filtered && rows.length === 0) return [];
+      return [{ account, rows: sortTxns(rows, listSort), balance: total(all), clearedBalance: clearedTotal(all) }];
+    });
+  }, [txns, accounts, view, filtered, listFilter, listSort]);
   const anyRows = sections.some((sec) => sec.rows.length > 0);
 
   /*
@@ -300,9 +305,9 @@ function TransactionsBody({
    * everything folded All picks nothing, and the count saying 0 is the
    * honest answer — there is nothing on the screen to pick.
    */
-  const visible = sections.filter((sec) => !folds.includes(sec.account.id))
-    .flatMap((sec) => sec.rows.map((t) => t.id));
-  const visibleIds = filtered ? new Set(visible) : null;
+  const visible = useMemo(() => sections.filter((sec) => !folds.includes(sec.account.id))
+    .flatMap((sec) => sec.rows.map((t) => t.id)), [sections, folds]);
+  const visibleIds = useMemo(() => filtered ? new Set(visible) : null, [filtered, visible]);
   const selection = visibleIds === null ? picked : picked.filter((id) => visibleIds.has(id));
 
   /**
@@ -340,23 +345,28 @@ function TransactionsBody({
   type FlatEntry =
     | { kind: 'row'; rec: Txn; sectionId: string }
     | { kind: 'head'; sectionId: string };
-  const flatRows: FlatEntry[] = [];
-  for (const { account, rows } of sections) {
-    flatRows.push({ kind: 'head', sectionId: account.id });
-    if (folds.includes(account.id)) continue;
-    for (const t of rows) flatRows.push({ kind: 'row', rec: t, sectionId: account.id });
-  }
+  const { flatRows, keyIdx } = useMemo(() => {
+    const flat: FlatEntry[] = [];
+    for (const { account, rows } of sections) {
+      flat.push({ kind: 'head', sectionId: account.id });
+      if (folds.includes(account.id)) continue;
+      for (const t of rows) flat.push({ kind: 'row', rec: t, sectionId: account.id });
+    }
+    /*
+     * Where each drawn entry sits in the flat list, by id — one pass, instead
+     * of a `findIndex` per row (a quadratic walk on a two-thousand-row ledger).
+     */
+    const idx = new Map<string, number>();
+    flat.forEach((x, i) => idx.set(x.kind === 'row' ? x.rec.id : headKey(x.sectionId), i));
+    return { flatRows: flat, keyIdx: idx };
+  }, [sections, folds]);
 
   /*
-   * Where each drawn entry sits in the flat list, by id — one pass, instead
-   * of a `findIndex` per row (a quadratic walk on a two-thousand-row ledger).
    * Rows and headings are registered with the drag BY KEY (`rowKey`/`headKey`)
-   * and resolved to an index only when a drag measures, so an insert, delete
-   * or fold above a row does not change what that row is handed and it can
-   * stay memoised.
+   * and resolved to an index (`keyIdx`, above) only when a drag measures, so
+   * an insert, delete or fold above a row does not change what that row is
+   * handed and it can stay memoised.
    */
-  const keyIdx = new Map<string, number>();
-  flatRows.forEach((x, i) => keyIdx.set(x.kind === 'row' ? x.rec.id : headKey(x.sectionId), i));
   const flatIdxOf = (id: string) => keyIdx.get(id) ?? -1;
   const headIdxOf = (id: string) => keyIdx.get(headKey(id)) ?? -1;
   // The drag reads these through its own ref, so it always sees the latest.
@@ -409,8 +419,12 @@ function TransactionsBody({
   // choices (the list is ranked by use, so filing one row can move them)
   // re-rendered the whole ledger.
   const menuSource = useMemo(() => ({ lines: categoryOptions, categories }), [categoryOptions, categories]);
+  // The list lags the search box by a render. While it does, `selection` and
+  // `visible` describe rows that are not yet the ones the box asks for, so All
+  // and Delete wait for the list to catch up rather than act on a stale view.
+  const lagging = filter !== listFilter;
   const deleteSelected = () => {
-    if (onDeleteMany === undefined || selection.length === 0) return;
+    if (lagging || onDeleteMany === undefined || selection.length === 0) return;
     onDeleteMany(selection);
     setPicked([]);
   };
@@ -650,7 +664,7 @@ function TransactionsBody({
         prefix="picked"
         count={selection.length}
         detail={selection.length > 0 ? formatAmount(selectedTotal(txns, selection)) : undefined}
-        onAll={() => setPicked(visible)}
+        onAll={() => { if (!lagging) setPicked(visible); }}
         onClear={() => setPicked([])}
         onDelete={deleteSelected}
       />}
@@ -726,7 +740,7 @@ function Section({
   /** A row's index in that same list. */
   flatIdxOf: (id: string) => number;
 }) {
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
 
   /*
    * A parked delete outranks this header too.
@@ -1083,7 +1097,7 @@ function Row({
    * grabs at one pixel fires on a tap that wobbled. Both thresholds and both
    * decisions are core's; see `claimsSwipe` and `swipeArms`.
    */
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   const pan = useRef(

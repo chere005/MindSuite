@@ -42,7 +42,7 @@ import {
   CheckIcon, DollarIcon, FlagIcon, PencilIcon, XIcon,
 } from './Icons';
 import { PickBar } from './PickBar';
-import { useReadOnly } from './readonly';
+import { useIsReadOnly } from './readonly';
 import { useRowDrag, type RowDrag } from './rowdrag';
 import { SectionPick } from './SectionPick';
 import { SpendingPreview } from './SpendingPreview';
@@ -231,7 +231,7 @@ export function BudgetScreen({
   ) => void;
 }) {
   // Read-only: no pencil, no +, no pick bar, no snooze box, amounts are plain text.
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [spending, setSpending] = useState<{ kind: 'line' | 'category'; id: string } | null>(null);
@@ -887,7 +887,7 @@ function CategorySection({
   /** A line's index in that same list. */
   flatIdxOf: (id: string) => number;
 }) {
-  const { readOnly } = useReadOnly();
+  const readOnly = useIsReadOnly();
   const budgeted = rows.reduce((n, l) => n + budgetOf(l), 0);
   const spent = rows.reduce((n, l) => n + spentOn(l.id), 0);
   // Summed the same way the rows are, so a folded category and its open one
@@ -1127,7 +1127,7 @@ function LineRow({
    */
   fixed?: boolean;
 }) {
-  const locked = fixed || useReadOnly().readOnly;
+  const locked = fixed || useIsReadOnly();
   const pick = { line, spent, budgeted, carry, set };
   // One word, from core. Four colours decided in a component is four chances
   // for the Mac and the phone to disagree about what a yellow line means.
