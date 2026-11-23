@@ -335,7 +335,7 @@
     {
       "id": "tools-gh-bot-sh",
       "origin": "CalMind/tools/gh-bot.sh",
-      "copies": ["MealMind/tools/gh-bot.sh", "AcctMind/tools/gh-bot.sh"]
+      "copies": ["MealMind/tools/gh-bot.sh", "AcctMind/tools/gh-bot.sh", "TaskMind/tools/gh-bot.sh"]
     },
     {
       "id": "tools-heavy-lock-sh",

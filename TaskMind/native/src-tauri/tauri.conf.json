@@ -3,6 +3,13 @@
   "productName": "TaskMind", "version": "1.0.0", "identifier": "com.seancheren.taskmind",
   "build": { "frontendDist": "../fallback" },
   "app": { "windows": [], "security": { "capabilities": [], "csp": "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" } },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQxMEYzMUMyMkIzN0JGN0IKUldSN3Z6Y3J3akVQUVZYWnNTeXRRcktFYU9uRHZLa01Wc0RnK01qQ0dmMTBFK3JjeXQ3bTBmL2YK",
+      "endpoints": ["https://github.com/chere005/MindSuite/releases/download/TaskMind-updates/latest.json"],
+      "requireSignedVersion": true
+    }
+  },
   "bundle": {
     "active": true, "targets": ["app", "dmg", "msi", "nsis"], "category": "Productivity",
     "shortDescription": "A private team task app",

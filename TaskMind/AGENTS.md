@@ -18,7 +18,8 @@ Private team task app (projects, tasks, subtasks, assignees, list and board, My 
 - Never cache private responses, credentials, or task data in browser storage or a service worker. A failed read is never an empty workspace; an unreadable workspace fails closed (only the seed owners are told why).
 - Deploy touches only `$PUBLIC_BASE/TaskMind` (a symlink), `$PUBLIC_BASE/.taskmind/` (public release dirs, denied to direct URLs) and `/home/protected/taskmind[-test]/` (lib releases). The data dir `/home/protected/taskmind-data[-test]`, credentials and the parent site's source never ride a deploy.
 - Default deploy is test. Production needs `--prod --yes-prod`. Follow AgentSuite's existing authorization rules for commits/releases.
-- Native Tauri shells for macOS, iOS and Android (Windows optional) open the same private HTTPS app. No native IPC capabilities or public app-store listing.
+- Native Tauri shells for macOS, Windows, iOS and Android open the same private HTTPS app. No native IPC capabilities or public app-store listing.
+- The installed Mac app is always Developer ID signed, notarized and stapled (`tools/mac-sign-install.sh`, never ad hoc). Releases publish a notarized dmg and unsigned Windows installers from `taskmind-release.yml`; installed copies auto-update from the `TaskMind-updates` feed, signed locally with the update key in the updater keychain (never in a repo or GitHub secrets). No app release is marked Latest.
 - Heavy builds (cargo/Tauri, Xcode, Gradle) run only through `tools/build-platforms.sh`, under `tools/heavy-lock.sh`; `--debug` builds the Mac app and the Android APK without installing them.
 - The interim page lives in seancheren-site and keeps running until this app replaces it; read it, never edit it from here.
 - Ports: 8870 for `npm run dev` and the native debug build's local preview, 8871 for e2e (`TASKMIND_PORT`, `TASKMIND_E2E_PORT`). Stop what you start.
@@ -30,7 +31,7 @@ Private team task app (projects, tasks, subtasks, assignees, list and board, My 
 - **`headers_list()` is empty under the CLI** → the gate case (`server/tools/cases/gate.php`) runs the real `api.php` under php-cgi; `PHP_CGI` names it when it is not next to `php`.
 - **`check 'name' test A && grep B` in `tools/test-deploy.sh` runs the grep outside the check** → it asserts nothing. One condition per check, or the `p_*` helpers.
 - **`index.php` and `api.php` run before the lib is found**, so each repeats the release-stamp and host-instance patterns inline → `team.php` (server case) fails if they disagree with `taskmind.php`.
-- **`tauri.conf.json` takes no extra keys**, and `dmg` is never built locally (create-dmg needs Finder: `--bundles app`).
+- **`tauri.conf.json` takes no extra keys** beyond `plugins.updater` (the shared updater turns itself off unless that block is strict: pubkey, https endpoint, `requireSignedVersion`), and `dmg` is never built locally (create-dmg needs Finder: `--bundles app`; the Release workflow builds it).
 - **`npm test` never runs `test:deploy:mutations`** (minutes); run it after changing `deploy.sh`, `dtp.sh`, `build-platforms.sh` or `package.mjs`.
 - **The Android release key lives in `~/.config/taskmind/`, not the repo** → `t_platforms` runs with `HOME` set to a fake home so a test never makes or reads the real one; never point a test at the real `$HOME`.
-- **A mutant of the Mac install path would `rm -rf /Applications/TaskMind.app` for real** (the shims cannot catch a literal path) → no mutant of the non-debug Mac block, and `t_platforms` runs `--mac` only with `--debug`.
+- **The Mac install is the shared script's, stubbed in `t_platforms`** (`TASKMIND_INSTALL_DIR` is a scratch directory there): a test or mutant never touches `/Applications/TaskMind.app`; never give the stub's place to the real `tools/mac-sign-install.sh` in a test (it notarizes and installs).

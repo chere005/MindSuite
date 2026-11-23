@@ -195,8 +195,8 @@ Before the first lane run after publication, read "Lanes and the public remote" 
 
 ## Which Actions runs the pushes start
 
-The five workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind/<x.y.z>*` and on `workflow_dispatch`
-(`planmind-native.yml` and `taskmind-native.yml`: dispatch only). So:
+The release workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind|PlanMind|TaskMind/<x.y.z>*` and on
+`workflow_dispatch`. So:
 
 - The first push (`refs/heads/main`) starts no run at all.
 - A release tag push starts that app's Release workflow. The run the person triggers has one job, `handoff`, which

@@ -86,7 +86,7 @@ ANDROID_KEY_DN='CN=TaskMind, O=seancheren.com'
 if [ "$DRY" = 1 ]; then
   if [ "$MAC" = 1 ]; then
     if [ "$DEBUG" = 1 ]; then echo 'would: build a debug TaskMind app on macOS (no dmg: that needs Finder) and leave it in native/src-tauri/target/debug; nothing is installed'
-    else echo 'would: build the TaskMind app on macOS (no dmg: that needs Finder), then install only TaskMind.app'; fi
+    else echo 'would: build the TaskMind app on macOS (the dmg comes from the Release workflow), sign it with Developer ID, notarize and staple it, verify it, then install only TaskMind.app'; fi
   fi
   [ "$WINDOWS" = 0 ] || echo 'would: build TaskMind msi + exe on Windows'
   [ "$IOS" = 0 ] || echo 'would: build the signed iOS app on macOS (SPACE mounted); install onto the udids in IOS_PHONES (default: the phones listed for it in .local/machine.env), skipping with a warning any phone that is offline or locked'
@@ -131,16 +131,20 @@ if [ "$MAC" = 1 ]; then
     test -x native/src-tauri/target/debug/bundle/macos/TaskMind.app/Contents/MacOS/taskmind
     echo 'built native/src-tauri/target/debug/bundle/macos/TaskMind.app (debug; not installed)'
   else
-    # The dmg needs Finder/AppleScript and fails after a good .app; the Release workflow builds installers.
+    # The dmg is the Release workflow's (signed, notarized and stapled there); this lane builds the .app only.
     (cd native && npm run build -- --bundles app)
-    WAS_OPEN=0; if pgrep -x taskmind >/dev/null; then WAS_OPEN=1; pkill -x taskmind; sleep 1; fi
-    rm -rf /Applications/TaskMind.app
-    ditto native/src-tauri/target/release/bundle/macos/TaskMind.app /Applications/TaskMind.app
-    test -x /Applications/TaskMind.app/Contents/MacOS/taskmind
-    [ "$WAS_OPEN" = 0 ] || open /Applications/TaskMind.app
+  fi
+  heavy_unlock
+  if [ "$DEBUG" = 0 ]; then
+    # Sign with the full Developer ID name, notarize, staple, verify (arm64, team, hardened runtime), and only then replace
+    # /Applications/TaskMind.app; a running copy is quit and reopened by the script. Nothing ad hoc is ever installed. The
+    # script waits for Apple (typically 20 to 60 s), so it runs after the heavy-build lock is released.
+    # TASKMIND_INSTALL_DIR: a scratch install directory (tests, update trials); the default is the real /Applications.
+    INSTALL_DIR=${TASKMIND_INSTALL_DIR:-/Applications}
+    sh tools/mac-sign-install.sh --install-dir "$INSTALL_DIR" native/src-tauri/target/release/bundle/macos/TaskMind.app
+    test -x "$INSTALL_DIR/TaskMind.app/Contents/MacOS/taskmind"
   fi
   MAC_DONE=1
-  heavy_unlock
 fi
 if [ "$WINDOWS" = 1 ]; then
   heavy_lock 'TaskMind Windows'
