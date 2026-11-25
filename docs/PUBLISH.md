@@ -195,8 +195,8 @@ Before the first lane run after publication, read "Lanes and the public remote" 
 
 ## Which Actions runs the pushes start
 
-The release workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind|PlanMind/<x.y.z>*` and on `workflow_dispatch`
-(`taskmind-native.yml`: dispatch only). So:
+The release workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind|PlanMind|TaskMind/<x.y.z>*` and on
+`workflow_dispatch`. So:
 
 - The first push (`refs/heads/main`) starts no run at all.
 - A release tag push starts that app's Release workflow. The run the person triggers has one job, `handoff`, which
@@ -391,7 +391,7 @@ failed `latest.json` upload is retried 3 times and, if it still fails, the tool 
   `[target.'cfg(any(target_os = "macos", windows))'.dependencies]` `tauri-plugin-updater = "2.14"`, `tauri-plugin-dialog = "2"`,
   `semver = "1"`; `serde_json = "1"` under plain `[dependencies]` (a shell that also builds for iOS needs it there: the `plugins`
   block makes `tauri::generate_context!()` name `serde_json`, and the phone build compiles that macro; PlanMind's
-  `tools/test-native.sh` type-checks the iOS target to catch it); and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
+  `tools/test-native.sh` type-checks the iOS target to catch it); on macOS, `tar = "0.4"` and `flate2 = "1"`; and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
 - `tauri.conf.json`: `"plugins": { "updater": { "pubkey": "<public key>", "endpoints": ["<feed url>"], "requireSignedVersion": true } }`.
   The module turns itself off, saying why on stderr, if the block is missing, lax (no `requireSignedVersion`, a non-https endpoint,
   a `dangerous*` flag, `allowDowngrades`) or the key is empty. No capability or CSP change: it is driven from Rust only.

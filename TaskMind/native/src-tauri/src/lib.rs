@@ -1,5 +1,14 @@
 use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
 
+// The shared updater (a byte copy of CalMind's): macOS and Windows have a feed entry; the Linux and mobile builds
+// do not compile it (its plugins are macOS/Windows dependencies in Cargo.toml).
+#[cfg(any(target_os = "macos", windows))]
+mod updater;
+
+// The real-app update trial (ignored by default; tools/test-real-update.sh runs it against two signed builds).
+#[cfg(all(test, target_os = "macos"))]
+mod updater_real_app;
+
 // Until the standalone web app is deployed at /TaskMind/, the shells open the working interim page that seancheren-site
 // serves at /taskmind/ (same accounts, same session). A build still opens exactly one of the two paths, fixed at compile time.
 const PRODUCTION: &str = "https://seancheren.com/taskmind/";
@@ -52,6 +61,10 @@ pub fn run() {
     assert!(approved_start(&start), "TASKMIND_APP_URL is not an approved TaskMind address");
     tauri::Builder::default()
         .setup(move |app| {
+            // Before the window is built, so the window gets the "Check for Updates..." menu item. A config that is
+            // not the strict one leaves the updater off and the app unaffected.
+            #[cfg(any(target_os = "macos", windows))]
+            updater::init(app, updater::Options::default())?;
             let origin = start.clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(start.clone()))
                 .title("TaskMind")
