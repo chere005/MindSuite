@@ -1,5 +1,5 @@
 {
-  "version": "1.13.0",
+  "version": "1.14.0",
   "apps": {
     "CalMind": {
       "repo": "MindSuite",
@@ -19,7 +19,7 @@
     },
     "AcctMind": {
       "repo": "MindSuite",
-      "tag": "AcctMind/1.1.0"
+      "tag": "AcctMind/1.2.0"
     },
     "NoteMind": {
       "repo": "NoteMind",
