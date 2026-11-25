@@ -735,21 +735,18 @@ mod tests {
 
     /// Start a feed announcing `announce` for the archive `archive`, signed as `sig`.
     fn feed_for(announce: &str, sig: &str, archive: Vec<u8>) -> Feed {
-        // bind first to learn the address, then serve a manifest that points back at it
-        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = probe.local_addr().unwrap();
-        drop(probe);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
         let archive_url = format!("http://{addr}/update.tar.gz");
         let routes = vec![
             ("/latest.json", 200u16, manifest(announce, &archive_url, sig)),
             ("/update.tar.gz", 200u16, archive),
         ];
-        Feed::start_on(addr, routes)
+        Feed::start_on(listener, routes)
     }
 
     impl Feed {
-        fn start_on(addr: std::net::SocketAddr, routes: Vec<(&'static str, u16, Vec<u8>)>) -> Feed {
-            let listener = TcpListener::bind(addr).unwrap();
+        fn start_on(listener: TcpListener, routes: Vec<(&'static str, u16, Vec<u8>)>) -> Feed {
             let base = format!("http://{}", listener.local_addr().unwrap());
             let hits = Arc::new(Mutex::new(Vec::new()));
             let h = hits.clone();
@@ -886,10 +883,8 @@ mod tests {
 
         // 404, 500, and garbage JSON
         for (code, body) in [(404u16, b"no".to_vec()), (500, b"boom".to_vec()), (200, b"{not json".to_vec())] {
-            let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-            let addr = probe.local_addr().unwrap();
-            drop(probe);
-            let feed = Feed::start_on(addr, vec![("/latest.json", code, body)]);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let feed = Feed::start_on(listener, vec![("/latest.json", code, body)]);
             let app = mock_app(Some(updater_config(&feed.url("/latest.json"))));
             install_plugins(app.handle()).unwrap();
             let u = ui(true);
@@ -926,11 +921,9 @@ mod tests {
         assert!(matches!(run_check(&app, Trigger::Manual, &quick, &u, None), Outcome::Failed(_)));
 
         // the feed answers, the archive never arrives
-        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = probe.local_addr().unwrap();
-        drop(probe);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let routes = vec![("/latest.json", 200u16, manifest("2.0.0", &format!("http://{}/update.tar.gz", stall_server()), SIG_2_0_0))];
-        let feed = Feed::start_on(addr, routes);
+        let feed = Feed::start_on(listener, routes);
         let app = mock_app(Some(updater_config(&feed.url("/latest.json"))));
         install_plugins(app.handle()).unwrap();
         let u = ui(true);
