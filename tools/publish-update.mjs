@@ -412,7 +412,11 @@ function main() {
   keepSet.add(version);
   for (const n of names) {
     const v = versionOfAsset(n, o.app);
-    if (v && !keepSet.has(v)) gh(['release', 'delete-asset', tag, n, '--yes']);
+    if (v && !keepSet.has(v)) {
+      // The feed is already live and verified: a failed prune must not fail the publish (a re-run would be refused as "not newer").
+      const d = spawnSync('gh', ['release', 'delete-asset', tag, n, '--yes', '--repo', feedRepo], { encoding: 'utf8' });
+      if (d.status !== 0) console.warn(`publish-update: could not prune ${n} (${(d.stderr || d.stdout || '').trim().split('\n')[0]}); the feed is live, it only keeps an old file`);
+    }
   }
   console.log(`published ${o.app} ${version} to ${feedUrl(feedRepo, o.app)}`);
 }

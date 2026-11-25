@@ -29,6 +29,13 @@
       ]
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY0RUM0QjMzRDZGOTFFNDAKUldSQUh2bldNMHZzOUVpeGVzYldnWTk2dkxsejhYeGpzN05CNjB2YXcvMG5EU1NZZVBpZ0N4Q28K",
+      "endpoints": ["https://github.com/chere005/MindSuite/releases/download/MealMind-updates/latest.json"],
+      "requireSignedVersion": true
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [

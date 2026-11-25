@@ -235,7 +235,7 @@ it:
 | Platform | Files |
 | --- | --- |
 | Windows (x64) | `MealMind_<version>_x64_en-US.msi`, `MealMind_<version>_x64-setup.exe` (NSIS) |
-| macOS (Apple silicon) | `MealMind_<version>_aarch64.dmg` (built with `--bundles dmg` passed in CI; `tauri.conf.json` is unchanged) |
+| macOS (Apple silicon) | `MealMind_<version>_aarch64.dmg` (built with `--bundles dmg` passed in CI; `tauri.conf.json` is unchanged; Developer ID signed, notarized and stapled, the dmg wrapper too) |
 | Checksums | `SHA256SUMS.txt` |
 
 There is no Linux build and no Intel Mac build. Jobs, in order: `prepare` (the
@@ -243,16 +243,17 @@ tag must equal the version in every file that carries it: `package.json`,
 `app/app.json`, `desktop/package.json`, `desktop/src-tauri/tauri.conf.json`,
 `desktop/src-tauri/Cargo.toml`, checked by `tools/release-versions.mjs`; a tag
 that is already a published release is refused; the notes are the tag's
-annotation, else the tagged commit's message; the draft is created), then
+`docs/releases/<version>.md`, else a plain "MealMind <version>"; the draft is created), then
 `windows` and `mac` in parallel (typecheck, then the web export and head patch
 as `deploy.sh` runs them, then `tauri build`; Windows installs the MSI on the
 runner, checks it carries the pinned upgrade code (so it upgrades an
 earlier MSI install instead of installing beside it), and checks it launches
 and opens a MealMind window; the Mac job also
 runs the test suites, which need a POSIX shell), then `publish` (every file is
-there, `SHA256SUMS.txt` is attached, the release is published as Latest; a
-version containing `-` is a pre-release instead). A missing file leaves the
-release a draft.
+there, `SHA256SUMS.txt` is attached, the release is published, never as the repo's
+"Latest" because every app has its own release pages and update feed; a version
+containing `-` is a pre-release instead). A missing file leaves the release a
+draft.
 
 **Cutting a release** is the lane: `npm run tdtp` (or `dtp`). It bumps the
 version, deploys, builds the Mac bundle, runs the preflight, tags and pushes,
@@ -290,8 +291,45 @@ workflow: the account's Actions artifact storage quota is full and every run
 that used it failed. Release assets do not count against that quota, so each
 build job uploads straight to the draft with `gh release upload`.
 
-**Installing the unsigned builds.** Windows shows "Windows protected your PC"
-(SmartScreen): choose *More info*, then *Run anyway*. macOS Gatekeeper stops the
-first launch of the app (not notarized): right-click it and choose *Open*, or
-System Settings > Privacy & Security > *Open Anyway*. The release notes carry
-the same two lines.
+**Installing.** The Mac app is Developer ID signed, notarized and stapled: open
+the dmg and drag MealMind to Applications; Gatekeeper accepts it. The Windows
+installers are NOT code-signed (no Authenticode certificate, by decision): the
+first manual install shows "Windows protected your PC" (SmartScreen), where you
+choose *More info*, then *Run anyway*. Updates installed from inside the app are not expected to
+show that (unverified on Windows, see Updates). The release notes carry the same lines.
+
+## Updates
+
+Installed copies check for new versions themselves, through Tauri's updater
+(`desktop/src-tauri/src/updater.rs`, shared byte for byte with the other Tauri
+shells; it adds a "Check for Updates..." item under the app menu's About on
+macOS and under Help on Windows, a check shortly after launch and daily,
+and a plain-words answer to a manual check). Strictness it enforces whatever the
+feed says: `requireSignedVersion` (a signed old archive cannot be re-announced as
+new), only strictly newer versions, https only, and on macOS the downloaded
+bundle must carry this app's bundle id, the announced version and the running
+app's designated requirement (Developer ID, this team) before it replaces the
+app.
+
+- **Feed**: ONE fixed pre-release, `MealMind-updates`, of this repo
+  (`https://github.com/chere005/MindSuite/releases/download/MealMind-updates/latest.json`),
+  with `darwin-aarch64` and `windows-x86_64` entries. Never `releases/latest`.
+- **Key**: MealMind's own minisign key pair. The public half is `plugins.updater.pubkey`
+  in `tauri.conf.json`; the private half and its password exist only in the separate
+  auto-locking updater keychain on the owner's Mac (`sh ../tools/updater-keygen.sh
+  MealMind --status`), never in a repo and never in GitHub. CI therefore builds no
+  update artifacts (`createUpdaterArtifacts` stays unset).
+- **Publishing** is the lane's last step (`tools/publish-update.sh`, run by dtp/tdtp
+  when the run installed the signed Mac build): after the Release workflow has
+  PUBLISHED the installers, it downloads the Windows installers, refuses any whose
+  SHA-256 the workflow's Windows job did not print into its log, and has
+  `../tools/publish-update.mjs` verify the installed app (signed, notarized,
+  stapled, arm64, this version), sign its re-archived `.app.tar.gz` and both
+  installers, upload them, and write `latest.json` last. A web-only `dtp` installs no
+  signed app, so it publishes no feed entry and says so; `sh tools/build-platforms.sh
+  --mac && sh tools/publish-update.sh` catches the feed up.
+- **Windows is unverified until a runner runs it**: the shared updater's logic is
+  unit-tested and the Windows job runs those tests, but no machine here has run an
+  N-1 to N update through a real NSIS installer.
+- Rotation and key loss: `../docs/PUBLISH.md`, "Update keys". Losing the key strands
+  installed copies.
