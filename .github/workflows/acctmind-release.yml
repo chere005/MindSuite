@@ -193,10 +193,10 @@ jobs:
 
           ## Installing
 
-          These builds are not code-signed, so the first launch shows a warning.
+          - **macOS, Apple silicon** (`.dmg`): open the dmg and drag AcctMind to Applications. The app is signed with Developer ID, notarized and stapled, so it opens without a warning.
+          - **Windows** (`.msi` or `-setup.exe`): the installers are not Authenticode-signed, so SmartScreen says "Windows protected your PC" the first time. Choose **More info**, then **Run anyway**.
 
-          - **Windows** (`.msi` or `-setup.exe`): SmartScreen says "Windows protected your PC". Choose **More info**, then **Run anyway**.
-          - **macOS, Apple silicon** (`.dmg`): open the dmg and drag AcctMind to Applications. The app is signed with Developer ID and notarized.
+          Once installed, AcctMind updates itself from **Check for Updates** in its menu (it never checks in the background). The update archives are signed with the app's own update key.
 
           `SHA256SUMS.txt` lists the checksum of every file.
           EOF
@@ -267,7 +267,7 @@ jobs:
           node-version: 26
           cache: npm
           cache-dependency-path: AcctMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: Install deps
         working-directory: AcctMind
@@ -357,6 +357,20 @@ jobs:
           }
           Get-Item $files | Format-Table Name, Length
 
+      # The digest of each installer, printed into THIS RUN'S LOG right after the build. The auto-update step (tools/publish-update.sh,
+      # run locally by the lane) signs a Windows installer with the update key only if its SHA-256 is printed here by a run of
+      # this tag: Windows checks nothing but that signature, and a release token cannot edit a run log, so an installer swapped on the
+      # release after the build is never signed.
+      - name: Print the installers' digests
+        shell: bash
+        working-directory: AcctMind
+        run: |
+          set -euo pipefail
+          dir=desktop/src-tauri/target/release/bundle
+          for f in "$dir/msi/AcctMind_${VERSION}_x64_en-US.msi" "$dir/nsis/AcctMind_${VERSION}_x64-setup.exe"; do
+            printf 'MINDSUITE-DIGEST sha256 %s %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
+          done
+
       # Straight to the draft release, not through upload-artifact (the Actions artifact storage quota is full).
       - name: Attach them to the draft release
         if: ${{ inputs.preflight != true }}
@@ -407,7 +421,7 @@ jobs:
           node-version: 26
           cache: npm
           cache-dependency-path: AcctMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: aarch64-apple-darwin
 

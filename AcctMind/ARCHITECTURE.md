@@ -365,7 +365,8 @@ carries the why next to the code.
 with the full test run in front for `tdtp`. `AGENTS.md` carries both in full,
 along with the version files, the hand-bumped iOS build number, and which
 platform each lane builds. The pushed tag also builds the Windows and macOS
-installers on GitHub and publishes them as one release (README.md, "Releases").
+installers on GitHub and publishes them as one release (README.md, "Releases"); a lane run
+that installed the signed Mac app then signs and publishes the auto-update feed.
 
 ## Where the rest is written down
 
@@ -405,7 +406,7 @@ the suite root's `.github/workflows/acctmind-release.yml` does the rest on GitHu
    install-and-launch smoke of the `.msi`) and on macOS (Apple silicon), attaching
    each build's files to that draft;
 3. when every expected file is on the draft, writes `SHA256SUMS.txt` and publishes
-   the release (Latest; a version with a `-` is a pre-release). If a file is missing,
+   the release (never marked Latest, because each app has its own update feed; a version with a `-` is a pre-release). If a file is missing,
    the release stays a draft.
 
 The assets, for version `X`:
@@ -420,7 +421,8 @@ There is no Linux build and nothing for Intel Macs.
 
 **Cutting one.** `npm run dtp` (or `npm run tdtp`, with the full test run in front)
 bumps the version, deploys, runs the preflight, tags and pushes. tdtp then follows the
-release (`tools/gh-bot.sh release`) and prints the run and the published release; dtp
+release (`tools/gh-bot.sh release`) and prints the run and the published release; so does a
+dtp that named `--mac` (the update feed needs the published release); a web-only dtp
 does not wait, and the next lane run warns at its start if the last release never
 published. If it is not published, the deploy stands: the lane says so, prints
 `gh workflow run acctmind-release.yml --ref <tag> -f tag=<tag>` (e.g. `AcctMind/0.56.0`), and exits non-zero.
@@ -453,7 +455,21 @@ account's Actions artifact storage quota is full, and every run that tried to up
 one failed. Release assets do not count against it, so each build uploads straight to
 the release with `gh release upload`.
 
-**Installing.** The builds are not code-signed. On first run Windows SmartScreen says
-"Windows protected your PC": choose *More info*, then *Run anyway*. macOS Gatekeeper
-stops an app that is not notarized: right-click it and choose *Open*, or use System
-Settings > Privacy & Security > *Open Anyway*.
+**Installing.** The Mac dmg holds an app signed with Developer ID, hardened, notarized and
+stapled (the workflow notarizes and staples the dmg too, and `tools/ci/verify-macos-dmg.sh` refuses
+anything else, or anything not arm64), so it opens without a warning. The Windows installers are
+NOT code-signed (decision, 2026-11-23): on first run SmartScreen says "Windows protected your PC";
+choose *More info*, then *Run anyway*.
+
+**Updates.** The app has a *Check for Updates...* menu item (macOS: under the AcctMind menu, next to
+About; Windows: Help) and NO background check: nothing asks the network until the person chooses it
+(an owner decision for this app). The feed is the pre-release `AcctMind-updates` on the MindSuite
+repository (`.../releases/download/AcctMind-updates/latest.json`; never `releases/latest`, which
+moves between apps). Every update is verified twice: Tauri checks a minisign signature made with
+AcctMind's own update key (private half only in the updater keychain on the owner's Mac, public
+half in `tauri.conf.json`), and on macOS the shell then checks that the downloaded app has this
+app's identifier and version and satisfies the running app's designated requirement. The release
+workflow never sees the key: after it publishes, the lane runs `tools/publish-update.sh`, which
+signs the stapled app of this version and the Windows installers and writes `latest.json` last
+(`docs/PUBLISH.md`, "Signing, installers and updates"). The Windows update path is unrun until a
+Windows machine has updated from one published version to the next.

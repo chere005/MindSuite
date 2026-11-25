@@ -25,6 +25,12 @@
 
 use std::path::PathBuf;
 
+// The shared updater (a byte copy of CalMind's): macOS and Windows have a feed entry; no other build compiles it (its plugins
+// are macOS/Windows dependencies in Cargo.toml). AcctMind runs it MANUAL-ONLY, by the owner's decision: the "Check for
+// Updates..." menu item is the one thing that asks the network, and nothing asks in the background.
+#[cfg(any(target_os = "macos", windows))]
+mod updater;
+
 /// The container's folder name, as the FILESYSTEM spells it: the
 /// identifier `iCloud.com.seancheren.acctmind` with every `.` turned into
 /// a `~`. Apple's rule.
@@ -154,6 +160,15 @@ fn icloud_status() -> String {
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            // Before the window is built, so the window gets the menu item. A config that is not the strict one leaves the
+            // updater off, saying why on stderr, and the app unaffected.
+            #[cfg(any(target_os = "macos", windows))]
+            updater::init(app, updater::Options { manual_only: true, ..Default::default() })?;
+            #[cfg(not(any(target_os = "macos", windows)))]
+            let _ = app;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             icloud_read,
             icloud_write,

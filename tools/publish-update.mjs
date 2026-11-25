@@ -254,6 +254,24 @@ function currentFeedVersion(repo, tag, stage) {
   return v;
 }
 
+/** True when the live latest.json names only files that are on the feed release (and their .sig files). */
+function feedIsComplete(repo, tag, stage) {
+  const view = spawnSync('gh', ['release', 'view', tag, '--repo', repo, '--json', 'assets', '-q', '.assets[].name'], { encoding: 'utf8' });
+  if (view.status !== 0) return false;
+  const names = view.stdout.split('\n').filter(Boolean);
+  const dir = mkdtempSync(path.join(stage, 'complete-'));
+  const dl = spawnSync('gh', ['release', 'download', tag, '--repo', repo, '--pattern', 'latest.json', '--dir', dir, '--clobber'], { encoding: 'utf8' });
+  if (dl.status !== 0) return false;
+  let feed;
+  try { feed = JSON.parse(readFileSync(path.join(dir, 'latest.json'), 'utf8')); } catch { return false; }
+  const entries = Object.values(feed.platforms || {});
+  if (entries.length === 0) return false;
+  return entries.every((p) => {
+    const n = decodeURIComponent(String(p.url || '').split('/').pop());
+    return n && names.includes(n) && names.includes(`${n}.sig`);
+  });
+}
+
 function mustContainVersion(file, version) {
   // an installer for another version is the classic mix-up: Tauri names files <App>_<version>_...
   if (!path.basename(file).includes(`_${version}_`)) die(`${path.basename(file)} does not look like version ${version} (no "_${version}_" in its name)`);
@@ -308,6 +326,12 @@ function main() {
   // ---- 0. the feed must not go backwards (before anything is signed) ----------------------------------------------
   if (realUpload) {
     const cur = currentFeedVersion(feedRepo, tag, stage);
+    if (cur && !o.forceFeed && cmpVersions(version, cur) === 0 && feedIsComplete(feedRepo, tag, stage)) {
+      // A re-run after an upload that DID land (the read-back or the prune failed afterwards): the feed is live, current and
+      // every file it names is on the release, so there is nothing to retry. A rebuild of the same version is never pushed.
+      console.log(`the feed ${feedUrl(feedRepo, o.app)} already holds ${cur} and every file it names is on the release: nothing to publish (--force-feed re-signs and re-uploads on purpose)`);
+      return;
+    }
     if (cur && !o.forceFeed && cmpVersions(version, cur) <= 0) {
       die(`the feed already holds ${cur}; ${version} is not newer. Every installed copy would be moved ${cmpVersions(version, cur) === 0 ? 'to a rebuild of the same version' : 'back'}. Pass --force-feed to do it on purpose.`);
     }

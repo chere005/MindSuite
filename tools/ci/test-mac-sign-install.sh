@@ -217,6 +217,8 @@ reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Conte
 sleep 1
 if TEST_STUBBORN=1 run > "$tmp/out" 2>&1; then fail 'a stubborn running app was replaced'; fi
 [ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail 'the stubborn app lost its old copy'
+grep -q 'would not quit' "$tmp/out" || fail 'the stubborn app was not reported'
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail 'the stubborn app was killed: the install must never escalate to a signal'
 pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
 # --no-kill: the app is only ASKED to quit; one that will not is left running, untouched (no TERM), and the old copy stays
 reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
@@ -229,13 +231,15 @@ pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail '--no-kill killed the running ap
 [ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--no-kill lost the old copy'
 [ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "--no-kill left $(ls -A "$tmp/install")"
 pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
-# and without it the same app is terminated and the install goes through (the polite quit has had its time)
+# a process that merely MENTIONS the path (an editor, less) is not the app: it neither blocks the install nor is touched
 reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
-( exec -a "$INSTALL_PROBE/example" sleep 300 ) >/dev/null 2>&1 &
+( exec perl -e "sleep 300" "$INSTALL_PROBE" ) >/dev/null 2>&1 &
+mention=$!
 sleep 1
-TEST_STUBBORN=1 run > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail 'a TERM-able app that would not quit was not replaced by default'; }
-pgrep -f -- "$INSTALL_PROBE" >/dev/null && fail 'the default install left the app running'
-pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
+run > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; kill "$mention" 2>/dev/null; fail 'a process that only mentions the app path blocked the install'; }
+kill -0 "$mention" 2>/dev/null || fail 'a process that only mentions the app path was signalled'
+kill "$mention" 2>/dev/null || true
+grep -q '^osascript' "$CALLS" && fail 'the app was asked to quit though it was not running'
 
 # 6. identity resolution
 reset

@@ -25,9 +25,16 @@ protect.
 **Windows** builds in the `AcctMind Release` GitHub Actions workflow (the suite root's
 `.github/workflows/acctmind-release.yml`, started by an `AcctMind/<version>` tag) — Tauri cannot cross-compile from a Mac. Same source,
 same export, a `.msi` and an `.exe` at the end of it, attached to the GitHub
-release with the Apple silicon `.dmg`. The Windows app has no iCloud path yet
+release with the Apple silicon `.dmg`, which holds a Developer ID signed, notarized app (the
+Windows installers are not code-signed). The Windows app has no iCloud path yet
 (`store_path()` in `src-tauri/src/main.rs` answers none off macOS), so its
 ledger is local to that machine.
+
+**Updates.** `src-tauri/src/updater.rs` (a byte copy of CalMind's; fix the origin) adds a *Check for Updates...* menu item and, for
+AcctMind only, NO background check (`Options { manual_only: true }` in `main.rs`). The feed, the public key and
+`requireSignedVersion` are `plugins.updater` in `tauri.conf.json`; the private key never leaves the owner's updater keychain
+and `tools/publish-update.sh` signs with it after the release is published (docs/PUBLISH.md, "Signing, installers and updates").
+`sh tools/test-native.sh` runs the module's tests (a local fixture feed, a mock app) under the heavy-build lock.
 
 ## The one bug this directory is shaped around
 

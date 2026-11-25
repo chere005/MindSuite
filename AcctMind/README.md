@@ -10,7 +10,7 @@ Feel free to deploy this on your own website, build and deploy the iOS version, 
 
 ## Quick start / Install
 
-- macOS and Windows: installers on [GitHub Releases](https://github.com/chere005/AcctMind/releases). Unsigned.
+- macOS (Apple silicon) and Windows: installers on the [AcctMind releases](https://github.com/chere005/MindSuite/releases?q=AcctMind) of the MindSuite repository (pick the newest `AcctMind/<version>`). The Mac app is signed with Developer ID and notarized; the Windows installers are not code-signed, so SmartScreen warns once. Both update themselves: choose **Check for Updates** in the app's menu (AcctMind never checks in the background).
 - Web, iOS and Android: build from source, see Building. The web build signs in with a CalMind account.
 
 ## Platforms
@@ -54,7 +54,7 @@ npm run test:dev     # under a minute, no browser
 npm test             # everything
 ```
 
-Deploy: copy `deploy.conf.sample` to `deploy.conf`, then `./deploy.sh` (sandbox, then production). Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub.
+Deploy: copy `deploy.conf.sample` to `deploy.conf`, then `./deploy.sh` (sandbox, then production). Release: `npm run dtp` (or `tdtp`, tests first); the tag builds the installers on GitHub, and a `--mac` run also publishes the signed update feed (AGENTS.md).
 
 ## Documentation
 

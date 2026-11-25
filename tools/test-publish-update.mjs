@@ -343,11 +343,24 @@ test('the feed refuses pre-releases and versions that are not newer, before anyt
   const rcOk = node('publish-update.mjs', [...release('2.6.0-rc.1'), '--prerelease', '--dry-run', path.join(T, 'rc-ok')]);
   assert.equal(rcOk.status, 0, out(rcOk));
   writeFileSync(baseEnv.GH_LOG, '');
-  for (const v of ['2.5.0', '2.3.1']) {
+  for (const v of ['2.3.1']) {
     const r = node('publish-update.mjs', release(v));
     assert.notEqual(r.status, 0, `${v} was accepted`); assert.match(out(r), /not newer/);
     assert.equal(feedVersion(), '2.5.0', 'the feed was changed');
   }
+  // the SAME version with a complete feed is a finished publish (a re-run after the read-back or the prune failed): success, nothing sent
+  const same = node('publish-update.mjs', release('2.5.0'));
+  assert.equal(same.status, 0, out(same)); assert.match(out(same), /already holds 2\.5\.0.*nothing to publish/s);
+  assert.equal(feedVersion(), '2.5.0', 'the feed was changed');
+  // the SAME version with a file the feed names missing is NOT finished: refused, not reported as current
+  const feedDir = path.dirname(feedFile());
+  const named = Object.values(JSON.parse(readFileSync(feedFile(), 'utf8')).platforms)[0].url.split('/').pop();
+  const sig = `${decodeURIComponent(named)}.sig`;
+  const sigBody = readFileSync(path.join(feedDir, sig));
+  rmSync(path.join(feedDir, sig));
+  const broken = node('publish-update.mjs', release('2.5.0'));
+  assert.notEqual(broken.status, 0); assert.match(out(broken), /not newer/);
+  writeFileSync(path.join(feedDir, sig), sigBody);
   const log = readFileSync(baseEnv.GH_LOG, 'utf8');
   assert.ok(!/release upload|release create|delete-asset/.test(log), `a refused publish uploaded: ${log}`);
   // on purpose
