@@ -218,6 +218,24 @@ sleep 1
 if TEST_STUBBORN=1 run > "$tmp/out" 2>&1; then fail 'a stubborn running app was replaced'; fi
 [ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail 'the stubborn app lost its old copy'
 pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
+# --no-kill: the app is only ASKED to quit; one that will not is left running, untouched (no TERM), and the old copy stays
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+( exec -a "$INSTALL_PROBE/example" sleep 300 ) >/dev/null 2>&1 &
+sleep 1
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail 'test process did not start'
+if TEST_STUBBORN=1 run --no-kill > "$tmp/out" 2>&1; then fail 'a running app that would not quit was replaced under --no-kill'; fi
+grep -q 'would not quit' "$tmp/out" || fail '--no-kill did not say the app would not quit'
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail '--no-kill killed the running app'
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--no-kill lost the old copy'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "--no-kill left $(ls -A "$tmp/install")"
+pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
+# and without it the same app is terminated and the install goes through (the polite quit has had its time)
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+( exec -a "$INSTALL_PROBE/example" sleep 300 ) >/dev/null 2>&1 &
+sleep 1
+TEST_STUBBORN=1 run > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail 'a TERM-able app that would not quit was not replaced by default'; }
+pgrep -f -- "$INSTALL_PROBE" >/dev/null && fail 'the default install left the app running'
+pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
 
 # 6. identity resolution
 reset
@@ -240,5 +258,19 @@ reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
 bash "$SCRIPT" --verify-only "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || fail '--verify-only rejected a good app'
 expect_fail '--verify-only on an unsigned app' bash "$SCRIPT" --verify-only "$tmp/in/Example.app"
 expect_fail 'a non-app' bash "$SCRIPT" --no-install "$tmp/machine.env"
+
+# 8. --already-signed installs a copy this script signed, without signing or submitting again; it refuses anything else
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
+: > "$CALLS"
+bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail '--already-signed rejected a signed copy'; }
+[ -f "$tmp/install/Example.app/Contents/_stapled" ] || fail '--already-signed did not install'
+grep -q 'notarytool submit' "$CALLS" && fail '--already-signed submitted to Apple again'
+grep -q -- '--sign' "$CALLS" && fail '--already-signed signed again'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "--already-signed left $(ls -A "$tmp/install")"
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+expect_fail '--already-signed on an unsigned build' bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/in/Example.app"
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--already-signed on an unsigned build touched the installed copy'
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1; echo adhoc > "$tmp/out-dir/Example.app/Contents/_sig"
+expect_fail '--already-signed on an ad hoc copy' bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/out-dir/Example.app"
 
 echo 'mac-sign-install guards passed'

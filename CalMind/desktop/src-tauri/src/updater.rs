@@ -275,7 +275,9 @@ pub fn init<R: Runtime>(app: &mut tauri::App<R>, options: Options) -> tauri::Res
         eprintln!("updater: off ({why})");
         return Ok(());
     }
-    add_menu_item(&handle)?;
+    if let Err(why) = add_menu_item(&handle) {
+        eprintln!("updater: no Check for Updates menu item ({why})");
+    }
     let for_menu = (handle.clone(), options.clone());
     app.on_menu_event(move |_, event| {
         if event.id().as_ref() == MENU_ID {
@@ -867,10 +869,14 @@ mod tests {
 
     #[test]
     fn network_and_feed_failures_are_quiet_unless_manual() {
-        // nothing is listening
+        // Close every connection without replying while keeping the port reserved.
         let dead = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = dead.local_addr().unwrap();
-        drop(dead);
+        std::thread::spawn(move || {
+            for stream in dead.incoming() {
+                drop(stream);
+            }
+        });
         let app = mock_app(Some(updater_config(&format!("http://{addr}/latest.json"))));
         install_plugins(app.handle()).unwrap();
         let u = ui(true);

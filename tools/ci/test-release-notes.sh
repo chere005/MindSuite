@@ -32,6 +32,7 @@ expected_installing() {
 
 - **Windows** (`CalMind_7.12.0_x64_en-US.msi`, or `CalMind_7.12.0_x64-setup.exe`): the installers are not code-signed, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.
 - **macOS** (Apple silicon, `CalMind_7.12.0_aarch64.dmg`): signed with Developer ID and notarized.
+- **Updates:** the macOS and Windows apps check for updates themselves (menu: Check for Updates). Linux has no updater.
 - **Linux** (x64): `sudo apt install ./CalMind_7.12.0_amd64.deb`, or for the AppImage `chmod +x CalMind_7.12.0_amd64.AppImage` and run it.
 
 `SHA256SUMS.txt` has the checksum of every file.

@@ -290,7 +290,7 @@ Consuming it in an app's `tools/build-platforms.sh --mac`: replace the ad hoc `c
 sh tools/mac-sign-install.sh [--entitlements path] native/src-tauri/target/release/bundle/macos/X.app
 ```
 
-(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). Hardened runtime is applied by the script, so
+(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). A lane that smoke-tests the signed app before installing it signs once with `--no-install --out DIR`, tests that copy, then installs it with `--already-signed` (full verification, no second Apple submission; CalMind's `build-platforms.sh --mac` does this). Hardened runtime is applied by the script, so
 no `tauri.conf.json` change is needed for that; an app that needs entitlements passes the file. The three release workflows run
 `notarize-dmg.sh` before `verify-macos-dmg.sh`; a new release workflow cloned from them keeps both steps.
 
@@ -324,17 +324,33 @@ node ../tools/publish-update.mjs --app <App> --version <x.y.z> --repo OWNER/Mind
      [--dry-run DIR]          # writes the same files into DIR and touches no network
 ```
 
+A lane normally does not build the Mac app for this: `sh tools/publish-update-from-release.sh <App> <App>/<x.y.z> <x.y.z> [--install]` waits
+for the published release, downloads the installers and the dmg, checks them against `SHA256SUMS.txt`, takes the stapled `.app` out
+of the dmg and calls the command above (`--install` also installs that app over `/Applications`). Test:
+`bash tools/ci/test-publish-update-from-release.sh`.
+
 It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
 `<App>_<v>_aarch64.app.tar.gz` (the .app as top folder, no `._` files), signs the archive and each Windows installer with
 `tauri signer sign --app-version <v>`, writes `latest.json`, uploads artifacts and signatures first and `latest.json` LAST,
 downloads it again and compares, then prunes. A refused input (wrong version, unverified app, missing key, one platform only
 without `--allow-partial`) stops before anything is signed or uploaded. CI never signs updates: the key is not in GitHub.
 
+The key is checked against what the app trusts: the keychain's public key must equal `plugins.updater.pubkey` in the app's
+`tauri.conf.json` (`--conf FILE` names another), every fresh `.sig` is verified against that public key
+(`tools/minisign-verify.mjs`, checked against the Rust verifier by the tests), and the tauri CLI must know `signer sign
+--app-version` (tauri-cli 2.12 or later: run `npm ci` in the app after the Cargo/CLI bump, before the first dtp). A mismatch (a
+recreated keychain, a rotated key whose pubkey was not committed) refuses the publish, because a feed signed by a key nobody trusts
+would look healthy and silently strand every installed copy. `publish-update.mjs --app <App> --preflight` runs the same checks with
+no artifacts; the app's dtp lane calls it BEFORE it deploys or tags. While a rotation's previous key is still kept, a publish
+without `--sign-with-prev-key` is refused (`dtp` passes it when `MIND_SIGN_WITH_PREV_KEY=1`; so does `publish-update-from-release.sh
+--sign-with-prev-key`).
+
 The Windows installers are downloaded from the published release, and Windows checks nothing but the minisign signature, so an app's
 wrapper (PlanMind: `PlanMind/tools/publish-update.sh`) signs an installer only if its SHA-256 appears in the log of a run of that
 tag's release workflow: the windows job prints `MINDSUITE-DIGEST sha256 <hex> <file name>` for each installer right after the
 build, and a release token cannot edit a run log. A file swapped on the release after the build is refused (nothing signed or
 uploaded). It does not defend against a compromised build itself, which is why the workflow's third-party actions are pinned to commit SHAs.
+
 
 ### Update keys
 
@@ -360,7 +376,7 @@ back, the live key is copied to a `prev` slot (verified) before the live slot is
 between any two writes leaves a complete old and a complete new key; `--recover` finishes it. Then put the new public key in
 `plugins.updater.pubkey`, ship the transitional release (the first one carrying the new key) signed by the OLD key with
 `publish-update.mjs --sign-with-prev-key`, ship later releases normally, and only then `--drop-prev`. A second `--replace` is refused
-while a `prev` key is held.
+while a `prev` key is held, and so is a plain publish (see above).
 
 `publish-update.mjs` also refuses, before signing anything: a pre-release version (unless `--prerelease`) and a version that is not
 strictly newer than the `latest.json` already live (unless `--force-feed`). `gh release upload --clobber` is delete-then-upload, so a

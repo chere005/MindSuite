@@ -343,8 +343,9 @@ draft:
 | Linux (x64) | `CalMind_<version>_amd64.deb`, `CalMind_<version>_amd64.AppImage` (the deb is installed and launched under Xvfb) |
 
 When every one of those is on the draft, the last job writes
-`SHA256SUMS.txt` and publishes the release (Latest; a version containing "-" is
-a pre-release). A missing file leaves it a DRAFT that nobody sees. A tag that
+`SHA256SUMS.txt` and publishes the release (never marked Latest, because the
+repo-wide Latest flag moves between apps; a version containing "-" is a
+pre-release). A missing file leaves it a DRAFT that nobody sees. A tag that
 is already a published release is refused: a published version is never
 rebuilt.
 
@@ -390,14 +391,34 @@ of the old dispatch-only Windows job. Release assets are not counted against
 it, so the builds hand their files to `gh release upload` and never use
 `actions/upload-artifact`. Do not add one.
 
-**Unsigned installs.** Nothing is code-signed or notarized today. Windows
-SmartScreen says "Windows protected your PC": More info, then Run anyway. On
-the Mac the first open is stopped by Gatekeeper: right-click the app and
-choose Open, or System Settings, Privacy & Security, Open Anyway. The AppImage
-needs `chmod +x`. If the repo gains the Apple secrets (`APPLE_CERTIFICATE`,
-`APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
-`APPLE_PASSWORD`, `APPLE_TEAM_ID`) the macOS job signs and notarizes with
-them; without all six it signs ad hoc and never fails for want of them.
+**Signing and installs.** The macOS app is signed with the Developer ID
+(hardened runtime, secure timestamp), notarized and stapled, Apple silicon
+only. The workflow's macOS job does it in CI (Tauri signs and notarizes the app
+in the dmg; `tools/ci/notarize-dmg.sh` then notarizes and staples the dmg;
+`tools/ci/verify-macos-dmg.sh` refuses anything unsigned, unnotarized, unstapled
+or not arm64). The local lane does the same for the installed copy:
+`tools/build-platforms.sh --mac` hands the build to `tools/mac-sign-install.sh`
+(the identity is read from the untracked `.local/machine.env`, the notarytool
+profile is the shared keychain one), smokes the signed bundle, then swaps it into
+`/Applications`; an ad hoc, non-arm64 or wrong-team result is refused before
+anything is installed. The Windows installers are NOT code-signed (a decision,
+not an oversight): SmartScreen says "Windows protected your PC": More info, then
+Run anyway. The AppImage needs `chmod +x`.
+
+**Updates (macOS and Windows).** The desktop shell carries `src-tauri/src/updater.rs`
+(shared; `docs/PUBLISH.md` "Updates"): a "Check for Updates..." menu item and a
+quiet check ten seconds after launch and daily. It reads ONE fixed feed,
+`https://github.com/chere005/MindSuite/releases/download/CalMind-updates/latest.json`
+(a pre-release that only `tools/publish-update.mjs` writes; the repo-wide Latest
+flag is never used), and installs only an archive whose minisign signature checks
+against the public key in `tauri.conf.json` (`plugins.updater.pubkey`) and whose
+signed version is the announced one. The private key lives only in this Mac's
+separate auto-locking keychain (`tools/updater-keygen.sh CalMind --status`), never
+in the repo or in GitHub, so CI builds no update archives: after the Release is
+published the lane runs `../tools/publish-update-from-release.sh`, which signs the
+published dmg's app and the Windows installers locally and writes `latest.json`
+last. `createUpdaterArtifacts` stays unset. Linux builds compile none of it.
+Losing the key strands installed copies: back it up (`updater-keygen.mjs --export-backup`).
 
 ## Rules of the road
 
