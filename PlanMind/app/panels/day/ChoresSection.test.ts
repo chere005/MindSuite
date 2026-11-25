@@ -4,7 +4,7 @@ import { makeContext } from '../../panelContext';
 import { createState } from '../../state';
 import * as day from '../DayPanel';
 
-// The desktop Day with the picker's Chores switch on, drawn from a real state in Node (no DOM): the To-do section becomes the day's chores, and nothing else of the page moves.
+// The desktop Day with the Schedule's Chores switch on, drawn from a real state in Node.
 const stamp = { revision: 1, updatedAt: '2026-11-01T00:00:00Z' };
 const base = { createdBy: 'alex', updatedBy: 'alex', createdAt: stamp.updatedAt, updatedAt: stamp.updatedAt, ak: 'a', revision: 1 } as const;
 const lists: ListRecord[] = [{ id: 'sam', kind: 'person', name: 'Sam', color: 'yellow', order: 0, ...stamp }, { id: 'alex', kind: 'person', name: 'Alex', color: 'green', order: 1, ...stamp }];
@@ -38,9 +38,10 @@ describe('the desktop Day with Chores on', () => {
     expect(on).not.toContain('day-sec day-todo');
     expect(on).not.toContain('Buy stamps');
     expect(on).toMatch(/<h2 class="day-label">Chores<\/h2>/);
-    expect(on.indexOf('day-prio')).toBeLessThan(on.indexOf('day-chores'));
+    const section = on.indexOf('<section class="day-sec day-chores"');
+    expect(on.indexOf('day-prio')).toBeLessThan(section);
     // Both sections close the right column, after the Priorities.
-    expect(on.slice(on.indexOf('day-chores'))).not.toContain('day-prio');
+    expect(on.slice(section)).not.toContain('day-prio');
   });
 
   it('lists the day\'s chores as the Chores page does: rows with a circle, an owner title and a cadence badge, whoever the picker shows', () => {
@@ -51,10 +52,15 @@ describe('the desktop Day with Chores on', () => {
     expect(on.match(/class="ch-circle"/g)).toHaveLength(3);
   });
 
-  it('leaves the Schedule, Priorities and Notes as they are', () => {
+  it('changes only the switch and the To-do section', () => {
     const [off, on] = [draw(false), draw(true)];
     const without = (markup: string, from: string) => markup.slice(0, markup.indexOf(from));
-    expect(without(on, '<section class="day-sec day-chores"')).toBe(without(off, '<section class="day-sec day-todo"'));
+    const unchecked = 'class="day-choresbtn" role="switch" aria-checked="false"';
+    const checked = unchecked.replace('"false"', '"true"');
+    expect(off).toContain(unchecked);
+    expect(on).toContain(checked);
+    expect(without(on, '<section class="day-sec day-chores"').replace(checked, unchecked))
+      .toBe(without(off, '<section class="day-sec day-todo"'));
   });
 
   it('is not drawn on a phone: its Chores is the Chores view the shell draws, and the Day keeps its To-do tab', () => {
