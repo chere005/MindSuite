@@ -185,7 +185,23 @@ export function checkBundleArchive(base, list, verbose) {
 }
 
 function plistVersion(appDir) {
-  return run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', path.join(appDir, 'Contents/Info.plist')]).trim();
+  return plistValue(appDir, 'CFBundleShortVersionString');
+}
+function plistValue(appDir, key) {
+  return run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, path.join(appDir, 'Contents/Info.plist')]).trim();
+}
+
+/** The bundle identifier the app's own tauri.conf.json declares: what an installed copy's updater compares the update to. */
+export function expectedIdentifier(app, root = process.env.MIND_APP_ROOT || ROOT) {
+  for (const sub of ['native', 'desktop', '']) {
+    const p = path.join(root, app, sub, 'src-tauri/tauri.conf.json');
+    if (!existsSync(p)) continue;
+    let conf;
+    try { conf = JSON.parse(readFileSync(p, 'utf8')); } catch { die(`${p} is not valid JSON`); }
+    if (typeof conf.identifier !== 'string' || !conf.identifier) die(`${p} declares no identifier`);
+    return conf.identifier;
+  }
+  return die(`no src-tauri/tauri.conf.json found for ${app}: cannot tell which bundle identifier its update must carry`);
 }
 
 /** Where the app's tauri.conf.json is: --conf, else the one shell the app has (<App>/<shell>/src-tauri/tauri.conf.json). */
@@ -298,8 +314,10 @@ function feedIsComplete(repo, tag, stage) {
   });
 }
 
-function mustContainVersion(file, version) {
-  // an installer for another version is the classic mix-up: Tauri names files <App>_<version>_...
+function mustContainVersion(file, version, app) {
+  // an installer for another version or another app is the classic mix-up: Tauri names files <App>_<version>_...
+  // (the Windows updater checks only the signature, and every app's key signs whatever it is handed here)
+  if (!path.basename(file).startsWith(`${app}_`)) die(`${path.basename(file)} is not an installer for ${app} (its name does not start with "${app}_")`);
   if (!path.basename(file).includes(`_${version}_`)) die(`${path.basename(file)} does not look like version ${version} (no "_${version}_" in its name)`);
   if (!existsSync(file) || !statSync(file).isFile()) die(`no such file: ${file}`);
 }
@@ -387,6 +405,10 @@ function main() {
       appDir = path.join(x, apps[0]);
     }
     if (!appDir || !existsSync(path.join(appDir, 'Contents/Info.plist'))) die(`not an app bundle: ${appDir}`);
+    if (path.basename(appDir) !== `${o.app}.app`) die(`${path.basename(appDir)} is not ${o.app}.app: refusing to sign another app with ${o.app}'s key`);
+    const wantId = expectedIdentifier(o.app);
+    const gotId = plistValue(appDir, 'CFBundleIdentifier');
+    if (gotId !== wantId) die(`the app's bundle identifier is ${gotId}, but ${o.app} is ${wantId}: refusing to sign another app with ${o.app}'s key`);
     if (plistVersion(appDir) !== version) die(`the app is version ${plistVersion(appDir)}, not ${version}`);
     // Developer ID, hardened runtime, timestamp, notarized, stapled, arm64 only: the same verification the install step does.
     const v = spawnSync('bash', [macVerifyScript(o.app), '--verify-only', appDir], { encoding: 'utf8' });
@@ -395,8 +417,8 @@ function main() {
     archiveApp(appDir, macFile);
   }
   const win = [];
-  if (o.winNsis) { mustContainVersion(o.winNsis, version); win.push({ kind: 'nsis', src: path.resolve(o.winNsis) }); }
-  if (o.winMsi) { mustContainVersion(o.winMsi, version); win.push({ kind: 'msi', src: path.resolve(o.winMsi) }); }
+  if (o.winNsis) { mustContainVersion(o.winNsis, version, o.app); win.push({ kind: 'nsis', src: path.resolve(o.winNsis) }); }
+  if (o.winMsi) { mustContainVersion(o.winMsi, version, o.app); win.push({ kind: 'msi', src: path.resolve(o.winMsi) }); }
   for (const w of win) {
     w.file = path.join(stage, path.basename(w.src));
     copyFileSync(w.src, w.file);

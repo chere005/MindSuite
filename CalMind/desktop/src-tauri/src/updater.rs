@@ -147,6 +147,9 @@ impl<R: Runtime> Ui for DialogUi<R> {
             text.push_str("\n\n");
             text.push_str(notes);
         }
+        // The shells cannot ask the page to flush before the installer takes over (Windows exits at once; the remote-page
+        // shells have no IPC), so say it plainly instead.
+        text.push_str(&format!("\n\n{name} closes to install the update. Finish what you are typing first."));
         self.app
             .dialog()
             .message(text)

@@ -14,9 +14,9 @@
 #   --no-relaunch               do not reopen the app when it was running
 #   --no-kill                   retained for callers; install always waits for a normal quit
 #   --verify-only               assert an existing app (signed, notarized, stapled, arm64) and exit
-#   --already-signed            the input is a copy this script already signed (see --out): verify it in full, then
-#                               install it as is (no signing, no Apple submission). A lane that smoke-tests the signed
-#                               copy before the install uses it, so one build is notarized once.
+#   --install-prebuilt          the app is ALREADY signed, notarized and stapled (a release's own artifact): verify it as
+#                               it is and install exactly those bytes; nothing is re-signed or sent to Apple
+#   --already-signed            alias for --install-prebuilt
 #
 # WHAT IT GUARANTEES. The installed copy is Developer ID signed with the hardened runtime and a secure
 # timestamp, notarized, stapled, arm64 only. Anything less stops the script BEFORE the install directory is
@@ -53,11 +53,11 @@ PROFILE="${MIND_NOTARY_PROFILE:-}"
 NOTARY_TIMEOUT=30m
 RELAUNCH=1
 VERIFY_ONLY=0
-ALREADY_SIGNED=0
+INSTALL_PREBUILT=0
 APP_IN=
 
 die() { echo "mac-sign-install: $*" >&2; exit 1; }
-usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' >&2; exit 2; }
 say() { echo "mac-sign-install: $*" >&2; }
 
 while [ $# -gt 0 ]; do
@@ -73,7 +73,7 @@ while [ $# -gt 0 ]; do
     --no-relaunch) RELAUNCH=0; shift ;;
     --no-kill) shift ;;
     --verify-only) VERIFY_ONLY=1; shift ;;
-    --already-signed) ALREADY_SIGNED=1; shift ;;
+    --install-prebuilt|--already-signed) INSTALL_PREBUILT=1; shift ;;
     -h|--help) usage ;;
     -*) echo "mac-sign-install: unknown option $1" >&2; usage ;;
     *) [ -z "$APP_IN" ] || usage; APP_IN=$1; shift ;;
@@ -206,14 +206,14 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 APP="$WORK/$NAME"
 
-if [ "$ALREADY_SIGNED" = 1 ]; then
-  # The full verification, the same one an install ends with: nothing weaker is let through by this flag.
-  verify_app "$APP_IN" || die "--already-signed: the app does not pass verification; nothing was installed"
+if [ "$INSTALL_PREBUILT" = 1 ]; then
+  # (the signing branch below is the else of this if; it is not re-indented so the diff of the shared script stays small)
+  [ -z "$ENTITLEMENTS$NESTED_ENTITLEMENTS" ] || die '--install-prebuilt re-signs nothing; entitlements do not apply'
   APP=$APP_IN
+  verify_app "$APP" || die "the app is not a signed, notarized, stapled arm64 build; nothing was installed (build it with the signing run first)"
   VERSION=$(plist "$APP" CFBundleShortVersionString || true)
-  say "verified as given: Developer ID, hardened runtime, timestamp, notarized, stapled, arm64${VERSION:+ ($NAME $VERSION)}"
+  say "verified as it is (not re-signed): Developer ID, hardened runtime, timestamp, notarized, stapled, arm64${VERSION:+ ($NAME $VERSION)}"
 else
-# (not indented: keeps the diff against the earlier version small)
 say "copying $NAME for signing (the build output stays untouched)"
 ditto "$APP_IN" "$APP"
 # Resource forks, Finder info and quarantine are "detritus" to codesign.
@@ -289,7 +289,7 @@ say "notarization accepted ($SUB_ID); stapling"
 n=0
 until xcrun stapler staple "$APP" >/dev/null 2>&1; do
   n=$((n + 1))
-  [ "$n" -lt 6 ] || die 'stapler staple failed after 6 tries (the ticket may not be published yet)'
+  [ "$n" -lt "${MIND_STAPLE_TRIES:-30}" ] || die "stapler staple failed after $n tries over about $((n * ${MIND_STAPLE_WAIT:-10})) s (Apple's ticket may not be published yet; MIND_STAPLE_TRIES / MIND_STAPLE_WAIT raise the window)"
   sleep "${MIND_STAPLE_WAIT:-10}"
 done
 

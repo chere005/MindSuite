@@ -6,6 +6,11 @@ release bumps the MindSuite minor and adds an entry here naming the app tag it m
 version is tagged `MindSuite/<x.y.z>` in this repo. `tools/mindsuite-release.mjs` writes both
 files; the app release lanes call it after their own tag is pushed.
 
+MindSuiteDesktop (the Electron shell in `Desktop/`) is part of the suite from its first signed release. `mindsuite.json` carries it
+at `MindSuiteDesktop/0.3.0`, the unsigned local build that was never tagged, so that the first signed release is recorded as an
+advance: `node tools/mindsuite-release.mjs record MindSuiteDesktop MindSuiteDesktop/<x.y.0>` after its tag is on origin
+(see docs/PUBLISH.md, MindSuite Desktop).
+
 <!-- releases: newest first; written by tools/mindsuite-release.mjs -->
 
 ## MindSuite 1.8.0 (2026-11-23)

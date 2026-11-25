@@ -68,17 +68,25 @@ const baseEnv = {
   GH_STATE: path.join(T, 'gh-state'),
   GH_LOG: path.join(T, 'gh.log'),
   MIND_UPLOAD_RETRY_WAIT: '0',
+  MIND_APP_ROOT: path.join(T, 'approot'),
 };
 process.env.MIND_UPDATER_KEYCHAIN = kcPath; process.env.MIND_UPDATER_KEYCHAIN_PASSWORD = baseEnv.MIND_UPDATER_KEYCHAIN_PASSWORD;
 const node = (script, args, env = {}) => spawnSync(process.execPath, [path.join(ROOT, 'tools', script), ...args], { encoding: 'utf8', env: { ...baseEnv, ...env } });
 const out = (r) => `${r.stdout}${r.stderr}`;
 
 // ---- fixtures -------------------------------------------------------------------------------------------------
-function makeApp(dir, version) {
-  const app = path.join(dir, 'Example.app');
+// every app the tests publish has a tauri.conf.json here, as in the repo: its identifier is what an app bundle must carry
+const idOf = (name) => `com.example.${name.toLowerCase()}`;
+function declareApp(name) {
+  const d = path.join(T, 'approot', name, 'desktop/src-tauri'); mkdirSync(d, { recursive: true });
+  writeFileSync(path.join(d, 'tauri.conf.json'), JSON.stringify({ productName: name, identifier: idOf(name) }));
+}
+for (const n of [APP, 'RotApp', 'NoKeyApp', 'OtherApp']) declareApp(n);
+function makeApp(dir, version, name = APP, id = idOf(name)) {
+  const app = path.join(dir, `${name}.app`);
   mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
   writeFileSync(path.join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>CFBundleExecutable</key><string>example</string><key>CFBundleIdentifier</key><string>com.example.fixture</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>\n`);
+<plist version="1.0"><dict><key>CFBundleExecutable</key><string>example</string><key>CFBundleIdentifier</key><string>${id}</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>\n`);
   copyFileSync('/bin/ls', path.join(app, 'Contents/MacOS/example'));
   return app;
 }
@@ -168,7 +176,8 @@ test('rotation keeps the old key as "prev", never loses it, and the transitional
   // release is signed by the OLD key and carries the NEW pubkey; only after --drop-prev does the new key sign normally
   otherPub = A.publicKey;
   const confNew = writeConf(live.publicKey), confOld = writeConf(A.publicKey);
-  const base = ['--app', R, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite'];
+  const rotApp = makeApp(path.join(T, 'mac-rot'), VERSION, R);
+  const base = ['--app', R, '--version', VERSION, '--mac-app', rotApp, '--allow-partial', '--repo', 'OWNER/MindSuite'];
   const sigOk = (dir, pub) => { const f = path.join(dir, `${R}_${VERSION}_aarch64.app.tar.gz`); return verify(pub, f, `${f}.sig`, VERSION).status === 0; };
   const d1 = path.join(T, 'rot-new');
   const plain = node('publish-update.mjs', [...base, '--conf', confNew, '--dry-run', d1]);
@@ -260,7 +269,7 @@ test('dry run writes signed artifacts and latest.json that the app side accepts'
   }
   // the macOS archive: the .app is the top folder and nothing carries ._ junk
   const list = spawnSync('tar', ['-tzf', path.join(dir, `${APP}_${VERSION}_aarch64.app.tar.gz`)], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
-  assert.ok(list.length > 2 && list.every((l) => l.startsWith('Example.app/')) && !list.some((l) => l.includes('._')), list.join(','));
+  assert.ok(list.length > 2 && list.every((l) => l.startsWith('TestApp.app/')) && !list.some((l) => l.includes('._')), list.join(','));
 });
 
 test('the real upload path (stub gh): artifacts first, latest.json last, a pre-release that is never Latest, prune and read-back', () => {
@@ -300,6 +309,8 @@ test('the real upload path (stub gh): artifacts first, latest.json last, a pre-r
 
 test('refusals: nothing is signed or uploaded', () => {
   writeFileSync(baseEnv.GH_LOG, '');
+  const otherNsis = path.join(win, `OtherApp_${VERSION}_x64-setup.exe`); writeFileSync(otherNsis, 'other nsis');
+  const otherMsi = path.join(win, `OtherApp_${VERSION}_x64_en-US.msi`); writeFileSync(otherMsi, 'other msi');
   const cases = {
     'an app of another version': { args: publishArgs(['--version', '2.9.9', '--dry-run', path.join(T, 'r1')]), re: /not 2\.9\.9|does not look like version/ },
     'a Windows file of another version': { args: ['--app', APP, '--version', '2.3.0', '--mac-app', app230, '--win-nsis', path.join(win, `${APP}_2.4.0_x64-setup.exe`), '--conf', CONF, '--dry-run', path.join(T, 'r2')], re: /does not look like version 2\.3\.0/ },
@@ -310,6 +321,10 @@ test('refusals: nothing is signed or uploaded', () => {
     'a keychain key that is not the one the app trusts': { args: publishArgs(['--conf', writeConf(otherPub), '--dry-run', path.join(T, 'r9')]), re: /does not match plugins\.updater\.pubkey/ },
     'a conf without a pubkey': { args: publishArgs(['--conf', (() => { const f = path.join(T, 'nopub.json'); writeFileSync(f, '{}'); return f; })(), '--dry-run', path.join(T, 'r10')]), re: /no plugins\.updater\.pubkey/ },
     'a tauri CLI that cannot bind a version': { args: publishArgs(['--tauri', (() => { const f = path.join(T, 'old-tauri'); writeFileSync(f, '#!/bin/bash\necho "Usage: tauri signer sign [OPTIONS] <FILE>"\n'); chmodSync(f, 0o755); return f; })(), '--dry-run', path.join(T, 'r11')]), re: /too old.*--app-version/s },
+    'an app of another name (another app\'s bundle)': { args: ['--app', APP, '--version', VERSION, '--mac-app', makeApp(path.join(T, 'mac-other'), VERSION, 'OtherApp'), '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r9')], re: /is not TestApp\.app/ },
+    'an app with another bundle identifier': { args: ['--app', APP, '--version', VERSION, '--mac-app', makeApp(path.join(T, 'mac-badid'), VERSION, APP, 'com.example.otherapp'), '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r10')], re: /bundle identifier is com\.example\.otherapp, but TestApp is com\.example\.testapp/ },
+    'a Windows installer of another app': { args: ['--app', APP, '--version', VERSION, '--win-nsis', otherNsis, '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r11')], re: /not an installer for TestApp/ },
+    'a Windows MSI of another app': { args: ['--app', APP, '--version', VERSION, '--win-msi', otherMsi, '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r12')], re: /not an installer for TestApp/ },
     'an app that does not verify': { args: publishArgs(['--dry-run', path.join(T, 'r7')]), env: { TEST_BAD: '1' }, re: /did not verify/ },
   };
   for (const [name, c] of Object.entries(cases)) {
@@ -318,7 +333,7 @@ test('refusals: nothing is signed or uploaded', () => {
     assert.match(out(r), c.re, name);
     for (const v of secretValues) assert.ok(!out(r).includes(v));
   }
-  for (const d of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r9', 'r10', 'r11']) assert.ok(!existsSync(path.join(T, d, 'latest.json')), `${d} wrote a feed`);
+  for (const d of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r9', 'r10', 'r11', 'r12']) assert.ok(!existsSync(path.join(T, d, 'latest.json')), `${d} wrote a feed`);
   assert.equal(readFileSync(baseEnv.GH_LOG, 'utf8'), '', 'a refused publish made no gh call');
   // one platform on purpose
   const ok = node('publish-update.mjs', ['--app', APP, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite', '--conf', CONF, '--dry-run', path.join(T, 'r8')]);
