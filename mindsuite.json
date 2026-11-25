@@ -1,5 +1,5 @@
 {
-  "version": "1.17.0",
+  "version": "1.18.0",
   "apps": {
     "CalMind": {
       "repo": "MindSuite",
@@ -11,7 +11,7 @@
     },
     "PlanMind": {
       "repo": "MindSuite",
-      "tag": "PlanMind/1.2.0"
+      "tag": "PlanMind/1.3.0"
     },
     "TaskMind": {
       "repo": "MindSuite",
