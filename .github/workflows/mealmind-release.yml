@@ -4,12 +4,19 @@
 #   prepare  (ubuntu)   the tag must be the app's version in EVERY file that carries it (tools/release-versions.mjs); a tag that
 #                       is already a PUBLISHED release stops the run; notes use docs/releases/<version>.md (or a plain
 #                       app/version) plus Installing guidance; a DRAFT release "MealMind <version>" is made (an earlier run's draft is reused).
-#   windows  (windows)  typecheck, export the web app, tauri build -> the .msi and the NSIS .exe (x64), the MSI installed and
-#                       launched on the runner as a smoke test, then both uploaded into the draft.
-#   mac      (macos-15) Apple silicon (the runner is an arm64 Mac): typecheck, tests, export the web app, tauri build with
-#                       `--bundles dmg` -> MealMind_<version>_aarch64.dmg, uploaded into the draft after signature and notarization checks.
+#   windows  (windows)  typecheck, export the web app (the shell's cargo tests run on the mac job only: a Windows test binary has
+#                       no comctl32 v6 manifest and cannot load), tauri build -> the .msi and the NSIS .exe (x64), the MSI installed and launched on the runner as a smoke
+#                       test, each installer's SHA-256 printed into the run log, then both uploaded into the draft.
+#   mac      (macos-15) Apple silicon (the runner is an arm64 Mac): typecheck, tests, export the web app, cargo test of the shell,
+#                       tauri build with `--bundles dmg` -> MealMind_<version>_aarch64.dmg, Developer ID signed, notarized and
+#                       stapled (the dmg wrapper too), uploaded into the draft only after tools/ci/verify-macos-dmg.sh passes.
 #   publish  (ubuntu)   every expected file is on the draft; SHA256SUMS.txt is written and attached; the release is published
 #                       (never marked Latest: each app has its own update feed; a version containing "-" is a pre-release). A missing file leaves the release a DRAFT.
+#
+# THE UPDATE FEED IS NOT HERE. The auto-update archives and latest.json are signed with MealMind's update key, which lives
+# only in the owner's Mac's updater keychain (never in GitHub), so tools/dtp.sh runs tools/publish-update.sh (-> the suite's
+# tools/publish-update.mjs) AFTER this release is published. Nothing in this workflow signs or uploads update artifacts (the
+# build must not set createUpdaterArtifacts), and nothing may use releases/latest URLs: no app release is ever marked Latest.
 #
 # NO actions/upload-artifact OR download-artifact, anywhere: this account's Actions artifact storage quota is full ("Artifact
 # storage quota has been hit" failed the old Windows-only workflow on 2026-10-22/23). Release assets are not
@@ -29,7 +36,9 @@
 # Cutting a release: ARCHITECTURE.md, "Releases". Releasing an existing tag again (a past version, or a draft to finish):
 #   gh workflow run mealmind-release.yml --ref <tag> -f tag=<tag>      (never `gh run rerun`: a re-run is yours, so it only hands off)
 #
-# Unsigned Windows installers can trigger SmartScreen on first install (More info > Run anyway); the Mac app is notarized.
+# The Windows installers are not Authenticode signed (the owner's decision): SmartScreen can warn on the first manual install
+# (More info > Run anyway). Their auto-update is protected by Tauri's minisign signature plus HTTPS. The Mac app is Developer ID
+# signed, notarized and stapled, and the dmg wrapper too.
 name: MealMind Release
 
 on:
@@ -135,14 +144,14 @@ jobs:
           fi
 
       # A preflight builds the commit the run was dispatched on (there is no tag yet); a release builds the tag.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.PREFLIGHT == 'true' && github.sha || format('refs/tags/{0}', env.TAG) }}
           fetch-depth: 0
 
       # The version check comes from the workflow's own ref, not the tag's tree, so an OLD tag (a past version getting its
       # first release) is checked by the same script as a new one.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.sha }}
           path: .release
@@ -252,16 +261,18 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.PREFLIGHT == 'true' && github.sha || format('refs/tags/{0}', env.TAG) }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: MealMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
       - name: Install deps
         working-directory: MealMind
         run: npm ci
@@ -283,6 +294,7 @@ jobs:
         run: node tools/patch-web-html.mjs app/dist/index.html
 
       # The targets are tauri.conf.json's: on Windows that is msi and nsis (the "app" target is macOS-only).
+      # No createUpdaterArtifacts: CI has no update key (it lives on the owner's Mac); tools/publish-update.sh makes the update files.
       - name: Build the Windows bundles
         working-directory: MealMind
         run: npm -w @mealmind/desktop run build
@@ -298,6 +310,18 @@ jobs:
               exit 1
             fi
             ls -l "$f"
+          done
+
+      # The digest of each installer as the build made it, in the run's log, which a release token cannot edit. The lane's
+      # publish-update step signs the installers it downloads from the release with the update key ONLY if their SHA-256 is
+      # printed here, so a file swapped on the release after this job is never signed (tools/publish-update.sh).
+      - name: Record the installers' digests
+        working-directory: MealMind
+        run: |
+          set -euo pipefail
+          bundle=desktop/src-tauri/target/release/bundle
+          for f in "$bundle/msi/MealMind_${VERSION}_x64_en-US.msi" "$bundle/nsis/MealMind_${VERSION}_x64-setup.exe"; do
+            printf 'MINDSUITE-DIGEST sha256 %s %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
           done
 
       # Tauri derives an unpinned MSI UpgradeCode from productName, so a changed productName would make the MSI install
@@ -386,7 +410,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.PREFLIGHT == 'true' && github.sha || format('refs/tags/{0}', env.TAG) }}
 
@@ -400,12 +424,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: bash tools/ci/macos-signing.sh
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: MealMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
       - name: Install deps
         working-directory: MealMind
         run: npm ci
@@ -425,7 +451,14 @@ jobs:
         working-directory: MealMind
         run: node tools/patch-web-html.mjs app/dist/index.html
 
+      - name: Test the shell
+        working-directory: MealMind
+        run: |
+          bash desktop/stage-dist.sh
+          cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
+
       # --bundles dmg is passed here, not set in tauri.conf.json: the config's targets stay as they are for local builds.
+      # No createUpdaterArtifacts: CI has no update key (it lives on the owner's Mac); tools/publish-update.sh makes the update files.
       - name: Build the dmg
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

@@ -12,7 +12,11 @@
 #   --notary-profile NAME       notarytool keychain profile (default DisplayMind)
 #   --notary-timeout 30m        how long to wait for Apple
 #   --no-relaunch               do not reopen the app when it was running
+#   --no-kill                   retained for callers; install always waits for a normal quit
 #   --verify-only               assert an existing app (signed, notarized, stapled, arm64) and exit
+#   --install-prebuilt          the app is ALREADY signed, notarized and stapled (a release's own artifact): verify it as
+#                               it is and install exactly those bytes; nothing is re-signed or sent to Apple
+#   --already-signed            alias for --install-prebuilt
 #
 # WHAT IT GUARANTEES. The installed copy is Developer ID signed with the hardened runtime and a secure
 # timestamp, notarized, stapled, arm64 only. Anything less stops the script BEFORE the install directory is
@@ -49,10 +53,11 @@ PROFILE="${MIND_NOTARY_PROFILE:-}"
 NOTARY_TIMEOUT=30m
 RELAUNCH=1
 VERIFY_ONLY=0
+INSTALL_PREBUILT=0
 APP_IN=
 
 die() { echo "mac-sign-install: $*" >&2; exit 1; }
-usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' >&2; exit 2; }
 say() { echo "mac-sign-install: $*" >&2; }
 
 while [ $# -gt 0 ]; do
@@ -66,7 +71,9 @@ while [ $# -gt 0 ]; do
     --notary-profile) PROFILE=${2:?}; shift 2 ;;
     --notary-timeout) NOTARY_TIMEOUT=${2:?}; shift 2 ;;
     --no-relaunch) RELAUNCH=0; shift ;;
+    --no-kill) shift ;;
     --verify-only) VERIFY_ONLY=1; shift ;;
+    --install-prebuilt|--already-signed) INSTALL_PREBUILT=1; shift ;;
     -h|--help) usage ;;
     -*) echo "mac-sign-install: unknown option $1" >&2; usage ;;
     *) [ -z "$APP_IN" ] || usage; APP_IN=$1; shift ;;
@@ -199,6 +206,14 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 APP="$WORK/$NAME"
 
+if [ "$INSTALL_PREBUILT" = 1 ]; then
+  # (the signing branch below is the else of this if; it is not re-indented so the diff of the shared script stays small)
+  [ -z "$ENTITLEMENTS$NESTED_ENTITLEMENTS" ] || die '--install-prebuilt re-signs nothing; entitlements do not apply'
+  APP=$APP_IN
+  verify_app "$APP" || die "the app is not a signed, notarized, stapled arm64 build; nothing was installed (build it with the signing run first)"
+  VERSION=$(plist "$APP" CFBundleShortVersionString || true)
+  say "verified as it is (not re-signed): Developer ID, hardened runtime, timestamp, notarized, stapled, arm64${VERSION:+ ($NAME $VERSION)}"
+else
 say "copying $NAME for signing (the build output stays untouched)"
 ditto "$APP_IN" "$APP"
 # Resource forks, Finder info and quarantine are "detritus" to codesign.
@@ -274,12 +289,13 @@ say "notarization accepted ($SUB_ID); stapling"
 n=0
 until xcrun stapler staple "$APP" >/dev/null 2>&1; do
   n=$((n + 1))
-  [ "$n" -lt 6 ] || die 'stapler staple failed after 6 tries (the ticket may not be published yet)'
+  [ "$n" -lt "${MIND_STAPLE_TRIES:-30}" ] || die "stapler staple failed after $n tries over about $((n * ${MIND_STAPLE_WAIT:-10})) s (Apple's ticket may not be published yet; MIND_STAPLE_TRIES / MIND_STAPLE_WAIT raise the window)"
   sleep "${MIND_STAPLE_WAIT:-10}"
 done
 
 verify_app "$APP" || die 'the finished app fails verification; nothing was installed'
 say "verified: Developer ID, hardened runtime, timestamp, notarized, stapled, arm64${VERSION:+ ($NAME $VERSION)}"
+fi
 
 if [ -n "$OUT_DIR" ]; then
   mkdir -p "$OUT_DIR"
@@ -301,7 +317,13 @@ PHASE=staged
 ditto "$APP" "$STAGE" || { rm -rf "$STAGE"; die "could not stage the new copy in $INSTALL_DIR"; }
 if ! verify_app "$STAGE"; then rm -rf "$STAGE"; die 'the staged copy fails verification; the installed copy was not touched'; fi
 
-running_pids() { pgrep -f -- "$DEST/Contents/MacOS/" 2>/dev/null || true; }
+# Processes whose COMMAND STARTS WITH the bundle's executable directory. pgrep -f matches the path anywhere in a
+# command line (a `less` or an editor opened on it would match), so each candidate's own command is checked.
+running_pids() {
+  for _p in $(pgrep -f -- "$DEST/Contents/MacOS/" 2>/dev/null || true); do
+    case "$(ps -o command= -p "$_p" 2>/dev/null)" in "$DEST/Contents/MacOS/"*) echo "$_p" ;; esac
+  done
+}
 
 reopen_old() { [ "$WAS_RUNNING" = 1 ] && [ "$RELAUNCH" = 1 ] && [ -d "$DEST" ] && open "$DEST" >/dev/null 2>&1 || true; }
 
@@ -310,14 +332,11 @@ if [ -d "$DEST" ] && [ -n "$(running_pids)" ]; then
   say "$NAME is running from $DEST; asking it to quit"
   osascript -e "tell application \"$DEST\" to quit" >/dev/null 2>&1 || true
   i=0; while [ -n "$(running_pids)" ] && [ "$i" -lt "${MIND_QUIT_WAIT:-20}" ]; do sleep 1; i=$((i + 1)); done
-  if [ -n "$(running_pids)" ]; then
-    # shellcheck disable=SC2046
-    kill -TERM $(running_pids) 2>/dev/null || true
-    i=0; while [ -n "$(running_pids)" ] && [ "$i" -lt 5 ]; do sleep 1; i=$((i + 1)); done
-  fi
+  # Never escalate to a kill: the window may hold the only copy of an unsaved edit. An app that has not quit after
+  # the wait stops the install with the installed copy untouched (and still open).
   if [ -n "$(running_pids)" ]; then
     rm -rf "$STAGE"
-    die "$NAME would not quit; the installed copy was not replaced"
+    die "$NAME would not quit within ${MIND_QUIT_WAIT:-20}s; the installed copy was not replaced (quit it and run again)"
   fi
 fi
 

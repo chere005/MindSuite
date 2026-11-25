@@ -29,6 +29,10 @@
       "repo": "ScrollMind",
       "tag": "v2.0.0"
     },
+    "MindSuiteDesktop": {
+      "repo": "MindSuite",
+      "tag": "MindSuiteDesktop/0.3.0"
+    },
     "ReadMind": {
       "repo": "MindSuite",
       "tag": "ReadMind/1.0.0"

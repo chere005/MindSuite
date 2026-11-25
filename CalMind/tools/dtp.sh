@@ -43,6 +43,10 @@
 #      phone must not read as a failed one. One at a time, never in
 #      parallel: two heavy build/device processes at once has caused real
 #      failures on this machine twice.
+#   8. the update feed (../tools/publish-update-from-release.sh): once the release
+#      is published, its files are signed with the update key (this Mac's
+#      keychain only) and latest.json is written to the fixed CalMind-updates
+#      feed; without --mac the release's signed app is installed too. Not fatal.
 #
 # THIS REPO SHIPS ITSELF. Steps 3 and 7 were CoreMind's alone
 # (bin/build-platforms.sh CalMind) until 2026-08-23, and MealMind fell into
@@ -162,6 +166,18 @@ if [ "$FULL" = 1 ]; then
     echo "==> tdtp: $S"
     npm run -s "$S" || { echo "$S failed — nothing shipped" >&2; exit 1; }
   done
+fi
+
+# ---------------------------------------------------- can the update feed be signed?
+# Checked BEFORE anything ships: the update step further down runs after the tag, and a tauri CLI too old to bind a version
+# (tauri-cli 2.12+, run npm ci), or a keychain key that is not the one CalMind's tauri.conf.json trusts, would otherwise be
+# found only once the release is live and every installed copy is waiting for a feed that cannot be written. A kept previous
+# key (a rotation) needs MIND_SIGN_WITH_PREV_KEY=1 for its transitional release (docs/PUBLISH.md).
+FEED_PREV=""; [ "${MIND_SIGN_WITH_PREV_KEY:-0}" = 1 ] && FEED_PREV="--sign-with-prev-key"
+if [ -f ../tools/publish-update.mjs ]; then
+  # shellcheck disable=SC2086
+  node ../tools/publish-update.mjs --app CalMind --preflight $FEED_PREV \
+    || { echo "refusing: the update feed could not be signed (the lines above) — nothing has shipped." >&2; exit 1; }
 fi
 
 # What the Release workflow builds from, changed since the last tag? Read
@@ -376,8 +392,36 @@ if [ -n "$DEVICE_FAILED" ]; then
   echo "    sh tools/build-platforms.sh$DEVICE_FAILED" >&2
 fi
 
+# ------------------------------------------------------------- the update feed
+# The installed copies update themselves from ONE fixed feed (CalMind-updates, docs/PUBLISH.md "Updates"). Its entry is
+# signed HERE, with the update key that lives only in this Mac's separate keychain (CI has no key), from the published
+# release's own files: the lane waits for the bot's run to publish the release (up to 30 minutes, overlapping the device
+# builds above), checks the downloads against SHA256SUMS.txt, signs the dmg's app and the Windows installers, uploads them,
+# writes latest.json LAST and reads it back. Without --mac this lane built nothing for the Mac, so the same release's
+# signed, notarized app is also INSTALLED over /Applications/CalMind.app (--install); with --mac the build above already
+# installed a signed copy. NOT fatal, like the release and the devices: the web is live and the tag is pushed.
+UPDATE_FAILED=""
+if [ -n "$RELEASE_FAILED" ]; then
+  UPDATE_FAILED="the update feed was not published because the release is not (see above); then: sh ../tools/publish-update-from-release.sh CalMind $TAG $NEW --install"
+elif [ ! -f ../tools/publish-update-from-release.sh ]; then
+  UPDATE_FAILED="../tools/publish-update-from-release.sh is missing (run the lane from the suite checkout)"
+else
+  echo "==> update feed for $NEW (waits for the published release)"
+  FEED_INSTALL="--install"; [ "$WANT_MAC" = 1 ] && FEED_INSTALL=""
+  FEED_INSTALL="$FEED_INSTALL $FEED_PREV"
+  # shellcheck disable=SC2086
+  if ! sh ../tools/publish-update-from-release.sh CalMind "$TAG" "$NEW" $FEED_INSTALL; then
+    UPDATE_FAILED="the update feed for $NEW was not published; retry from the suite root: sh tools/publish-update-from-release.sh CalMind $TAG $NEW $FEED_INSTALL"
+  fi
+fi
+if [ -n "$UPDATE_FAILED" ]; then
+  echo "" >&2
+  echo "$NEW IS LIVE AND TAGGED, BUT THE UPDATE FEED IS NOT DONE:" >&2
+  echo "  $UPDATE_FAILED" >&2
+fi
+
 # A release or build failure after the push still makes the lane exit non-zero.
-if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ]; then
+if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ] || [ -n "$UPDATE_FAILED" ]; then
   echo "==> $NEW is live and tagged; the lane ends non-zero for the release/device/MindSuite work reported above"
   exit 1
 fi

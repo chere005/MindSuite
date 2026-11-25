@@ -50,10 +50,21 @@ bash tools/ci/test-mac-sign-install.sh
 node --check tools/publish-update.mjs
 node --check tools/updater-keygen.mjs
 node --check tools/updater-keychain.mjs
+node --check tools/minisign-verify.mjs
 # the shared updater and the feed tools: cargo builds of the harness crate, under the heavy-build lock
 bash tools/ci/test-updater.sh
 bash tools/ci/test-publish-update.sh
+# MindSuite Desktop (Electron shell): updater, guard, feed, publisher and entitlement tests need no install; the release tools are syntax-checked
+node --test Desktop/test/updater.test.cjs Desktop/test/release.test.cjs Desktop/test/publish.test.cjs
+node --check Desktop/tools/release-lib.cjs
+node --check Desktop/tools/release-mac.cjs
+node --check Desktop/tools/publish-desktop.cjs
+bash -n Desktop/tools/mac-sign-install.sh
 bash tools/ci/test-release-notes.sh
+sh -n tools/publish-update-from-release.sh
+bash tools/ci/test-publish-update-from-release.sh
+# each shell that carries the updater runs its own cargo tests
+bash tools/ci/test-shell-cargo.sh CalMind desktop/src-tauri
 sh CoreMind/bin/check-plan.sh
 sh CoreMind/bin/check-personal-data.sh --self-test
 sh CoreMind/bin/check-personal-data.sh

@@ -32,6 +32,7 @@ expected_installing() {
 
 - **Windows** (`CalMind_7.12.0_x64_en-US.msi`, or `CalMind_7.12.0_x64-setup.exe`): the installers are not code-signed, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.
 - **macOS** (Apple silicon, `CalMind_7.12.0_aarch64.dmg`): signed with Developer ID and notarized.
+- **Updates:** the macOS and Windows apps check for updates themselves (menu: Check for Updates). Linux has no updater.
 - **Linux** (x64): `sudo apt install ./CalMind_7.12.0_amd64.deb`, or for the AppImage `chmod +x CalMind_7.12.0_amd64.AppImage` and run it.
 
 `SHA256SUMS.txt` has the checksum of every file.
@@ -49,10 +50,10 @@ INSTALLING
     AcctMind) cat <<'INSTALLING'
 ## Installing
 
-These builds are not code-signed, so the first launch shows a warning.
+- **macOS, Apple silicon** (`.dmg`): open the dmg and drag AcctMind to Applications. The app is signed with Developer ID, notarized and stapled, so it opens without a warning.
+- **Windows** (`.msi` or `-setup.exe`): the installers are not Authenticode-signed, so SmartScreen says "Windows protected your PC" the first time. Choose **More info**, then **Run anyway**.
 
-- **Windows** (`.msi` or `-setup.exe`): SmartScreen says "Windows protected your PC". Choose **More info**, then **Run anyway**.
-- **macOS, Apple silicon** (`.dmg`): open the dmg and drag AcctMind to Applications. The app is signed with Developer ID and notarized.
+Once installed, AcctMind updates itself from **Check for Updates** in its menu (it never checks in the background). The update archives are signed with the app's own update key.
 
 `SHA256SUMS.txt` lists the checksum of every file.
 INSTALLING

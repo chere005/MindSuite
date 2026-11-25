@@ -174,6 +174,8 @@ push() { # REMOTE "local_ref sha remote_ref remote_sha"
 }
 check "allows main" 0 -- push pub "refs/heads/main $HS refs/heads/main $Z"
 check "allows a release tag <App>/<x.y.z>" 0 -- push pub "refs/tags/CalMind/1.63.0 $HT refs/tags/CalMind/1.63.0 $Z"
+check "allows the MindSuite Desktop release tag" 0 -- push pub "refs/tags/MindSuiteDesktop/0.4.0 $HT refs/tags/MindSuiteDesktop/0.4.0 $Z"
+check "refuses a MindSuite Desktop feed-style tag" 1 -- push pub "refs/tags/MindSuiteDesktop-updates $HT refs/tags/MindSuiteDesktop-updates $Z"
 check "allows main and a release tag in one atomic push" 0 -- push pub "refs/heads/main $HS refs/heads/main $Z
 refs/tags/CalMind/1.63.0 $HT refs/tags/CalMind/1.63.0 $Z"
 check "allows the suite's own version tag MindSuite/<x.y.z>" 0 -- push pub "refs/tags/MindSuite/1.0.0 $HT refs/tags/MindSuite/1.0.0 $Z"

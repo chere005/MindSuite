@@ -1496,7 +1496,9 @@ sections intact, signed in and synced against the test API.
 - **The .app is ad-hoc linker-signed and Gatekeeper rejects it**
   (`code has no resources but signature indicates they must be present`). It
   runs locally and survives being copied, so this is not urgent, but it is not
-  distributable and it is not what "signed" normally means.
+  distributable and it is not what "signed" normally means. *(Fixed: the lane
+  signs with the Developer ID, notarizes and staples through
+  `tools/mac-sign-install.sh`; see ARCHITECTURE.md "Signing and installs".)*
 - Everything in TODO.md §1, unchanged.
 
 ## Iteration — two devices no longer disagree forever

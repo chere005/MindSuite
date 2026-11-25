@@ -10,6 +10,8 @@
     "test": "npm run test:core && npm run test:app",
     "test:core": "npm -w @calmind/core run test -- --run",
     "test:app": "npx vitest run --root app",
+    "test:desktop": "sh tools/test-desktop.sh",
+    "test:lane": "sh tools/test-publish-update.sh",
     "web": "npm -w mealmind-app run web",
     "export:web": "npm -w mealmind-app exec expo export -- -p web",
     "desktop": "npm -w @mealmind/desktop run build",
@@ -23,5 +25,5 @@
   "devDependencies": {
     "typescript": "~6.0.3"
   },
-  "version": "2.2.0"
+  "version": "2.3.0"
 }

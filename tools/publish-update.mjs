@@ -13,6 +13,10 @@
 //        [--prerelease]       allow a pre-release version (a feed every installed copy follows is for releases)
 //        [--force-feed]       allow a version that is not newer than the one latest.json holds now
 //        [--sign-with-prev-key]  sign with the PREVIOUS key (the transitional release of a key rotation, see updater-keygen.mjs)
+//        [--conf FILE]        the app's tauri.conf.json (default: <App>/*/src-tauri/tauri.conf.json), whose plugins.updater.pubkey the key must match
+//   node tools/publish-update.mjs --app CalMind --preflight [--sign-with-prev-key]
+//                              check, with no artifacts, that a publish WOULD be able to sign: the tauri CLI supports
+//                              `signer sign --app-version`, and the keychain's key is the one the app trusts. dtp runs it BEFORE it ships anything.
 //   node tools/publish-update.mjs --app CalMind --feed-url --repo OWNER/MindSuite    print the endpoint to configure
 //
 // THE FEED. Every app has ONE fixed release, tagged "<App>-updates" (a pre-release, never "Latest"), whose assets are the
@@ -38,6 +42,13 @@
 // KEYS. The private key and its password come from the separate auto-locking keychain (tools/updater-keychain.mjs), reach
 // the signer only through its environment, and are never printed. The keychain is locked again on exit.
 //
+// THE KEY MUST BE THE ONE THE APP TRUSTS. Before anything is signed, the keychain's public key is compared with
+// plugins.updater.pubkey in the app's tauri.conf.json (what every installed copy carries), and after signing every .sig is
+// verified against that public key (tools/minisign-verify.mjs). A recreated keychain, a key rotated without its pubkey being
+// committed, or a pubkey changed without its key refuses the publish: a feed signed by a key nobody trusts would look healthy
+// and silently strand every installed copy. While a rotation's previous key is still kept (updater-keygen.mjs --drop-prev not
+// run yet) a publish without --sign-with-prev-key is refused as well: installed copies still trust the OLD key.
+//
 // Tests: sh tools/ci/test-publish-update.sh (real keychain scratch + real tauri signer; stub gh, codesign, spctl, stapler).
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -45,6 +56,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as kc from './updater-keychain.mjs';
+import { verifySignature } from './minisign-verify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -52,7 +64,8 @@ const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 function die(msg) { console.error(`publish-update: ${msg}`); process.exit(1); }
 function usage() {
   console.error('usage: publish-update.mjs --app <App> --version <x.y.z> [--mac-app APP | --mac-archive TGZ] [--win-nsis EXE] [--win-msi MSI]\n'
-    + '       [--notes-file FILE | --notes TEXT] [--repo OWNER/MindSuite] [--dry-run DIR] [--allow-partial] [--keep N] [--tauri PATH]\n       [--prerelease] [--force-feed] [--sign-with-prev-key]\n'
+    + '       [--notes-file FILE | --notes TEXT] [--repo OWNER/MindSuite] [--dry-run DIR] [--allow-partial] [--keep N] [--tauri PATH]\n       [--prerelease] [--force-feed] [--sign-with-prev-key] [--conf FILE]\n'
+    + '       publish-update.mjs --app <App> --preflight [--sign-with-prev-key] [--conf FILE] [--tauri PATH]\n'
     + '       publish-update.mjs --app <App> --feed-url --repo OWNER/MindSuite');
   process.exit(2);
 }
@@ -81,6 +94,8 @@ export function parseArgs(argv) {
       case '--keep': o.keep = Number(next()); break;
       case '--tauri': o.tauri = next(); break;
       case '--feed-url': o.feedUrl = true; break;
+      case '--preflight': o.preflight = true; break;
+      case '--conf': o.conf = next(); break;
       default: console.error(`unknown option ${k}`); usage();
     }
   }
@@ -139,12 +154,101 @@ function archiveApp(appDir, outFile) {
   if (spawnSync('tar', ['--no-mac-metadata', '--version'], { stdio: 'ignore' }).status === 0) flags.push('--no-mac-metadata');
   run('tar', [...flags, '-czf', outFile, '-C', parent, base], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
   const list = run('tar', ['-tzf', outFile]).split('\n').filter(Boolean);
-  if (list.some((l) => /(^|\/)\._/.test(l))) die('the archive holds ._ metadata files');
-  if (!list.every((l) => l === `${base}/` || l.startsWith(`${base}/`))) die(`the archive's top folder is not ${base}`);
+  const verbose = run('tar', ['-tvzf', outFile]).split('\n').filter(Boolean);
+  const why = checkBundleArchive(base, list, verbose);
+  if (why) die(why);
+}
+
+/**
+ * What the updater will do with this archive: tauri-plugin-updater drops the FIRST path component of EVERY entry and merges
+ * the rest into one tree that becomes the installed app. So every entry must sit under the one `<base>/` folder, in plain
+ * names (no `..`, no leading `./`, no absolute path), and nothing may be a hard link, a device/fifo, or a symlink that is
+ * absolute or climbs (a later entry could be written through it). `list` is `tar -tzf`, `verbose` is `tar -tvzf` (the same
+ * entries in the same order). Returns the reason it is unsafe, or null.
+ */
+export function checkBundleArchive(base, list, verbose) {
+  if (list.some((l) => /(^|\/)\._/.test(l))) return 'the archive holds ._ metadata files';
+  if (verbose.length !== list.length) return 'the archive listing is ambiguous (an entry name holds a newline)';
+  const plain = (p) => p.split('/').every((c, i, a) => (c !== '' || i === a.length - 1) && c !== '.' && c !== '..');
+  for (const [i, l] of list.entries()) {
+    if (l.startsWith('/') || !plain(l) || !(l === `${base}/` || l.startsWith(`${base}/`))) return `the archive's entry ${JSON.stringify(l)} is not a plain path under the top folder ${base}`;
+    const v = verbose[i];
+    const kind = v[0];
+    if (!'-dl'.includes(kind)) return `the archive's entry ${JSON.stringify(l)} is a kind an app does not have (${kind})`;
+    if (kind === '-' && / link to /.test(v)) return `the archive's entry ${JSON.stringify(l)} is a hard link`;
+    if (kind === 'l') {
+      const target = v.slice(v.lastIndexOf(' -> ') + 4);
+      if (target.startsWith('/') || target.split('/').some((c) => c === '..' || c === '.')) return `the archive's symlink ${JSON.stringify(l)} is absolute or climbs: ${target}`;
+    }
+  }
+  return null;
 }
 
 function plistVersion(appDir) {
-  return run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', path.join(appDir, 'Contents/Info.plist')]).trim();
+  return plistValue(appDir, 'CFBundleShortVersionString');
+}
+function plistValue(appDir, key) {
+  return run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, path.join(appDir, 'Contents/Info.plist')]).trim();
+}
+
+/** The bundle identifier the app's own tauri.conf.json declares: what an installed copy's updater compares the update to. */
+export function expectedIdentifier(app, root = process.env.MIND_APP_ROOT || ROOT) {
+  for (const sub of ['native', 'desktop', '']) {
+    const p = path.join(root, app, sub, 'src-tauri/tauri.conf.json');
+    if (!existsSync(p)) continue;
+    let conf;
+    try { conf = JSON.parse(readFileSync(p, 'utf8')); } catch { die(`${p} is not valid JSON`); }
+    if (typeof conf.identifier !== 'string' || !conf.identifier) die(`${p} declares no identifier`);
+    return conf.identifier;
+  }
+  return die(`no src-tauri/tauri.conf.json found for ${app}: cannot tell which bundle identifier its update must carry`);
+}
+
+/** Where the app's tauri.conf.json is: --conf, else the one shell the app has (<App>/<shell>/src-tauri/tauri.conf.json). */
+function findConf(app, given) {
+  if (given) { if (!existsSync(given)) die(`no such file: ${given}`); return path.resolve(given); }
+  const hits = ['native', 'desktop', ''].map((sub) => path.join(ROOT, app, sub, 'src-tauri/tauri.conf.json')).filter((f) => existsSync(f));
+  if (hits.length !== 1) die(`${hits.length ? 'more than one' : 'no'} ${app}/*/src-tauri/tauri.conf.json found; pass --conf FILE`);
+  return hits[0];
+}
+
+/** plugins.updater.pubkey of the app: the key every installed copy trusts. */
+function committedPubkey(app, given) {
+  const file = findConf(app, given);
+  let key;
+  try { key = JSON.parse(readFileSync(file, 'utf8'))?.plugins?.updater?.pubkey; } catch (e) { die(`${file} is not valid JSON: ${e.message}`); }
+  if (typeof key !== 'string' || !key) die(`${file} has no plugins.updater.pubkey: the app carries no update key to match`);
+  return { key: key.trim(), file };
+}
+
+/** The tauri CLI must know `signer sign --app-version` (tauri-cli 2.12 and later): an older one fails AFTER the tag. */
+function checkSigner(tauri) {
+  const r = spawnSync(tauri, ['signer', 'sign', '--help'], { encoding: 'utf8' });
+  if (r.error || r.status !== 0) die(`the tauri CLI (${tauri}) could not be run: ${r.error?.message || (r.stderr || '').trim().split('\n')[0]}`);
+  if (!`${r.stdout}${r.stderr}`.includes('--app-version')) die(`the tauri CLI (${tauri}) is too old: its \`signer sign\` has no --app-version (tauri-cli 2.12 or later is needed). Run npm ci in the app that holds it, or set TAURI_BIN.`);
+}
+
+/**
+ * Pick the keychain slot to sign with and prove it is the one the app trusts. Needs the keychain unlocked; the caller locks it.
+ *   default: the live key, which must equal the committed pubkey;
+ *   --sign-with-prev-key: the previous key (installed copies still trust it); the committed pubkey must be the live key
+ *   (the transitional build carries the new key) or still that previous key.
+ * A kept previous key without the flag is refused: the transitional release has not been published.
+ */
+function selectKey(app, prevFlag, confOpt) {
+  const { key: committed, file } = committedPubkey(app, confOpt);
+  const live = kc.getSlot(app, '');
+  const prev = kc.getSlot(app, 'prev');
+  if (!kc.slotEmpty(prev) && !prevFlag) {
+    die(`${app} still holds the previous update key of a rotation: installed copies trust the OLD key, so a release signed by the new one would be rejected by all of them without a word. Publish the transitional release with --sign-with-prev-key (dtp: MIND_SIGN_WITH_PREV_KEY=1), then run tools/updater-keygen.mjs ${app} --drop-prev.`);
+  }
+  const set = prevFlag ? prev : live;
+  if (!kc.slotComplete(set)) die(prevFlag ? `${app} holds no previous update key (a rotation made by updater-keygen.mjs --replace keeps one)` : `no update key for ${app}: run tools/updater-keygen.sh ${app}`);
+  const trusted = prevFlag ? [live.publicKey, prev.publicKey] : [live.publicKey];
+  if (!trusted.includes(committed)) {
+    die(`the update key in the keychain does not match plugins.updater.pubkey in ${path.relative(ROOT, file)}: the app trusts ${committed.slice(-24)}..., the keychain signs as ${(set.publicKey || '').slice(-24)}.... A feed signed with it would be rejected by every installed copy. Restore the right key from its offline backup, or (a deliberate rotation) use tools/updater-keygen.mjs --replace and commit the new pubkey.`);
+  }
+  return { set, committed };
 }
 
 function sign(tauri, file, version, secrets) {
@@ -154,8 +258,10 @@ function sign(tauri, file, version, secrets) {
   });
   if (r.status !== 0 || !existsSync(`${file}.sig`)) die(`tauri signer sign failed for ${path.basename(file)}: ${(r.stderr || '').trim().split('\n').slice(-1)[0]}`);
   const sig = readFileSync(`${file}.sig`, 'utf8').trim();
-  const text = Buffer.from(sig, 'base64').toString('utf8');
-  if (!text.includes(`\tversion:${version}`) && !text.includes(` version:${version}`)) die(`the signature of ${path.basename(file)} does not carry version ${version}`);
+  // the signature must verify against the public key of the key that signed it (with the file's own bytes, and the version
+  // in its trusted comment): the key and its public half belong together, and what is uploaded is what a client accepts
+  const v = verifySignature({ pubkey: secrets.publicKey, data: readFileSync(file), signature: sig, version });
+  if (!v.ok) die(`the signature of ${path.basename(file)} does not verify against the update public key: ${v.why}`);
   return sig;
 }
 
@@ -190,8 +296,28 @@ function currentFeedVersion(repo, tag, stage) {
   return v;
 }
 
-function mustContainVersion(file, version) {
-  // an installer for another version is the classic mix-up: Tauri names files <App>_<version>_...
+/** True when the live latest.json names only files that are on the feed release (and their .sig files). */
+function feedIsComplete(repo, tag, stage) {
+  const view = spawnSync('gh', ['release', 'view', tag, '--repo', repo, '--json', 'assets', '-q', '.assets[].name'], { encoding: 'utf8' });
+  if (view.status !== 0) return false;
+  const names = view.stdout.split('\n').filter(Boolean);
+  const dir = mkdtempSync(path.join(stage, 'complete-'));
+  const dl = spawnSync('gh', ['release', 'download', tag, '--repo', repo, '--pattern', 'latest.json', '--dir', dir, '--clobber'], { encoding: 'utf8' });
+  if (dl.status !== 0) return false;
+  let feed;
+  try { feed = JSON.parse(readFileSync(path.join(dir, 'latest.json'), 'utf8')); } catch { return false; }
+  const entries = Object.values(feed.platforms || {});
+  if (entries.length === 0) return false;
+  return entries.every((p) => {
+    const n = decodeURIComponent(String(p.url || '').split('/').pop());
+    return n && names.includes(n) && names.includes(`${n}.sig`);
+  });
+}
+
+function mustContainVersion(file, version, app) {
+  // an installer for another version or another app is the classic mix-up: Tauri names files <App>_<version>_...
+  // (the Windows updater checks only the signature, and every app's key signs whatever it is handed here)
+  if (!path.basename(file).startsWith(`${app}_`)) die(`${path.basename(file)} is not an installer for ${app} (its name does not start with "${app}_")`);
   if (!path.basename(file).includes(`_${version}_`)) die(`${path.basename(file)} does not look like version ${version} (no "_${version}_" in its name)`);
   if (!existsSync(file) || !statSync(file).isFile()) die(`no such file: ${file}`);
 }
@@ -210,6 +336,16 @@ function main() {
   if (o.feedUrl) {
     if (!repo) die('--feed-url needs --repo OWNER/MindSuite');
     console.log(feedUrl(repo, o.app));
+    return;
+  }
+  if (o.preflight) {
+    // Nothing to sign and nothing to upload: only "could a publish sign, with the key the app trusts?"
+    process.on('exit', () => kc.lock());
+    checkSigner(o.tauri || kc.findTauri(ROOT, o.app));
+    kc.unlock();
+    selectKey(o.app, !!o.prevKey, o.conf);
+    kc.lock();
+    console.log(`publish-update: ${o.app}: the update key matches the app's pubkey and the tauri CLI can sign`);
     return;
   }
   if (!o.version || !SEMVER.test(o.version)) die('--version x.y.z is required');
@@ -234,10 +370,23 @@ function main() {
   // ---- 0. the feed must not go backwards (before anything is signed) ----------------------------------------------
   if (realUpload) {
     const cur = currentFeedVersion(feedRepo, tag, stage);
+    if (cur && !o.forceFeed && cmpVersions(version, cur) === 0 && feedIsComplete(feedRepo, tag, stage)) {
+      // A re-run after an upload that DID land (the read-back or the prune failed afterwards): the feed is live, current and
+      // every file it names is on the release, so there is nothing to retry. A rebuild of the same version is never pushed.
+      console.log(`the feed ${feedUrl(feedRepo, o.app)} already holds ${cur} and every file it names is on the release: nothing to publish (--force-feed re-signs and re-uploads on purpose)`);
+      return;
+    }
     if (cur && !o.forceFeed && cmpVersions(version, cur) <= 0) {
       die(`the feed already holds ${cur}; ${version} is not newer. Every installed copy would be moved ${cmpVersions(version, cur) === 0 ? 'to a rebuild of the same version' : 'back'}. Pass --force-feed to do it on purpose.`);
     }
   }
+  // ---- 0b. the key must be the one the app trusts, and the CLI must be able to sign (before anything is built or signed) ------
+  const tauri = o.tauri || kc.findTauri(ROOT, o.app);
+  checkSigner(tauri);
+  kc.unlock();
+  const chosen = selectKey(o.app, !!o.prevKey, o.conf);
+  const secrets = { key: chosen.set.privateKey, password: chosen.set.password, publicKey: chosen.set.publicKey };
+  kc.lock();
   const files = [];       // files to upload, artifacts and signatures, in order
   const entries = {};
 
@@ -256,6 +405,10 @@ function main() {
       appDir = path.join(x, apps[0]);
     }
     if (!appDir || !existsSync(path.join(appDir, 'Contents/Info.plist'))) die(`not an app bundle: ${appDir}`);
+    if (path.basename(appDir) !== `${o.app}.app`) die(`${path.basename(appDir)} is not ${o.app}.app: refusing to sign another app with ${o.app}'s key`);
+    const wantId = expectedIdentifier(o.app);
+    const gotId = plistValue(appDir, 'CFBundleIdentifier');
+    if (gotId !== wantId) die(`the app's bundle identifier is ${gotId}, but ${o.app} is ${wantId}: refusing to sign another app with ${o.app}'s key`);
     if (plistVersion(appDir) !== version) die(`the app is version ${plistVersion(appDir)}, not ${version}`);
     // Developer ID, hardened runtime, timestamp, notarized, stapled, arm64 only: the same verification the install step does.
     const v = spawnSync('bash', [macVerifyScript(o.app), '--verify-only', appDir], { encoding: 'utf8' });
@@ -264,21 +417,14 @@ function main() {
     archiveApp(appDir, macFile);
   }
   const win = [];
-  if (o.winNsis) { mustContainVersion(o.winNsis, version); win.push({ kind: 'nsis', src: path.resolve(o.winNsis) }); }
-  if (o.winMsi) { mustContainVersion(o.winMsi, version); win.push({ kind: 'msi', src: path.resolve(o.winMsi) }); }
+  if (o.winNsis) { mustContainVersion(o.winNsis, version, o.app); win.push({ kind: 'nsis', src: path.resolve(o.winNsis) }); }
+  if (o.winMsi) { mustContainVersion(o.winMsi, version, o.app); win.push({ kind: 'msi', src: path.resolve(o.winMsi) }); }
   for (const w of win) {
     w.file = path.join(stage, path.basename(w.src));
     copyFileSync(w.src, w.file);
   }
 
-  // ---- 2. sign (the only step that touches the key) ---------------------------------------------------------
-  const tauri = o.tauri || kc.findTauri(ROOT, o.app);
-  kc.unlock();
-  const slot = o.prevKey ? 'prev' : '';
-  const key = kc.get(o.app, kc.slotKind('private-key', slot));
-  const password = kc.get(o.app, kc.slotKind('password', slot));
-  if (!key || !password) die(o.prevKey ? `${o.app} holds no previous update key (a rotation made by updater-keygen.mjs --replace keeps one)` : `no update key for ${o.app}: run tools/updater-keygen.sh ${o.app}`);
-  const secrets = { key, password };
+  // ---- 2. sign (the key was chosen and checked in 0b) ---------------------------------------------------------------
   if (macFile) {
     const sig = sign(tauri, macFile, version, secrets);
     entries['darwin-aarch64'] = { name: path.basename(macFile), signature: sig };
@@ -289,7 +435,6 @@ function main() {
     entries[`windows-x86_64-${w.kind}`] = { name: path.basename(w.file), signature: sig };
     files.push(w.file, `${w.file}.sig`);
   }
-  kc.lock();
   // plain `windows-x86_64` is what a client falls back to: NSIS when there is one, else the MSI
   const fallback = entries['windows-x86_64-nsis'] || entries['windows-x86_64-msi'];
   if (fallback) entries['windows-x86_64'] = fallback;
@@ -339,7 +484,11 @@ function main() {
   keepSet.add(version);
   for (const n of names) {
     const v = versionOfAsset(n, o.app);
-    if (v && !keepSet.has(v)) gh(['release', 'delete-asset', tag, n, '--yes']);
+    if (v && !keepSet.has(v)) {
+      // The feed is already live and verified: a failed prune must not fail the publish (a re-run would be refused as "not newer").
+      const d = spawnSync('gh', ['release', 'delete-asset', tag, n, '--yes', '--repo', feedRepo], { encoding: 'utf8' });
+      if (d.status !== 0) console.warn(`publish-update: could not prune ${n} (${(d.stderr || d.stdout || '').trim().split('\n')[0]}); the feed is live, it only keeps an old file`);
+    }
   }
   console.log(`published ${o.app} ${version} to ${feedUrl(feedRepo, o.app)}`);
 }

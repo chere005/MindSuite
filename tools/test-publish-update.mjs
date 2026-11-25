@@ -9,7 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as kc from './updater-keychain.mjs';
-import { cmpVersions, versionOfAsset, feedUrl, feedTag } from './publish-update.mjs';
+import { cmpVersions, versionOfAsset, feedUrl, feedTag, checkBundleArchive } from './publish-update.mjs';
+import { verifySignature } from './minisign-verify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const T = mkdtempSync(path.join(os.tmpdir(), 'publish-update-test-'));
@@ -67,17 +68,25 @@ const baseEnv = {
   GH_STATE: path.join(T, 'gh-state'),
   GH_LOG: path.join(T, 'gh.log'),
   MIND_UPLOAD_RETRY_WAIT: '0',
+  MIND_APP_ROOT: path.join(T, 'approot'),
 };
 process.env.MIND_UPDATER_KEYCHAIN = kcPath; process.env.MIND_UPDATER_KEYCHAIN_PASSWORD = baseEnv.MIND_UPDATER_KEYCHAIN_PASSWORD;
 const node = (script, args, env = {}) => spawnSync(process.execPath, [path.join(ROOT, 'tools', script), ...args], { encoding: 'utf8', env: { ...baseEnv, ...env } });
 const out = (r) => `${r.stdout}${r.stderr}`;
 
 // ---- fixtures -------------------------------------------------------------------------------------------------
-function makeApp(dir, version) {
-  const app = path.join(dir, 'Example.app');
+// every app the tests publish has a tauri.conf.json here, as in the repo: its identifier is what an app bundle must carry
+const idOf = (name) => `com.example.${name.toLowerCase()}`;
+function declareApp(name) {
+  const d = path.join(T, 'approot', name, 'desktop/src-tauri'); mkdirSync(d, { recursive: true });
+  writeFileSync(path.join(d, 'tauri.conf.json'), JSON.stringify({ productName: name, identifier: idOf(name) }));
+}
+for (const n of [APP, 'RotApp', 'NoKeyApp', 'OtherApp']) declareApp(n);
+function makeApp(dir, version, name = APP, id = idOf(name)) {
+  const app = path.join(dir, `${name}.app`);
   mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
   writeFileSync(path.join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>CFBundleExecutable</key><string>example</string><key>CFBundleIdentifier</key><string>com.example.fixture</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>\n`);
+<plist version="1.0"><dict><key>CFBundleExecutable</key><string>example</string><key>CFBundleIdentifier</key><string>${id}</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>\n`);
   copyFileSync('/bin/ls', path.join(app, 'Contents/MacOS/example'));
   return app;
 }
@@ -86,15 +95,20 @@ const nsis = path.join(win, `${APP}_${VERSION}_x64-setup.exe`); writeFileSync(ns
 const msi = path.join(win, `${APP}_${VERSION}_x64_en-US.msi`); writeFileSync(msi, Buffer.from('msi-installer-bytes'));
 const app230 = makeApp(path.join(T, 'mac230'), VERSION);   // makeApp makes the folder tree itself
 
-function publishArgs(extra = []) { return ['--app', APP, '--version', VERSION, '--mac-app', app230, '--win-nsis', nsis, '--win-msi', msi, '--repo', 'OWNER/MindSuite', ...extra]; }
+// a stand-in tauri.conf.json: the key an installed copy of the app trusts (plugins.updater.pubkey)
+let confSeq = 0;
+function writeConf(pub) { const f = path.join(T, `tauri-${confSeq++}.conf.json`); writeFileSync(f, JSON.stringify({ plugins: { updater: { pubkey: pub } } })); return f; }
+let CONF;   // TestApp's, set when its key is made
+function publishArgs(extra = []) { return ['--app', APP, '--version', VERSION, '--mac-app', app230, '--win-nsis', nsis, '--win-msi', msi, '--repo', 'OWNER/MindSuite', '--conf', CONF, ...extra]; }
 function verify(pub, file, sig, version) { return spawnSync(VERIFY, [pub, file, sig, version], { encoding: 'utf8' }); }
 
-let pubkey; let secretValues;
+let pubkey; let secretValues; let otherPub;
 test('keygen creates the key in a scratch keychain, prints only the public key, and refuses to replace it', () => {
   const pubOut = path.join(T, 'TestApp.pub');
   const r = node('updater-keygen.mjs', [APP, '--pub-out', pubOut]);
   assert.equal(r.status, 0, out(r));
   pubkey = readFileSync(pubOut, 'utf8').trim();
+  CONF = writeConf(pubkey);
   assert.match(out(r), new RegExp(pubkey.replace(/[+/]/g, '\\$&')));
   kc.unlock();
   secretValues = [kc.get(APP, 'private-key'), kc.get(APP, 'password')];
@@ -158,18 +172,33 @@ test('rotation keeps the old key as "prev", never loses it, and the transitional
   assert.match(out(node('updater-keygen.mjs', [R, '--status'])), /previous key kept/);
   // a second rotation is refused until the first one is finished
   assert.match(out(node('updater-keygen.mjs', [R, '--replace'])), /--drop-prev/);
-  // default release: the NEW key; transitional release: the OLD key
-  const base = ['--app', R, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite'];
+  // while the previous key is kept, a plain publish is refused (installed copies still trust the OLD key); the transitional
+  // release is signed by the OLD key and carries the NEW pubkey; only after --drop-prev does the new key sign normally
+  otherPub = A.publicKey;
+  const confNew = writeConf(live.publicKey), confOld = writeConf(A.publicKey);
+  const rotApp = makeApp(path.join(T, 'mac-rot'), VERSION, R);
+  const base = ['--app', R, '--version', VERSION, '--mac-app', rotApp, '--allow-partial', '--repo', 'OWNER/MindSuite'];
   const sigOk = (dir, pub) => { const f = path.join(dir, `${R}_${VERSION}_aarch64.app.tar.gz`); return verify(pub, f, `${f}.sig`, VERSION).status === 0; };
-  const d1 = path.join(T, 'rot-new'); assert.equal(node('publish-update.mjs', [...base, '--dry-run', d1]).status, 0);
-  assert.ok(sigOk(d1, live.publicKey) && !sigOk(d1, A.publicKey), 'default signs with the new key');
-  const d2 = path.join(T, 'rot-prev'); const tr = node('publish-update.mjs', [...base, '--sign-with-prev-key', '--dry-run', d2]);
+  const d1 = path.join(T, 'rot-new');
+  const plain = node('publish-update.mjs', [...base, '--conf', confNew, '--dry-run', d1]);
+  assert.notEqual(plain.status, 0); assert.match(out(plain), /previous update key.*--sign-with-prev-key/s); assert.ok(!existsSync(d1), 'a refused publish wrote a feed');
+  const d2 = path.join(T, 'rot-prev'); const tr = node('publish-update.mjs', [...base, '--conf', confNew, '--sign-with-prev-key', '--dry-run', d2]);
   assert.equal(tr.status, 0, out(tr));
   assert.ok(sigOk(d2, A.publicKey) && !sigOk(d2, live.publicKey), '--sign-with-prev-key signs with the old key');
   for (const v of [A.privateKey, A.password]) assert.ok(!out(tr).includes(v));
+  // before the new pubkey is committed the app still trusts the old key: signing with it is fine too
+  assert.equal(node('publish-update.mjs', [...base, '--conf', confOld, '--sign-with-prev-key', '--dry-run', path.join(T, 'rot-old-conf')]).status, 0);
+  // a pubkey that is neither is refused
+  const stray = node('publish-update.mjs', [...base, '--conf', CONF, '--sign-with-prev-key', '--dry-run', path.join(T, 'rot-stray')]);
+  assert.notEqual(stray.status, 0); assert.match(out(stray), /does not match plugins\.updater\.pubkey/);
+  // the preflight says the same without any artifact
+  assert.notEqual(node('publish-update.mjs', ['--app', R, '--preflight', '--conf', confNew]).status, 0);
+  assert.equal(node('publish-update.mjs', ['--app', R, '--preflight', '--sign-with-prev-key', '--conf', confNew]).status, 0);
   // finishing the rotation
   assert.equal(node('updater-keygen.mjs', [R, '--drop-prev']).status, 0);
-  assert.notEqual(node('publish-update.mjs', [...base, '--sign-with-prev-key', '--dry-run', path.join(T, 'rot-gone')]).status, 0);
+  assert.notEqual(node('publish-update.mjs', [...base, '--conf', confNew, '--sign-with-prev-key', '--dry-run', path.join(T, 'rot-gone')]).status, 0);
+  const d3 = path.join(T, 'rot-after'); assert.equal(node('publish-update.mjs', [...base, '--conf', confNew, '--dry-run', d3]).status, 0);
+  assert.ok(sigOk(d3, live.publicKey) && !sigOk(d3, A.publicKey), 'after --drop-prev the new key signs');
   assert.notEqual(node('updater-keygen.mjs', [R, '--drop-prev']).status, 0, 'nothing left to drop');
 });
 
@@ -228,13 +257,19 @@ test('dry run writes signed artifacts and latest.json that the app side accepts'
     assert.equal(readFileSync(`${file}.sig`, 'utf8').trim(), p.signature, `${platform}: latest.json carries the .sig`);
     const ok = verify(pubkey, file, `${file}.sig`, VERSION);
     assert.equal(ok.status, 0, `${platform}: ${out(ok)}`);
+    // the node verifier publish-update.mjs relies on agrees with the Rust one the apps use
+    const sigText = readFileSync(`${file}.sig`, 'utf8'); const bytes = readFileSync(file);
+    assert.equal(verifySignature({ pubkey, data: bytes, signature: sigText, version: VERSION }).ok, true, `${platform}: node verifier`);
+    assert.equal(verifySignature({ pubkey, data: bytes, signature: sigText, version: '2.3.1' }).ok, false);
+    assert.equal(verifySignature({ pubkey, data: Buffer.concat([bytes, Buffer.from('x')]), signature: sigText, version: VERSION }).ok, false);
+    assert.equal(verifySignature({ pubkey: otherPub, data: bytes, signature: sigText, version: VERSION }).ok, false, 'another key');
     assert.notEqual(verify(pubkey, file, `${file}.sig`, '2.3.1').status, 0, `${platform}: another version must not verify`);
     const tampered = path.join(T, `tampered-${platform}`); writeFileSync(tampered, Buffer.concat([readFileSync(file), Buffer.from('x')]));
     assert.notEqual(verify(pubkey, tampered, `${file}.sig`, VERSION).status, 0, `${platform}: a changed file must not verify`);
   }
   // the macOS archive: the .app is the top folder and nothing carries ._ junk
   const list = spawnSync('tar', ['-tzf', path.join(dir, `${APP}_${VERSION}_aarch64.app.tar.gz`)], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
-  assert.ok(list.length > 2 && list.every((l) => l.startsWith('Example.app/')) && !list.some((l) => l.includes('._')), list.join(','));
+  assert.ok(list.length > 2 && list.every((l) => l.startsWith('TestApp.app/')) && !list.some((l) => l.includes('._')), list.join(','));
 });
 
 test('the real upload path (stub gh): artifacts first, latest.json last, a pre-release that is never Latest, prune and read-back', () => {
@@ -260,7 +295,7 @@ test('the real upload path (stub gh): artifacts first, latest.json last, a pre-r
     const mac = makeApp(path.join(T, `mac${v}`), v);
     const n = path.join(win, `${APP}_${v}_x64-setup.exe`); writeFileSync(n, `nsis ${v}`);
     const m = path.join(win, `${APP}_${v}_x64_en-US.msi`); writeFileSync(m, `msi ${v}`);
-    const rr = node('publish-update.mjs', ['--app', APP, '--version', v, '--mac-app', mac, '--win-nsis', n, '--win-msi', m, '--repo', 'OWNER/MindSuite']);
+    const rr = node('publish-update.mjs', ['--app', APP, '--version', v, '--mac-app', mac, '--win-nsis', n, '--win-msi', m, '--repo', 'OWNER/MindSuite', '--conf', CONF]);
     assert.equal(rr.status, 0, out(rr));
   }
   const left = readdirSync(path.join(T, 'gh-state/TestApp-updates'));
@@ -274,13 +309,22 @@ test('the real upload path (stub gh): artifacts first, latest.json last, a pre-r
 
 test('refusals: nothing is signed or uploaded', () => {
   writeFileSync(baseEnv.GH_LOG, '');
+  const otherNsis = path.join(win, `OtherApp_${VERSION}_x64-setup.exe`); writeFileSync(otherNsis, 'other nsis');
+  const otherMsi = path.join(win, `OtherApp_${VERSION}_x64_en-US.msi`); writeFileSync(otherMsi, 'other msi');
   const cases = {
     'an app of another version': { args: publishArgs(['--version', '2.9.9', '--dry-run', path.join(T, 'r1')]), re: /not 2\.9\.9|does not look like version/ },
-    'a Windows file of another version': { args: ['--app', APP, '--version', '2.3.0', '--mac-app', app230, '--win-nsis', path.join(win, `${APP}_2.4.0_x64-setup.exe`), '--dry-run', path.join(T, 'r2')], re: /does not look like version 2\.3\.0/ },
+    'a Windows file of another version': { args: ['--app', APP, '--version', '2.3.0', '--mac-app', app230, '--win-nsis', path.join(win, `${APP}_2.4.0_x64-setup.exe`), '--conf', CONF, '--dry-run', path.join(T, 'r2')], re: /does not look like version 2\.3\.0/ },
     'a bad version': { args: publishArgs(['--version', '2.3', '--dry-run', path.join(T, 'r3')]), re: /--version/ },
-    'one platform only': { args: ['--app', APP, '--version', VERSION, '--mac-app', app230, '--dry-run', path.join(T, 'r4')], re: /both macOS and Windows/ },
-    'no artifacts': { args: ['--app', APP, '--version', VERSION, '--dry-run', path.join(T, 'r5')], re: /nothing to publish/ },
+    'one platform only': { args: ['--app', APP, '--version', VERSION, '--mac-app', app230, '--conf', CONF, '--dry-run', path.join(T, 'r4')], re: /both macOS and Windows/ },
+    'no artifacts': { args: ['--app', APP, '--version', VERSION, '--conf', CONF, '--dry-run', path.join(T, 'r5')], re: /nothing to publish/ },
     'an app without a key': { args: publishArgs(['--app', 'NoKeyApp', '--dry-run', path.join(T, 'r6')]), re: /no update key/ },
+    'a keychain key that is not the one the app trusts': { args: publishArgs(['--conf', writeConf(otherPub), '--dry-run', path.join(T, 'r9')]), re: /does not match plugins\.updater\.pubkey/ },
+    'a conf without a pubkey': { args: publishArgs(['--conf', (() => { const f = path.join(T, 'nopub.json'); writeFileSync(f, '{}'); return f; })(), '--dry-run', path.join(T, 'r10')]), re: /no plugins\.updater\.pubkey/ },
+    'a tauri CLI that cannot bind a version': { args: publishArgs(['--tauri', (() => { const f = path.join(T, 'old-tauri'); writeFileSync(f, '#!/bin/bash\necho "Usage: tauri signer sign [OPTIONS] <FILE>"\n'); chmodSync(f, 0o755); return f; })(), '--dry-run', path.join(T, 'r11')]), re: /too old.*--app-version/s },
+    'an app of another name (another app\'s bundle)': { args: ['--app', APP, '--version', VERSION, '--mac-app', makeApp(path.join(T, 'mac-other'), VERSION, 'OtherApp'), '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r9')], re: /is not TestApp\.app/ },
+    'an app with another bundle identifier': { args: ['--app', APP, '--version', VERSION, '--mac-app', makeApp(path.join(T, 'mac-badid'), VERSION, APP, 'com.example.otherapp'), '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r10')], re: /bundle identifier is com\.example\.otherapp, but TestApp is com\.example\.testapp/ },
+    'a Windows installer of another app': { args: ['--app', APP, '--version', VERSION, '--win-nsis', otherNsis, '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r11')], re: /not an installer for TestApp/ },
+    'a Windows MSI of another app': { args: ['--app', APP, '--version', VERSION, '--win-msi', otherMsi, '--allow-partial', '--conf', CONF, '--dry-run', path.join(T, 'r12')], re: /not an installer for TestApp/ },
     'an app that does not verify': { args: publishArgs(['--dry-run', path.join(T, 'r7')]), env: { TEST_BAD: '1' }, re: /did not verify/ },
   };
   for (const [name, c] of Object.entries(cases)) {
@@ -289,10 +333,10 @@ test('refusals: nothing is signed or uploaded', () => {
     assert.match(out(r), c.re, name);
     for (const v of secretValues) assert.ok(!out(r).includes(v));
   }
-  for (const d of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7']) assert.ok(!existsSync(path.join(T, d, 'latest.json')), `${d} wrote a feed`);
+  for (const d of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r9', 'r10', 'r11', 'r12']) assert.ok(!existsSync(path.join(T, d, 'latest.json')), `${d} wrote a feed`);
   assert.equal(readFileSync(baseEnv.GH_LOG, 'utf8'), '', 'a refused publish made no gh call');
   // one platform on purpose
-  const ok = node('publish-update.mjs', ['--app', APP, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite', '--dry-run', path.join(T, 'r8')]);
+  const ok = node('publish-update.mjs', ['--app', APP, '--version', VERSION, '--mac-app', app230, '--allow-partial', '--repo', 'OWNER/MindSuite', '--conf', CONF, '--dry-run', path.join(T, 'r8')]);
   assert.equal(ok.status, 0, out(ok));
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(path.join(T, 'r8/latest.json'), 'utf8')).platforms), ['darwin-aarch64']);
 });
@@ -302,7 +346,7 @@ function release(v) {
   const mac = makeApp(path.join(T, `mac-${v}`), v);
   const n = path.join(win, `${APP}_${v}_x64-setup.exe`); writeFileSync(n, `nsis ${v}`);
   const m = path.join(win, `${APP}_${v}_x64_en-US.msi`); writeFileSync(m, `msi ${v}`);
-  return ['--app', APP, '--version', v, '--mac-app', mac, '--win-nsis', n, '--win-msi', m, '--repo', 'OWNER/MindSuite'];
+  return ['--app', APP, '--version', v, '--mac-app', mac, '--win-nsis', n, '--win-msi', m, '--repo', 'OWNER/MindSuite', '--conf', CONF];
 }
 const feedFile = () => path.join(T, 'gh-state/TestApp-updates/latest.json');
 const feedVersion = () => JSON.parse(readFileSync(feedFile(), 'utf8')).version;
@@ -314,11 +358,24 @@ test('the feed refuses pre-releases and versions that are not newer, before anyt
   const rcOk = node('publish-update.mjs', [...release('2.6.0-rc.1'), '--prerelease', '--dry-run', path.join(T, 'rc-ok')]);
   assert.equal(rcOk.status, 0, out(rcOk));
   writeFileSync(baseEnv.GH_LOG, '');
-  for (const v of ['2.5.0', '2.3.1']) {
+  for (const v of ['2.3.1']) {
     const r = node('publish-update.mjs', release(v));
     assert.notEqual(r.status, 0, `${v} was accepted`); assert.match(out(r), /not newer/);
     assert.equal(feedVersion(), '2.5.0', 'the feed was changed');
   }
+  // the SAME version with a complete feed is a finished publish (a re-run after the read-back or the prune failed): success, nothing sent
+  const same = node('publish-update.mjs', release('2.5.0'));
+  assert.equal(same.status, 0, out(same)); assert.match(out(same), /already holds 2\.5\.0.*nothing to publish/s);
+  assert.equal(feedVersion(), '2.5.0', 'the feed was changed');
+  // the SAME version with a file the feed names missing is NOT finished: refused, not reported as current
+  const feedDir = path.dirname(feedFile());
+  const named = Object.values(JSON.parse(readFileSync(feedFile(), 'utf8')).platforms)[0].url.split('/').pop();
+  const sig = `${decodeURIComponent(named)}.sig`;
+  const sigBody = readFileSync(path.join(feedDir, sig));
+  rmSync(path.join(feedDir, sig));
+  const broken = node('publish-update.mjs', release('2.5.0'));
+  assert.notEqual(broken.status, 0); assert.match(out(broken), /not newer/);
+  writeFileSync(path.join(feedDir, sig), sigBody);
   const log = readFileSync(baseEnv.GH_LOG, 'utf8');
   assert.ok(!/release upload|release create|delete-asset/.test(log), `a refused publish uploaded: ${log}`);
   // on purpose
@@ -341,4 +398,27 @@ test('a failing latest.json upload is retried, and a hard failure says the feed 
   rmSync(counter);
   const again = node('publish-update.mjs', release('2.8.0'));
   assert.equal(again.status, 0, out(again)); assert.equal(feedVersion(), '2.8.0');
+});
+
+test('the archive check mirrors the updater: one top folder, plain names, no hard links, no climbing symlinks', () => {
+  const ok = (list, verbose) => checkBundleArchive('A.app', list, verbose ?? list.map((l) => (l.endsWith('/') ? 'drwxr-xr-x  0 u g 0 Nov 23 12:00 ' : '-rwxr-xr-x  0 u g 1 Nov 23 12:00 ') + l));
+  assert.equal(ok(['A.app/', 'A.app/Contents/', 'A.app/Contents/Info.plist']), null);
+  for (const bad of [['A.app/', 'zz/Contents/MacOS/a'], ['A.app/', 'B.app/x'], ['./A.app/x'], ['A.app/../x'], ['/A.app/x'], ['A.app/./x'], ['A.app/._x']]) {
+    assert.notEqual(ok(bad), null, bad.join(','));
+  }
+  const row = (t, name, extra = '') => `${t}rwxr-xr-x  0 u g 0 Nov 23 12:00 ${name}${extra}`;
+  assert.notEqual(ok(['A.app/a', 'A.app/b'], [row('-', 'A.app/a'), row('-', 'A.app/b', ' link to A.app/a')]), null, 'hard link');
+  assert.notEqual(ok(['A.app/p'], [row('p', 'A.app/p')]), null, 'fifo');
+  assert.notEqual(ok(['A.app/l'], [row('l', 'A.app/l', ' -> /Users')]), null, 'absolute symlink');
+  assert.notEqual(ok(['A.app/l'], [row('l', 'A.app/l', ' -> ../..')]), null, 'climbing symlink');
+  assert.equal(ok(['A.app/l'], [row('l', 'A.app/l', ' -> Versions/A')]), null, 'a descending symlink is fine');
+  assert.notEqual(ok(['A.app/a', 'A.app/b'], [row('-', 'A.app/a')]), null, 'listings that disagree');
+  // a real tar of a real folder tree, with an extra top-level folder, as the updater would see it
+  const dir = path.join(T, 'ar'); mkdirSync(path.join(dir, 'A.app/Contents'), { recursive: true }); mkdirSync(path.join(dir, 'zz'), { recursive: true });
+  writeFileSync(path.join(dir, 'A.app/Contents/Info.plist'), 'x'); writeFileSync(path.join(dir, 'zz/x'), 'x');
+  const list = (args) => spawnSync('tar', args, { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+  const good = path.join(T, 'good.tar.gz'); const evil = path.join(T, 'evil.tar.gz');
+  spawnSync('tar', ['-czf', good, '-C', dir, 'A.app']); spawnSync('tar', ['-czf', evil, '-C', dir, 'A.app', 'zz']);
+  assert.equal(checkBundleArchive('A.app', list(['-tzf', good]), list(['-tvzf', good])), null);
+  assert.match(checkBundleArchive('A.app', list(['-tzf', evil]), list(['-tvzf', evil])), /zz/);
 });

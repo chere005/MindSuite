@@ -1,7 +1,7 @@
 {
 	"name": "mindsuite-desktop",
 	"productName": "MindSuite",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"private": true,
 	"description": "The MindSuite desktop workspace.",
 	"author": {
@@ -16,7 +16,14 @@
 		"build:windows": "electron-builder --win nsis --x64 --arm64 --publish never",
 		"build:linux": "electron-builder --linux AppImage deb --x64 --arm64 --publish never",
 		"stage:mac": "node stage-local.cjs",
-		"test:mac": "node test/smoke.cjs"
+		"test:mac": "node test/smoke.cjs",
+		"release:mac": "node tools/release-mac.cjs",
+		"publish:mac": "node tools/publish-desktop.cjs",
+		"install:mac": "sh tools/mac-sign-install.sh --install-prebuilt dist/release/signed/MindSuite.app",
+		"test:update": "node test/update-e2e.cjs"
+	},
+	"dependencies": {
+		"electron-updater": "6.8.12"
 	},
 	"devDependencies": {
 		"electron": "44.11.3",
@@ -55,6 +62,10 @@
 				{
 					"from": "runtime",
 					"to": "mindsuite-local"
+				},
+				{
+					"from": "app-update.yml",
+					"to": "app-update.yml"
 				}
 			]
 		},

@@ -1,13 +1,13 @@
 {
   "name": "@mealmind/desktop",
   "private": true,
-  "version": "2.2.0",
+  "version": "2.3.0",
   "scripts": {
     "dev": "node tauri.mjs dev",
     "build": "node tauri.mjs build",
     "tauri": "tauri"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2.12"
   }
 }

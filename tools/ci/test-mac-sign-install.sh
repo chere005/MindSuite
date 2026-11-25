@@ -217,7 +217,29 @@ reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Conte
 sleep 1
 if TEST_STUBBORN=1 run > "$tmp/out" 2>&1; then fail 'a stubborn running app was replaced'; fi
 [ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail 'the stubborn app lost its old copy'
+grep -q 'would not quit' "$tmp/out" || fail 'the stubborn app was not reported'
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail 'the stubborn app was killed: the install must never escalate to a signal'
 pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
+# --no-kill: the app is only ASKED to quit; one that will not is left running, untouched (no TERM), and the old copy stays
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+( exec -a "$INSTALL_PROBE/example" sleep 300 ) >/dev/null 2>&1 &
+sleep 1
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail 'test process did not start'
+if TEST_STUBBORN=1 run --no-kill > "$tmp/out" 2>&1; then fail 'a running app that would not quit was replaced under --no-kill'; fi
+grep -q 'would not quit' "$tmp/out" || fail '--no-kill did not say the app would not quit'
+pgrep -f -- "$INSTALL_PROBE" >/dev/null || fail '--no-kill killed the running app'
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--no-kill lost the old copy'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "--no-kill left $(ls -A "$tmp/install")"
+pkill -9 -f -- "$INSTALL_PROBE" 2>/dev/null || true
+# a process that merely MENTIONS the path (an editor, less) is not the app: it neither blocks the install nor is touched
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+( exec perl -e "sleep 300" "$INSTALL_PROBE" ) >/dev/null 2>&1 &
+mention=$!
+sleep 1
+run > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; kill "$mention" 2>/dev/null; fail 'a process that only mentions the app path blocked the install'; }
+kill -0 "$mention" 2>/dev/null || fail 'a process that only mentions the app path was signalled'
+kill "$mention" 2>/dev/null || true
+grep -q '^osascript' "$CALLS" && fail 'the app was asked to quit though it was not running'
 
 # 6. identity resolution
 reset
@@ -240,5 +262,55 @@ reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
 bash "$SCRIPT" --verify-only "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || fail '--verify-only rejected a good app'
 expect_fail '--verify-only on an unsigned app' bash "$SCRIPT" --verify-only "$tmp/in/Example.app"
 expect_fail 'a non-app' bash "$SCRIPT" --no-install "$tmp/machine.env"
+
+# 8. --already-signed installs a copy this script signed, without signing or submitting again; it refuses anything else
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
+: > "$CALLS"
+bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail '--already-signed rejected a signed copy'; }
+[ -f "$tmp/install/Example.app/Contents/_stapled" ] || fail '--already-signed did not install'
+grep -q 'notarytool submit' "$CALLS" && fail '--already-signed submitted to Apple again'
+grep -q -- '--sign' "$CALLS" && fail '--already-signed signed again'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail "--already-signed left $(ls -A "$tmp/install")"
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+expect_fail '--already-signed on an unsigned build' bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/in/Example.app"
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--already-signed on an unsigned build touched the installed copy'
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1; echo adhoc > "$tmp/out-dir/Example.app/Contents/_sig"
+expect_fail '--already-signed on an ad hoc copy' bash "$SCRIPT" --install-dir "$tmp/install" --already-signed "$tmp/out-dir/Example.app"
+
+# 9. --install-prebuilt installs a release's own signed, stapled bytes: no signing, no Apple, nothing unverified
+reset; run --no-install --out "$tmp/out-dir" >/dev/null 2>&1
+: > "$CALLS"; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+bash "$SCRIPT" --install-prebuilt --install-dir "$tmp/install" "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail '--install-prebuilt failed on a signed app'; }
+[ ! -e "$tmp/install/Example.app/Contents/OLDMARK" ] && [ -f "$tmp/install/Example.app/Contents/_stapled" ] || fail '--install-prebuilt did not install'
+grep -q 'notarytool\|--force\|stapler staple' "$CALLS" && fail '--install-prebuilt signed or notarized something'
+cmp -s "$tmp/out-dir/Example.app/Contents/_sig" "$tmp/install/Example.app/Contents/_sig" || fail '--install-prebuilt changed the signature'
+[ -z "$(ls -A "$tmp/install" | grep '^\.' || true)" ] || fail '--install-prebuilt left leftovers'
+# an unsigned or unstapled app is refused and the installed copy stays
+reset; make_app "$tmp/install" 1.0.0; echo old > "$tmp/install/Example.app/Contents/OLDMARK"
+if bash "$SCRIPT" --install-prebuilt --install-dir "$tmp/install" "$tmp/in/Example.app" > "$tmp/out" 2>&1; then fail '--install-prebuilt accepted an unsigned app'; fi
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--install-prebuilt lost the old copy'
+rm -f "$tmp/out-dir/Example.app/Contents/_stapled"
+if bash "$SCRIPT" --install-prebuilt --install-dir "$tmp/install" "$tmp/out-dir/Example.app" > "$tmp/out" 2>&1; then fail '--install-prebuilt accepted an unstapled app'; fi
+[ -f "$tmp/install/Example.app/Contents/OLDMARK" ] || fail '--install-prebuilt lost the old copy (unstapled)'
+
+# 10. the staple window is a budget (MIND_STAPLE_TRIES), not a fixed six tries
+reset; : > "$tmp/staple-count"
+cat > "$tmp/bin/xcrun" <<'SH'
+#!/bin/bash
+echo "xcrun $*" >> "$CALLS"
+case "$1" in
+  notarytool) printf '{"id":"sub-123","status":"Accepted"}\n' ;;
+  stapler)
+    app=${@: -1}
+    case "$2" in
+      staple) echo x >> "$STAPLE_COUNT"; [ "$(wc -l < "$STAPLE_COUNT")" -ge 12 ] || exit 65; touch "$app/Contents/_stapled" ;;
+      validate) [ -f "$app/Contents/_stapled" ] ;;
+    esac ;;
+esac
+SH
+STAPLE_COUNT="$tmp/staple-count" run --no-install --out "$tmp/out-dir" > "$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail 'a ticket that appears on the 12th try was not waited for'; }
+reset; : > "$tmp/staple-count"
+if STAPLE_COUNT="$tmp/staple-count" MIND_STAPLE_TRIES=5 run --no-install --out "$tmp/out-dir" > "$tmp/out" 2>&1; then fail 'MIND_STAPLE_TRIES=5 did not stop at 5'; fi
+grep -q 'after 5 tries' "$tmp/out" || fail 'the staple failure did not say how many tries'
 
 echo 'mac-sign-install guards passed'

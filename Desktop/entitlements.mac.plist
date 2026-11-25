@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened runtime exceptions for MindSuite and its Electron helper apps. Anything not listed is denied.
+	     The hosted ScrollMind and NoteMind need no more than their standalone apps do. -->
+	<!-- V8 and WebAssembly generate code at run time. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<!-- NoteMind's camera pane (video only; MindSuite never asks for the microphone). -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>

@@ -86,7 +86,7 @@ function preventable(emit) {
   return prevented;
 }
 
-async function openNoteMind(parent, root, profile, { attach, detach, activate, closeSuite, menuChanged, splitMenuItem, testing }) {
+async function openNoteMind(parent, root, profile, { attach, detach, activate, closeSuite, menuChanged, splitMenuItem, updateMenuItem, testing }) {
   const { app, BrowserWindow, dialog, Menu, globalShortcut, session, WebContentsView } = electron;
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const lease = await acquireLease(app, profile);
@@ -275,9 +275,14 @@ async function openNoteMind(parent, root, profile, { attach, detach, activate, c
         ...electron, app: scopedApp, BrowserWindow: NoteWindow, dialog: scopedDialog, ipcMain: ipc,
         session: { defaultSession: notesSession },
         Menu: {
-          buildFromTemplate: template => Menu.buildFromTemplate(template.map(item => (
-            item.label === 'Window' ? { ...item, submenu: [splitMenuItem, { type: 'separator' }, ...item.submenu] } : item
-          ))),
+          // NoteMind's own update items belong to the standalone app; here MindSuite updates as a whole.
+          buildFromTemplate: template => Menu.buildFromTemplate(template.map(item => {
+            if (item.label === 'Window') return { ...item, submenu: [splitMenuItem, { type: 'separator' }, ...item.submenu] };
+            if (item.label === 'Help') {
+              return { ...item, submenu: [...item.submenu.filter(entry => !/^Check for Updates/.test(entry.label || '')), updateMenuItem] };
+            }
+            return item;
+          })),
           setApplicationMenu: menu => { noteMenu = menu; menuChanged(menu); },
           getApplicationMenu: () => noteMenu,
         },

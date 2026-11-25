@@ -4340,9 +4340,11 @@ name = "updater-harness"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "minisign-verify",
  "semver",
  "serde_json",
+ "tar",
  "tauri",
  "tauri-plugin-dialog",
  "tauri-plugin-updater",

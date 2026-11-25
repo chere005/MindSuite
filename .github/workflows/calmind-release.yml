@@ -29,7 +29,8 @@
 # A release run that ends with a platform missing re-dispatches itself (input `attempt`, at most 3 runs) and builds only
 # the platforms whose files are not on the draft yet; after the third it leaves the draft for the lane to report.
 #
-# Windows installers are unsigned; the macOS app must be signed and notarized.
+# Windows installers are unsigned by decision; the macOS app must be signed and notarized. Update archives are NOT built here:
+# the update key is not in GitHub, so tools/publish-update-from-release.sh signs the published files locally (docs/PUBLISH.md).
 name: CalMind Release
 
 on:
@@ -118,7 +119,7 @@ jobs:
       need_macos: ${{ steps.draft.outputs.need_macos || 'true' }}
       need_linux: ${{ steps.draft.outputs.need_linux || 'true' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # Preflight builds the commit the run was dispatched on (no tag exists yet); a release builds the tag.
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', env.REQ_TAG) }}
@@ -192,6 +193,7 @@ jobs:
 
           - **Windows** (`CalMind_@V@_x64_en-US.msi`, or `CalMind_@V@_x64-setup.exe`): the installers are not code-signed, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.
           - **macOS** (Apple silicon, `CalMind_@V@_aarch64.dmg`): signed with Developer ID and notarized.
+          - **Updates:** the macOS and Windows apps check for updates themselves (menu: Check for Updates). Linux has no updater.
           - **Linux** (x64): `sudo apt install ./CalMind_@V@_amd64.deb`, or for the AppImage `chmod +x CalMind_@V@_amd64.AppImage` and run it.
 
           `SHA256SUMS.txt` has the checksum of every file.
@@ -257,16 +259,18 @@ jobs:
         shell: bash
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: CalMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       - name: Install deps
         working-directory: CalMind
@@ -291,7 +295,7 @@ jobs:
         run: npm run export:web
 
       - name: Build the Windows bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         with:
           projectPath: CalMind/desktop
           args: --bundles msi,nsis
@@ -302,6 +306,13 @@ jobs:
         shell: bash
         working-directory: CalMind
         run: bash desktop/check-assets.sh
+
+      # The shell's own tests: the updater against a local fixture feed (version rules, signature and size refusals, quiet
+      # failure) and the sign-in listener. After the build, which stages the frontend the crate embeds. On Windows this is
+      # the only place the updater's Windows paths run.
+      - name: Test the shell (updater, sign-in)
+        working-directory: CalMind/desktop/src-tauri
+        run: cargo test --locked
 
       # The runner IS a Windows machine with a desktop session: install the MSI the way a user's machine would, launch
       # what it installed, and hold it to the mac smoke's bar: it launches, survives eight seconds, puts up a real
@@ -376,7 +387,7 @@ jobs:
         shell: bash
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
@@ -390,12 +401,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: bash tools/ci/macos-signing.sh
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: CalMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       - name: Install deps
         working-directory: CalMind
@@ -422,7 +435,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         with:
           projectPath: CalMind/desktop
           args: --bundles dmg
@@ -430,6 +443,10 @@ jobs:
       - name: Check the shell can load what it ships
         working-directory: CalMind
         run: bash desktop/check-assets.sh
+
+      - name: Test the shell (updater, sign-in)
+        working-directory: CalMind/desktop/src-tauri
+        run: cargo test --locked
 
       # A real disk image, holding an app whose executable is arm64.
       - name: Check the dmg
@@ -503,16 +520,18 @@ jobs:
       - name: Prepare must have succeeded
         run: '[ -n "$VERSION" ] || { echo "::error::prepare did not produce a version"; exit 1; }'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ inputs.preflight == true && github.sha || format('refs/tags/{0}', needs.prepare.outputs.tag) }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: CalMind/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
 
       # WebKitGTK 4.1 (the soup3 API this repo's tauri/wry resolve to), and the tools the AppImage bundler and the smoke
       # need: patchelf for the bundler, xvfb + xdotool because "is there a window" is unanswerable without a display.
@@ -552,7 +571,7 @@ jobs:
       # which the runner lacks. NO_STRIP: linuxdeploy's bundled strip chokes on newer toolchains' .relr.dyn sections, and
       # Cargo's release profile already strips the binary.
       - name: Build the Linux bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           NO_STRIP: "true"

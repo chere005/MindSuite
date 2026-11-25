@@ -213,13 +213,6 @@ if [ "$WANT_MAC" = 1 ]; then
   APPBUNDLE=$(ls -d "$ROOT"/desktop/src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -1)
   [ -n "$APPBUNDLE" ] || { echo "the build reported success and produced no .app" >&2; exit 1; }
   echo "    $APPBUNDLE"
-  # Seal the full bundle when the local build only signed the executable.
-  if ! codesign --verify --deep --strict "$APPBUNDLE" 2>/dev/null; then
-    [ -z "${APPLE_SIGNING_IDENTITY:-}" ] &&
-      codesign --force --deep --sign - "$APPBUNDLE" &&
-      codesign --verify --deep --strict "$APPBUNDLE" ||
-      { echo 'the built app signature could not be verified' >&2; exit 1; }
-  fi
   # --no-build: the build above IS the one under test. Without it the smoke
   # compiled the same crate a second time from the same staged export, and
   # the bundle installed below was the smoke's rebuild rather than this one
@@ -227,83 +220,30 @@ if [ "$WANT_MAC" = 1 ]; then
   if [ -f "$ROOT/desktop/smoke.sh" ]; then
     ( cd "$ROOT" && sh desktop/smoke.sh --no-build ) || { echo "the macOS smoke failed" >&2; exit 1; }
   fi
-  # IS IT OPEN RIGHT NOW? Asked BEFORE the rm -rf, because the answer stops
-  # being knowable the moment the bundle it names is gone.
-  #
-  # An `rm -rf` and `cp -R` UNDER a running app change nothing the person is
-  # looking at: macOS still has the old code mapped, the window keeps the JS
-  # it launched with, and the release looks like it did nothing. That is how
-  # the owner spent an afternoon on 2026-09-21 reading an old AcctMind while that
-  # same build was live on the web, on his phone and in /Applications —
-  # "make sure to reopen already opened apps in a dtp.. i was looking at an
-  # old acctmind".
-  #
-  # MATCHED ON THE BUNDLE PATH, never on the app's name. The executable
-  # inside AcctMind.app is Contents/MacOS/acctmind-desktop, so `pgrep -x
-  # AcctMind` finds nothing and this whole step would silently no-op. The
-  # name is derived from $APPBUNDLE, the same variable the install below
-  # uses, so the two can never disagree about which app this is.
-  APPNAME=$(basename "$APPBUNDLE" .app)
-  WAS_RUNNING=0
-  GONE=1
-  if pgrep -f "/Applications/$APPNAME.app/Contents/MacOS/" >/dev/null 2>&1; then
-    WAS_RUNNING=1
-    # ASKED TO QUIT, never killed. `osascript -e 'quit app "..."'` is the
-    # gesture the suite's macOS smokes use on an app they did not start
-    # (CalMind/desktop/smoke.sh) — and it is a request, not an order: the app
-    # holds the only copy of whatever is unsaved in that window ("the device
-    # is the only copy"), so a release has no business destroying it and
-    # nothing here escalates to kill -9. This repo's own desktop/smoke.sh
-    # `kill`s a pid instead, which is a different situation and not a
-    # precedent: that process is a child the smoke launched itself, and this
-    # one is the owner's session.
-    echo "    $APPNAME is open — quitting it so the new bundle is what you see"
-    osascript -e "quit app \"$APPNAME\"" >/dev/null 2>&1 || true
-    # Waited out, because copying over a LIVE bundle is the other half of
-    # what this is avoiding. Whether it actually went is remembered, not
-    # assumed: the reopen below tells the truth with it.
-    GONE=0
-    for _ in 1 2 3 4 5 6; do
-      pgrep -f "/Applications/$APPNAME.app/Contents/MacOS/" >/dev/null 2>&1 || { GONE=1; break; }
-      sleep 1
-    done
-    # Still there after a few seconds: say so and carry on with the install
-    # anyway. A stale window is a smaller problem than a skipped deploy.
-    [ "$GONE" = 1 ] || echo "WARNING: $APPNAME would not quit — installing under it anyway" >&2
-  fi
-  # INSTALL IT, and verify the copy landed. A build sitting in
-  # target/release/bundle/macos/ is not a deploy — it is the thing nobody
-  # looks at while the app in /Applications goes stale. The verify step was
-  # missing everywhere until 2026-08-22, so every app's macOS build had
-  # succeeded and none of them was installed (AGENTS.md).
-  rm -rf "/Applications/$(basename "$APPBUNDLE")"
-  cp -R "$APPBUNDLE" /Applications/ \
-    || { echo "copying the .app into /Applications failed" >&2; exit 1; }
-  INSTALLED="/Applications/$(basename "$APPBUNDLE")"
-  codesign --verify --deep --strict "$INSTALLED" ||
-    { echo 'the installed app signature could not be verified' >&2; exit 1; }
-  echo "    installed: $INSTALLED"
-  # PUT HIS SESSION BACK — and ONLY if there was one. An app that was closed
-  # when the lane started stays closed: a release must not start conjuring
-  # windows onto his desktop.
-  #
-  # Best-effort, like the quit above. Every step of this reopen dance leaves
-  # the exit status alone, because a window that failed to come back must
-  # never turn a shipped release into a failed lane.
-  if [ "$WAS_RUNNING" = 1 ] && [ "$GONE" = 1 ]; then
-    if open "$INSTALLED" >/dev/null 2>&1; then
-      echo "    reopened: $APPNAME — it was open before this ran"
-    else
-      echo "WARNING: $APPNAME was open before this ran and would not reopen" >&2
-    fi
-  elif [ "$WAS_RUNNING" = 1 ]; then
-    # It refused to quit, so the process still on screen is the one macOS
-    # mapped BEFORE the copy. `open` would only bring that stale window
-    # forward while the lane log called it "reopened" — which is this bug
-    # again, now with a reassuring line printed over it. Say what is true.
-    echo "WARNING: $APPNAME never quit — the window on screen is the build from BEFORE this install; quit and reopen it to see this one" >&2
-  fi
+  # The compile and the smoke are done, so the heavy-build lock goes: what follows waits for Apple, not for the machine.
   heavy_unlock
+  # SIGNED, NOTARIZED, STAPLED, THEN INSTALLED (tools/mac-sign-install.sh, a byte copy of CalMind's). Until 2026-11-23 this
+  # step re-sealed the bundle ad hoc (`codesign --sign -`) and copied it over /Applications, so the app the owner ran
+  # was not the Developer ID build the release publishes: no team, no hardened runtime, no ticket. The script works on a
+  # COPY, signs with the FULL Developer ID name (never auto-discovered: several identities coexist; the name or the team
+  # comes from .local/machine.env or MIND_SIGN_IDENTITY), applies the hardened runtime, notarizes with the DisplayMind
+  # profile, staples, asserts arm64 and the team, and only then swaps it into the install directory - so a failure
+  # leaves the app that was installed, and nothing ad hoc can ever land. It also asks a running AcctMind to quit (never
+  # kills it: the window holds the only copy of whatever is unsaved) and reopens it afterwards, which is what the
+  # WAS_RUNNING dance that used to be here did for the 2026-09-21 "I was looking at an old acctmind" report.
+  #
+  # NO ENTITLEMENTS FILE, on purpose: the shell reads the ledger by PATH (desktop/src-tauri/src/main.rs, icloud_*), and the
+  # hardened runtime needs no entitlement for that. Checked 2026-11-23 on a Developer ID, hardened, notarized build launched
+  # the ordinary way: icloud_status said "container readable; file present", the file read, and nothing prompted. The
+  # identity is also stable now (team + bundle id) where the ad hoc one it replaces changed with every build.
+  #
+  # ACCTMIND_INSTALL_DIR: a scratch install directory (tests, update trials); the default is the real /Applications.
+  INSTALL_DIR=${ACCTMIND_INSTALL_DIR:-/Applications}
+  sh "$ROOT/tools/mac-sign-install.sh" --install-dir "$INSTALL_DIR" "$APPBUNDLE" \
+    || { echo "the macOS app was not signed, notarized and installed (mac-sign-install.sh said why above)" >&2; exit 1; }
+  INSTALLED="$INSTALL_DIR/$(basename "$APPBUNDLE")"
+  [ -x "$INSTALLED/Contents/MacOS/acctmind-desktop" ] || { echo "the installed app has no binary: $INSTALLED" >&2; exit 1; }
+  echo "    installed: $INSTALLED"
 fi
 
 # --------------------------------------------------------------------- iOS

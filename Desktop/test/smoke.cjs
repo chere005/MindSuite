@@ -126,6 +126,21 @@ async function main() {
     const note = await running.page('/notemind/src/index.html');
     await waitFor(() => evaluate(note, 'window.notemind?.start.info().then(info => info.version)'), 'the local NoteMind editor');
     await waitFor(() => evaluate(note, 'localStorage.getItem("notemind.inputSource")'), 'the drawing workspace to finish loading');
+    // MindSuite's own update item is in the menu bar of the active tab: the suite menu, and NoteMind's Help menu in place of its own.
+    const suiteMenu = await waitFor(async () => (await evaluate(shell, 'window.suite.state()')).menu, 'the menu bar');
+    const labelsIn = (menu, title) => (menu.find(([name]) => name === title)?.[1] ?? []);
+    await waitFor(async () => {
+      const { menu } = await evaluate(shell, 'window.suite.state()');
+      return labelsIn(menu, 'Help').includes('Check for Updates…');
+    }, 'MindSuite\'s update item in NoteMind\'s Help menu');
+    const { menu: noteMenu } = await evaluate(shell, 'window.suite.state()');
+    assert.deepEqual(labelsIn(noteMenu, 'Help').filter(label => /Check for Updates/.test(label)), ['Check for Updates…']);
+    assert.equal(noteMenu.some(([, labels]) => labels.includes('Check for Updates Automatically')), false);
+    assert(Array.isArray(suiteMenu));
+    await evaluate(shell, 'window.suite.select("scrollmind", "right")');
+    await waitFor(async () => (await evaluate(shell, 'window.suite.state()')).menu?.some(([, labels]) => labels.includes('Check for Updates…') && !labels.includes('Split View')), 'the suite menu with its update item');
+    await evaluate(shell, 'window.suite.select("notemind", "right")');
+    await waitFor(() => evaluate(note, 'window.notemind?.start.info().then(info => info.version)'), 'NoteMind again');
     const catalog = await evaluate(note, 'window.notemind.listSheets()');
     assert(Array.isArray(catalog.pages));
     await proveExclusive(root, 'notes-profile');

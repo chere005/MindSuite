@@ -1,6 +1,6 @@
 {
   "name": "taskmind",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,10 +10,11 @@
     "test:core": "vitest run && npm run test:atomic",
     "test:server": "node tools/php.mjs server/tools/test.php && node tools/php.mjs server/tools/staging-test.php",
     "test:atomic": "node tools/php.mjs server/tools/atomic-test.php",
+    "test:native": "sh tools/test-native.sh",
     "test:deploy": "sh tools/test-deploy.sh",
     "test:deploy:mutations": "sh tools/test-deploy.sh --mutations",
     "test:e2e": "playwright test",
-    "test": "npm run typecheck && npm run check:limits && npm run test:core && npm run test:server && npm run test:deploy",
+    "test": "npm run typecheck && npm run check:limits && npm run test:core && npm run test:server && npm run test:native && npm run test:deploy",
     "check:core": "node tools/check-core.mjs",
     "check:limits": "node tools/check-limits.mjs",
     "deploy": "sh tools/deploy.sh",

@@ -20,7 +20,10 @@
 #                                    only for the very tree step 1 passed)
 #   4. the macOS bundle, from the export deploy.sh just shipped — BEFORE the
 #      tag, so a broken desktop build leaves the version untagged and a re-run
-#      reuses it, exactly as a failed deploy does
+#      reuses it, exactly as a failed deploy does. It is SIGNED with Developer
+#      ID, notarized, stapled and checked (arm64, team, hardened runtime)
+#      before it replaces /Applications/MealMind.app: nothing ad hoc is ever
+#      installed (tools/mac-sign-install.sh, called by tools/build-platforms.sh)
 #   5. PREFLIGHT, right before the tag: tools/preflight.sh runs the Release
 #      workflow's builds (Windows .msi/.exe, macOS dmg, on GitHub) on this very
 #      commit, publishing nothing. A failure stops the lane exactly as step 4
@@ -43,6 +46,17 @@
 #      The lane still exits non-zero if a device build or the Release did not
 #      finish (see the foot of this file): the release stands, the exit status
 #      does not lie about it.
+#  11. the AUTO-UPDATE FEED, when this run installed the signed Mac build (a
+#      --mac or a tdtp run): once the release is published (a run that names
+#      the Mac waits for it, as tdtp does), tools/publish-update.sh signs the
+#      installed app's archive and the two Windows installers with MealMind's
+#      update key — which lives only in this Mac's updater keychain, never in
+#      GitHub — and writes latest.json LAST to the fixed feed release
+#      MealMind-updates. A web-only dtp installs no signed app, so it publishes
+#      no feed entry and says so (a version is offered to installed copies only
+#      once its signed app and installers are in the feed). Like every step
+#      after the push it is never fatal to the version already live and tagged;
+#      the lane reports it and ends non-zero.
 #
 # THIS REPO SHIPS ITSELF. Steps 4 and 9 were CoreMind's alone until
 # 2026-08-23, and the hole that left was invisible from inside either repo: a
@@ -142,6 +156,10 @@ if [ "$FULL" = 1 ]; then
   # The app's own suite — the row-drag maths, the one screen logic with
   # tests of its own. No lane path ran it until 2026-10-01; `npm test` did.
   npm run -s test:app -- --reporter=dot || { echo "app suite failed — nothing shipped" >&2; exit 1; }
+  # The desktop shell's own tests (the shared updater against a fixture feed, the sign-in listener): cargo, under the heavy lock.
+  npm run -s test:desktop || { echo "desktop shell tests failed — nothing shipped" >&2; exit 1; }
+  # The lane's own update-feed gates (a stub gh, no network, nothing signed).
+  npm run -s test:lane || { echo "update-feed lane test failed — nothing shipped" >&2; exit 1; }
   # The deploy script's own guards — no lane ran them (2026-11-02).
   npm run -s test:deploy || { echo "deploy-guard check failed — nothing shipped" >&2; exit 1; }
   KEY_AFTER=$(node tools/gate-key.mjs) || KEY_AFTER=""
@@ -320,6 +338,7 @@ fi
 # on screen at once; watched at the foot of the lane, after the device builds,
 # so a 20-minute CI run does not hold the phone builds up.
 RELEASE_FAILED=""
+UPDATE_FAILED=""
 # Quiet CI (AgentSuite/ci.md): the tag push's own run only hands the release to
 # github-actions[bot]; the bot's runs build it (and retry a missing platform
 # themselves), and nothing they do mails anyone. tools/gh-bot.sh follows them.
@@ -360,22 +379,48 @@ fi
 # published release's URL is printed — or, if it failed, the loud version, with
 # the exact command to run it again. The deploy and the tag stand either way.
 # dtp does not wait for it (GitHub mails a red run; tdtp is the lane that
-# watches) — that wait was most of a dtp's wall clock.
-if [ "$FULL" = 0 ]; then
+# watches) — that wait was most of a dtp's wall clock. EXCEPT a run that
+# installed the signed Mac build: its update feed entry needs the published
+# installers, so it waits too.
+RELEASE_OK=0
+if [ "$FULL" = 0 ] && [ "$WANT_MAC" = 0 ]; then
   # The next lane run says so at its start if it never published (gh-bot.sh last-release).
   echo "==> Release left to the bot (dtp does not watch it)"
 elif command -v gh >/dev/null 2>&1; then
   echo "==> following the release of $NEW (installers built on GitHub by the bot)"
-  if ! sh tools/gh-bot.sh release "$TAG"; then
+  if sh tools/gh-bot.sh release "$TAG"; then
+    RELEASE_OK=1
+  else
     RELEASE_FAILED=1
     echo "" >&2
     echo "$NEW IS LIVE AND TAGGED, but the GitHub release was NOT published (tools/gh-bot.sh named the run and jobs above)." >&2
     echo "  Fix the cause, then:  gh workflow run mealmind-release.yml --ref $TAG -f tag=$TAG" >&2
+    echo "  and then, for the update feed:  sh tools/publish-update.sh" >&2
   fi
+else
+  RELEASE_FAILED=1
+  echo "   WARNING: no gh CLI — the Release was not watched and the update feed was not published; then: sh tools/publish-update.sh" >&2
+fi
+
+# ------------------------------------------------------------ the update feed
+# The signed, stapled app installed above plus the published Windows installers. Signing happens HERE, locally, because the
+# update key never leaves this Mac's updater keychain (CI has no key); tools/publish-update.sh signs a Windows installer only if
+# its SHA-256 is the one the Release workflow's windows job printed into its log. latest.json is uploaded LAST. A web-only
+# dtp installed no signed app of this version, so it has nothing to publish: said, not a failure.
+if [ "$WANT_MAC" = 0 ]; then
+  echo "==> update feed: not published ($NEW's signed Mac build was not made in this run); after sh tools/build-platforms.sh --mac, run: sh tools/publish-update.sh"
+elif [ "$RELEASE_OK" = 1 ]; then
+  echo "==> publishing the update feed for $NEW (signs with MealMind's key from the updater keychain)"
+  sh tools/publish-update.sh \
+    || UPDATE_FAILED="the update feed for $NEW was not published (the lines above say why); once fixed: sh tools/publish-update.sh (add --force-feed if it says the feed already holds $NEW)"
+fi
+if [ -n "$UPDATE_FAILED" ]; then
+  echo "" >&2
+  echo "$NEW IS LIVE AND TAGGED, BUT $UPDATE_FAILED" >&2
 fi
 
 # A release or build failure after the push still makes the lane exit non-zero.
-if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ]; then
+if [ -n "$DEVICE_FAILED" ] || [ -n "$RELEASE_FAILED" ] || [ -n "$SUITE_FAILED" ] || [ -n "$UPDATE_FAILED" ]; then
   echo "==> $NEW is live and tagged; the lane ends non-zero for the failures above"
   exit 1
 fi

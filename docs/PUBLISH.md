@@ -195,8 +195,8 @@ Before the first lane run after publication, read "Lanes and the public remote" 
 
 ## Which Actions runs the pushes start
 
-The release workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind|PlanMind/<x.y.z>*` and on `workflow_dispatch`
-(`taskmind-native.yml`: dispatch only). So:
+The release workflows trigger only on `push` of a tag `AcctMind|CalMind|MealMind|PlanMind|TaskMind/<x.y.z>*` and on
+`workflow_dispatch`. So:
 
 - The first push (`refs/heads/main`) starts no run at all.
 - A release tag push starts that app's Release workflow. The run the person triggers has one job, `handoff`, which
@@ -290,7 +290,7 @@ Consuming it in an app's `tools/build-platforms.sh --mac`: replace the ad hoc `c
 sh tools/mac-sign-install.sh [--entitlements path] native/src-tauri/target/release/bundle/macos/X.app
 ```
 
-(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). Hardened runtime is applied by the script, so
+(it quits and reopens the running app itself, so the `WAS_OPEN`/`pkill` lines go). A lane that smoke-tests the signed app before installing it signs once with `--no-install --out DIR`, tests that copy, then installs it with `--already-signed` (full verification, no second Apple submission; CalMind's `build-platforms.sh --mac` does this). Hardened runtime is applied by the script, so
 no `tauri.conf.json` change is needed for that; an app that needs entitlements passes the file. The three release workflows run
 `notarize-dmg.sh` before `verify-macos-dmg.sh`; a new release workflow cloned from them keeps both steps.
 
@@ -324,17 +324,35 @@ node ../tools/publish-update.mjs --app <App> --version <x.y.z> --repo OWNER/Mind
      [--dry-run DIR]          # writes the same files into DIR and touches no network
 ```
 
-It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
+A lane normally does not build the Mac app for this: `sh tools/publish-update-from-release.sh <App> <App>/<x.y.z> <x.y.z> [--install]` waits
+for the published release, downloads the installers and the dmg, checks them against `SHA256SUMS.txt`, takes the stapled `.app` out
+of the dmg and calls the command above (`--install` also installs that app over `/Applications`). Test:
+`bash tools/ci/test-publish-update-from-release.sh`.
+
+It first binds every artifact to `--app`: the .app must be named `<App>.app` and carry the `CFBundleIdentifier` of that app's own
+`tauri.conf.json`, and each Windows installer's file name must start `<App>_` (an installer of another app would otherwise be signed
+with this app's key, and the Windows updater checks only the signature). It verifies the app with `mac-sign-install.sh --verify-only` (and that its version is the one named), re-archives it as
 `<App>_<v>_aarch64.app.tar.gz` (the .app as top folder, no `._` files), signs the archive and each Windows installer with
 `tauri signer sign --app-version <v>`, writes `latest.json`, uploads artifacts and signatures first and `latest.json` LAST,
 downloads it again and compares, then prunes. A refused input (wrong version, unverified app, missing key, one platform only
 without `--allow-partial`) stops before anything is signed or uploaded. CI never signs updates: the key is not in GitHub.
+
+The key is checked against what the app trusts: the keychain's public key must equal `plugins.updater.pubkey` in the app's
+`tauri.conf.json` (`--conf FILE` names another), every fresh `.sig` is verified against that public key
+(`tools/minisign-verify.mjs`, checked against the Rust verifier by the tests), and the tauri CLI must know `signer sign
+--app-version` (tauri-cli 2.12 or later: run `npm ci` in the app after the Cargo/CLI bump, before the first dtp). A mismatch (a
+recreated keychain, a rotated key whose pubkey was not committed) refuses the publish, because a feed signed by a key nobody trusts
+would look healthy and silently strand every installed copy. `publish-update.mjs --app <App> --preflight` runs the same checks with
+no artifacts; the app's dtp lane calls it BEFORE it deploys or tags. While a rotation's previous key is still kept, a publish
+without `--sign-with-prev-key` is refused (`dtp` passes it when `MIND_SIGN_WITH_PREV_KEY=1`; so does `publish-update-from-release.sh
+--sign-with-prev-key`).
 
 The Windows installers are downloaded from the published release, and Windows checks nothing but the minisign signature, so an app's
 wrapper (PlanMind: `PlanMind/tools/publish-update.sh`) signs an installer only if its SHA-256 appears in the log of a run of that
 tag's release workflow: the windows job prints `MINDSUITE-DIGEST sha256 <hex> <file name>` for each installer right after the
 build, and a release token cannot edit a run log. A file swapped on the release after the build is refused (nothing signed or
 uploaded). It does not defend against a compromised build itself, which is why the workflow's third-party actions are pinned to commit SHAs.
+
 
 ### Update keys
 
@@ -360,7 +378,7 @@ back, the live key is copied to a `prev` slot (verified) before the live slot is
 between any two writes leaves a complete old and a complete new key; `--recover` finishes it. Then put the new public key in
 `plugins.updater.pubkey`, ship the transitional release (the first one carrying the new key) signed by the OLD key with
 `publish-update.mjs --sign-with-prev-key`, ship later releases normally, and only then `--drop-prev`. A second `--replace` is refused
-while a `prev` key is held.
+while a `prev` key is held, and so is a plain publish (see above).
 
 `publish-update.mjs` also refuses, before signing anything: a pre-release version (unless `--prerelease`) and a version that is not
 strictly newer than the `latest.json` already live (unless `--force-feed`). `gh release upload --clobber` is delete-then-upload, so a
@@ -375,7 +393,7 @@ failed `latest.json` upload is retried 3 times and, if it still fails, the tool 
   `[target.'cfg(any(target_os = "macos", windows))'.dependencies]` `tauri-plugin-updater = "2.14"`, `tauri-plugin-dialog = "2"`,
   `semver = "1"`; `serde_json = "1"` under plain `[dependencies]` (a shell that also builds for iOS needs it there: the `plugins`
   block makes `tauri::generate_context!()` name `serde_json`, and the phone build compiles that macro; PlanMind's
-  `tools/test-native.sh` type-checks the iOS target to catch it); and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
+  `tools/test-native.sh` type-checks the iOS target to catch it); on macOS, `tar = "0.4"` and `flate2 = "1"`; and `[dev-dependencies]` `tauri = { version = "2", features = ["test"] }`.
 - `tauri.conf.json`: `"plugins": { "updater": { "pubkey": "<public key>", "endpoints": ["<feed url>"], "requireSignedVersion": true } }`.
   The module turns itself off, saying why on stderr, if the block is missing, lax (no `requireSignedVersion`, a non-https endpoint,
   a `dangerous*` flag, `allowDowngrades`) or the key is empty. No capability or CSP change: it is driven from Rust only.
@@ -397,3 +415,108 @@ or unreadable copy accepts none, so "any Developer ID" is never enough.
 (cargo, the harness `tools/updater-harness` includes the shared updater.rs and tests it against a local fixture feed) and
 `bash tools/ci/test-publish-update.sh` (real scratch keychain and signer, stub `gh`, the signatures re-verified by the Rust side).
 The two cargo tests hold the heavy-build lock.
+
+## MindSuite Desktop (the Electron shell)
+
+`Desktop/` is an Electron app that hosts CalMind, ScrollMind and NoteMind in one window. It is signed, notarized, packaged and
+updated by its own lane (`Desktop/tools/`), not by a GitHub workflow, and only for macOS.
+
+### What a release is
+
+`npm run release:mac` (from `Desktop/`, Apple silicon only, under the heavy-build lock) builds, in this order: the staged hosted
+apps and the unsigned app, then `tools/mac-sign-install.sh --no-install` (Developer ID, hardened runtime, secure timestamp, every
+nested Mach-O re-signed inside-out including `scroll-pen` and `koffi.node`, notarized, stapled, arm64 only), then
+`MindSuite-<v>-arm64-mac.zip` and its `latest-mac.yml`, then `MindSuite-<v>-arm64.dmg`, notarized and stapled by
+`tools/ci/notarize-dmg.sh` and gated by `tools/ci/verify-macos-dmg.sh`, then `SHA256SUMS` and `release.json`. A release needs a
+clean tracked tree under `Desktop/`. `--scratch` runs the same steps but marks the result as not releasable (and `--no-dmg`, with
+`--scratch` only, skips the dmg and its Apple submission); `publish-desktop.cjs` refuses a scratch build. The signing identity,
+team and notary profile (`DisplayMind`) resolve exactly as for the Tauri apps (the profile once, then used for the app and the dmg), from `Desktop/.local/machine.env`
+(`APPLE_TEAM_ID`, optional `MAC_SIGN_IDENTITY`, `NOTARY_PROFILE`) or `MIND_SIGN_IDENTITY` / `MIND_NOTARY_PROFILE`.
+
+Entitlements (`Desktop/entitlements.mac.plist`, used for the app and the Electron helpers): `com.apple.security.cs.allow-jit`
+(V8 and WebAssembly) and `com.apple.security.device.camera` (NoteMind's camera pane, video only). Nothing else: no
+`allow-unsigned-executable-memory`, no `disable-library-validation` (every library, including `koffi.node`, carries the same
+team), no microphone. `release-mac.cjs` reads the signed app's entitlements back and refuses any other set. The hardened build was
+launched from a scratch copy: the smoke test passes, `koffi.node` is mapped and NoteMind saves through it, `scroll-pen` runs.
+
+### The hosted apps (why this lane is local-only for now)
+
+Desktop does not contain NoteMind or ScrollMind source: `stage-local.cjs` copies their running parts out of the INSTALLED apps
+(`/Applications/NoteMind.app`, `/Applications/ScrollMind.app`, or `MINDSUITE_NOTEMIND_APP` / `MINDSUITE_SCROLLMIND_APP`), and the
+CalMind web export from `CalMind/apps/app/dist` (`npm --prefix CalMind run export:web`; `MINDSUITE_CALMIND_DIST`). So Desktop cannot
+be built on a GitHub runner: there is no installed copy there. This lane is therefore LOCAL-ONLY, on a Mac that has the pinned
+builds installed, and it is kept honest like this:
+
+- `Desktop/runtime-pins.json` pins the bundle id and exact version of each hosted app. A different version stops the stage.
+- Both must be intact (`codesign --verify --deep --strict`), signed by a Developer ID and by the same team as each other and as
+  MindSuite itself.
+- A release (`stage-local.cjs --release`, which `release-mac.cjs` passes unless `--scratch`) accepts only a hardened and notarized
+  hosted app, so a release cannot embed a development build. Until NoteMind 1.2.0 is published and installed from its notarized
+  release, and ScrollMind has a notarized release, a real release stops at the stage; a scratch build does not.
+- What went in is recorded in `Resources/mindsuite-local/MANIFEST.json` inside the app (versions, team, SHA-256 of NoteMind's tree,
+  of ScrollMind's `app.asar` and `scroll-pen`, of the CalMind export) and copied into `release.json`.
+- Making Desktop CI-buildable later means downloading those two published releases by pinned SHA-256 in an explicit stage and
+  pointing `MINDSUITE_*_APP` at them; nothing here prevents it, nothing here does it.
+
+The hosted NoteMind keeps its own updater inert (it only runs in a packaged NoteMind), and Desktop replaces NoteMind's
+"Check for Updates" Help items with MindSuite's.
+
+### The update feed
+
+One fixed feed: the pre-release `MindSuiteDesktop-updates` of this repository, holding `latest-mac.yml` and the newest zips:
+
+```
+https://github.com/OWNER/MindSuite/releases/download/MindSuiteDesktop-updates/latest-mac.yml
+```
+
+It is written into the app as `Resources/app-update.yml` (the tracked `Desktop/app-update.yml`, provider `generic`). The `github`
+provider is NOT used: it follows the repository-wide Latest release, which moves between apps. The release page of a version is
+`MindSuiteDesktop/<x.y.z>` (dmg, zip, SHA256SUMS), published with `--latest=false`.
+
+`node tools/publish-desktop.cjs --dir dist/release` (from `Desktop/`, after the release lane has pushed main and the tag
+`MindSuiteDesktop/<x.y.z>`, which `tools/githooks/pre-push` allows) refuses a scratch build, a file that does not match
+`SHA256SUMS`, a feed that does not describe the zip's bytes, a missing `Desktop/docs/releases/<x.y.z>.md`, a version that is not
+newer than the live feed's, and a release page whose files differ from the local build. Then: release page (created, or an existing
+page that already holds exactly these files is resumed, so a run that died after the page can be run again), the feed release if it does not
+exist, the zip, `latest-mac.yml` LAST, a read-back of the live feed, and pruning to the newest two zips. `--dry-run` prints the
+plan and writes nothing.
+
+Installing it: `npm run install:mac` (= `sh tools/mac-sign-install.sh --install-prebuilt dist/release/signed/MindSuite.app`) verifies
+the already signed, notarized, stapled app AS IT IS and swaps exactly those bytes into `/Applications` (no re-signing, no second Apple
+submission, so the installed copy is byte-identical to the one in the published zip and dmg). The ad hoc MindSuite.app that may be there
+now never updates itself (updates need a Developer ID signature), so this install is what starts the update line.
+
+Before the FIRST release: the real Apple acceptance of the hosted binaries (`scroll-pen`, `koffi.node`, Electron's helpers and
+Squirrel's ShipIt) is only proven by a real submission, and the earlier scratch run did not make one (the `DisplayMind` notary
+profile was not in that shell's keychain). The first `npm run release:mac` is that proof: it stops after the first submission if Apple
+answers Invalid and prints Apple's log. The staple wait is a budget (`MIND_STAPLE_TRIES`, default 30, every `MIND_STAPLE_WAIT` = 10 s).
+
+### In the app
+
+macOS only (Windows has no installer yet: recorded exception, below). `Desktop/updater.cjs`: a look 20 s after launch and every 12
+hours, a `Check for Updates…` item in the MindSuite menu (and in NoteMind's Help menu while NoteMind is the active tab), one prompt
+per version, download only after Download, restart only after Restart to Update (the workspaces are flushed first;
+`autoInstallOnAppQuit` is off). It is off unless the running copy is packaged, arm64, in a place it can be replaced (not a dmg, not
+translocated) and signed by a Developer ID with the hardened runtime. `update-guard.cjs` runs BEFORE the zip is handed to
+Squirrel.Mac (`GuardedMacUpdater.updateDownloaded`, a method of the pinned electron-updater 6.8.12): the zip holds only
+`MindSuite.app`, which verifies (`codesign --deep --strict`), is `com.seancheren.mindsuite`, is signed by the same team as the
+running copy, is hardened and timestamped, is exactly the version the feed announced and newer than the running one, and is
+notarized (`spctl`). A failure rejects the download and stages nothing. Squirrel.Mac then checks the running copy's designated
+requirement against the new signature once more when it swaps the copy in.
+
+Tests: `npm run check` (guard, eligibility, flows, feed, publisher with a fake `gh`, entitlements, pins) and, against a scratch
+copy and a loopback feed on 127.0.0.1, `node test/update-e2e.cjs --app <signed MindSuite.app> --feed <dir> --to <x.y.z>`
+(`--reject` for a refused update; `--unnotarized-ok` is honoured only with the smoke root and a loopback feed).
+
+### Windows and Linux: recorded exceptions (NOT yet confirmed by the owner)
+
+Desktop has no Windows or Linux installer or updater: the hosted ScrollMind and NoteMind are macOS-only here (`isMac` gates in
+`main.cjs`), `build:windows` and `build:linux` have never run in CI, and Windows installers are unsigned by decision. Nothing is
+built for them in this lane. Adding a Windows NSIS build would need the staging step to exist off the Mac first. The owner's list of exceptions to record
+names only ReadMind and DisplayMind, so "MindSuite Desktop on Windows" is an open decision for the owner, not a settled exception.
+
+### First launch of the signed app
+
+Changing the install from ad hoc to Developer ID changes the code identity macOS keys privacy grants on. The first launch of the
+signed app may ask again for the Documents folder, camera access (NoteMind's pane) and Input Monitoring (ScrollMind's pen helper
+`scroll-pen`); data in `~/Library/Application Support/MindSuite` and `~/Documents/ScrollMind` is not touched.

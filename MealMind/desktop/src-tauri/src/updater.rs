@@ -147,6 +147,9 @@ impl<R: Runtime> Ui for DialogUi<R> {
             text.push_str("\n\n");
             text.push_str(notes);
         }
+        // The shells cannot ask the page to flush before the installer takes over (Windows exits at once; the remote-page
+        // shells have no IPC), so say it plainly instead.
+        text.push_str(&format!("\n\n{name} closes to install the update. Finish what you are typing first."));
         self.app
             .dialog()
             .message(text)
@@ -275,7 +278,9 @@ pub fn init<R: Runtime>(app: &mut tauri::App<R>, options: Options) -> tauri::Res
         eprintln!("updater: off ({why})");
         return Ok(());
     }
-    add_menu_item(&handle)?;
+    if let Err(why) = add_menu_item(&handle) {
+        eprintln!("updater: no Check for Updates menu item ({why})");
+    }
     let for_menu = (handle.clone(), options.clone());
     app.on_menu_event(move |_, event| {
         if event.id().as_ref() == MENU_ID {
@@ -867,10 +872,14 @@ mod tests {
 
     #[test]
     fn network_and_feed_failures_are_quiet_unless_manual() {
-        // nothing is listening
+        // Close every connection without replying while keeping the port reserved.
         let dead = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = dead.local_addr().unwrap();
-        drop(dead);
+        std::thread::spawn(move || {
+            for stream in dead.incoming() {
+                drop(stream);
+            }
+        });
         let app = mock_app(Some(updater_config(&format!("http://{addr}/latest.json"))));
         install_plugins(app.handle()).unwrap();
         let u = ui(true);

@@ -1,13 +1,24 @@
 [package]
 name = "calmind-desktop"
-version = "2.3.0"
+version = "2.4.0"
 edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2.12", features = [] }
+serde_json = "1" # Tauri's generated context reads plugin configuration on every target.
+
+# The updater (src/updater.rs, shared byte for byte with the other shells) exists on macOS and Windows only; the Linux
+# bundles keep the download page and compile none of it.
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+tauri-plugin-updater = "2.14"
+tauri-plugin-dialog = "2"
+semver = "1"
+
+[dev-dependencies]
+tauri = { version = "2.12", features = ["test"] }
 
 [profile.release]
 strip = true
