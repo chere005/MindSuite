@@ -87,7 +87,8 @@ function sf_url(string $base, string $sort, string $min): string
     return $base . '&sort=' . $sort . '&min=' . rawurlencode($min);
 }
 
-/** Echo one book card. Covers load eagerly so the whole shelf fills on open. */
+/** Echo one book card. Covers load lazily: the browser fetches each one as it nears the
+ *  viewport, and the cover box already reserves its 2:3 shape, so nothing shifts. */
 function render_book_card(array $b, string $csrf, string $shelf): void
 {
     ?>
@@ -96,7 +97,7 @@ function render_book_card(array $b, string $csrf, string $shelf): void
         <span class="coverbox">
           <span class="ph"><?= e($b['title'] ?? '') ?></span>
           <?php $cu = book_cover($b, 'M'); if ($cu !== ''): ?>
-            <img src="<?= e($cu) ?>" alt="" loading="eager" onerror="this.remove()">
+            <img src="<?= e($cu) ?>" alt="" width="200" height="300" loading="lazy" decoding="async" onerror="this.remove()">
           <?php endif; ?>
         </span>
         <span class="btitle"><?= e($b['title'] ?? 'Untitled') ?></span>
@@ -797,7 +798,17 @@ function books_header(string $titleHtml, bool $withEdit = false): void
 
     /* Book cards grid */
     .shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; }
-    .bookcard { position: relative; }
+    /* A shelf can hold thousands of cards: a card the viewer cannot see costs no layout or paint
+       (content-visibility keeps it in the page, in find-in-page and in tab order; "auto" remembers
+       the height it really had). The estimate is a typical card (a 2:3 cover, two or three title
+       lines, author, stars) at the column widths of a desktop and of a phone shelf. Paint
+       containment clips to the card, so the card carries 12px of padding of its own, cancelled by
+       an equal negative margin, to leave room for the cover's drop shadow. */
+    .bookcard {
+      position: relative; padding: 12px 12px 0; margin: -12px -12px 0;
+      content-visibility: auto; contain-intrinsic-block-size: auto 375px;
+    }
+    @media (max-width: 559px) { .bookcard { contain-intrinsic-block-size: auto 380px; } }
     .booklink { display: flex; flex-direction: column; text-decoration: none; color: var(--text); }
     .coverbox {
       position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 8px; overflow: hidden;
@@ -833,7 +844,7 @@ function books_header(string $titleHtml, bool $withEdit = false): void
     .readchk input { width: 15px; height: 15px; accent-color: var(--accent); }
 
     .bookcard .bdel {
-      position: absolute; top: 6px; right: 6px; display: none; z-index: 2;
+      position: absolute; top: 18px; right: 18px; display: none; z-index: 2;
       background: rgba(0,0,0,0.7); border: 1px solid var(--muted); color: var(--text); border-radius: 6px;
       width: 26px; height: 26px; font-size: 1rem; line-height: 1; cursor: pointer;
     }
@@ -1438,8 +1449,8 @@ function books_header(string $titleHtml, bool $withEdit = false): void
     editBtn.addEventListener('click', () => setEdit(!document.body.classList.contains('editing')));
   }
   // Don't navigate into a book while editing (so the × can be tapped).
-  document.querySelectorAll('.booklink').forEach(a => {
-    a.addEventListener('click', e => { if (document.body.classList.contains('editing')) e.preventDefault(); });
+  document.addEventListener('click', e => {
+    if (e.target.closest && e.target.closest('.booklink') && document.body.classList.contains('editing')) e.preventDefault();
   });
 
   // ---- Star rating (= "read"). Editable on the book page, and on the book
@@ -1449,22 +1460,23 @@ function books_header(string $titleHtml, bool $withEdit = false): void
     const body = new URLSearchParams({ csrf: CSRF, action: 'set_rating', book, rating: val });
     fetch('', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': CSRF }, body }).catch(() => {});
   };
-  const wireStars = (wrap, requireEdit) => {
-    wrap.querySelectorAll('.star').forEach(st => {
-      st.addEventListener('click', (e) => {
-        if (requireEdit && !document.body.classList.contains('editing')) return;   // cards: only in Edit
-        e.preventDefault(); e.stopPropagation();
-        const v = +st.dataset.v, cur = +wrap.dataset.rating;
-        const val = (v === cur) ? 0 : v;               // click the current rating to clear it
-        wrap.dataset.rating = val;
-        wrap.querySelectorAll('.star').forEach(s => s.classList.toggle('on', +s.dataset.v <= val));
-        postRating(wrap.dataset.book, val);
-      });
-    });
+  const rate = (wrap, st, e) => {
+    e.preventDefault(); e.stopPropagation();
+    const v = +st.dataset.v, cur = +wrap.dataset.rating;
+    const val = (v === cur) ? 0 : v;               // click the current rating to clear it
+    wrap.dataset.rating = val;
+    wrap.querySelectorAll('.star').forEach(s => s.classList.toggle('on', +s.dataset.v <= val));
+    postRating(wrap.dataset.book, val);
   };
   const pageStars = document.querySelector('.stars.editable');
-  if (pageStars) wireStars(pageStars, false);
-  document.querySelectorAll('.stars.cardrate').forEach(w => wireStars(w, true));
+  if (pageStars) pageStars.querySelectorAll('.star').forEach(st => st.addEventListener('click', e => rate(pageStars, st, e)));
+  // Cards: one listener for the whole shelf (a shelf can hold thousands of stars), and the stars
+  // only answer in Edit mode.
+  document.querySelectorAll('.shelf').forEach(shelf => shelf.addEventListener('click', e => {
+    const st = e.target.closest && e.target.closest('.stars.cardrate .star');
+    if (!st || !document.body.classList.contains('editing')) return;
+    rate(st.closest('.stars'), st, e);
+  }));
 
   // ---- Past / Want-to-read flags (book page) ----
   const flags = document.querySelector('.bh-flags');
