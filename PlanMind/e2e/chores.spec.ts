@@ -170,9 +170,16 @@ test.describe('the Chores switch of the Day', () => {
     const partner = await context.newPage();
     try {
       await open(page, 'day');
-      const left = () => page.locator('.day-col').first().innerHTML(), prio = () => page.locator('.day-prio').innerHTML();
+      const left = () => page.locator('.day-col').first().evaluate(column => {
+        const clone = column.cloneNode(true) as HTMLElement;
+        clone.querySelector('.day-choresbtn')?.remove();
+        clone.querySelector('.day-now')?.remove();
+        return clone.innerHTML;
+      });
+      const prio = () => page.locator('.day-prio').innerHTML();
       const [leftOff, prioOff] = [await left(), await prio()];
       await flip(page);
+      await expect(choresSwitch(page)).toHaveAttribute('aria-checked', 'true');
       expect(await left(), 'Schedule and Notes').toBe(leftOff);
       expect(await prio(), 'Priorities').toBe(prioOff);
       await expect.poll(async () => (await titles(page)).length).toBe(TODAY_OWN.length + MISSED.length);
