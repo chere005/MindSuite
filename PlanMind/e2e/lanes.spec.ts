@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { COLOR_HUES, tint, type ColorKey } from '../packages/core/src/planner';
+import { COLOR_HUES, contrastRatio, tint, type ColorKey } from '../packages/core/src/planner';
 import { THEMES, type ThemeName } from '../app/theme';
-import { addTodo, apiLogin, farDate, login, resetPrefs, unique, type Api } from './helpers';
+import { addTodo, apiLogin, farDate, login, MIN_NON_TEXT_CONTRAST, resetPrefs, unique, type Api } from './helpers';
 import { OWNER, PARTNER, OWNER_NAME, PARTNER_NAME } from './people';
 
 // Lanes and colors on the Day panel: who is on the left, what spans both lanes, what each list and Both look like in
@@ -100,9 +100,10 @@ test.describe('Lanes and colors', () => {
     } finally { await clearDay(owner, date); await owner.dispose(); }
   });
 
-  test(`${OWNER_NAME} is green, ${PARTNER_NAME} yellow and Both purple in all four themes, read from the tinted variables`, async ({ page, baseURL }) => {
+  test('lane colors and a distinct, readable current-time line in all four themes', async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER), date = farDate(402);
     await seed(owner, date);
+    await page.clock.setFixedTime(new Date(`${date}T14:30:00Z`));
     let theme: ThemeName = 'midnight';
     await page.route(url => url.pathname.endsWith('/api.php'), async route => {
       if (!isGet(route)) { return route.continue(); }
@@ -116,12 +117,26 @@ test.describe('Lanes and colors', () => {
         theme = name;
         await page.reload();
         await openDay(page, date);
+        const marker = page.locator('.day-now');
+        await expect(marker).toBeVisible();
+        await expect(marker).toHaveCSS('pointer-events', 'none');
+        await expect(marker).toHaveCSS('mix-blend-mode', name === 'sage' ? 'darken' : 'lighten');
+        const channels = await marker.evaluate(el => {
+          const sample = document.createElement('canvas').getContext('2d')!;
+          sample.fillStyle = getComputedStyle(el).backgroundColor;
+          sample.fillRect(0, 0, 1, 1);
+          return Array.from(sample.getImageData(0, 0, 1, 1).data.slice(0, 3));
+        });
+        const ink = '#' + channels.map(channel => channel.toString(16).padStart(2, '0')).join('');
+        expect(ink, `${name} accent`).not.toBe(THEMES[name].accent);
+        expect(contrastRatio(ink, THEMES[name].bg), `${name} empty grid`).toBeGreaterThanOrEqual(MIN_NON_TEXT_CONTRAST);
         const expected = (key: ColorKey) => tint(COLOR_HUES[key], THEMES[name].surface, THEMES[name].text);
         for (const [label, key] of [['Gym', 'green'], ['Yoga', 'yellow'], ['Lunch together', 'purple'], ['Priority 1: Ship it', 'green'], ['Priority 1: Call school', 'yellow'], ['Priority 2: Family dinner', 'purple']] as const) {
           const target = cell(page, label);
           await expect(target, `${name} ${label}`).toHaveAttribute('data-c', key);
           const painted = await target.evaluate(el => { const s = getComputedStyle(el); return { bg: s.backgroundColor, fg: s.color, line: s.borderTopColor }; });
           expect(painted, `${name} ${label}`).toEqual({ bg: rgb(expected(key).bg), fg: rgb(expected(key).fg), line: rgb(expected(key).line) });
+          expect(contrastRatio(ink, expected(key).bg), `${name} ${key}`).toBeGreaterThanOrEqual(MIN_NON_TEXT_CONTRAST);
         }
       }
     } finally { await clearDay(owner, date); await owner.dispose(); }

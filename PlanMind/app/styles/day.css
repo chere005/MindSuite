@@ -39,8 +39,14 @@
 .day-hours{display:flex;flex-direction:column}
 .day-hours span{flex:0 0 calc(100% / var(--hrs,14));min-height:0;padding-top:2px;font-size:11px;color:var(--dim)}
 .day-lanes{position:relative;min-width:0}
-.day-now{position:absolute;z-index:4;inset-inline:0;height:2px;background:var(--accent);pointer-events:none}
-.day-now::before{content:"";position:absolute;inset-inline-start:0;top:50%;width:8px;height:8px;transform:translateY(-50%);border-radius:50%;background:inherit}
+/* Coral marks the clock across every lane. The blend keeps stronger title ink legible under the stroke. */
+.day-now{
+  position:absolute;z-index:4;inset-inline:0;height:2px;border-radius:999px;pointer-events:none;
+  background:#f09582;
+  background:color-mix(in srgb,#cb5d4d 64%,var(--text));
+  mix-blend-mode:var(--now-blend,lighten);
+}
+.day-now::before{content:"";position:absolute;inset-inline-start:0;top:50%;width:7px;height:7px;transform:translateY(-50%);border-radius:50%;background:inherit}
 .day-slots,.day-evs{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr))}
 .day-slots{grid-template-rows:repeat(var(--hrs,14),minmax(0,1fr))}
 .day-evs{grid-template-rows:repeat(var(--qrs,56),minmax(0,1fr));pointer-events:none;container:schedule / size}

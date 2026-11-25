@@ -22,6 +22,8 @@ export function setTheme(value: string): ThemeName {
     style.setProperty(`--c-${key}-fg`, tones.fg);
     style.setProperty(`--c-${key}-line`, tones.line);
   }
-  style.colorScheme = THEMES_LIGHT.includes(name) ? 'light' : 'dark';
+  const light = THEMES_LIGHT.includes(name);
+  style.colorScheme = light ? 'light' : 'dark';
+  style.setProperty('--now-blend', light ? 'darken' : 'lighten');
   return name;
 }
