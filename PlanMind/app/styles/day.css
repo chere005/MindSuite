@@ -39,6 +39,8 @@
 .day-hours{display:flex;flex-direction:column}
 .day-hours span{flex:0 0 calc(100% / var(--hrs,14));min-height:0;padding-top:2px;font-size:11px;color:var(--dim)}
 .day-lanes{position:relative;min-width:0}
+.day-now{position:absolute;z-index:4;inset-inline:0;height:2px;background:var(--accent);pointer-events:none}
+.day-now::before{content:"";position:absolute;inset-inline-start:0;top:50%;width:8px;height:8px;transform:translateY(-50%);border-radius:50%;background:inherit}
 .day-slots,.day-evs{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--n,1),minmax(0,1fr))}
 .day-slots{grid-template-rows:repeat(var(--hrs,14),minmax(0,1fr))}
 .day-evs{grid-template-rows:repeat(var(--qrs,56),minmax(0,1fr));pointer-events:none;container:schedule / size}
@@ -50,8 +52,8 @@
 /* The AM and PM switch (a phone). */
 /* The CalMind button beside the AM and PM switch, and CalMind's events: faint, under the planner's entries, never a control (the owner, 2026-11-09). */
 .day-schedtools{display:flex;align-items:center;gap:8px;flex:none}
-.day-calbtn{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--dim);font-size:12px}
-.day-calbtn[aria-pressed=true]{color:var(--text);background:var(--accent-soft);border-color:var(--accent)}
+.day-calbtn,.day-choresbtn{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--dim);font-size:12px}
+.day-calbtn[aria-pressed=true],.day-choresbtn[aria-checked=true]{color:var(--text);background:var(--accent-soft);border-color:var(--accent)}
 .day-calbtn[aria-pressed=false] span{text-decoration:line-through}
 .day-cals{position:absolute;inset:0;pointer-events:none;container:schedule / size}
 /* A CalMind event. The outer box is only the place (the planner's own spanBox, as a fraction of the lanes) and a size container; .day-cal-in is the
@@ -234,7 +236,7 @@ button.day-ev[data-n="1"] .day-ev-text{position:absolute;z-index:2;inset-block-s
    places), which keeps the whole ring inside the list, the first and the last row's included (and the scroll padding leaves it room when the keyboard scrolls a control to the list's edge). */
 .day-todo>.day-tasks{padding-inline:3px;margin-inline:-3px;scroll-padding-block:3px}
 .day-todo>.day-tasks :is(button,input,select):focus-visible{outline-offset:0}
-/* The Chores switch of the picker swaps the To-do section for this one (panels/day/ChoresSection.ts): the same box, the same height under Priorities, and the list
+/* The Chores switch next to CalMind swaps the To-do section for this one (panels/day/ChoresSection.ts): the same box, the same height under Priorities, and the list
    scrolls inside itself when it is long. Its rows are the Chores page's (chores.css), a little tighter than a finger needs; the ring sits flush as the to-do list's does. */
 .day-chores{margin-top:10px;flex:1 1 auto}
 [data-layout=wide] .day-chores>:is(.ch-list,.ch-off){position:relative;flex:1 1 0;min-height:calc(13 * 28px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-inline:3px;margin:0 -3px;scroll-padding-block:3px}

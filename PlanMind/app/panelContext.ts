@@ -144,6 +144,7 @@ export const icons = {
   close: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
   calendar: svg('<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 10h16"/>'),
   calmind: svg('<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 10h16"/>', 14),
+  chores: svg('<path d="M4 11.5 12 4.5l8 7M6 10v9.5h12V10M10 19.5v-5h4v5"/>', 16),
   check: svg('<path d="m5 12 5 5 9-10"/>', 25),
   done: svg('<path d="M20 6 9 17l-5-5"/>', 18),
   chevronDown: svg('<path d="m6 9 6 6 6-6"/>', 14),

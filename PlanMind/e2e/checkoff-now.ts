@@ -278,7 +278,7 @@ export function defineCheckoffNow(phone: boolean) {
       await page.locator(phone ? '#pill-date' : '#jump-date').fill(THU);
       await expect(page.locator('#sidebar .date-row.selected')).toHaveAttribute('data-date', THU);
       if (phone) { await page.getByRole('tab', { name: 'Chores', exact: true }).tap(); }
-      else { await page.getByRole('button', { name: /^Lists: / }).click(); await page.getByRole('group', { name: 'Lists', exact: true }).getByRole('switch', { name: 'Chores', exact: true }).click(); }
+      else { await page.getByRole('switch', { name: 'Chores', exact: true }).click(); }
       const list = (what: 'kind' | 'state') => page.locator('.ch-row').evaluateAll((lis, what) => lis.map(li => [li.querySelector('.ch-title')?.textContent ?? '', (li as HTMLElement).dataset[what]]), what);
       const dishes = page.locator('input.ch-circle[aria-label$=" Dishes"]');
       await expect(dishes).toBeVisible();

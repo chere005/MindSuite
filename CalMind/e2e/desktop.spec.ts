@@ -60,7 +60,7 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   expect(await overflow(page), 'no sideways scroll at desktop width').toBeLessThanOrEqual(0);
 
   // The other sections still host their quick-add field under the top bar.
-  for (const tab of ['reminders', 'notes', 'habits']) {
+  for (const tab of ['reminders', 'notes']) {
     await page.getByTestId(`tab-${tab}`).click();
     await expect(page.getByTestId('quick-add')).toHaveCount(1);
     const bar = (await page.getByTestId('wide-main').getByTestId('suite-topbar').first().boundingBox())!;
@@ -111,6 +111,7 @@ test('at 1280×820 the sidebar and a detail pane with the edit form', async ({ p
   await expect(pane).toBeVisible();
   await page.getByTestId('tab-habits').click();
   await expect(pane, 'switching section closes the pane').toHaveCount(0);
+  await expect(page.getByTestId('quick-add')).toHaveCount(0);
   await page.getByTestId('habit-add-Habits').first().click();
   await page.getByTestId('habit-name-field').fill('stretch');
   await page.getByTestId('habit-save').click();

@@ -54,7 +54,7 @@ export function createState(initial: Session, io: StateIo, place?: Omit<Place, '
   let theme = initial.theme, savedTheme = initial.theme, themeTry = 0;
   let today = todayIn(initial.timezone);
   let view: View = place?.view ?? 'day', anchor = place?.date ?? today, date = periodStart(anchor, view), center = date;
-  // The Chores flag: on a phone the Chores view replaces the planner's page (its Chores tab); on a desktop it is the picker's Chores switch, which swaps the Day's To-do section for the day's chores. One flag, so
+  // The Chores flag: on a phone the Chores view replaces the planner's page (its Chores tab); on a desktop it is the Schedule's Chores switch, which swaps the Day's To-do section for the day's chores. One flag, so
   // a window crossing the phone breakpoint with it on lands on the other page of the same thing. In memory only (a reload is back on the planner unless it put the person back, place.ts), and the picker selection is not touched by it.
   let chores = place?.chores ?? false;
   // Whether the phone's own Chores tab turned it on (as against the desktop Day's switch): the Week's and the Month's phone pages are Chores pages only then, so the Day's switch, which is the Day's alone, leaves a narrowed window's Week and Month on their planner tabs.

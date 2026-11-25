@@ -13,7 +13,7 @@ import * as todo from './day/TodoSection';
 /**
  * The Day panel: a composition of the schedule, priorities, to-do and notes sections. On a desktop they sit in two
  * columns (schedule and notes, priorities and to-do). On a phone they are the three bottom tabs of PHONE_TABS.day, and
- * the schedule timeline scrolls inside its tab. On a desktop the picker's Chores switch (ctx.chores) swaps the To-do section for the
+ * the schedule timeline scrolls inside its tab. On a desktop the Schedule's Chores switch (ctx.chores) swaps the To-do section for the
  * day's chores (day/ChoresSection.ts); the rest follows the picker's lists as ever. A phone never draws this panel with Chores on: the shell draws its Chores view.
  *
  * The sections get a Kit instead of importing each other: lane header, counters and the save-button guard are the few pieces

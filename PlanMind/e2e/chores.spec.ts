@@ -4,7 +4,7 @@ import { THEMES, type ThemeName } from '../app/theme';
 import { CHORE_ANCHOR, MIN_NON_TEXT_CONTRAST, apiLogin, field, hitSizes, login, overlayList, pickList, resetChores, resetPrefs, showTheme, textContrast, todo, unique, type Api } from './helpers';
 import { OWNER, PARTNER, OWNER_NAME, PARTNER_NAME } from './people';
 
-// The chores on a desktop (1360x900, desktop project only). There is no page of their own: the Day's picker menu has a Chores switch that swaps the To-do section
+// The chores on a desktop (1360x900, desktop project only). There is no page of their own: the Day's Schedule toolbar has a Chores switch that swaps the To-do section
 // (the right column under Priorities) for the day's chores, and the Month's calendar always carries the month's chores in its cells; the Week has none. Also "The rhythm…" under
 // "Manage lists…" and the editor it opens. The store is shared by the whole run, so each test fixes the browser's clock to March 2027 (no other spec goes there), and puts back
 // every mark, every rule and the rhythm it touched. Thu Mar 11 2027 is the 2nd Thursday of a Week A (the rhythm's anchor is Nov 2 2026): see chores-phone.spec.ts for what the day holds.
@@ -27,13 +27,11 @@ async function open(page: Page, view: 'day' | 'week' | 'month', date = THU) {
 }
 const picker = (page: Page) => page.getByRole('button', { name: /^Lists: / });
 const menu = (page: Page) => page.getByRole('group', { name: 'Lists', exact: true });
-/** The Chores switch of the picker menu (a desktop Day's only). */
-const choresSwitch = (page: Page) => menu(page).getByRole('switch', { name: 'Chores', exact: true });
+/** The Chores switch beside CalMind in the desktop Schedule. */
+const choresSwitch = (page: Page) => page.getByRole('switch', { name: 'Chores', exact: true });
 /** Flips the Day's Chores switch (turning it on or off saves nothing: it is not a list). */
 async function flip(page: Page) {
-  await picker(page).click();
   await choresSwitch(page).click();
-  await expect(menu(page)).toBeHidden();
 }
 async function openChores(page: Page, date = THU) { await open(page, 'day', date); await flip(page); await expect(page.locator('.day-chores')).toBeVisible(); }
 const titles = (page: Page) => page.locator('.day-chores .ch-row .ch-title').allTextContents();
@@ -42,70 +40,39 @@ const rowOf = (page: Page, title: string) => page.locator('.day-chores .ch-row',
 const overflow = (page: Page) => page.evaluate(() => { const doc = document.scrollingElement!, host = document.querySelector('#period-panel')!; return { page: doc.scrollHeight - innerHeight, sideways: doc.scrollWidth - innerWidth, panel: host.scrollHeight - host.clientHeight }; });
 
 test.describe('the Chores switch of the Day', () => {
-  test('the Day\'s picker menu ends its list rows with a Chores switch (a house, off), before Manage lists… and The rhythm…; the Week has no switch and no rhythm, the Month a rhythm and no switch', async ({ page }) => {
+  test('Chores sits beside CalMind on the desktop Day, and the list menu keeps its own actions', async ({ page }) => {
     await open(page, 'day');
-    await picker(page).click();
     const sw = choresSwitch(page);
-    const [lists, chores, manage, rhythm] = await Promise.all([menu(page).getByRole('button', { name: OWNER_NAME, exact: true }), sw, menu(page).getByRole('button', { name: 'Manage lists…', exact: true }), menu(page).getByRole('button', { name: 'The rhythm…', exact: true })].map(async b => (await b.boundingBox())!));
-    expect(chores.y, 'after the list rows').toBeGreaterThan(lists.y + lists.height - 1);
-    expect(manage.y, 'before Manage lists…').toBeGreaterThan(chores.y + chores.height - 1);
-    expect(rhythm.y).toBeGreaterThan(manage.y);
-    await expect(sw.locator('.picker-house svg')).toBeVisible();
+    const tools = page.locator('.day-schedtools');
+    await expect(tools.getByRole('button', { name: 'CalMind' })).toBeVisible();
+    await expect(tools.getByRole('switch', { name: 'Chores' })).toBeVisible();
+    await expect(sw.locator('svg')).toBeVisible();
     await expect(sw).toHaveAttribute('aria-checked', 'false');
-    await expect(sw).not.toHaveAttribute('aria-current', 'true');
-    // A switch, not a list: no list row is replaced, and the one chosen is still Both.
-    await expect(menu(page).getByRole('button', { name: 'Both', exact: true })).toHaveAttribute('aria-current', 'true');
-    await page.keyboard.press('Escape');
-    // The Week: no Chores row, no rhythm (the chores are not on it); the Month: the rhythm, no switch (its calendar always shows them).
-    await page.locator('.view-switch button[data-view=week]').click();
-    await expect(page.locator('.wm-panel[data-panel=week]')).toBeVisible();
-    await picker(page).click();
-    await expect(menu(page).getByRole('switch')).toHaveCount(0);
-    await expect(menu(page).getByRole('button', { name: 'Chores', exact: true })).toHaveCount(0);
-    await expect(menu(page).getByRole('button', { name: 'The rhythm…', exact: true })).toHaveCount(0);
-    await expect(menu(page).getByRole('button', { name: 'Manage lists…', exact: true })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await page.locator('.view-switch button[data-view=month]').click();
-    await expect(page.locator('.wm-panel[data-panel=month]')).toBeVisible();
-    await picker(page).click();
-    await expect(menu(page).getByRole('switch')).toHaveCount(0);
-    await expect(menu(page).getByRole('button', { name: 'The rhythm…', exact: true })).toBeVisible();
-    // The menu shown while the view changes follows it.
-    await page.keyboard.press('Escape');
-    await page.locator('.view-switch button[data-view=day]').click();
-    await picker(page).click();
-    await expect(choresSwitch(page)).toBeVisible();
-    await expect(menu(page).getByRole('button', { name: 'The rhythm…', exact: true })).toBeVisible();
+
+    for (const view of ['day', 'week', 'month']) {
+      await page.locator(`.view-switch button[data-view=${view}]`).click();
+      await expect(sw).toHaveCount(view === 'day' ? 1 : 0);
+      await picker(page).click();
+      await expect(menu(page).getByRole('switch')).toHaveCount(0);
+      await expect(menu(page).getByRole('button', { name: 'Both', exact: true })).toHaveAttribute('aria-current', 'true');
+      await expect(menu(page).getByRole('button', { name: 'Manage lists…', exact: true })).toBeVisible();
+      await expect(menu(page).getByRole('button', { name: 'The rhythm…', exact: true })).toHaveCount(view === 'week' ? 0 : 1);
+      await page.keyboard.press('Escape');
+    }
   });
 
-  test('the menu is a menu: the arrow keys walk the lists, the switch, Manage lists… and The rhythm…, and Enter on the switch turns it on and puts the keyboard back on the picker', async ({ page }) => {
+  test('the Chores switch keeps keyboard focus as it toggles the list', async ({ page }) => {
     await open(page, 'day');
-    await picker(page).click();
-    await expect(menu(page).getByRole('button', { name: 'Both', exact: true })).toBeFocused();
-    for (const name of [PARTNER_NAME, OWNER_NAME]) {
-      await page.keyboard.press('ArrowDown');
-      await expect(menu(page).getByRole('button', { name, exact: true })).toBeFocused();
-    }
-    await page.keyboard.press('ArrowDown');
-    await expect(choresSwitch(page)).toBeFocused();
-    for (const name of ['Manage lists…', 'The rhythm…']) {
-      await page.keyboard.press('ArrowDown');
-      await expect(menu(page).getByRole('button', { name, exact: true })).toBeFocused();
-    }
-    await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
-    await expect(choresSwitch(page)).toBeFocused();
+    const sw = choresSwitch(page);
+    await sw.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('.day-chores')).toBeVisible();
-    await expect(menu(page)).toBeHidden();
-    await expect(picker(page)).toBeFocused();
-    // The menu opens on the chosen list, the switch says it is on, and Enter turns it off again.
-    await picker(page).click();
-    await expect(menu(page).getByRole('button', { name: 'Both', exact: true })).toBeFocused();
-    await expect(choresSwitch(page)).toHaveAttribute('aria-checked', 'true');
-    await choresSwitch(page).focus();
-    await page.keyboard.press('Enter');
+    await expect(sw).toBeFocused();
+    await expect(sw).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Space');
     await expect(page.locator('.day-todo')).toBeVisible();
-    await expect(page.locator('.day-chores')).toHaveCount(0);
+    await expect(sw).toBeFocused();
+    await expect(sw).toHaveAttribute('aria-checked', 'false');
   });
 
   test('on: the To-do section becomes Chores in the same box, the same height, in the same place under Priorities; the picker still names the lists and the stored selection is untouched; off: the to-dos come back', async ({ page }) => {
@@ -280,7 +247,6 @@ test.describe('the Chores switch of the Day', () => {
     await expect(page.locator('.ch-view')).toHaveCount(0);
     await expect(page.locator('.day-chores .ch-row').first()).toBeVisible();
     await expect(picker(page)).toHaveAccessibleName('Lists: Both');
-    await picker(page).click();
     await expect(choresSwitch(page)).toHaveAttribute('aria-checked', 'true');
     await choresSwitch(page).click();
     await expect(page.locator('.day-todo')).toBeVisible();
@@ -738,7 +704,6 @@ test.describe('the Month: the calendar of the month\'s chores', () => {
     for (const [tip, words] of tips) { expect(tip).toBe(words); }
     await expect(cell(page, '2027-03-10').locator('button.ch-title', { hasText: 'Kitchen wipe-down' })).toHaveAttribute('title', 'Kitchen wipe-down');
     await page.locator('.view-switch button[data-view=day]').click();
-    await picker(page).click();
     await choresSwitch(page).click();
     await expect(page.locator('.day-chores .ch-title').first()).toBeVisible();
     await expect(page.locator('.day-chores .ch-title[title]')).toHaveCount(0);

@@ -28,6 +28,26 @@ const todos = (page: Page) => page.locator('.day-todo [data-kind=todos]');
 test.afterEach(async ({ baseURL }) => { await resetPrefs(baseURL!); });
 
 test.describe('Day panel, desktop', () => {
+  test('the current-time line moves with the household clock and follows the overnight schedule', async ({ page }) => {
+    await page.clock.install({ time: new Date('2027-01-14T14:00:00Z') });
+    await login(page);
+    const line = page.locator('.day-now');
+    const position = () => line.evaluate(node => parseFloat((node as HTMLElement).style.top));
+    await expect(line).toBeVisible();
+    expect(await position()).toBeCloseTo(100 / 14, 2);
+    await page.clock.fastForward(60_000);
+    await expect.poll(position).toBeCloseTo(61 * 100 / (14 * 60), 2);
+    await openDay(page, '2027-01-13');
+    await expect(line).toBeHidden();
+
+    await page.clock.setSystemTime(new Date('2027-01-14T08:00:00Z'));
+    await page.locator('.day-half button[data-half="pm"]').click();
+    await expect(line).toBeVisible();
+    expect(await position()).toBeCloseTo(5 * 100 / 14, 2);
+    await openDay(page, '2027-01-14');
+    await expect(line).toBeHidden();
+  });
+
   test('two columns, the signed-in person first, and blocks sit on their start and length', async ({ page, baseURL }) => {
     const owner = await apiLogin(baseURL!, OWNER), date = farDate(100);
     await add(owner, { action: 'add', kind: 'event', date, owners: [OWNER], text: 'Dentist', start: 540, length: 60 });

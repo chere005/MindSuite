@@ -252,7 +252,7 @@ test.describe('performance', { tag: '@perf' }, () => {
 
     // Today's chores: the Day's Chores switch (desktop) or the Chores tab (phone).
     await openDay(page, today());
-    const flip = async () => { await page.getByRole('button', { name: /^Lists: / }).click(); await page.getByRole('group', { name: 'Lists', exact: true }).getByRole('switch', { name: 'Chores', exact: true }).click(); };
+    const flip = async () => { await page.getByRole('switch', { name: 'Chores', exact: true }).click(); };
     if (phone) { await page.getByRole('tab', { name: 'Chores', exact: true }).tap(); } else { await flip(); }
     await page.locator('.ch-row .ch-circle').first().waitFor();
     const label = (await page.locator('.ch-row:not(.ch-done) .ch-circle').first().getAttribute('aria-label'))!.replace(/^Complete /, '');

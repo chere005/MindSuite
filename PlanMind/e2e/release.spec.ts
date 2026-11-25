@@ -279,10 +279,9 @@ test.describe('a new release reaches an open page', () => {
 
     // A far day with the Day's Chores switch on (a desktop page: the to-do section lists the chores).
     const when = '2041-06-17';
-    const chores = page.getByRole('group', { name: 'Lists', exact: true }).getByRole('switch', { name: 'Chores', exact: true });
+    const chores = page.getByRole('switch', { name: 'Chores', exact: true });
     await page.locator('#sidebar [data-view="day"]').click();
     await page.locator('#jump-date').fill(when);
-    await page.locator('#picker-button').click();
     await chores.click();
     await expect(page.locator('.day-chores')).toBeVisible();
     await mark(page);
@@ -294,7 +293,6 @@ test.describe('a new release reaches an open page', () => {
     await expect(selected).toHaveAttribute('data-date', when);
     await expect(page.locator('#picker-button')).toHaveAttribute('aria-label', 'Lists: Both');
     await expect(page.locator('#sidebar [data-view="day"]')).toHaveAttribute('aria-pressed', 'true');
-    await page.locator('#picker-button').click();
     await expect(chores).toHaveAttribute('aria-checked', 'true');
     await page.keyboard.press('Escape');
     expect(plain()).toBe('');

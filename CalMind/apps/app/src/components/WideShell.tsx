@@ -2,7 +2,7 @@
  * CalMind's wide (desktop-size) layout: WideFrame filled with this app's own
  * sidebar, the section's existing screen, and a detail pane. Quick add sits
  * above the calendar's day and upcoming views when they fit beside the grid.
- * The other sections host quick add under their top bar. The MindSuite bar
+ * Reminders and Notes host quick add under their top bar. The MindSuite bar
  * above the app only switches apps (the owner, 2026-11-21).
  *
  * Layout and wiring only. The sections are the phone's own screens at full
@@ -104,7 +104,7 @@ export function WideShell({ tab, onTab, main, onNoteCreated, onOpenHit }: {
           {/* Kept mounted under the results, so a section does not lose its
               place (an open day, a half-typed edit) to a search. */}
           <View style={[s.screen, searching && s.hidden]}>
-            <BelowTopBar.Provider value={calendarPane ? null : quickAdd}>{main}</BelowTopBar.Provider>
+            <BelowTopBar.Provider value={calendarPane || section === 'habits' ? null : quickAdd}>{main}</BelowTopBar.Provider>
           </View>
         </View>
       }

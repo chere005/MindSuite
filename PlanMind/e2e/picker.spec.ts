@@ -380,44 +380,39 @@ test.describe('the list picker', () => {
     await owner.dispose();
   });
 
-  const chores = (page: Page) => menu(page).getByRole('switch', { name: 'Chores', exact: true });
+  const chores = (page: Page) => page.getByRole('switch', { name: 'Chores', exact: true });
 
-  test('a window crossing the phone breakpoint with the menu open redraws it: the desktop-only Chores switch is never in the phone menu, and the keyboard stays in the menu', async ({ page }) => {
+  test('crossing the phone breakpoint leaves list rows and focus in the open picker', async ({ page }) => {
     await login(page);
     await openMenu(page);
-    await expect(chores(page)).toBeVisible();
-    await chores(page).focus();
     const rows = await menu(page).locator('.picker-row').count();
-    // Down to a phone's width (the window narrows, the menu stays open): the row is gone, and the keyboard is on the row that is chosen, not on the page.
+    await expect(chores(page)).toBeVisible();
+    await expect(select(page, 'Both')).toBeFocused();
     await page.setViewportSize({ width: 700, height: 900 });
     await expect(menu(page)).toBeVisible();
     await expect(chores(page)).toHaveCount(0);
-    await expect(menu(page).locator('.picker-row')).toHaveCount(rows - 1);
+    await expect(menu(page).locator('.picker-row')).toHaveCount(rows);
     await expect(select(page, 'Both')).toBeFocused();
-    // And back: the switch returns to the open menu.
     await page.setViewportSize({ width: 1360, height: 900 });
     await expect(menu(page)).toBeVisible();
     await expect(chores(page)).toBeVisible();
     await expect(menu(page).locator('.picker-row')).toHaveCount(rows);
   });
 
-  test('with Chores on, the window crossing the breakpoint closes the open menu: the phone has no menu there, just the grey locked house', async ({ page }) => {
+  test('with Chores on, resizing to phone width closes and locks the picker', async ({ page }) => {
     await login(page);
-    await openMenu(page);
     await chores(page).click();
-    await expect(menu(page)).toBeHidden();
     await openMenu(page);
     await expect(chores(page)).toHaveAttribute('aria-checked', 'true');
-    // The keyboard is on the switch of the menu that goes away: it goes to the (locked) button, never to the page.
-    await chores(page).focus();
+    await select(page, 'Both').focus();
     await page.setViewportSize({ width: 700, height: 900 });
     await expect(menu(page)).toBeHidden();
-    await expect(page.locator('#picker-button')).toBeFocused();
-    await expect(page.locator('#picker-button')).toHaveAttribute('aria-disabled', 'true');
-    await expect(page.locator('#picker-button')).not.toHaveAttribute('aria-expanded', /.*/);
-    // Back on a desktop it opens again, with the switch on and the lists as they were.
+    const locked = page.getByRole('button', { name: 'Chores', exact: true });
+    await expect(locked).toBeFocused();
+    await expect(locked).toHaveAttribute('aria-disabled', 'true');
+    await expect(locked).not.toHaveAttribute('aria-expanded', /.*/);
     await page.setViewportSize({ width: 1360, height: 900 });
-    await expect(page.locator('#picker-button')).not.toHaveAttribute('aria-disabled', /.*/);
+    await expect(button(page)).not.toHaveAttribute('aria-disabled', /.*/);
     await openMenu(page);
     await expect(chores(page)).toHaveAttribute('aria-checked', 'true');
     await expect(select(page, 'Both')).toHaveAttribute('aria-current', 'true');

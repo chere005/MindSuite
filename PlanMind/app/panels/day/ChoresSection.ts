@@ -4,7 +4,7 @@ import { mountRows } from '../chores/ChoreRow';
 import * as list from '../chores/DayChores';
 
 /**
- * A desktop Day's Chores: while the picker's Chores switch is on, this takes the place of the To-do section (the same box, the same height, under Priorities)
+ * A desktop Day's Chores: while the Schedule's Chores switch is on, this takes the place of the To-do section (the same box, the same height, under Priorities)
  * and lists the day's chores as the Chores page did: today's, Missed (Fri / Let go) or Friday's Catch-up, turns sent to Friday or let go with their undo chips,
  * the done pile at the bottom, a cadence badge on a weekly, Week A / B or monthly one, and Saturday as a day off. Chores ignore the picker's lists: both of us
  * see every chore, while the Schedule, Priorities and Notes keep following the selection. The list scrolls inside itself when it is long.

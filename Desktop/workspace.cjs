@@ -29,8 +29,7 @@ function select(state, key, side) {
     return { ...state, left: key, right: key === state.right ? state.left : state.right, active: key };
   }
   if (side === 'right') {
-    if (key !== state.left) return { ...state, right: key, active: key };
-    if (state.right) return { ...state, left: state.right, right: key, active: key };
+    return key === state.left ? state : { ...state, right: key, active: key };
   }
   if (key === state.left || key === state.right) return { ...state, active: key };
   const pane = !state.right || state.active === state.right ? 'right' : 'left';

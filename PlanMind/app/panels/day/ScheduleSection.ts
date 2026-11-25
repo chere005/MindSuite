@@ -1,5 +1,5 @@
 import {
-  CAPS, SCHEDULE_ROWS, alldayCells, alldayStrip, blankThirds, calmindCells, counter, itemColor, eventCells, findEventOverlap, fitNewEntry, freeSpanNear, moveAim, moveEvent, newOwners, resizeEvent, slotStart, spanBox, stepAim, stepEvent, textLimit, timeLabel,
+  CAPS, SCHEDULE_ROWS, alldayCells, alldayStrip, blankThirds, calmindCells, counter, itemColor, eventCells, findEventOverlap, fitNewEntry, freeSpanNear, moveAim, moveEvent, newOwners, resizeEvent, shiftPeriod, slotStart, spanBox, stepAim, stepEvent, textLimit, timeLabel,
   type AllDayChip, type BoundaryResize, type CalmindCell, type DayView, type EventCell, type Owners, type ScheduleEvent,
 } from '../../../packages/core/src/planner';
 import { RESTORED, cancel, commit, fieldName, idle, paintSession, q, textHtml, wireRow, type Host, type Plan } from '../../inplace/Inline';
@@ -153,7 +153,8 @@ const halfSwitchHtml = (win: Win) => `<div class="day-half" role="group" aria-la
 /** The button that hides or shows CalMind's events (pressed while they show), beside the AM and PM switch on a desktop; a phone has it in the menu. The owner, 2026-11-09. */
 const calmindButtonHtml = (hidden: boolean) =>
   `<button type="button" class="day-calbtn" aria-pressed="${!hidden}" title="${hidden ? 'Show' : 'Hide'} CalMind events">${icons.calmind}<span>CalMind</span></button>`;
-const toolsHtml = (win: Win, hidden: boolean) => `<div class="day-schedtools">${calmindButtonHtml(hidden)}${halfSwitchHtml(win)}</div>`;
+const toolsHtml = (win: Win, hidden: boolean, chores: boolean) =>
+  `<div class="day-schedtools">${calmindButtonHtml(hidden)}<button type="button" class="day-choresbtn" role="switch" aria-checked="${chores}" data-key="schedule:chores">${icons.chores}Chores</button>${halfSwitchHtml(win)}</div>`;
 
 /**
  * A CalMind event: faint, under the planner's own entries, and not a control (a tap or a hover goes through it to the slot under it,
@@ -216,13 +217,36 @@ export function html(view: DayView, ctx: PanelContext, kit: Kit): string {
   // and the page says which half it shows in the corner of the lane names, over the hour labels.
   const heading = kit.phone ? `<h2 class="day-label" aria-label="Schedule, ${win.half === 'am' ? 'AM' : 'PM'}">Schedule</h2>` : '<h2 class="day-label">Schedule</h2>';
   return `<section class="day-sec day-sched" aria-label="Schedule" data-half="${win.half}">
-  <div class="day-sechead">${heading}<button type="button" class="day-skip day-addentry" data-key="${NEW_KEY}">Add schedule entry</button>${kit.phone ? '' : toolsHtml(win, hidden)}</div>
+  <div class="day-sechead">${heading}<button type="button" class="day-skip day-addentry" data-key="${NEW_KEY}">Add schedule entry</button>${kit.phone ? '' : toolsHtml(win, hidden, ctx.chores)}</div>
   ${kit.laneHead(view.lanes, kit.phone ? win.half === 'am' ? 'AM' : 'PM' : '')}${allday}
   <div class="day-timeline" role="region" aria-label="Schedule timeline" tabindex="0"><div class="day-grid"><div class="day-hours" aria-hidden="true">${hours.map(({ label }) => `<span>${label}</span>`).join('')}</div>
     <div class="day-lanes ${kit.cols(view.lanes.length)}" data-from="${win.from}" data-to="${win.to}" data-span="${win.span}"><div class="day-slots">${slots}</div>${cals ? `<div class="day-cals" role="list" aria-label="CalMind events">${cals}</div>` : ''}<div class="day-evs">${
       view.schedule.filter(cell => cell.item.id !== open?.meta.id).map(cell => eventHtml(pendingCell(cell, open), kit, win)).join('')}${
-      drafted.map((cell, i) => editBlockHtml(cell, i === 0, open!, kit, win)).join('')}</div></div></div></div>
+      drafted.map((cell, i) => editBlockHtml(cell, i === 0, open!, kit, win)).join('')}</div><span class="day-now" aria-hidden="true" hidden></span></div></div></div>
 </section>`;
+}
+
+/** The schedule belongs to the date on which its 7am starts, using the household's timezone. */
+function mountClock(line: HTMLElement, date: string, timeZone: string, win: Win): () => void {
+  const clock = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  let timer: number;
+  function draw() {
+    const now = Date.now();
+    const parts = clock.formatToParts(now);
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)!.value;
+    const localDate = `${value('year')}-${value('month')}-${value('day')}`;
+    const minute = Number(value('hour')) * 60 + Number(value('minute'));
+    const overnight = minute < CAPS.eventStartMin;
+    const scheduleDate = overnight ? shiftPeriod(localDate, -1, 'day') : localDate;
+    const position = minute + (overnight ? 24 * 60 : 0);
+    line.hidden = date !== scheduleDate || position < win.from || position >= win.to;
+    if (!line.hidden) line.style.top = `${(position - win.from) * 100 / win.span}%`;
+    timer = window.setTimeout(draw, 60_000 - now % 60_000);
+  }
+  draw();
+  return () => window.clearTimeout(timer);
 }
 
 /** The keys of the stored entries on the page. */
@@ -246,6 +270,7 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     return { top: Math.max(box.top, frame.top), bottom: Math.min(box.bottom, frame.bottom) };
   };
   const cleanups: Array<() => void> = [];
+  cleanups.push(mountClock(section.querySelector<HTMLElement>('.day-now')!, ctx.date, ctx.state.session.timezone, win));
   // Overlay scrollbars take pointer hits without reducing clientWidth. Leave their strip clear of cards and lane labels.
   const fitScrollbar = () => section.toggleAttribute('data-overlay-scrollbar',
     timeline.scrollHeight > timeline.clientHeight && timeline.offsetWidth === timeline.clientWidth);
@@ -639,6 +664,10 @@ export function mount(panel: HTMLElement, ctx: PanelContext, kit: Kit): () => vo
     }
     if (target.closest('.day-calbtn')) {
       void ctx.state.setCalmindHidden(!ctx.state.calmindHidden);
+      return;
+    }
+    if (target.closest('.day-choresbtn')) {
+      ctx.setChores(!ctx.chores);
       return;
     }
     const half = target.closest<HTMLElement>('[data-half]:is(button)');

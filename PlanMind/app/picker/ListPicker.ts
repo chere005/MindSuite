@@ -1,11 +1,10 @@
 import '../styles/picker.css';
 import { CAPS, pickerColors, pickerRows, switchBase, toggleOverlay, type ColorKey, type PickerRow } from '../../packages/core/src/planner';
-import { esc, isPhone, type PanelContext, type Unmount } from '../panelContext';
+import { esc, icons, type PanelContext, type Unmount } from '../panelContext';
 import { openListManager } from './ListManager';
 import { openRhythmEditor } from './RhythmEditor';
 
 const CHEVRON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
-const HOUSE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 4.5l8 7M6 10v9.5h12V10M10 19.5v-5h4v5"/></svg>';
 const TICK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
 
 /** One color is a disc, several are equal slices from the top (CalMind's PieDot). Drawn as SVG paths, so no inline style. */
@@ -22,10 +21,8 @@ function pie(colors: ColorKey[]): string {
  * list's box adds it on top of the view. The state lives in ctx.state (it saves the choice a moment after the last change); this
  * file draws the button and the menu from core's pickerRows and calls switchBase and toggleOverlay.
  *
- * On a desktop's Day the menu ends its rows with a Chores switch (a house, on or off): on, the Day's To-do section lists the day's chores instead (chores
- * ignore the lists, and the Schedule, Priorities and Notes keep following the selection, which the switch never touches); off, the to-dos are back. It is
- * not in the menu on the Week or the Month (the Month's calendar always shows the chores). On a phone the Chores tab turns the Chores view on, so there is no
- * switch, and the button is a grey, locked house while it is on. "The rhythm…" is in the menu on the Day and the Month, not on the Week.
+ * On a phone the Chores tab switches to the chore list, and the picker becomes a locked house.
+ * "The rhythm…" is in the menu on the Day and the Month.
  */
 export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
   root.innerHTML = `<div class="picker">
@@ -47,22 +44,18 @@ export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
     return `<li class="picker-row${row.selected ? ' selected' : ''}" data-kind="${row.kind}"><button type="button" class="picker-select" data-id="${esc(row.id)}"${row.selected ? ' aria-current="true"' : ''}><span class="swatch" data-c="${color}" aria-hidden="true"></span><span class="picker-label">${esc(row.label)}</span></button>${side}</li>`;
   };
 
-  /** The Day's Chores switch: a desktop's Day only. */
-  const choresRowHtml = () => `<li class="picker-row" data-kind="chores"><button type="button" role="switch" class="picker-select picker-switch" data-id="chores" aria-checked="${ctx.chores}"><span class="picker-house" aria-hidden="true">${HOUSE}</span><span class="picker-label">Chores</span><span class="picker-toggle" aria-hidden="true"></span></button></li>`;
-  const hasSwitch = () => !isPhone() && ctx.view === 'day';
-
   function drawMenu() {
     const focused = document.activeElement instanceof HTMLElement && menu.contains(document.activeElement) ? document.activeElement : null;
     const was = focused ? { id: focused.dataset.id, box: focused.matches('.picker-box') } : null;
     const list = pickerRows(ctx.lists, ctx.selection);
     const firstCustom = list.findIndex(row => row.kind === 'custom');
-    rows.innerHTML = list.map((row, i) => (i === firstCustom ? '<li class="picker-divider" aria-hidden="true"></li>' : '') + rowHtml(row)).join('') + (hasSwitch() ? choresRowHtml() : '');
+    rows.innerHTML = list.map((row, i) => (i === firstCustom ? '<li class="picker-divider" aria-hidden="true"></li>' : '') + rowHtml(row)).join('');
     rhythmButton.hidden = ctx.view === 'week';
     const full = list.some(row => row.checkDisabled);
     if (!full) { limitHint = false; }
     // Always present, so a screen reader hears the text appear; empty, it takes no room.
     hint.textContent = limitHint ? `Up to ${CAPS.maxOverlays} extra lists` : '';
-    // The row that had the focus may be gone (the Chores switch when the window became a phone, or the view left the Day): the chosen row takes it, so it never falls to the page.
+    // If the focused row disappeared, hand focus to the chosen row.
     if (was) {
       const same = [...menu.querySelectorAll<HTMLElement>(was.box ? '.picker-box' : '.picker-select')].find(el => el.dataset.id === was.id);
       (same ?? menu.querySelector<HTMLElement>('.picker-row.selected .picker-select') ?? menu.querySelector<HTMLElement>('.picker-select'))?.focus();
@@ -75,12 +68,12 @@ export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
     button.toggleAttribute('data-chores', locked);
     button.toggleAttribute('data-locked', locked);
     if (locked) {
-      // The keyboard may be on a row of the menu that is going away (the Chores row, as the window became a phone): it goes to the button, never to the page.
+      // If the menu had focus, return it to the picker button before locking it.
       setOpen(false, menu.contains(document.activeElement));
       button.setAttribute('aria-disabled', 'true');
       button.removeAttribute('aria-expanded'); button.removeAttribute('aria-controls');
       button.setAttribute('aria-label', 'Chores');
-      $('.picker-pie').innerHTML = `<span class="picker-house">${HOUSE}</span>`;
+      $('.picker-pie').innerHTML = `<span class="picker-house">${icons.chores}</span>`;
       $('.picker-name').textContent = 'Chores';
       return;
     }
@@ -106,8 +99,7 @@ export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
     const target = event.target as HTMLElement;
     const select = target.closest<HTMLElement>('.picker-select');
     if (select) {
-      // Chores is a switch, not a list: it leaves the selection as it is.
-      if (select.dataset.id === 'chores') { ctx.setChores(!ctx.chores); } else { ctx.setSelection(switchBase(ctx.selection, select.dataset.id!, ctx.lists)); }
+      ctx.setSelection(switchBase(ctx.selection, select.dataset.id!, ctx.lists));
       setOpen(false, true);
       return;
     }
@@ -149,7 +141,7 @@ export function mount(root: HTMLElement, ctx: PanelContext): Unmount {
     drawButton();
     if (open) { drawMenu(); }
   });
-  // The phone's locked button and the desktop's Chores switch follow the layout, also in a menu that is open while the window crosses 760px.
+  // The phone's locked button follows the layout even while the menu is open.
   window.matchMedia('(max-width: 760px)').addEventListener('change', () => { drawButton(); if (open) { drawMenu(); } }, on);
   drawButton();
   return () => {

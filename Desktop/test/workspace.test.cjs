@@ -14,6 +14,9 @@ test('a split opens two stable slots and replaces the focused one', () => {
   assert.deepEqual(layout(after), { left: 'planmind', right: 'scrollmind', split: true, active: 'planmind', ratio: .5 });
   assert.deepEqual(layout(toggle(after)), { left: 'planmind', right: null, split: false, active: 'planmind', ratio: .5 });
   assert.equal(select(split, 'scrollmind', 'left').right, 'calmind', 'per-pane selection swaps already-open apps');
+  assert.strictEqual(select(split, 'calmind', 'right'), split, 'the right picker preserves both panes and focus when the app is open on the left');
+  const emptyRight = toggle(restore());
+  assert.strictEqual(select(emptyRight, 'calmind', 'right'), emptyRight, 'the right pane stays empty when the app already occupies the left');
 });
 
 test('a saved split restores, including the focused side, and invalid tabs are ignored', () => {
