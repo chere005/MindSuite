@@ -1,9 +1,9 @@
 {
-  "version": "1.14.0",
+  "version": "1.15.0",
   "apps": {
     "CalMind": {
       "repo": "MindSuite",
-      "tag": "CalMind/2.3.0"
+      "tag": "CalMind/2.4.0"
     },
     "MealMind": {
       "repo": "MindSuite",

@@ -13,6 +13,12 @@ advance: `node tools/mindsuite-release.mjs record MindSuiteDesktop MindSuiteDesk
 
 <!-- releases: newest first; written by tools/mindsuite-release.mjs -->
 
+## MindSuite 1.15.0 (2026-11-25)
+
+Matches CalMind 2.4.0: `CalMind/2.4.0`.
+
+Suite: CalMind 2.4.0 · MealMind 2.3.0 · PlanMind 1.2.0 · TaskMind 1.0.0 · AcctMind 1.2.0 · NoteMind 1.2.0 · ScrollMind 2.2.0 · MindSuiteDesktop 0.3.0 · ReadMind 1.1.0 · DisplayMind 1.0.0 · CoreMind 2.0.0.
+
 ## MindSuite 1.14.0 (2026-11-25)
 
 Matches AcctMind 1.2.0: `AcctMind/1.2.0`.
