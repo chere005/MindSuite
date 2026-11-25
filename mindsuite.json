@@ -1,5 +1,5 @@
 {
-  "version": "1.11.0",
+  "version": "1.12.0",
   "apps": {
     "CalMind": {
       "repo": "MindSuite",
@@ -35,7 +35,7 @@
     },
     "ReadMind": {
       "repo": "MindSuite",
-      "tag": "ReadMind/1.0.0"
+      "tag": "ReadMind/1.1.0"
     },
     "DisplayMind": {
       "repo": "DisplayMind",
