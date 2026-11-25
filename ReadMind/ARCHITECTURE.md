@@ -157,6 +157,19 @@ Three interaction rules are shared with the rest of the suite and live in
 - **The settings window is the suite's shell** with the parts that cannot be
   true here cut out: no password form, and no suite theme row.
 
+**A shelf is one page with every book in it, and is cheap to open anyway.**
+Search, sort, filters and counts are server-side and every card is in the HTML
+(paging it was tried and refused: any change made elsewhere could make a loader
+skip a book). Instead the browser is told what it may skip: covers are
+`loading="lazy"` with a reserved 2:3 box, cards are `content-visibility: auto`
+with a size estimate (they stay in find-in-page and tab order), and the card
+stars and links are served by one listener each rather than one per star. Paint
+containment clips to the card, which is why a card carries 12px of padding
+cancelled by a negative margin: the cover's drop shadow needs the room. One
+shared delete form (each button joining it with `form="..."`) was tried and
+refused: Chromium's form association goes quadratic, and at 10,000 books the
+page took 4.4 s to parse against 0.5 s with a form per card.
+
 **Themes are this app's own.** The suite's five themes swap the accent and
 nothing else; ReadMind's eight repaint the whole page, so the suite's base
 layer would only paint variables the next rule overwrites — `theme_css()` is

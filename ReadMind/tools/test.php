@@ -324,6 +324,61 @@ t('mixed-case input signs in as CalMind\'s spelling of the account, and the shel
     foreach (['Book of ALEX', 'Book of Alex', 'Book of alex'] as $title) { has($title, $page, 'every spelling reaches the same shelf'); }
 });
 
+// ------------------------------------------ a big shelf stays one page, and stays cheap to open
+/** Write alex's shelf of $n books, each with an Open Library cover id (and every third one rated), from a process of its own. */
+function seed_many(int $n): array
+{
+    global $ROOT, $dataDir;
+    $code = 'require ' . var_export("$ROOT/lib/app.php", true) . '; $b = []; for ($i = 0; $i < ' . $n . '; $i++) { $b[] = ["id" => sprintf("b%04d", $i), "title" => "Title $i", "author" => "Author $i", "cover" => 1000 + $i, "rating" => $i % 3 === 0 ? 4 : 0, "created" => 1700000000 + $i, "updated" => 1700000000 + $i]; }'
+          . ' store_write(user_data_file(app_config()["data_dir"], "books", "alex"), $b);';
+    shell_exec('READMIND_TEST_DATA=' . escapeshellarg($dataDir) . ' php -r ' . escapeshellarg($code) . ' 2>&1');
+    return array_map(fn($i) => sprintf('b%04d', $i), range(0, $n - 1));
+}
+t('a shelf renders every book, with lazy covers and cards the browser may skip while offscreen', function () use ($dataDir) {
+    mock_mode('canonical'); reset_shelves();
+    $ids = seed_many(60);
+    $jar = [];
+    req('POST', '/', ['bm_user' => 'alex', 'bm_pass' => 'readerpw'], $jar);
+    foreach (['/?shelf=library', '/?shelf=read'] as $path) {
+        $page = req('GET', $path, [], $jar)['body'];
+        $want = $path === '/?shelf=read' ? 20 : 60;
+        ok(substr_count($page, 'class="bookcard"') === $want, "$path: every book is a card in the page, not a page of them ($want)");
+        preg_match_all('#<img src="https://covers\.openlibrary\.org/[^"]+"[^>]*>#', $page, $imgs);
+        ok(count($imgs[0]) === $want, "$path: one cover image per card");
+        foreach ($imgs[0] as $img) {
+            ok(str_contains($img, 'loading="lazy"') && str_contains($img, 'decoding="async"') && str_contains($img, 'width="') && str_contains($img, 'height="'),
+               "$path: a cover is lazy, async-decoded and sized: $img");
+        }
+        ok(!str_contains($page, 'loading="eager"'), "$path: no cover is forced eager");
+        // Every card still has its own delete form: the four fields, and a button that needs the second press.
+        ok(substr_count($page, 'name="action" value="delete_book"') === $want, "$path: every card keeps its own delete form");
+    }
+    $page = req('GET', '/?shelf=library', [], $jar)['body'];
+    foreach ($ids as $id) { has('data-id="' . $id . '"', $page, 'a book is missing from the page'); }
+    // Cards a viewer cannot see cost no layout, and still keep their padding for the cover's shadow.
+    has('content-visibility: auto', $page, 'cards are skipped while offscreen');
+    ok(preg_match('/\.bookcard \{[^}]*contain-intrinsic-block-size: auto \d+px/s', $page) === 1, 'with a size estimate to hold the scrollbar steady');
+    ok(preg_match('/\.bookcard \{[^}]*padding: 12px 12px 0; margin: -12px -12px 0;/s', $page) === 1, 'and room for the drop shadow that paint containment would clip');
+    ok(!str_contains($page, "forEach(a => {\n    a.addEventListener('click', e => { if (document.body.classList.contains('editing'))"), 'no listener per book link');
+});
+t('a card\'s delete form deletes exactly one book, and only on the confirmed press', function () use ($dataDir) {
+    mock_mode('canonical'); reset_shelves(); seed_many(5);
+    $jar = [];
+    req('POST', '/', ['bm_user' => 'alex', 'bm_pass' => 'readerpw'], $jar);
+    $page = req('GET', '/?shelf=library', [], $jar)['body'];
+    $csrf = page_csrf($page);
+    // The four fields a card's form sends for b0002.
+    $fields = ['csrf' => $csrf, 'action' => 'delete_book', 'shelf' => 'library', 'book' => 'b0002'];
+    $r = req('POST', '/', $fields, $jar);
+    ok($r['status'] === 302, 'an unconfirmed press redirects');
+    ok(str_contains(req('GET', '/?shelf=library', [], $jar)['body'], 'data-id="b0002"'), 'and deletes nothing');
+    $r = req('POST', '/', $fields + ['confirm' => '1', 'edit' => '1'], $jar);
+    ok($r['status'] === 302, 'the confirmed press redirects');
+    $page = req('GET', '/?shelf=library', [], $jar)['body'];
+    ok(!str_contains($page, 'data-id="b0002"'), 'and removes that book');
+    foreach (['b0000', 'b0001', 'b0003', 'b0004'] as $id) { has('data-id="' . $id . '"', $page, 'the other books stay'); }
+});
+
 t('a CalMind reply that names another account, no account, or a non-username is refused', function () {
     foreach (['other', 'none', 'bad'] as $mode) {
         mock_mode($mode);
