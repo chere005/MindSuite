@@ -8,6 +8,12 @@ files; the app release lanes call it after their own tag is pushed.
 
 <!-- releases: newest first; written by tools/mindsuite-release.mjs -->
 
+## MindSuite 1.9.0 (2026-11-25)
+
+Matches NoteMind 1.2.0: `v1.2.0` (NoteMind repo).
+
+Suite: CalMind 2.3.0 · MealMind 2.2.0 · PlanMind 1.1.0 · TaskMind 1.0.0 · AcctMind 1.1.0 · NoteMind 1.2.0 · ScrollMind 2.0.0 · ReadMind 1.0.0 · DisplayMind 1.0.0 · CoreMind 2.0.0.
+
 ## MindSuite 1.8.0 (2026-11-23)
 
 Matches AcctMind 1.1.0: `AcctMind/1.1.0`.
