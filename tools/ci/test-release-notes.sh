@@ -50,10 +50,10 @@ INSTALLING
     AcctMind) cat <<'INSTALLING'
 ## Installing
 
-These builds are not code-signed, so the first launch shows a warning.
+- **macOS, Apple silicon** (`.dmg`): open the dmg and drag AcctMind to Applications. The app is signed with Developer ID, notarized and stapled, so it opens without a warning.
+- **Windows** (`.msi` or `-setup.exe`): the installers are not Authenticode-signed, so SmartScreen says "Windows protected your PC" the first time. Choose **More info**, then **Run anyway**.
 
-- **Windows** (`.msi` or `-setup.exe`): SmartScreen says "Windows protected your PC". Choose **More info**, then **Run anyway**.
-- **macOS, Apple silicon** (`.dmg`): open the dmg and drag AcctMind to Applications. The app is signed with Developer ID and notarized.
+Once installed, AcctMind updates itself from **Check for Updates** in its menu (it never checks in the background). The update archives are signed with the app's own update key.
 
 `SHA256SUMS.txt` lists the checksum of every file.
 INSTALLING
