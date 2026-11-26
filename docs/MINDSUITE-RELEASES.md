@@ -18,6 +18,12 @@ versions advance independently; release notes identify the platform explicitly.
 
 <!-- releases: newest first; written by tools/mindsuite-release.mjs -->
 
+## MindSuite 1.19.0 (2026-11-25)
+
+Matches DisplayMind (Windows) 0.3.0: `windows-v0.3.0` (DisplayMind repo).
+
+Suite: CalMind 2.4.0 · MealMind 2.3.0 · PlanMind 1.3.0 · TaskMind 1.1.0 · AcctMind 1.2.0 · NoteMind 1.2.0 · ScrollMind 2.2.0 · MindSuiteDesktop 0.4.0 · ReadMind 1.1.0 · DisplayMind 1.0.0 · DisplayMind (Windows) 0.3.0 · CoreMind 2.0.0.
+
 ## MindSuite 1.18.0 (2026-11-25)
 
 Matches PlanMind 1.3.0: `PlanMind/1.3.0`.

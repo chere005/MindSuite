@@ -1,5 +1,5 @@
 {
-  "version": "1.18.0",
+  "version": "1.19.0",
   "apps": {
     "CalMind": {
       "repo": "MindSuite",
@@ -39,7 +39,12 @@
     },
     "DisplayMind": {
       "repo": "DisplayMind",
-      "tag": "v1.0.0"
+      "tag": "v1.0.0",
+      "platforms": {
+        "windows": {
+          "tag": "windows-v0.3.0"
+        }
+      }
     },
     "CoreMind": {
       "repo": "MindSuite",
