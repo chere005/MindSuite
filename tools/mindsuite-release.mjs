@@ -2,8 +2,8 @@
 // MindSuite's own version (the owner, 2026-11-22: "this is MindSuite 1.0 ... app a part of MindSuite
 // will bump the minor version of mindsuite with at least a note about which tag it matches").
 //
-// mindsuite.json            {version, apps: {App: {repo, tag}}}: the suite's version and the tag of
-//                           every app at that version. Written only by this script.
+// mindsuite.json            {version, apps: {App: {repo, tag, platforms?}}}: the suite's version and
+//                           app tags; optional platform entries carry independent tags.
 // docs/MINDSUITE-RELEASES.md one entry per MindSuite release, newest first.
 // MindSuite/<x.y.z>         the annotated tag on the commit that wrote that version.
 //
@@ -13,7 +13,7 @@
 // one else's uncommitted work) is touched; afterwards each checkout of main whose index is clean is
 // fast-forwarded. A lost push race (someone else moved main) is retried from the new tip.
 //
-//   node tools/mindsuite-release.mjs record <App> <tag> [--app-repo DIR] [--date YYYY-MM-DD]
+//   node tools/mindsuite-release.mjs record <App> <tag> [--platform windows|macos|linux] [--app-repo DIR] [--date YYYY-MM-DD]
 //   node tools/mindsuite-release.mjs init <x.y.z> <App>=<repo>:<tag>... [--date YYYY-MM-DD]
 //   node tools/mindsuite-release.mjs check
 // Options: --repo DIR (the MindSuite checkout; default this script's), --no-push (commit and tag
@@ -29,6 +29,12 @@ export const NOTES = 'docs/MINDSUITE-RELEASES.md';
 export const TAG_PREFIX = 'MindSuite/';
 const MARK = '<!-- releases: newest first; written by tools/mindsuite-release.mjs -->';
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
+const PLATFORMS = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+
+function platformName(platform) {
+  if (!Object.hasOwn(PLATFORMS, platform)) throw new Error(`unknown platform ${platform}`);
+  return PLATFORMS[platform];
+}
 
 export function parseVersion(v) {
   const m = SEMVER.exec(String(v));
@@ -42,20 +48,26 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-/** The version inside an app tag: CalMind/2.1.0 -> 2.1.0, v1.4.0 -> 1.4.0, 1.4.0 -> 1.4.0. */
+/** The version inside a suite, external-app or independent platform release tag. */
 export function tagVersion(tag) {
-  const m = /^(?:[A-Za-z]+\/|v)?(\d+\.\d+\.\d+)$/.exec(String(tag));
+  const m = /^(?:[A-Za-z]+\/|(?:windows|macos|linux)-v|v)?(\d+\.\d+\.\d+)$/.exec(String(tag));
   if (!m) throw new Error(`not a release tag: ${tag}`);
   return m[1];
 }
 
 /** A tag fits its app: monorepo apps tag <App>/x.y.z, the other repos x.y.z or vx.y.z. */
-export function checkTag(app, entry, tag) {
+export function checkTag(app, entry, tag, platform) {
   const version = tagVersion(tag);
-  if (entry.repo === 'MindSuite') {
+  if (platform !== undefined) {
+    platformName(platform);
+    if (entry.repo === 'MindSuite') throw new Error(`${app} uses one monorepo release tag across platforms`);
+    if (tag !== `${platform}-v${version}`) throw new Error(`${app} ${platform} tags look like ${platform}-vx.y.z, not ${tag}`);
+  } else if (entry.repo === 'MindSuite') {
     if (tag !== `${app}/${version}`) throw new Error(`${app} tags look like ${app}/x.y.z, not ${tag}`);
   } else if (/\//.test(tag)) {
     throw new Error(`${app} lives in its own repo; its tags have no prefix (${tag})`);
+  } else if (!/^v?\d+\.\d+\.\d+$/.test(tag)) {
+    throw new Error(`${tag} is a platform release; specify --platform`);
   }
   return version;
 }
@@ -80,6 +92,15 @@ export function validateState(state) {
       throw new Error(`${app} has no repo`);
     }
     checkTag(app, entry, entry.tag);
+    if (entry.platforms !== undefined) {
+      if (!entry.platforms || typeof entry.platforms !== 'object' || Array.isArray(entry.platforms)) {
+        throw new Error(`${app} platforms must be an object`);
+      }
+      for (const [platform, release] of Object.entries(entry.platforms)) {
+        if (!release || typeof release !== 'object' || Array.isArray(release)) throw new Error(`${app} ${platform} has no release`);
+        checkTag(app, entry, release.tag, platform);
+      }
+    }
   }
   return state;
 }
@@ -98,12 +119,18 @@ function tagCell(entry) {
 }
 
 export function suiteLine(state) {
-  return Object.entries(state.apps).map(([app, entry]) => shown(app, entry)).join(' · ');
+  return Object.entries(state.apps).flatMap(([app, entry]) => [
+    shown(app, entry),
+    ...Object.entries(entry.platforms || {}).map(([platform, release]) => shown(`${app} (${platformName(platform)})`, release)),
+  ]).join(' · ');
 }
 
 export function initEntry(state, date, intro) {
-  const rows = Object.entries(state.apps).map(([app, entry]) =>
-    `| ${app} | ${tagVersion(entry.tag)} | ${tagCell(entry)} |`);
+  const rows = Object.entries(state.apps).flatMap(([app, entry]) => [
+    `| ${app} | ${tagVersion(entry.tag)} | ${tagCell(entry)} |`,
+    ...Object.entries(entry.platforms || {}).map(([platform, release]) =>
+      `| ${app} (${platformName(platform)}) | ${tagVersion(release.tag)} | ${tagCell({ ...entry, ...release })} |`),
+  ]);
   return [
     `## MindSuite ${state.version} (${date})`,
     '',
@@ -116,12 +143,14 @@ export function initEntry(state, date, intro) {
   ].join('\n');
 }
 
-export function minorEntry(state, app, date) {
-  const entry = state.apps[app];
+export function minorEntry(state, app, date, platform) {
+  const appEntry = state.apps[app];
+  const entry = platform === undefined ? appEntry : { ...appEntry, ...appEntry.platforms[platform] };
+  const label = platform === undefined ? app : `${app} (${platformName(platform)})`;
   return [
     `## MindSuite ${state.version} (${date})`,
     '',
-    `Matches ${app} ${tagVersion(entry.tag)}: ${tagCell(entry)}.`,
+    `Matches ${label} ${tagVersion(entry.tag)}: ${tagCell(entry)}.`,
     '',
     `Suite: ${suiteLine(state)}.`,
     '',
@@ -155,23 +184,26 @@ export function insertEntry(notes, entry) {
  * Record one app release. Returns null when there is nothing to do (no MindSuite version yet, or
  * this tag is already the recorded one); throws for an unknown app, a wrong tag or a step back.
  */
-export function record(state, notes, { app, tag, date, taken = new Set() }) {
+export function record(state, notes, { app, tag, date, platform, taken = new Set() }) {
   if (!state) return null;
   validateState(state);
   const entry = state.apps[app];
   if (!entry) throw new Error(`${app} is not a MindSuite app (${Object.keys(state.apps).join(', ')})`);
-  const version = checkTag(app, entry, tag);
-  if (entry.tag === tag) return null;
-  if (compareVersions(version, tagVersion(entry.tag)) <= 0) {
-    throw new Error(`${tag} is not newer than the recorded ${entry.tag}`);
+  const version = checkTag(app, entry, tag, platform);
+  const previous = platform === undefined ? entry : entry.platforms?.[platform];
+  if (previous?.tag === tag) return null;
+  if (previous && compareVersions(version, tagVersion(previous.tag)) <= 0) {
+    throw new Error(`${tag} is not newer than the recorded ${previous.tag}`);
   }
+  const nextEntry = platform === undefined ? { ...entry, tag }
+    : { ...entry, platforms: { ...entry.platforms, [platform]: { tag } } };
   const next = {
     version: nextMinor(state.version, taken),
-    apps: { ...state.apps, [app]: { ...entry, tag } },
+    apps: { ...state.apps, [app]: nextEntry },
   };
   return {
     state: next,
-    notes: insertEntry(notes, minorEntry(next, app, date)),
+    notes: insertEntry(notes, minorEntry(next, app, date, platform)),
     message: `MindSuite ${next.version}: ${tag}${entry.repo === 'MindSuite' ? '' : ` (${entry.repo})`}`,
   };
 }
@@ -396,6 +428,10 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--repo') opts.repo = argv[++i];
     else if (a === '--app-repo') opts.appRepo = argv[++i];
+    else if (a === '--platform') {
+      opts.platform = argv[++i];
+      platformName(opts.platform);
+    }
     else if (a === '--date') opts.date = argv[++i];
     else if (a === '--intro') opts.intro = argv[++i];
     else if (a === '--no-push') opts.push = false;
@@ -413,9 +449,10 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
   const date = opts.date || today();
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`bad --date ${date}`);
   const [cmd, ...rest] = opts.positional;
+  if (opts.platform !== undefined && cmd !== 'record') throw new Error('--platform is only used with record');
   if (cmd === 'record') {
     const [app, tag] = rest;
-    if (!app || !tag || rest.length !== 2) throw new Error('usage: record <App> <tag>');
+    if (!app || !tag || rest.length !== 2) throw new Error('usage: record <App> <tag> [--platform windows|macos|linux]');
     const appRepo = resolve(opts.appRepo || repo);
     if (!opts.dryRun && opts.push && !tagOnOrigin(appRepo, tag, env)) {
       throw new Error(`${tag} is not on ${app}'s origin yet; push it first`);
@@ -424,7 +461,7 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
       repo, push: opts.push, dryRun: opts.dryRun, log, env, lanes,
       change: (state, notes, taken) => {
         if (!state) { log(`MindSuite has no version yet; ${tag} not recorded`); return null; }
-        const r = record(state, notes, { app, tag, date, taken });
+        const r = record(state, notes, { app, tag, date, platform: opts.platform, taken });
         if (!r) log(`MindSuite ${state.version} already names ${tag}`);
         return r;
       },

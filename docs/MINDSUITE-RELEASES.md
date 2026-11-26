@@ -11,6 +11,11 @@ at `MindSuiteDesktop/0.3.0`, the unsigned local build that was never tagged, so 
 advance: `node tools/mindsuite-release.mjs record MindSuiteDesktop MindSuiteDesktop/<x.y.0>` after its tag is on origin
 (see docs/PUBLISH.md, MindSuite Desktop).
 
+Independent platform releases live under an app's optional `platforms` map. For example,
+`record DisplayMind windows-v0.3.0 --platform windows --app-repo <DisplayMind checkout>` records
+`platforms.windows.tag` while preserving DisplayMind's existing `v1.0.0` Mac release. Platform
+versions advance independently; release notes identify the platform explicitly.
+
 <!-- releases: newest first; written by tools/mindsuite-release.mjs -->
 
 ## MindSuite 1.18.0 (2026-11-25)

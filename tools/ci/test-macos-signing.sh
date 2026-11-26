@@ -73,6 +73,18 @@ cat > "$tmp/bin/lipo" <<'SH'
 #!/bin/sh
 echo "${TEST_ARCHS:-arm64}"
 SH
+# The host's /bin/ls is PE on Windows and ELF on Linux; only this mocked app is Mach-O.
+cat > "$tmp/bin/file" <<'SH'
+#!/bin/sh
+case "$*" in
+  */Example.app/Contents/MacOS/example|*/Example.app/Contents/MacOS/example.exe) echo "${TEST_FILE_KIND:-Mach-O 64-bit executable arm64}" ;;
+  *) echo data ;;
+esac
+SH
+cat > "$tmp/bin/plutil" <<'SH'
+#!/bin/sh
+node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8")); if (!(process.argv[1] in o)) process.exit(1); console.log(o[process.argv[1]]);' "$2" "$6"
+SH
 chmod +x "$tmp/bin/"*
 verify() { bash tools/ci/verify-macos-dmg.sh "$tmp/example.dmg" Example >/dev/null 2>&1; }
 must_pass() { verify || { echo "good dmg rejected: $1" >&2; exit 1; }; }
@@ -91,6 +103,7 @@ must_fail TEST_RUNTIME=0                  # no hardened runtime
 must_fail TEST_TIMESTAMP=0
 must_fail TEST_ARCHS='x86_64 arm64'       # universal slice
 must_fail TEST_ARCHS=x86_64
+must_fail TEST_FILE_KIND=data            # no Mach-O executable in the app
 must_fail TEST_APP_VERIFY=0
 # notarize-dmg.sh: CI credentials, a local profile, and the refusals
 export SIGN_CALLS="$tmp/sign-calls"; : > "$SIGN_CALLS"

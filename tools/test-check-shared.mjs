@@ -16,7 +16,7 @@ const POSIX_ONLY = { skip: process.platform === 'win32' };
 const CLEAN_ENV = { ...process.env };
 for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'SHARED_FILES', 'MIND_SITE_DIR']) delete CLEAN_ENV[key];
 Object.assign(CLEAN_ENV, {
-  GIT_CONFIG_GLOBAL: devNull,
+  GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : devNull,
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_AUTHOR_NAME: 'fixture',
   GIT_AUTHOR_EMAIL: 'fixture@example.invalid',

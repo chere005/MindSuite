@@ -8,14 +8,15 @@ import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  NOTES, STATE, checkTag, insertEntry, main, nextMinor, otherLanes, publish, record, tagVersion, init, waitForLanes,
+  NOTES, STATE, checkTag, insertEntry, main, nextMinor, otherLanes, publish, record, tagVersion, init, validateState, waitForLanes,
 } from './mindsuite-release.mjs';
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'mindsuite-release.mjs');
 const ENV = { ...process.env };
 for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete ENV[key];
 Object.assign(ENV, {
-  GIT_CONFIG_GLOBAL: devNull,
+  // Git for Windows accepts NUL, but not Node's \\.\nul device path.
+  GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : devNull,
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_AUTHOR_NAME: 'fixture',
   GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
@@ -73,10 +74,44 @@ test('tag shapes and versions', () => {
   assert.equal(tagVersion('CalMind/2.1.0'), '2.1.0');
   assert.equal(tagVersion('v1.4.0'), '1.4.0');
   assert.equal(tagVersion('1.4.0'), '1.4.0');
+  assert.equal(tagVersion('windows-v0.3.0'), '0.3.0');
   assert.throws(() => tagVersion('CalMind/legacy/1.0.0'));
   assert.equal(checkTag('CalMind', APPS.CalMind, 'CalMind/2.1.0'), '2.1.0');
   assert.throws(() => checkTag('CalMind', APPS.CalMind, 'PlanMind/2.1.0'), /CalMind\/x\.y\.z/);
   assert.throws(() => checkTag('DisplayMind', APPS.DisplayMind, 'DisplayMind/1.1.0'), /no prefix/);
+  assert.equal(checkTag('DisplayMind', APPS.DisplayMind, 'windows-v0.3.0', 'windows'), '0.3.0');
+  assert.throws(() => checkTag('DisplayMind', APPS.DisplayMind, 'windows-v0.3.0'), /specify --platform/);
+  assert.throws(() => checkTag('DisplayMind', APPS.DisplayMind, 'windows-v0.3.0', 'macos'), /macos-vx.y.z/);
+  assert.throws(() => checkTag('DisplayMind', APPS.DisplayMind, 'v1.1.0', 'windows'), /windows-vx.y.z/);
+  assert.throws(() => checkTag('CalMind', APPS.CalMind, 'windows-v0.3.0', 'windows'), /one monorepo release/);
+});
+
+test('platform releases have independent versions and preserve the primary release', () => {
+  const first = init(null, null, { version: '1.0.0', apps: APPS, date: DATE, intro: 'First.' });
+  const windows = record(first.state, first.notes, { app: 'DisplayMind', tag: 'windows-v0.3.0', platform: 'windows', date: DATE });
+  assert.equal(windows.state.version, '1.1.0');
+  assert.equal(windows.state.apps.DisplayMind.tag, 'v1.0.0');
+  assert.deepEqual(windows.state.apps.DisplayMind.platforms, { windows: { tag: 'windows-v0.3.0' } });
+  assert.equal(first.state.apps.DisplayMind.platforms, undefined, 'input state is not mutated');
+  assert.match(windows.notes, /Matches DisplayMind \(Windows\) 0\.3\.0: `windows-v0\.3\.0` \(DisplayMind repo\)/);
+  assert.match(windows.notes, /DisplayMind 1\.0\.0 · DisplayMind \(Windows\) 0\.3\.0/);
+  assert.equal(record(windows.state, windows.notes, { app: 'DisplayMind', tag: 'windows-v0.3.0', platform: 'windows', date: DATE }), null);
+  assert.throws(() => record(windows.state, windows.notes, { app: 'DisplayMind', tag: 'windows-v0.2.0', platform: 'windows', date: DATE }), /not newer than the recorded windows-v0.3.0/);
+  const primary = record(windows.state, windows.notes, { app: 'DisplayMind', tag: 'v1.1.0', date: DATE });
+  assert.equal(primary.state.apps.DisplayMind.tag, 'v1.1.0');
+  assert.deepEqual(primary.state.apps.DisplayMind.platforms, windows.state.apps.DisplayMind.platforms);
+  const nextWindows = record(primary.state, primary.notes, { app: 'DisplayMind', tag: 'windows-v0.4.0', platform: 'windows', date: DATE });
+  assert.equal(nextWindows.state.apps.DisplayMind.tag, 'v1.1.0');
+  assert.equal(nextWindows.state.apps.DisplayMind.platforms.windows.tag, 'windows-v0.4.0');
+  assert.equal(validateState(nextWindows.state), nextWindows.state);
+});
+
+test('manifest validation rejects malformed platform records', () => {
+  const withPlatforms = platforms => ({ ...STATE_1, apps: { ...APPS, DisplayMind: { ...APPS.DisplayMind, platforms } } });
+  for (const platforms of [null, [], 'windows']) assert.throws(() => validateState(withPlatforms(platforms)), /platforms must be an object/);
+  assert.throws(() => validateState(withPlatforms({ windows: null })), /has no release/);
+  assert.throws(() => validateState(withPlatforms({ unknown: { tag: 'v1.0.0' } })), /unknown platform/);
+  assert.throws(() => validateState(withPlatforms({ windows: { tag: 'macos-v0.3.0' } })), /windows-vx.y.z/);
 });
 
 test('the next minor skips versions whose tag already exists', () => {
@@ -166,6 +201,28 @@ test('an app in its own repo is checked against that repo\'s origin', (t) => {
   const r = run(suite.work, ['record', 'DisplayMind', 'v1.1.0', '--app-repo', app.work]);
   assert.equal(r.state.version, '1.1.0');
   assert.equal(git(suite.origin, 'log', '-1', '--format=%s', 'main'), 'MindSuite 1.1.0: v1.1.0 (DisplayMind)');
+});
+
+test('CLI records a published Windows tag without replacing the Mac tag', (t) => {
+  const suite = fixture(t);
+  const app = fixture(t, { 'VERSION': '0.3.0\n' });
+  run(suite.work, initArgs());
+  const args = ['record', 'DisplayMind', 'windows-v0.3.0', '--platform', 'windows', '--app-repo', app.work];
+  assert.throws(() => run(suite.work, args), /not on DisplayMind's origin/);
+  git(app.work, 'tag', '-a', 'windows-v0.3.0', '-m', 'DisplayMind Windows 0.3.0');
+  git(app.work, 'push', '--quiet', 'origin', 'refs/tags/windows-v0.3.0');
+  const before = git(suite.origin, 'rev-parse', 'main');
+  assert.throws(() => run(suite.work, ['record', 'DisplayMind', 'windows-v0.3.0', '--app-repo', app.work]), /specify --platform/);
+  assert.equal(git(suite.origin, 'rev-parse', 'main'), before);
+  const result = run(suite.work, args);
+  const state = JSON.parse(git(suite.origin, 'show', `main:${STATE}`));
+  assert.equal(result.tag, 'MindSuite/1.1.0');
+  assert.equal(state.apps.DisplayMind.tag, 'v1.0.0');
+  assert.equal(state.apps.DisplayMind.platforms.windows.tag, 'windows-v0.3.0');
+  assert.match(git(suite.origin, 'show', `main:${NOTES}`), /Matches DisplayMind \(Windows\) 0\.3\.0/);
+  assert.equal(run(suite.work, args), null);
+  assert.throws(() => run(suite.work, ['check', '--platform', 'windows']), /only used with record/);
+  assert.throws(() => run(suite.work, ['record', 'DisplayMind', 'windows-v0.3.0', '--platform']), /unknown platform/);
 });
 
 test('without a MindSuite version an app release records nothing', (t) => {
@@ -283,7 +340,7 @@ test('run through a symlinked path, the script still runs (and still fails loudl
   const { dir, work } = fixture(t);
   run(work, initArgs());
   const link = join(dir, 'linked-tools');
-  symlinkSync(dirname(SCRIPT), link);
+  symlinkSync(dirname(SCRIPT), link, process.platform === 'win32' ? 'junction' : 'dir');
   const ok = spawnSync(process.execPath, [join(link, 'mindsuite-release.mjs'), 'check', '--repo', work], { env: ENV, encoding: 'utf8' });
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /MindSuite 1\.0\.0/);
