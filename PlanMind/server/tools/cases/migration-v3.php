@@ -13,7 +13,6 @@ $v3 = json_decode((string)file_get_contents(__DIR__ . '/../fixtures/v3-store.jso
 $v2 = json_decode((string)file_get_contents(__DIR__ . '/../fixtures/v2-store.json'), true, 64, JSON_THROW_ON_ERROR);
 $bytes = fn(string $dir, string $name = 'tasks.enc') => (string)file_get_contents($dir . '/' . $name);
 $listing = function (string $dir): array { $names = array_values(array_diff(scandir($dir) ?: [], ['.', '..'])); sort($names); return $names; };
-$mode = fn(string $file) => substr(sprintf('%o', fileperms($file)), -3);
 $addTodo = fn(int $n) => ['action' => 'add', 'kind' => 'todo', 'id' => harness_id(900 + $n), 'scope' => 'day', 'date' => '2026-11-03', 'owners' => ['sam'], 'title' => "New $n"];
 $without = fn(array $db, string ...$keys) => array_diff_key($db, array_flip($keys));
 /** A data directory holding `$db` as tasks.enc exactly as an older release left it: no version marker. */
@@ -66,8 +65,8 @@ check(array_diff_key($after['tasks'], [harness_id(901) => 1]) === $db['tasks'], 
 check($bytes($dir) !== $original && $bytes($dir, 'tasks.v3.enc.bak') === $original, 'tasks.enc is replaced; tasks.v3.enc.bak holds the original bytes exactly');
 check($bytes($dir, 'tasks.version') === $V . "\n", 'tasks.version holds the number and a newline');
 check($listing($dir) === ['.key', '.key.lock', '.tasks.lock', 'tasks.enc', 'tasks.v3.enc.bak', 'tasks.version'], 'the data directory gains only the backup and the marker');
-check($mode($dir . '/tasks.enc') === '600' && $mode($dir . '/tasks.v3.enc.bak') === '600', 'the data and its backup are private to their owner');
-check($mode($dir . '/tasks.version') === '640', 'the marker is readable by the group, so the deploy user can read it over ssh');
+check(harness_mode_is($dir . '/tasks.enc', 0600) && harness_mode_is($dir . '/tasks.v3.enc.bak', 0600), 'the data and its backup are private to their owner');
+check(harness_mode_is($dir . '/tasks.version', 0640), 'the marker is readable by the group, so the deploy user can read it over ssh');
 check($read() === $after, 'the converted file reads back');
 $inodes = [fileinode($dir . '/tasks.v3.enc.bak'), fileinode($dir . '/tasks.version')];
 $again = $store->transaction('tasks', fn($stored) => mutate($stored, $addTodo(2), 'alex'));
@@ -107,7 +106,7 @@ check($without($first, 'v', 'revision', 'chores', 'choreMarks', 'rhythm', 'tasks
 refuses(fn() => $store->transaction('tasks', fn($stored) => mutate($stored, ['action' => 'add', 'kind' => 'todo', 'id' => harness_id(1), 'scope' => 'day', 'date' => 'nope', 'owners' => ['sam'], 'title' => 'x'], 'sam')), 400);
 check(!file_exists($dir . '/tasks.version') && !file_exists($dir . '/tasks.enc'), 'a refused write on a new store leaves neither a file nor a marker');
 $store->transaction('tasks', fn($stored) => mutate($stored, $addTodo(1), 'sam'));
-check($bytes($dir, 'tasks.version') === $V . "\n" && $mode($dir . '/tasks.version') === '640' && !glob($dir . '/*.tmp') && !file_exists($dir . '/tasks.v4.enc.bak'), 'a new store gets its marker with its first write, and no backup (there is nothing to keep)');
+check($bytes($dir, 'tasks.version') === $V . "\n" && harness_mode_is($dir . '/tasks.version', 0640) && !glob($dir . '/*.tmp') && !file_exists($dir . '/tasks.v4.enc.bak'), 'a new store gets its marker with its first write, and no backup (there is nothing to keep)');
 unlink($dir . '/tasks.version');
 check($store->transaction('tasks', fn($stored) => $stored) === $store->transaction('tasks', fn($stored) => $stored) && !file_exists($dir . '/tasks.version'), 'a read does not write the marker');
 $store->transaction('tasks', fn($stored) => mutate($stored, $addTodo(2), 'sam'));

@@ -745,6 +745,10 @@ REL=$PROTECTED/releases/$STAMP
 PREL=$PUBREL/$STAMP
 
 # ---- Release ---------------------------------------------------------------------------------------------------
+if [ -n "${PLANMIND_POSIX_RUN:-}" ]; then
+  # Recheck immediately before the first deployment mutation; changed source/main invalidates the proof.
+  node tools/posix-gate.mjs verify
+fi
 step "Pre-checking the host, taking the deploy lock and creating release $STAMP ($TARGET)"
 LOCK_TRIED=1
 _rc=0; run_phase prepare || _rc=$?

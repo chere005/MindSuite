@@ -41,7 +41,7 @@ check($store->transaction('tasks', fn($db) => Invariants::load($db)) === $projec
 check(file_get_contents("$dir/tasks.v4.enc.bak") === $bytes && file_get_contents("$dir/tasks.version") === "5\n", 'the exact v4 ciphertext is backed up and the marker advances');
 $newBytes = file_get_contents("$dir/tasks.enc");
 check($store->transaction('tasks', fn($db) => Invariants::load($db)) === $projected && file_get_contents("$dir/tasks.enc") === $newBytes, 'repeating the migration is a no-op');
-check(sprintf('%o', fileperms("$dir/tasks.v4.enc.bak") & 0777) === '600', 'the backup remains private');
+check(harness_mode_is("$dir/tasks.v4.enc.bak", 0600), 'the backup remains private');
 $retry = ['action' => 'add', 'kind' => 'event', 'id' => $short['id']] + $shortFields;
 check(mutate($projected, $retry, 'alex') === $projected, 'a retry of an original 15-minute add acknowledges the same record without undoing migration');
 refuses(fn() => mutate($projected, array_replace($retry, ['id' => harness_id(899)]), 'alex'), 400, 'invalid');

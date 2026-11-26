@@ -22,10 +22,20 @@ if ($source === '') {
 check(is_file($source . '/auth.php') && is_file($source . '/mindsuite-site-auth.php'), "the site library is needed (set PLANMIND_TEST_SITE_LIB=<seancheren-site>/lib); looked in $source");
 
 // ---- helpers (prefixed sl_: every case file shares one process) ----
+/** Pass PHP snippets and paths as arguments, without cmd.exe or POSIX shell quoting. */
+function sl_run(array $args): string {
+    $process = proc_open($args, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    check(is_resource($process), 'the fixture PHP process started');
+    fclose($pipes[0]);
+    $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    check(proc_close($process) === 0, 'the fixture PHP process succeeded: ' . substr($output, 0, 300));
+    return $output;
+}
 function sl_php_flags(): array {
     $flags = ['-d', 'display_errors=1', '-d', 'html_errors=0', '-d', 'error_reporting=-1', '-d', 'log_errors=1'];
     foreach (['openssl', 'mbstring'] as $extension) {
-        $bare = (string)shell_exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, '-r', "echo extension_loaded('$extension') ? 'yes' : 'no';"])));
+        $bare = sl_run([PHP_BINARY, '-r', "echo extension_loaded('$extension') ? 'yes' : 'no';"]);
         if ($bare !== 'yes') { array_push($flags, '-d', "extension=$extension"); }
     }
     return $flags;
@@ -37,7 +47,7 @@ function sl_server(string $docroot, array $env, string $name, string $sandbox): 
     $port = (int)explode(':', (string)stream_socket_get_name($socket, false))[1];
     fclose($socket);
     $flags = [...sl_php_flags(), '-d', 'error_log=' . $sandbox . "/$name-errors.log", '-d', 'session.save_path=' . $sandbox . '/sessions'];
-    $process = proc_open([PHP_BINARY, ...$flags, '-S', "127.0.0.1:$port", '-t', $docroot], [0 => ['file', '/dev/null', 'r'], 1 => ['file', $sandbox . "/$name-server.log", 'w'], 2 => ['file', $sandbox . "/$name-server.log", 'a']], $pipes, null, $env + getenv());
+    $process = proc_open([PHP_BINARY, ...$flags, '-S', "127.0.0.1:$port", '-t', $docroot], [0 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'r'], 1 => ['file', $sandbox . "/$name-server.log", 'w'], 2 => ['file', $sandbox . "/$name-server.log", 'a']], $pipes, null, $env + getenv());
     check(is_resource($process), "the $name server started");
     for ($i = 0; $i < 200; ++$i) {
         $c = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
@@ -71,6 +81,13 @@ const SL_JSON = ['Content-Type: application/json', 'Accept: application/json'];
 
 // ---- the sandbox ----
 $sb = harness_dir();
+if (PHP_OS_FAMILY === 'Windows') {
+    // A current-drive absolute path is also accepted by the real Unix deployment-path guard.
+    // Verify it resolves to the same disposable directory; never relax the production validator.
+    $rooted = (string)preg_replace('~^[A-Za-z]:~', '', str_replace('\\', '/', $sb));
+    check(str_starts_with($rooted, '/') && realpath($rooted) === realpath($sb), 'the shared-login fixture temp directory is on the current drive');
+    $sb = $rooted;
+}
 $planner = $sb . '/planner'; $accounts = $sb . '/accounts'; $docroot = $sb . '/docroot';
 $legacyPlanner = $sb . '/planner-legacy';       // part 1 signs people in and out with the app's own limiter; the shared parts must see a store nobody has opened
 foreach ([$planner, $legacyPlanner, $accounts, $sb . '/sessions', $docroot . '/PlanMind'] as $d) { mkdir($d, 0700, true); }
@@ -126,7 +143,7 @@ foreach (['alex', 'sam', 'outsider'] as $name) {
 $out['alex-calmind'] = msa_login($cfg, 'alex', 'alex-password-1', 'phone', '203.0.113.1', 'calmind');
 echo json_encode($out);
 PHP);
-$seeded = (string)shell_exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, ...sl_php_flags(), $sb . '/seed.php', $lib, $accounts])) . ' 2>&1');
+$seeded = sl_run([PHP_BINARY, ...sl_php_flags(), $sb . '/seed.php', $lib, $accounts]);
 $session = json_decode($seeded, true);
 check(is_array($session) && isset($session['alex']['token'], $session['sam']['token'], $session['outsider']['token'], $session['alex-calmind']['token']), 'the shared store was seeded: ' . substr($seeded, 0, 300));
 $web = fn(string $who) => 'MSSESS=' . $session[$who]['token'];     // production's cookie name (the instance is prod: base '')
@@ -305,10 +322,10 @@ try {
     check(!is_file($planner . '/attempts.enc'), 'the app\'s password limiter was never reached');
     // A session the account page signed out is gone: revoke it in the store the way /account/ does, then ask again.
     file_put_contents($sb . '/revoke.php', '<?php [, $lib, $dir, $token] = $argv; require $lib . "/mindsuite-auth.php"; $cfg = msa_config("prod", "disposable-site-auth-fixture", $dir . "/protected"); $s = msa_session($cfg, ["REMOTE_ADDR" => "203.0.113.1"], ["MSSESS" => $token]); msa_revoke($cfg, $s); echo "revoked";');
-    $spare = json_decode((string)shell_exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, ...sl_php_flags(), '-r', 'require $argv[1] . "/mindsuite-auth.php"; $c = msa_config("prod", "disposable-site-auth-fixture", $argv[2] . "/protected"); echo json_encode(msa_login($c, "alex", "alex-password-1", "spare", "203.0.113.2"));', $lib, $accounts])) . ' 2>&1'), true);
+    $spare = json_decode(sl_run([PHP_BINARY, ...sl_php_flags(), '-r', 'require $argv[1] . "/mindsuite-auth.php"; $c = msa_config("prod", "disposable-site-auth-fixture", $argv[2] . "/protected"); echo json_encode(msa_login($c, "alex", "alex-password-1", "spare", "203.0.113.2"));', $lib, $accounts]), true);
     check(is_array($spare) && isset($spare['token']), 'a spare session for alex');
     check(sl_http($scratch, 'GET', '/PlanMind/api.php', ['Cookie: MSSESS=' . $spare['token']])['status'] === 200, 'the spare session opens the API');
-    check(trim((string)shell_exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, ...sl_php_flags(), $sb . '/revoke.php', $lib, $accounts, $spare['token']])) . ' 2>&1')) === 'revoked', 'and is revoked (what Sign out at the account page does)');
+    check(trim(sl_run([PHP_BINARY, ...sl_php_flags(), $sb . '/revoke.php', $lib, $accounts, $spare['token']])) === 'revoked', 'and is revoked (what Sign out at the account page does)');
     check(sl_http($scratch, 'GET', '/PlanMind/api.php', ['Cookie: MSSESS=' . $spare['token']])['status'] === 401 && sl_http($scratch, 'GET', '/PlanMind/', ['Cookie: MSSESS=' . $spare['token']])['status'] === 303, 'a revoked session opens neither the API nor the page');
 
     // ==== 6. On, but it cannot work: fail closed, never legacy ====

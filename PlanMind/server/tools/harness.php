@@ -13,6 +13,18 @@ function harness_people(): array { static $people = null; return $people ??= req
 PlanMind\pm_people_use(harness_people());
 
 function check(bool $ok, string $message): void { if (!$ok) { throw new RuntimeException($message); } }
+/** POSIX mode bits do not describe Windows ACLs. Keep these assertions on the deployment platform and report the limitation locally. */
+function harness_mode_is(string $file, int $expected): bool {
+    clearstatcache(true, $file);
+    $mode = fileperms($file);
+    if ($mode === false) { return false; }
+    if (PHP_OS_FAMILY === 'Windows') {
+        static $reported = false;
+        if (!$reported) { echo "skip POSIX file-mode assertions on Windows (ACLs are not chmod mode bits)\n"; $reported = true; }
+        return true;
+    }
+    return ($mode & 0777) === $expected;
+}
 /** The call must throw RequestError with this HTTP status and, when given, this error code. */
 function refuses(callable $fn, int $status, ?string $code = null): void {
     try { $fn(); } catch (RequestError $e) {

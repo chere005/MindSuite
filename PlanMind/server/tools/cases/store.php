@@ -384,4 +384,4 @@ $names = array_values(array_diff(scandir($dir) ?: [], ['.', '..'])); sort($names
 check($names === ['.key', '.key.lock', '.tasks.lock', 'tasks.enc', 'tasks.version'] && filesize($dir . '/.tasks.lock') === 0, 'the data directory holds only the key, the locks, one ciphertext and the version marker');
 $back = snapshot($store->transaction('tasks', fn($db) => $db), 'alex');
 check($back['tasks'][0]['title'] === 'Zebra-title-4411' && $back['lists'][2]['name'] === 'Zebra-list-4412' && $back['notes'][0]['text'] === 'Zebra-note-4413', 'the same content decrypts');
-check(substr(sprintf('%o', fileperms($dir . '/tasks.enc')), -3) === '600', 'the data file is private to its owner');
+check(harness_mode_is($dir . '/tasks.enc', 0600), 'the data file is private to its owner');

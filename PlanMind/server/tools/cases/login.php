@@ -133,7 +133,7 @@ $text = (string)file_get_contents($dir . '/' . LOGIN_CAPS_FILE);
 check(!preg_match('/alex|sam|nobody|192\.0\.2|10\.\d+\.\d+\.\d+/i', $text), 'no name and no address in the ledger');
 check(preg_match('/^[0-9a-f]{64}$/D', $key) === 1 && $key !== hash('sha256', 'login-account:alex') && $key !== hash('sha256', 'alex'), 'the key is keyed: not the plain hash of the name');
 check(($ledger()['v'] ?? null) === 1 && array_keys($ledger()) === ['v', 'site', 'accounts'], 'the ledger has the documented shape');
-check((fileperms($dir . '/' . LOGIN_CAPS_FILE) & 0777) === 0600 && (fileperms($dir . '/' . LOGIN_CAPS_LOCK) & 0777) === 0600, 'the ledger and its lock file are private');
+check(harness_mode_is($dir . '/' . LOGIN_CAPS_FILE, 0600) && harness_mode_is($dir . '/' . LOGIN_CAPS_LOCK, 0600), 'the ledger and its lock file are private');
 check(!glob($dir . '/*.tmp'), 'no partial files are left');
 check(login_caps_key($store, 'alex') === $key && login_caps_key(harness_store()[0], 'alex') !== $key, 'the key is stable for a store and differs between stores');
 
@@ -233,9 +233,15 @@ $before = (string)file_get_contents($dir . '/' . LOGIN_CAPS_FILE);
 chmod($dir, 0500);
 clearstatcache();
 try {
-    if (!is_writable($dir)) {
+    // Windows directory read-only flags can make is_writable() false while creation still succeeds.
+    // Probe the capability this scenario needs, including when a privileged Unix runner ignores the mode.
+    $probe = @fopen($dir . '/write-probe', 'x');
+    if ($probe === false) {
         $unavailable(fn() => login_caps_reserve($store, 'alex'), 'a directory that takes no writes');
         $unavailable(fn() => login_attempt($store, '203.0.113.7', $right, 'alex'), 'a sign-in in a directory that takes no writes');
+    } else {
+        fclose($probe);
+        unlink($dir . '/write-probe');
     }
 } finally { chmod($dir, 0700); }
 check(file_get_contents($dir . '/' . LOGIN_CAPS_FILE) === $before, 'the failed writes left the ledger as it was');
@@ -316,5 +322,5 @@ check($run([['alex', $secret, '203.0.113.100']]) === ['declined'], 'the eleventh
 check($run([[' ALEX ', $secret, '203.0.113.101'], ['Alex', $secret, '203.0.113.102']]) === ['declined', 'declined'], 'the name is normalised before it is counted');
 check($run([['sam', $secret, '203.0.113.103']]) === ['in'], 'the other person signs in');
 check($run([['nobody', 'x', '203.0.113.104']]) === ['declined'], 'an unknown name is declined like a wrong password');
-check(is_file($data . '/' . LOGIN_CAPS_FILE) && (fileperms($data . '/' . LOGIN_CAPS_FILE) & 0777) === 0600, 'the app wrote its caps ledger, private');
+check(is_file($data . '/' . LOGIN_CAPS_FILE) && harness_mode_is($data . '/' . LOGIN_CAPS_FILE, 0600), 'the app wrote its caps ledger, private');
 check(!preg_match('/alex|sam|nobody|203\.0\.113/i', (string)file_get_contents($data . '/' . LOGIN_CAPS_FILE)), 'which holds no name and no address');

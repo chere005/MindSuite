@@ -18,6 +18,16 @@
 #   PHP_BINARY / PHP_CGI                       the php and php-cgi the entrypoint tests use (default: the ones on PATH)
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# Native Windows cannot model the Unix host's chmod and symlink semantics. Require authenticated
+# evidence that this exact clean source passed the complete harness on a genuine POSIX runner.
+case "$(uname -s)" in
+  MINGW*|MSYS*)
+    if [ "$#" != 0 ] || [ -n "${DEPLOY_SRC:-}${DTP_SRC:-}${PLATFORMS_SRC:-}${PUBLISH_UPDATE_SRC:-}${PACKAGE_SRC:-}${INDEX_SRC:-}${API_SRC:-}" ]; then
+      echo 'The hosted proof covers the complete unmodified harness only; run custom or mutation cases on POSIX.' >&2
+      exit 1
+    fi
+    exec node "$ROOT/tools/posix-gate.mjs" verify ;;
+esac
 DEPLOY_SRC=${DEPLOY_SRC:-$ROOT/tools/deploy.sh}
 DTP_SRC=${DTP_SRC:-$ROOT/tools/dtp.sh}
 PLATFORMS_SRC=${PLATFORMS_SRC:-$ROOT/tools/build-platforms.sh}

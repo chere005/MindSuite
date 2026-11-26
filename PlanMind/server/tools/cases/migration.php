@@ -138,7 +138,7 @@ check(array_diff_key($after['tasks'], [harness_id(60) => 1]) === $db['tasks'], '
 check($bytes($dir) !== $original && $bytes($dir, 'tasks.v1.enc.bak') === $original, 'tasks.enc is replaced; tasks.v1.enc.bak holds the original bytes exactly');
 check($listing($dir) === ['.key', '.key.lock', '.tasks.lock', 'tasks.enc', 'tasks.v1.enc.bak', 'tasks.version'], 'the data directory gains only the backup and the version marker');
 check($bytes($dir, 'tasks.version') === PlanMind\MODEL['storeVersion'] . "\n", 'the marker names the version the file now holds');
-foreach (['tasks.enc', 'tasks.v1.enc.bak'] as $name) { check(substr(sprintf('%o', fileperms($dir . '/' . $name)), -3) === '600', "$name is private to its owner like every data file"); }
+foreach (['tasks.enc', 'tasks.v1.enc.bak'] as $name) { check(harness_mode_is($dir . '/' . $name, 0600), "$name is private to its owner like every data file"); }
 check($read() === $after && count(snapshot($read(), 'sam')['tasks']) === 21, 'the stored v2 file reads back');
 $inode = fileinode($dir . '/tasks.v1.enc.bak');
 $again = $store->transaction('tasks', fn($db) => mutate($db, $addTodo(61), 'alex'));
