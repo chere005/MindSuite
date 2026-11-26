@@ -34,6 +34,7 @@ test.describe('Day panel, desktop', () => {
     const line = page.locator('.day-now');
     const position = () => line.evaluate(node => parseFloat((node as HTMLElement).style.top));
     await expect(line).toBeVisible();
+    await expect(line).toHaveCSS('opacity', '0.72');
     expect(await position()).toBeCloseTo(100 / 14, 2);
     await page.clock.fastForward(60_000);
     await expect.poll(position).toBeCloseTo(61 * 100 / (14 * 60), 2);

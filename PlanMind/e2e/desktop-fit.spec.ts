@@ -423,6 +423,41 @@ test.describe('Week and Month on a desktop', () => {
   test.beforeAll(async ({ baseURL }) => { owner = await apiLogin(baseURL!, OWNER); await clear(owner); await seedPeriods(owner); });
   test.afterAll(async ({ baseURL }) => { await clear(owner); await owner.dispose(); await reset(baseURL!); });
 
+	test('Week fills the desktop workspace and keeps overflowing content inside its columns', async ({ page, baseURL }) => {
+		await (await setup(baseURL!, 'midnight', 'both')).dispose();
+		await page.setViewportSize({ width: 1920, height: 1080 });
+		await login(page);
+		await open(page, 'week', WEEK);
+
+		const host = page.locator('#period-panel');
+		const priorities = page.locator('.wm-week .wm-lanes');
+		const todos = page.locator('.wm-week .wm-todos');
+		const bounds = (await host.boundingBox())!;
+		const workspace = (await page.locator('#content').boundingBox())!;
+		const cards = await priorities.locator('.wm-lane').evaluateAll(lanes => lanes.map(lane => {
+			const { top, bottom } = lane.getBoundingClientRect();
+			return { top, bottom };
+		}));
+		expect(bounds.width).toBeGreaterThan(workspace.width - 80);
+		expect(cards).toHaveLength(2);
+		expect(cards[0].top).toBe(cards[1].top);
+		for (const card of cards) {
+			expect(card.bottom).toBeCloseTo(bounds.y + bounds.height, 0);
+		}
+		expect(await scrolls(page, '.wm-week')).toEqual({ page: 0, sideways: 0, found: [] });
+
+		await page.setViewportSize({ width: 800, height: 500 });
+		for (const column of [priorities, todos]) {
+			expect(await column.evaluate(el => el.scrollHeight)).toBeGreaterThan(await column.evaluate(el => el.clientHeight));
+			await column.evaluate(el => { el.scrollTop = el.scrollHeight; });
+		}
+		await expect(priorities.locator('.wm-lane').last().getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+		await expect(todos.locator('li').last()).toBeInViewport();
+		await expect(page.getByRole('heading', { name: 'Priorities', exact: true })).toBeInViewport();
+		await expect(page.getByRole('heading', { name: 'To-do', exact: true })).toBeInViewport();
+		expect(await host.evaluate(el => el.scrollHeight)).toBe(await host.evaluate(el => el.clientHeight));
+	});
+
   for (const sidebar of ['shown', 'hidden'] as const) {
     for (const view of ['week', 'month'] as const) {
       for (const [width, height] of [[1360, 900], [1440, 900]] as const) {

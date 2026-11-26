@@ -44,6 +44,7 @@
   position:absolute;z-index:4;inset-inline:0;height:2px;border-radius:999px;pointer-events:none;
   background:#f09582;
   background:color-mix(in srgb,#cb5d4d 64%,var(--text));
+  opacity:.72;
   mix-blend-mode:var(--now-blend,lighten);
 }
 .day-now::before{content:"";position:absolute;inset-inline-start:0;top:50%;width:7px;height:7px;transform:translateY(-50%);border-radius:50%;background:inherit}

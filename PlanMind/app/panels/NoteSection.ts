@@ -3,7 +3,7 @@
  * colored card with the list's name over a text area and its own Save. Week has Priorities; Month has Priorities and Notes.
  *
  * The Month's Priorities boxes on a desktop are as tall as their words (`data-fit`: mountNotes writes the height they need to --fit and weekmonth.css
- * gives them that height, up to their share of the side column); a Week and every phone layout keep a box of fixed size. The Month's Notes on a desktop are a compact box of
+ * gives them that height, up to their share of the side column); the desktop Week fills its column, and phone layouts keep a box of fixed size. The Month's Notes on a desktop are a compact box of
  * about two lines in the sixth calendar row that scrolls inside itself (`data-cue`: only the shadow along its bottom edge that says there are more words is kept up to date).
  *
  * The text a block shows comes from noteState: the draft in ctx.drafts while it differs from the saved note, else

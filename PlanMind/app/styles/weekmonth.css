@@ -97,6 +97,15 @@
 
 /* Desktop: the rows of a to-do list are tighter than a finger needs. */
 @media(min-width:761px){
+/* Week columns fill the workspace below the date header. Long lists and stacked priority cards scroll in their own column. */
+.page:has(> #period-panel > .wm-week){max-width:none;padding-inline:clamp(16px,2.5vw,36px)}
+.wm-week .wm-body{grid-template-rows:minmax(0,1fr);align-items:stretch;gap:clamp(12px,2vw,28px)}
+.wm-week .wm-sec{display:flex;flex-direction:column;min-height:0}
+.wm-week .wm-lanes,.wm-week .wm-todos{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.wm-week .wm-lanes{grid-auto-rows:minmax(min-content,1fr)}
+.wm-week .wm-lane{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(min-content,1fr) auto}
+.wm-week .wm-text{height:100%;min-height:160px}
+.wm-week .wm-todos{scroll-padding-block:4px}
 /*
  * A day's chores are chips as wide as the cell with slim chrome (the chip of the Chores page: panels/chores/ChoreRow.ts, tint and states in chores.css): one line each,
  * a title that does not fit ends in an ellipsis. The cell takes its row's height, never makes it (contain), and its list, under the number, scrolls inside itself when there are
@@ -115,8 +124,6 @@
 .wm-chores .ch-row:is(.ch-moved,.ch-letgo){flex-wrap:wrap;row-gap:0}
 .wm-chores .ch-row:is(.ch-moved,.ch-letgo) .ch-title{flex:1 1 4.5em}
 .wm-chores .ch-undo{margin-left:auto}
-/* With three or four lists the text blocks stack two deep: a little shorter, so a 900px-high window still shows them whole */
-.wm-week .wm-text{min-height:280px}
 .wm-lane-head{margin-bottom:2px}
 /* The words of a priorities or notes box, its section label and the name above it are the Day's sizes (day.css: .day-note-text 13px/1.5, .day-label 12px, .day-note-name 11px); a phone keeps 16px so the keyboard does not zoom the page. */
 .wm-text{font-size:13px;line-height:1.5}
@@ -192,7 +199,7 @@
 .wm-month .wm-side [data-sec=todo]{display:flex;flex-direction:column;flex:0 1 auto;min-height:0}
 /* Like the Day's list, the Month's scrolls inside itself, with room beside it for the ring of a focused circle and title, which sits flush on its control so the first and the last row's stay whole. */
 .wm-month .wm-side .wm-todos{flex:0 1 auto;min-height:108px;margin-inline:-3px;padding-inline:3px;overflow-y:auto;overscroll-behavior:contain;scroll-padding-block:3px}
-.wm-month .wm-side .wm-todos :is(button,input,select):focus-visible{outline-offset:0}
+.wm-week .wm-todos :is(button,input,select):focus-visible,.wm-month .wm-side .wm-todos :is(button,input,select):focus-visible{outline-offset:0}
 }
 
 @media(max-width:760px){

@@ -19,7 +19,7 @@ import '../styles/suite-topbar.css';
 
 const PANELS: Record<View, PanelModule> = { day, week, month };
 /** The scroll areas inside a panel that a redraw must not reset (the panel host itself is one too). */
-const SCROLL_AREAS = '.day-timeline, .day-tasks, .wm-body, .wm-side, .wm-todos, .ch-scroll, .wm-chores, .wm-notes .wm-lanes';
+const SCROLL_AREAS = '.day-timeline, .day-tasks, .wm-body, .wm-side, .wm-todos, .ch-scroll, .wm-chores, .wm-week .wm-lanes, .wm-notes .wm-lanes';
 
 /** The small line and the heading above the panel: the desktop page header, and screen-reader text on a phone. */
 function headings(view: View, date: string, today: string): { eyebrow: string; title: string } {
