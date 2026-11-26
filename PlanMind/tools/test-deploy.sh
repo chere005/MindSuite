@@ -41,6 +41,26 @@ trap 'exit 130' INT TERM
 SHIMS=$TMP/shims
 echo 0 > "$TMP/n"; : > "$TMP/results"
 
+# The real host uses FreeBSD's no-dereference -h. GNU spells the same filesystem
+# operations ln -n and mv -T. Translate only those exact option bundles on Linux;
+# all operations still execute the real utilities against real links and modes.
+if [ "$(uname -s)" = Linux ]; then
+  mkdir -p "$TMP/host-utils"
+  cat > "$TMP/host-utils/ln" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = -sfh ]; then shift; set -- -sfn "$@"; fi
+exec /bin/ln "$@"
+EOF
+  cat > "$TMP/host-utils/mv" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = -fh ]; then shift; set -- -fT "$@"; fi
+exec /bin/mv "$@"
+EOF
+  chmod +x "$TMP/host-utils/ln" "$TMP/host-utils/mv"
+  PATH="$TMP/host-utils:$PATH"; export PATH
+fi
+PLANMIND_TEST_MV=$(command -v mv); export PLANMIND_TEST_MV
+
 # ---- Shims ---------------------------------------------------------------------------------------------------
 mkdir -p "$SHIMS"
 cat > "$SHIMS/ssh" <<'EOF'
@@ -207,7 +227,7 @@ EOF
 cat > "$SHIMS/mv" <<'EOF'
 #!/bin/sh
 if [ -n "${SHIM_MV_NOOP:-}" ]; then for a; do last=$a; done; case $last in */"$SHIM_MV_NOOP") exit 0 ;; esac; fi
-exec /bin/mv "$@"
+exec "$PLANMIND_TEST_MV" "$@"
 EOF
 # sleep: verification poll waits are counted and skipped, including the two-second mutation.
 cat > "$SHIMS/sleep" <<'EOF'
@@ -316,6 +336,23 @@ check() {   # check "description" command...   (passes when the command succeeds
 }
 
 # ---- Tests ---------------------------------------------------------------------------------------------------
+t_host_link_commands() {
+  new_case
+  mkdir "$CASE/old" "$CASE/new"
+  ln -s old "$CASE/pointer"
+  ln -sfh new "$CASE/pointer"
+  check 'ln -h replaces a directory symlink itself' test "$(readlink "$CASE/pointer")" = new
+  check 'ln -h leaves the old target empty' test -z "$(ls -A "$CASE/old")"
+  ln -s old "$CASE/replacement"
+  mv -fh "$CASE/replacement" "$CASE/pointer"
+  check 'mv -h atomically replaces the directory symlink itself' test "$(readlink "$CASE/pointer")" = old
+  check 'mv -h leaves the old target empty' test -z "$(ls -A "$CASE/new")"
+  check 'the replacement link was moved' test ! -e "$CASE/replacement"
+  ln -s new "$CASE/unsafe"
+  mv -f "$CASE/unsafe" "$CASE/pointer"
+  check 'omitting -h follows the directory symlink (the mutation must remain observable)' test -L "$CASE/old/unsafe"
+}
+
 t_dry_run() {
   new_case; with_data
   before=$(snapshot)
@@ -1922,7 +1959,7 @@ t_entrypoints() {
   check 'index.php honours PLANMIND_LIB_DIR first' test "$(printf '%s\n' "$o" | h_get X-Fake-Lib)" = ENV
 }
 
-ALL_TESTS='t_dry_run t_missing_host t_host_sources t_prod_consent t_payload_refused t_deploy_test t_data_dir t_protected_perms t_php_host t_prod
+ALL_TESTS='t_host_link_commands t_dry_run t_missing_host t_host_sources t_prod_consent t_payload_refused t_deploy_test t_data_dir t_protected_perms t_php_host t_prod
   t_rollback t_lint_failure t_switch_after_lint t_verification_rolls_back t_shared_login_page t_stamp_header t_same_version t_first_install t_cas t_lock
   t_phase_failures t_path_guard t_discard_guards t_prune t_public_guard t_activate_guards t_auth_guard t_stale_dist_and_gates
   t_upload_failure t_excludes t_package t_dtp t_static t_entrypoints t_quick_gates t_slow_answers t_lint_single t_upload_modes t_publish_update

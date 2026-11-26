@@ -13,7 +13,7 @@ export const gateName = 'PlanMind POSIX gates';
 export const requiredSteps = [
   'Check out gate fixtures', 'Check out exact source', 'Set up Node', 'Set up PHP',
   'Verify source and POSIX filesystem', 'Install PlanMind dependencies',
-  'Run server checks', 'Run atomic checks', 'Run deployment harness',
+  'Run server checks', 'Run atomic checks', 'Run deployment harness', 'Check link-swap mutation',
 ];
 const run = (command, args, cwd = root) => execFileSync(command, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const git = (...args) => run('git', args);
@@ -106,6 +106,10 @@ jobs:
         run: npm run test:atomic
       - name: Run deployment harness
         run: npm run test:deploy
+      - name: Check link-swap mutation
+        env:
+          MUT_ONLY: ^non-atomic-mv$
+        run: npm run test:deploy:mutations
 `;
 }
 
