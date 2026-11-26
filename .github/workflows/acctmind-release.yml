@@ -1,4 +1,4 @@
-# Releases AcctMind's desktop apps on ONE GitHub Release. A pushed version tag (bare, no "v": 0.56.0) or a manual run
+# Releases AcctMind's desktop apps on ONE GitHub Release. A pushed namespaced tag (no "v": AcctMind/0.56.0) or a manual run
 # naming an existing tag runs four jobs:
 #
 #   prepare  (ubuntu)    the tag must be the version in EVERY file that carries it (the six tools/check-version.mjs holds
@@ -38,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "An EXISTING tag to release, e.g. 0.55.0 (also how a past version gets its first release). Blank only with preflight, which builds the dispatched ref and only checks this tag against the files."
+        description: "An EXISTING tag to release, e.g. AcctMind/0.55.0 (also how a past version gets its first release). Blank only with preflight, which builds the dispatched ref and only checks this tag against the files."
         required: false
         type: string
       preflight:
