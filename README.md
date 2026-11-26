@@ -1,6 +1,6 @@
 # MindSuite
 
-Private source for CalMind, MealMind, PlanMind, TaskMind, ReadMind, AcctMind and CoreMind. Each project keeps its own package manager and toolchain. All seven use one Git checkout.
+Public source for CalMind, MealMind, PlanMind, TaskMind, ReadMind, AcctMind and CoreMind. Each project keeps its own package manager and toolchain. All seven use one Git checkout.
 
 [MindSuite for macOS](Desktop/README.md) opens local CalMind and ScrollMind in one workspace, with split view and tabs for the suite's web apps.
 
